@@ -56,6 +56,7 @@ There's no public docs site yet, checkout the miscellaneous markdown files in [d
 - [Getting started](./docs/getting-started/quick-start.md)
 - [Architecture overview](./docs/architecture/overview.md)
 - [Provider guides](./docs/providers/codex.md)
+- [T3 Pebble integration notes](./docs/integrations/t3pebble.md)
 - [Operations](./docs/operations/ci.md)
 - [Reference](./docs/reference/encyclopedia.md)
 
