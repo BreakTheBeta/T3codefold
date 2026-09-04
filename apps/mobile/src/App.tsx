@@ -22,6 +22,7 @@ import { appAtomRegistry } from "./state/atom-registry";
 import { OverlayPortalHost } from "./components/OverlayPortal";
 import { appBlurTargetRef } from "./lib/appBlurTarget";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
+import { LocalAgentNotificationsCoordinator } from "./features/agent-awareness/localNotifications";
 
 import "../global.css";
 
@@ -91,6 +92,7 @@ function AppContent() {
             {/* Blur target for Android dropdown backdrops — see appBlurTarget.ts. */}
             <BlurTargetView ref={appBlurTargetRef} style={{ flex: 1 }}>
               <IncomingShareProvider>
+                <LocalAgentNotificationsCoordinator />
                 <Navigation linking={appLinking} theme={navigationTheme} />
               </IncomingShareProvider>
               <ConfirmDialogHost />

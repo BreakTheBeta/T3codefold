@@ -1,4 +1,26 @@
-# T3 Code
+# T3 Code Fold
+
+T3 Code Fold is a fork of [T3 Code](https://github.com/pingdotgg/t3code) focused on making its Android client feel native on foldable phones, especially Samsung Galaxy Z Fold devices. It keeps the upstream server, web and desktop clients intact while extending the mobile workspace for large, resizable Android displays.
+
+## What this fork adds
+
+- **Foldable workspace:** chat stays visible beside Files, Terminal, or Git on an unfolded phone.
+- **Drag-to-resize panes:** the divider can reduce either side to a compact sliver, giving reading or tooling the space you need.
+- **Fold-aware navigation:** selected tool states, reversible sidebar controls, and Android Back behavior designed for the split workspace.
+- **Selectable Android output:** select and copy text across Markdown paragraphs, lists, and tables.
+- **Clickable Markdown links:** open links directly from agent responses on Android.
+- **Native notifications:** optional completion notifications when work finishes in the background.
+- **Upstream-compatible foundation:** still uses T3 Code's Node/WebSocket server and Codex, Claude Code, Cursor, Grok Build, OpenCode, and Antigravity providers.
+
+## Foldable demo
+
+| Chat + Files                                                                                        | Resizable workspace                                                                                            |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| ![Chat and Files side by side on an unfolded Android phone](docs/images/t3codefold-chat-files.webp) | ![A resized T3 Code Fold workspace giving the active pane more room](docs/images/t3codefold-resized-pane.webp) |
+
+The Android preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
+
+## About upstream T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 

@@ -25,6 +25,7 @@
     "./markdown": "./src/nativeMarkdownText.ts",
     "./primitive": "./src/MarkdownTextPrimitive.tsx",
     "./renderer": "./src/SelectableMarkdownText.ios.tsx",
+    "./renderer/android": "./src/SelectableMarkdownText.android.tsx",
     "./types": "./src/SelectableMarkdownText.types.ts"
   },
   "peerDependencies": {

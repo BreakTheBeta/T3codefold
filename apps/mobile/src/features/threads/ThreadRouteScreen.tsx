@@ -13,7 +13,7 @@ import {
   threadHasOlderTurns,
 } from "@t3tools/client-runtime/state/threads";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { Platform, ScrollView, View } from "react-native";
+import { BackHandler, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
@@ -27,6 +27,7 @@ import {
 } from "../../components/AndroidScreenHeader";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { resolveAdaptiveWorkspaceBackAction } from "../../lib/adaptive-navigation";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { connectionTone } from "../connection/connectionTone";
 
@@ -49,6 +50,7 @@ import {
   stagePendingTerminalLaunch,
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
+import { ThreadTerminalRouteScreen } from "../terminal/ThreadTerminalRouteScreen";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import {
   ThreadGitControls,
@@ -79,6 +81,7 @@ import {
 interface ThreadInspectorSelection {
   readonly routeThreadIdentity: string | null;
   readonly mode: ThreadInspectorMode;
+  readonly terminalId?: string | null;
 }
 
 type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
@@ -234,6 +237,11 @@ function ThreadRouteContent(
     }
     return null;
   })();
+  const inspectorTerminalId =
+    inspectorSelection?.routeThreadIdentity === routeThreadIdentity &&
+    inspectorSelection.mode === "terminal"
+      ? inspectorSelection.terminalId
+      : null;
   useEffect(() => {
     if (
       fileInspector.supported &&
@@ -355,9 +363,22 @@ function ThreadRouteContent(
       });
       return;
     }
+    if (inspectorMode === "git" && panes.auxiliaryPaneVisible) {
+      toggleAuxiliaryPane();
+      return;
+    }
     setInspectorSelection({ routeThreadIdentity, mode: "git" });
     showAuxiliaryPane("inspector");
-  }, [fileInspector.supported, navigation, routeThreadIdentity, selectedThread, showAuxiliaryPane]);
+  }, [
+    fileInspector.supported,
+    inspectorMode,
+    navigation,
+    panes.auxiliaryPaneVisible,
+    routeThreadIdentity,
+    selectedThread,
+    showAuxiliaryPane,
+    toggleAuxiliaryPane,
+  ]);
   const handleOpenFilesInspector = useCallback(() => {
     if (selectedThread === null || selectedThreadCwd === null) {
       return;
@@ -369,19 +390,27 @@ function ThreadRouteContent(
       });
       return;
     }
+    const nextMode = props.renderInspector === undefined ? "files" : "route";
+    if (inspectorMode === nextMode && panes.auxiliaryPaneVisible) {
+      toggleAuxiliaryPane();
+      return;
+    }
     setInspectorSelection({
       routeThreadIdentity,
-      mode: props.renderInspector === undefined ? "files" : "route",
+      mode: nextMode,
     });
     showAuxiliaryPane("inspector");
   }, [
     fileInspector.supported,
+    inspectorMode,
     navigation,
+    panes.auxiliaryPaneVisible,
     props.renderInspector,
     routeThreadIdentity,
     selectedThread,
     selectedThreadCwd,
     showAuxiliaryPane,
+    toggleAuxiliaryPane,
   ]);
   const inspectorToggleActionRef = useRef({
     inspectorMode,
@@ -458,6 +487,22 @@ function ThreadRouteContent(
     () => props.renderInspector?.(inspectorHeaderInset),
     [inspectorHeaderInset, props.renderInspector],
   );
+  const TerminalInspector = useCallback(
+    () =>
+      selectedThread !== null ? (
+        <ThreadTerminalRouteScreen
+          presentation="inspector"
+          route={{
+            params: {
+              environmentId: String(selectedThread.environmentId),
+              threadId: String(selectedThread.id),
+              ...(inspectorTerminalId ? { terminalId: inspectorTerminalId } : {}),
+            },
+          }}
+        />
+      ) : null,
+    [inspectorTerminalId, selectedThread],
+  );
   const renderInspectorStack = useCallback(
     () =>
       inspectorMode === null ? null : (
@@ -466,9 +511,17 @@ function ThreadRouteContent(
           Git={GitInspector}
           mode={inspectorMode}
           Route={props.renderInspector ? RouteInspector : undefined}
+          Terminal={TerminalInspector}
         />
       ),
-    [FilesInspector, GitInspector, RouteInspector, inspectorMode, props.renderInspector],
+    [
+      FilesInspector,
+      GitInspector,
+      RouteInspector,
+      TerminalInspector,
+      inspectorMode,
+      props.renderInspector,
+    ],
   );
   const activeInspectorRenderer = inspectorMode === null ? undefined : renderInspectorStack;
   // Hand the inspector to the workspace so it renders beside the navigator,
@@ -510,13 +563,67 @@ function ThreadRouteContent(
         return;
       }
 
+      if (Platform.OS === "android" && fileInspector.supported) {
+        if (inspectorMode === "terminal" && panes.auxiliaryPaneVisible) {
+          toggleAuxiliaryPane();
+          return;
+        }
+        setInspectorSelection({
+          routeThreadIdentity,
+          mode: "terminal",
+          terminalId: nextTerminalId,
+        });
+        showAuxiliaryPane("inspector");
+        return;
+      }
+
       void navigation.navigate("ThreadTerminal", {
         environmentId: String(selectedThread.environmentId),
         threadId: String(selectedThread.id),
         ...(nextTerminalId ? { terminalId: nextTerminalId } : {}),
       });
     },
-    [navigation, selectedThread, selectedThreadProject?.workspaceRoot],
+    [
+      fileInspector.supported,
+      inspectorMode,
+      navigation,
+      panes.auxiliaryPaneVisible,
+      routeThreadIdentity,
+      selectedThread,
+      selectedThreadProject?.workspaceRoot,
+      showAuxiliaryPane,
+      toggleAuxiliaryPane,
+    ],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android" || !layout.usesSplitView) {
+        return;
+      }
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        const action = resolveAdaptiveWorkspaceBackAction({
+          auxiliaryPaneVisible: panes.auxiliaryPaneVisible,
+          primarySidebarVisible: panes.primarySidebarVisible,
+        });
+        if (action === "close-inspector") {
+          toggleAuxiliaryPane();
+          return true;
+        }
+        if (action === "show-sidebar") {
+          togglePrimarySidebar();
+          return true;
+        }
+        return false;
+      });
+      return () => subscription.remove();
+    }, [
+      layout.usesSplitView,
+      panes.auxiliaryPaneVisible,
+      panes.primarySidebarVisible,
+      toggleAuxiliaryPane,
+      togglePrimarySidebar,
+    ]),
   );
 
   const handleOpenNewTerminal = useCallback(() => {
@@ -533,12 +640,13 @@ function ThreadRouteContent(
     const nextId = nextOpenTerminalId({
       listedTerminalIds: terminalMenuSessions.map((session) => session.terminalId),
     });
-    void navigation.navigate("ThreadTerminal", {
-      environmentId: String(selectedThread.environmentId),
-      threadId: String(selectedThread.id),
-      terminalId: nextId,
-    });
-  }, [navigation, selectedThread, selectedThreadProject?.workspaceRoot, terminalMenuSessions]);
+    handleOpenTerminal(nextId);
+  }, [
+    handleOpenTerminal,
+    selectedThread,
+    selectedThreadProject?.workspaceRoot,
+    terminalMenuSessions,
+  ]);
 
   const handleRunProjectScript = useCallback(
     async (script: ProjectScript) => {
@@ -595,14 +703,10 @@ function ThreadRouteContent(
         worktreePath: preferredWorktreePath,
       });
 
-      void navigation.navigate("ThreadTerminal", {
-        environmentId: String(selectedThread.environmentId),
-        threadId: String(selectedThread.id),
-        terminalId: targetTerminalId,
-      });
+      handleOpenTerminal(targetTerminalId);
     },
     [
-      navigation,
+      handleOpenTerminal,
       selectedThread,
       selectedThreadDetailWorktreePath,
       selectedThreadProject,
@@ -683,6 +787,13 @@ function ThreadRouteContent(
     if (Platform.OS !== "android") return [];
 
     const actions: AndroidHeaderAction[] = [];
+    if (layout.usesSplitView) {
+      actions.push({
+        accessibilityLabel: panes.primarySidebarVisible ? "Maximize chat" : "Show thread sidebar",
+        icon: panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left",
+        onPress: togglePrimarySidebar,
+      });
+    }
     if (props.onReturnToThread) {
       actions.push({
         accessibilityLabel: "Return to chat",
@@ -691,41 +802,45 @@ function ThreadRouteContent(
       });
     }
     if (selectedThreadCwd !== null) {
+      const selected =
+        (inspectorMode === "files" || inspectorMode === "route") && panes.auxiliaryPaneVisible;
       actions.push({
-        accessibilityLabel: "Open files",
+        accessibilityLabel: selected ? "Close files" : "Open files",
         icon: "folder",
         onPress: handleOpenFilesInspector,
+        selected,
       });
     }
     if (selectedThreadProject?.workspaceRoot) {
+      const selected = inspectorMode === "terminal" && panes.auxiliaryPaneVisible;
       actions.push({
-        accessibilityLabel: "Open terminal",
+        accessibilityLabel: selected ? "Close terminal" : "Open terminal",
         icon: "terminal",
         onPress: () => handleOpenTerminal(null),
+        selected,
       });
     }
+    const gitSelected = inspectorMode === "git" && panes.auxiliaryPaneVisible;
     actions.push({
-      accessibilityLabel: "Open git controls",
+      accessibilityLabel: gitSelected ? "Close git controls" : "Open git controls",
       icon: "point.topleft.down.curvedto.point.bottomright.up",
       onPress: handleOpenGitInspector,
+      selected: gitSelected,
     });
-    if (fileInspector.supported && selectedThreadCwd !== null) {
-      actions.push({
-        accessibilityLabel: "Toggle inspector",
-        icon: "sidebar.right",
-        onPress: handleToggleInspector,
-      });
-    }
     return actions;
   }, [
     fileInspector.supported,
     handleOpenFilesInspector,
     handleOpenTerminal,
     handleOpenGitInspector,
-    handleToggleInspector,
+    inspectorMode,
+    layout.usesSplitView,
+    panes.primarySidebarVisible,
+    panes.auxiliaryPaneVisible,
     props.onReturnToThread,
     selectedThreadCwd,
     selectedThreadProject?.workspaceRoot,
+    togglePrimarySidebar,
   ]);
 
   // Deep links / cold starts land with Thread as the ONLY route, where the
