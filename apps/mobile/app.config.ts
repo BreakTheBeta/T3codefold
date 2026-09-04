@@ -183,9 +183,11 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    enabled: true,
-    url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
-    checkAutomatically: "ON_LOAD",
+    // T3 Code Fold ships its JavaScript inside the APK. Pointing a fork at
+    // upstream's OTA project can replace the Fold workspace after a restart
+    // with a bundle built for a different native/runtime revision.
+    enabled: false,
+    checkAutomatically: "NEVER",
     fallbackToCacheTimeout: 0,
   },
   ios: {
