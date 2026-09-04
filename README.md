@@ -18,6 +18,18 @@ T3 Code Fold is a fork of [T3 Code](https://github.com/pingdotgg/t3code) focused
 | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | ![Chat and Files side by side on an unfolded Android phone](docs/images/t3codefold-chat-files.webp) | ![A resized T3 Code Fold workspace giving the active pane more room](docs/images/t3codefold-resized-pane.webp) |
 
+### Chat with workspace tools
+
+The same fold workspace keeps the conversation visible while Terminal, Files, or Git occupies the second pane.
+
+![Chat beside the Terminal pane on an unfolded Android phone](docs/images/t3codefold-chat-terminal.webp)
+
+### Select across Markdown
+
+Android's native selection controls work across mixed response content, including headings, paragraphs, links, lists, inline code, and tables.
+
+<img src="docs/images/t3codefold-text-selection.webp" alt="Native Android text selection spanning Markdown headings, paragraphs, lists, links, inline code, and a table" width="420">
+
 Download the current arm64 Android preview from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases/latest). The preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
 
 ## About upstream T3 Code
