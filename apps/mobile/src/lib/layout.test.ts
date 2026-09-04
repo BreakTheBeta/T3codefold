@@ -86,6 +86,27 @@ describe("resizable pane constraints", () => {
     expect(constrainAuxiliaryPaneWidth({ preferredWidth: 440, availableWidth: 900 })).toBe(340);
     expect(constrainAuxiliaryPaneWidth({ preferredWidth: 100, availableWidth: 1_100 })).toBe(260);
   });
+
+  it("lets either pane become compact in an unfolded Fold workspace", () => {
+    expect(
+      constrainAuxiliaryPaneWidth({
+        preferredWidth: 0,
+        availableWidth: 800,
+        minimumMainWidth: 72,
+        minimumPaneWidth: 72,
+        maximumPaneWidth: Number.POSITIVE_INFINITY,
+      }),
+    ).toBe(72);
+    expect(
+      constrainAuxiliaryPaneWidth({
+        preferredWidth: 800,
+        availableWidth: 800,
+        minimumMainWidth: 72,
+        minimumPaneWidth: 72,
+        maximumPaneWidth: Number.POSITIVE_INFINITY,
+      }),
+    ).toBe(728);
+  });
 });
 
 describe("deriveCenteredContentHorizontalPadding", () => {
@@ -121,6 +142,19 @@ describe("deriveCenteredContentHorizontalPadding", () => {
 });
 
 describe("deriveLayout", () => {
+  it.each([
+    { posture: "folded portrait", width: 384, height: 832, expected: "compact" },
+    { posture: "unfolded portrait", width: 768, height: 900, expected: "split" },
+    { posture: "unfolded landscape", width: 900, height: 768, expected: "split" },
+    { posture: "half-width multi-window", width: 600, height: 900, expected: "compact" },
+    { posture: "short landscape or tabletop", width: 900, height: 450, expected: "compact" },
+  ])(
+    "uses the $expected workspace for a Fold-class $posture window",
+    ({ width, height, expected }) => {
+      expect(deriveLayout({ width, height }).variant).toBe(expected);
+    },
+  );
+
   it.each([
     { name: "small iPhone portrait", width: 375, height: 667 },
     { name: "large iPhone portrait", width: 430, height: 932 },
@@ -287,25 +321,57 @@ describe("deriveWorkspacePaneLayout", () => {
     });
   });
 
-  it("keeps file navigation on the native stack below the inspector breakpoint", () => {
-    const layout = deriveLayout({ width: 744, height: 1_133 });
+  it("keeps file navigation on the native stack in compact layouts", () => {
+    const layout = deriveLayout({ width: 719, height: 1_133 });
 
-    expect(deriveFileInspectorPaneLayout({ layout, viewportWidth: 744 })).toEqual({
+    expect(deriveFileInspectorPaneLayout({ layout, viewportWidth: 719 })).toEqual({
       supported: false,
       width: null,
     });
     expect(
       deriveWorkspacePaneLayout({
         layout,
-        viewportWidth: 744,
+        viewportWidth: 719,
         primarySidebarPreferredVisible: true,
         auxiliaryPanePreferredVisible: true,
         auxiliaryPaneRole: "inspector",
       }),
     ).toMatchObject({
-      primarySidebarVisible: true,
+      primarySidebarVisible: false,
       supportsAuxiliaryPane: false,
       auxiliaryPaneVisible: false,
+    });
+  });
+
+  it("supports a side-by-side inspector when a foldable chat is maximized", () => {
+    const layout = deriveLayout({ width: 800, height: 700 });
+
+    expect(
+      deriveFileInspectorPaneLayout({
+        layout,
+        viewportWidth: 800,
+        reservedLeadingWidth: 0,
+      }),
+    ).toMatchObject({ supported: true });
+  });
+
+  it("reclaims a suppressed sidebar so either Fold workspace pane can become compact", () => {
+    const layout = deriveLayout({ width: 800, height: 700 });
+
+    expect(
+      deriveWorkspacePaneLayout({
+        layout,
+        viewportWidth: 800,
+        primarySidebarPreferredVisible: true,
+        auxiliaryPanePreferredVisible: true,
+        auxiliaryPaneRole: "inspector",
+        auxiliaryPanePreferredWidth: 800,
+      }),
+    ).toMatchObject({
+      primarySidebarVisible: false,
+      primarySidebarSuppressedByAuxiliary: true,
+      contentPaneWidth: 800,
+      auxiliaryPaneWidth: 728,
     });
   });
 
