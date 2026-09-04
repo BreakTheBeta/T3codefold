@@ -757,7 +757,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             {/* No paddingTop here: the overlay's measured height becomes the
                 list's bottom inset, so any padding above the pill/composer
                 pushes the resting content floor up by the same amount. */}
-            <View ref={composerOverlayRef} onLayout={onComposerLayout} className="w-full">
+            <View
+              ref={composerOverlayRef}
+              onLayout={onComposerLayout}
+              className={Platform.OS === "android" ? "w-full bg-screen" : "w-full"}
+            >
               <FloatingWorkingControl
                 colorScheme={isDarkMode ? "dark" : "light"}
                 status={floatingStatus}

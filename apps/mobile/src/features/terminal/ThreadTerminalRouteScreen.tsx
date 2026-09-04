@@ -156,9 +156,12 @@ type ThreadTerminalRouteScreenProps = StaticScreenProps<{
   readonly environmentId: string;
   readonly threadId: string;
   readonly terminalId?: string;
-}>;
+}> & {
+  readonly presentation?: "route" | "inspector";
+};
 
 export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps) {
+  const isInspector = props.presentation === "inspector";
   const navigation = useNavigation();
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const resizeTerminal = useAtomCommand(terminalEnvironment.resize, "terminal resize");
@@ -1079,28 +1082,30 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
 
   return (
     <>
-      <NativeStackScreenOptions
-        options={{
-          // Static header config lives in Stack.tsx (SOLID_HEADER_OPTIONS — the pty
-          // scrolls internally, nothing for glass to sample). Default title/subtitle
-          // styling, like every other page.
-          // Android draws its own in-flow header (AndroidScreenHeader below);
-          // the native stack header stays iOS-only.
-          headerShown: Platform.OS !== "android",
-          title: "Terminal",
-          unstable_headerSubtitle:
-            usesNativeHeaderGlass && headerSubtitle.length > 0 ? headerSubtitle : undefined,
-        }}
-      />
+      {!isInspector ? (
+        <NativeStackScreenOptions
+          options={{
+            // Static header config lives in Stack.tsx (SOLID_HEADER_OPTIONS — the pty
+            // scrolls internally, nothing for glass to sample). Default title/subtitle
+            // styling, like every other page.
+            // Android draws its own in-flow header (AndroidScreenHeader below);
+            // the native stack header stays iOS-only.
+            headerShown: Platform.OS !== "android",
+            title: "Terminal",
+            unstable_headerSubtitle:
+              usesNativeHeaderGlass && headerSubtitle.length > 0 ? headerSubtitle : undefined,
+          }}
+        />
+      ) : null}
 
       {Platform.OS === "android" ? (
         <AndroidScreenHeader
           title="Terminal"
           subtitle={headerSubtitle}
-          onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}
+          onBack={!isInspector && navigation.canGoBack() ? () => navigation.goBack() : undefined}
           trailing={
             <>
-              {layout.usesSplitView ? (
+              {layout.usesSplitView && !isInspector ? (
                 <AndroidHeaderIconButton
                   accessibilityLabel={
                     panes.primarySidebarVisible ? "Maximize terminal" : "Show threads"
@@ -1131,7 +1136,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         />
       ) : null}
 
-      {layout.usesSplitView ? (
+      {layout.usesSplitView && !isInspector ? (
         <NativeHeaderToolbar placement="left">
           <NativeHeaderToolbar.Button
             accessibilityLabel={panes.primarySidebarVisible ? "Maximize terminal" : "Show threads"}
@@ -1144,7 +1149,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         </NativeHeaderToolbar>
       ) : null}
 
-      {isEnvironmentReady ? (
+      {isEnvironmentReady && !isInspector ? (
         <NativeHeaderToolbar placement="right">
           <NativeHeaderToolbar.Menu icon="terminal" title="Terminal options" separateBackground>
             <NativeHeaderToolbar.Label>
