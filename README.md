@@ -18,7 +18,7 @@ T3 Code Fold is a fork of [T3 Code](https://github.com/pingdotgg/t3code) focused
 | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | ![Chat and Files side by side on an unfolded Android phone](docs/images/t3codefold-chat-files.webp) | ![A resized T3 Code Fold workspace giving the active pane more room](docs/images/t3codefold-resized-pane.webp) |
 
-The Android preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
+Download the current arm64 Android preview from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases/latest). The preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
 
 ## About upstream T3 Code
 
