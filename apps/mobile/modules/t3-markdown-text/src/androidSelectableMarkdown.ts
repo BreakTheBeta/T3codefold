@@ -1,4 +1,4 @@
-import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
+import { parseMarkdownWithOptions, type MarkdownNode } from "react-native-nitro-markdown/headless";
 
 import {
   nativeMarkdownDocumentRuns,
@@ -7,13 +7,20 @@ import {
 } from "./nativeMarkdownText";
 import type { SelectableMarkdownSkill } from "./SelectableMarkdownText.types";
 
-export function androidSelectableMarkdownRuns(
+function containsImage(node: MarkdownNode): boolean {
+  return node.type === "image" || (node.children ?? []).some(containsImage);
+}
+
+export function androidSelectableMarkdownContent(
   markdown: string,
   options: {
     readonly preserveSoftBreaks?: boolean;
     readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
   } = {},
-): ReadonlyArray<NativeMarkdownTextRun> {
+): {
+  readonly hasImage: boolean;
+  readonly runs: ReadonlyArray<NativeMarkdownTextRun>;
+} {
   const parsed = parseMarkdownWithOptions(markdown, {
     gfm: true,
     html: true,
@@ -22,5 +29,8 @@ export function androidSelectableMarkdownRuns(
   const document = options.preserveSoftBreaks
     ? nativeMarkdownWithPreservedSoftBreaks(parsed)
     : parsed;
-  return nativeMarkdownDocumentRuns(document, options.skills);
+  return {
+    hasImage: containsImage(document),
+    runs: nativeMarkdownDocumentRuns(document, options.skills),
+  };
 }

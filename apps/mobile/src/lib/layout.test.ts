@@ -86,27 +86,6 @@ describe("resizable pane constraints", () => {
     expect(constrainAuxiliaryPaneWidth({ preferredWidth: 440, availableWidth: 900 })).toBe(340);
     expect(constrainAuxiliaryPaneWidth({ preferredWidth: 100, availableWidth: 1_100 })).toBe(260);
   });
-
-  it("lets either pane become compact in an unfolded Fold workspace", () => {
-    expect(
-      constrainAuxiliaryPaneWidth({
-        preferredWidth: 0,
-        availableWidth: 800,
-        minimumMainWidth: 72,
-        minimumPaneWidth: 72,
-        maximumPaneWidth: Number.POSITIVE_INFINITY,
-      }),
-    ).toBe(72);
-    expect(
-      constrainAuxiliaryPaneWidth({
-        preferredWidth: 800,
-        availableWidth: 800,
-        minimumMainWidth: 72,
-        minimumPaneWidth: 72,
-        maximumPaneWidth: Number.POSITIVE_INFINITY,
-      }),
-    ).toBe(728);
-  });
 });
 
 describe("deriveCenteredContentHorizontalPadding", () => {

@@ -13,7 +13,7 @@ import {
   threadHasOlderTurns,
 } from "@t3tools/client-runtime/state/threads";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { BackHandler, Platform, ScrollView, View } from "react-native";
+import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
@@ -27,7 +27,6 @@ import {
 } from "../../components/AndroidScreenHeader";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { scopedThreadKey } from "../../lib/scopedEntities";
-import { resolveAdaptiveWorkspaceBackAction } from "../../lib/adaptive-navigation";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { connectionTone } from "../connection/connectionTone";
 
@@ -72,6 +71,7 @@ import {
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
+import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
 import { ThreadFileNavigatorPane } from "../files/thread-file-navigator-pane";
 import {
   ThreadInspectorContentStack,
@@ -192,6 +192,7 @@ function ThreadRouteContent(
     toggleAuxiliaryPane,
     togglePrimarySidebar,
   } = useAdaptiveWorkspaceLayout();
+  useFoldWorkspaceAndroidBack();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
   const { selectedThread, selectedThreadProject, selectedEnvironmentConnection } =
@@ -594,36 +595,6 @@ function ThreadRouteContent(
       showAuxiliaryPane,
       toggleAuxiliaryPane,
     ],
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      if (Platform.OS !== "android" || !layout.usesSplitView) {
-        return;
-      }
-      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-        const action = resolveAdaptiveWorkspaceBackAction({
-          auxiliaryPaneVisible: panes.auxiliaryPaneVisible,
-          primarySidebarVisible: panes.primarySidebarVisible,
-        });
-        if (action === "close-inspector") {
-          toggleAuxiliaryPane();
-          return true;
-        }
-        if (action === "show-sidebar") {
-          togglePrimarySidebar();
-          return true;
-        }
-        return false;
-      });
-      return () => subscription.remove();
-    }, [
-      layout.usesSplitView,
-      panes.auxiliaryPaneVisible,
-      panes.primarySidebarVisible,
-      toggleAuxiliaryPane,
-      togglePrimarySidebar,
-    ]),
   );
 
   const handleOpenNewTerminal = useCallback(() => {

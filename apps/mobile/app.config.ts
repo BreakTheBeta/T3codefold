@@ -176,10 +176,7 @@ const config: ExpoConfig = {
     // fingerprinted so OTAs only reach binaries with matching native projects.
     policy: runtimeVersionPolicy,
   },
-  // Foldables, tablets, DeX, and Android multi-window can resize or rotate
-  // the app while it is running. Keep the window unrestricted so the
-  // adaptive workspace can respond to the actual available dimensions.
-  orientation: "default",
+  orientation: "portrait",
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {

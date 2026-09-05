@@ -6,11 +6,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import {
-  constrainAuxiliaryPaneWidth,
-  RESIZABLE_PANE_COMPACT_WIDTH,
-  type WorkspacePaneLayout,
-} from "../../lib/layout";
+import { type WorkspacePaneLayout } from "../../lib/layout";
+import { constrainFoldablePaneWidth } from "../../lib/foldable-pane-layout";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspacePaneDivider } from "./workspace-pane-divider";
 
@@ -107,12 +104,9 @@ export function WorkspaceInspectorPane(props: {
   const resizeBy = useCallback(
     (delta: number) => {
       setAuxiliaryPaneWidth(
-        constrainAuxiliaryPaneWidth({
+        constrainFoldablePaneWidth({
           preferredWidth: resizeStartWidth.current + delta,
           availableWidth: panes.contentPaneWidth,
-          minimumMainWidth: RESIZABLE_PANE_COMPACT_WIDTH,
-          minimumPaneWidth: RESIZABLE_PANE_COMPACT_WIDTH,
-          maximumPaneWidth: Number.POSITIVE_INFINITY,
         }),
       );
     },
