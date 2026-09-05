@@ -180,11 +180,11 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    // T3 Code Fold ships its JavaScript inside the APK. Pointing a fork at
-    // upstream's OTA project can replace the Fold workspace after a restart
-    // with a bundle built for a different native/runtime revision.
-    enabled: false,
-    checkAutomatically: "NEVER",
+    // GitHub hosts the fork's protocol manifest and content-addressed assets.
+    // Fingerprinted runtimes prevent JavaScript from crossing native revisions.
+    enabled: APP_VARIANT === "preview",
+    url: "https://raw.githubusercontent.com/BreakTheBeta/T3codefold/mobile-ota/manifest-android.json",
+    checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
   },
   ios: {
@@ -385,10 +385,10 @@ const config: ExpoConfig = {
       tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
     },
     eas: {
-      projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",
+      projectId: "5c3bde99-9c75-4cd6-b0a0-cc5d2cf846df",
     },
   },
-  owner: "pingdotgg",
+  owner: APP_VARIANT === "preview" ? "BreakTheBeta" : "pingdotgg",
 };
 
 export default config;
