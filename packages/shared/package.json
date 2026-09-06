@@ -278,6 +278,10 @@
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"
+    },
+    "./projectIconModel": {
+      "types": "./src/projectIconModel.ts",
+      "import": "./src/projectIconModel.ts"
     }
   },
   "scripts": {

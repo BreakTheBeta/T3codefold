@@ -8,6 +8,7 @@ T3 Code Fold is a fork of [T3 Code](https://github.com/pingdotgg/t3code) focused
 - **Android calls in the background:** continue talking with the screen locked, end calls from the ongoing notification, and allow brief network interruptions to recover.
 - **System call audio:** Android Core-Telecom integration supports speakerphone, call-volume controls, and Bluetooth call-capable headsets or glasses, including a route for their microphone. Hardware compatibility depends on the device; Meta Ray-Ban audio still needs physical-device verification. See [voice setup](docs/user/providers-codex.md#talk-to-codex-fold-beta).
 
+- **Project colours and icons on mobile:** see automatic project colours, custom icons, and emoji selected on desktop when connected to the same host.
 - **Foldable workspace:** chat stays visible beside Files, Terminal, or Git on an unfolded phone.
 - **Drag-to-resize panes:** the divider can reduce either side to a compact sliver, giving reading or tooling the space you need.
 - **Fold-aware navigation:** selected tool states, reversible sidebar controls, and Android Back behavior designed for the split workspace.

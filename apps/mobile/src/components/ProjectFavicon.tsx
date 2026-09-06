@@ -1,8 +1,8 @@
-import { SymbolView } from "./AppSymbol";
+import { ProjectIcon } from "./ProjectIcon";
 import { Image } from "expo-image";
 import { useLayoutEffect, useMemo, useState } from "react";
 import { View } from "react-native";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectIconOverride } from "@t3tools/contracts";
 import {
   getProjectFaviconCacheKey,
   getProjectFaviconResourceKey,
@@ -30,10 +30,11 @@ export function ProjectFavicon(props: {
   readonly projectTitle: string;
   readonly workspaceRoot?: string | null;
   readonly faviconPath?: string | null;
+  readonly projectIcon?: ProjectIconOverride | null;
 }) {
   const size = props.size ?? 42;
   const faviconUrl = useAtomValue(
-    props.workspaceRoot == null
+    props.workspaceRoot == null || props.projectIcon != null
       ? EMPTY_FAVICON_URL
       : projectFaviconUrlAtom({
           environmentId: props.environmentId,
@@ -56,7 +57,8 @@ export function ProjectFavicon(props: {
       key={cacheKey}
       cacheKey={cacheKey}
       faviconUrl={renderableFaviconUrl}
-      open={props.open}
+      projectIcon={props.projectIcon}
+      workspaceRoot={props.workspaceRoot}
       projectTitle={props.projectTitle}
       size={size}
     />
@@ -64,6 +66,8 @@ export function ProjectFavicon(props: {
 }
 
 function ProjectFaviconImage(props: {
+  readonly projectIcon?: ProjectIconOverride | null;
+  readonly workspaceRoot?: string | null;
   readonly cacheKey: string | null;
   readonly faviconUrl: string | null;
   readonly open?: boolean;
@@ -101,13 +105,12 @@ function ProjectFaviconImage(props: {
         justifyContent: "center",
       }}
     >
-      {/* Folder icon fallback (matches web's FolderIcon) */}
       {!showImage ? (
-        <SymbolView
-          name={{ ios: "folder.fill", android: props.open ? "folder_open" : "folder" }}
-          size={props.size * 0.78}
-          tintColorClassName={"accent-icon-subtle"}
-          type="monochrome"
+        <ProjectIcon
+          projectTitle={props.projectTitle}
+          workspaceRoot={props.workspaceRoot}
+          projectIcon={props.projectIcon}
+          size={props.size}
         />
       ) : null}
 
