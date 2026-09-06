@@ -126,7 +126,8 @@ export function useCodexRealtimeVoice(input: {
               clearTimeout(timeout);
               handlers.connected();
             }
-            if (["failed", "disconnected", "closed"].includes(peer.connectionState))
+            if (peer.connectionState === "disconnected") handlers.disconnected();
+            if (["failed", "closed"].includes(peer.connectionState))
               handlers.failed("The Codex voice connection was lost. Reconnect to continue.");
           };
           return {

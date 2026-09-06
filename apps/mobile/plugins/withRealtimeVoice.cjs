@@ -20,6 +20,9 @@ module.exports = function withRealtimeVoice(config) {
     return next;
   });
   config = withInfoPlist(config, (next) => {
+    next.modResults.UIBackgroundModes = [
+      ...new Set([...(next.modResults.UIBackgroundModes ?? []), "audio"]),
+    ];
     next.modResults.NSMicrophoneUsageDescription =
       "Allow T3 Code to talk with Codex and dictate prompts.";
     return next;

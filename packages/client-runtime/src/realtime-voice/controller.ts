@@ -1,5 +1,5 @@
 export type VoiceState = {
-  status: "idle" | "connecting" | "live" | "playback-blocked" | "error";
+  status: "idle" | "connecting" | "reconnecting" | "live" | "playback-blocked" | "error";
   muted: boolean;
   error: string | null;
 };
@@ -16,6 +16,7 @@ export interface VoiceMedia {
 export interface VoiceDependencies {
   openMedia(handlers: {
     connected(): void;
+    disconnected(): void;
     failed(message: string): void;
     playbackBlocked(): void;
   }): Promise<VoiceMedia>;
@@ -24,7 +25,12 @@ export interface VoiceDependencies {
   changed(state: VoiceState): void;
 }
 
-type LocalSession = { abort: AbortController; media?: VoiceMedia; remote: boolean };
+type LocalSession = {
+  abort: AbortController;
+  media?: VoiceMedia;
+  remote: boolean;
+  recovery?: ReturnType<typeof setTimeout>;
+};
 
 /** Serializes retries with remote cleanup, including stop during permission or signaling. */
 export class RealtimeVoiceController {
@@ -55,8 +61,24 @@ export class RealtimeVoiceController {
       try {
         session.media = await this.dependencies.openMedia({
           connected: () => {
+            clearTimeout(session.recovery);
+            delete session.recovery;
             if (current() && this.state.status !== "playback-blocked")
               this.update({ status: "live" });
+          },
+          disconnected: () => {
+            if (!current() || session.recovery) return;
+            this.update({ status: "reconnecting" });
+            // This controller owns browser/native transport callbacks outside Effect.
+            // @effect-diagnostics-next-line globalTimers:off
+            session.recovery = setTimeout(() => {
+              if (!current()) return;
+              void this.stop();
+              this.update({
+                status: "error",
+                error: "The voice connection could not recover. Reconnect to continue.",
+              });
+            }, 20_000);
           },
           failed: (message) => {
             if (!current()) return;
@@ -89,6 +111,7 @@ export class RealtimeVoiceController {
         }
       } finally {
         if (!current()) {
+          clearTimeout(session.recovery);
           session.media?.close();
           if (session.remote) {
             session.remote = false;
@@ -103,6 +126,7 @@ export class RealtimeVoiceController {
   stop(): Promise<void> {
     const session = this.session;
     this.session = null;
+    clearTimeout(session?.recovery);
     session?.abort.abort();
     session?.media?.close();
     this.update({ status: "idle", muted: false, error: null });
@@ -119,7 +143,11 @@ export class RealtimeVoiceController {
 
   toggleMuted() {
     if (!this.session?.media) return;
-    const muted = !this.state.muted;
+    this.setMuted(!this.state.muted);
+  }
+
+  setMuted(muted: boolean) {
+    if (!this.session?.media) return;
     this.session.media.mute(muted);
     this.update({ muted });
   }

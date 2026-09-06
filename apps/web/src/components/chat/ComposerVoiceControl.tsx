@@ -26,7 +26,10 @@ export const ComposerVoiceControl = memo(function ComposerVoiceControl(props: {
 }) {
   const { voice } = props;
   const active =
-    voice.status === "connecting" || voice.status === "live" || voice.status === "playback-blocked";
+    voice.status === "connecting" ||
+    voice.status === "reconnecting" ||
+    voice.status === "live" ||
+    voice.status === "playback-blocked";
 
   if (!active) {
     const tooltip = !voice.supported
@@ -59,11 +62,13 @@ export const ComposerVoiceControl = memo(function ComposerVoiceControl(props: {
   const label =
     voice.status === "connecting"
       ? "Connecting…"
-      : voice.status === "playback-blocked"
-        ? "Audio paused"
-        : voice.muted
-          ? "Muted"
-          : "Voice live";
+      : voice.status === "reconnecting"
+        ? "Reconnecting…"
+        : voice.status === "playback-blocked"
+          ? "Audio paused"
+          : voice.muted
+            ? "Muted"
+            : "Voice live";
   return (
     <div
       className="flex h-8 items-center gap-0.5 rounded-full border border-border/70 bg-muted/50 ps-2 pe-1"

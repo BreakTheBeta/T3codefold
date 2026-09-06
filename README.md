@@ -1,8 +1,12 @@
 # T3 Code Fold
 
-T3 Code Fold is a fork of [T3 Code](https://github.com/pingdotgg/t3code) focused on making its Android client feel native on foldable phones, especially Samsung Galaxy Z Fold devices. It keeps the upstream server, web and desktop clients intact while extending the mobile workspace for large, resizable Android displays.
+T3 Code Fold is a fork of [T3 Code](https://github.com/pingdotgg/t3code) focused on making its Android client feel native on foldable phones, especially Samsung Galaxy Z Fold devices. It extends the mobile workspace for large, resizable Android displays and adds live GPT/Codex voice across the host server, web, desktop, and mobile clients.
 
 ## What this fork adds
+
+- **Live GPT/Codex voice:** talk with Codex from web, desktop, or mobile while your chosen host, such as Beta1, runs the coding agent.
+- **Android calls in the background:** continue talking with the screen locked, end calls from the ongoing notification, and allow brief network interruptions to recover.
+- **System call audio:** Android Core-Telecom integration supports speakerphone, call-volume controls, and Bluetooth call-capable headsets or glasses, including a route for their microphone. Hardware compatibility depends on the device; Meta Ray-Ban audio still needs physical-device verification. See [voice setup](docs/user/providers-codex.md#talk-to-codex-fold-beta).
 
 - **Foldable workspace:** chat stays visible beside Files, Terminal, or Git on an unfolded phone.
 - **Drag-to-resize panes:** the divider can reduce either side to a compact sliver, giving reading or tooling the space you need.

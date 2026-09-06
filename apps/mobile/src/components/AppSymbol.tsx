@@ -1,3 +1,5 @@
+import IconVolume from "@tabler/icons-react-native/IconVolume";
+import IconDeviceMobile from "@tabler/icons-react-native/IconDeviceMobile";
 import IconMicrophone from "@tabler/icons-react-native/IconMicrophone";
 import IconMicrophoneOff from "@tabler/icons-react-native/IconMicrophoneOff";
 import IconPhoneOff from "@tabler/icons-react-native/IconPhoneOff";
@@ -158,6 +160,8 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   pin: IconPin,
   "pin.slash": IconPinnedOff,
   play: IconPlayerPlay,
+  "speaker.wave.2.fill": IconVolume,
+  iphone: IconDeviceMobile,
   plus: IconPlus,
   "qrcode.viewfinder": IconQrcode,
   "point.3.connected.trianglepath.dotted": IconNetwork,

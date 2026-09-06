@@ -2229,6 +2229,13 @@ export const makeCodexSessionRuntime = (
               providerThreadId: payload.threadId,
               detail: payload.message,
             }),
+          ).pipe(
+            Effect.tap(() =>
+              Effect.logWarning("Codex voice provider error", {
+                providerThreadId: payload.threadId,
+                message: payload.message,
+              }),
+            ),
           );
         }),
       ),
@@ -2246,6 +2253,13 @@ export const makeCodexSessionRuntime = (
               providerThreadId: payload.threadId,
               detail: payload.reason ?? "Realtime transport closed during negotiation.",
             }),
+          ).pipe(
+            Effect.tap(() =>
+              Effect.logInfo("Codex voice transport closed", {
+                providerThreadId: payload.threadId,
+                reason: payload.reason ?? "unspecified",
+              }),
+            ),
           );
         }),
       ),

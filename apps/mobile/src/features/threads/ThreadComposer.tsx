@@ -405,7 +405,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       props.connectionState === "connected" &&
       !voiceInput.isBusy,
   });
-  const codexVoiceActive = codexVoice.status === "connecting" || codexVoice.status === "live";
+  const codexVoiceActive =
+    codexVoice.status === "connecting" ||
+    codexVoice.status === "reconnecting" ||
+    codexVoice.status === "live";
   const codexVoiceControl =
     selectedProviderStatus?.driver === "codex" ? (
       <CodexVoiceControl

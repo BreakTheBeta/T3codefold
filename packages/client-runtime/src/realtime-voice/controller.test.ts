@@ -92,3 +92,56 @@ describe("realtime voice lifecycle", () => {
     expect(f.states.at(-1)?.error).toBe("Voice already active");
   });
 });
+
+describe("temporary voice network loss", () => {
+  it("keeps media and the remote call alive through a short disconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      let transport!: Parameters<VoiceDependencies["openMedia"]>[0];
+      f.deps.openMedia = async (handlers) => {
+        transport = handlers;
+        return f.media;
+      };
+      await f.controller.start();
+      transport.connected();
+      f.controller.toggleMuted();
+      transport.disconnected();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(f.media.close).not.toHaveBeenCalled();
+      expect(f.deps.stopRemote).not.toHaveBeenCalled();
+      expect(f.states.at(-1)?.status).toBe("reconnecting");
+      transport.connected();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.states.at(-1)).toMatchObject({ status: "live", muted: true });
+      expect(f.media.close).not.toHaveBeenCalled();
+      await f.controller.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("ends a call that never recovers and cancels the recovery timer on stop", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      let transport!: Parameters<VoiceDependencies["openMedia"]>[0];
+      f.deps.openMedia = async (handlers) => {
+        transport = handlers;
+        return f.media;
+      };
+      await f.controller.start();
+      transport.connected();
+      transport.disconnected();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(f.states.at(-1)?.status).toBe("error");
+      expect(f.deps.stopRemote).toHaveBeenCalledTimes(1);
+      await f.controller.start();
+      transport.disconnected();
+      await f.controller.stop();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.states.at(-1)?.status).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

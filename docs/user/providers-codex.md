@@ -88,7 +88,17 @@ and client need internet access. Remote web pages require HTTPS, including on
 a tailnet; an HTTP LAN address cannot request browser microphone access. Use
 the fork's web client, since the upstream hosted app does not include this beta.
 
-Keep the mobile app open in the thread while talking. Leaving the thread,
-backgrounding the app, or losing the connection ends voice; reconnect and start
-again to continue. This beta does not provide screen-locked calling. Mobile
-requires a new native installation, not an OTA-only update.
+Start mobile voice with the app open. Android calls can continue when the screen
+locks or the app goes into the background; an ongoing call notification lets you
+return or end the call. Leaving the thread ends the call. Short network interruptions
+show **Reconnecting** while the client waits for audio to recover.
+
+Android uses the system call audio routes. Pair Bluetooth glasses or a headset and
+enable **Phone calls** for that device in Android Bluetooth settings. Allow Nearby
+devices access when requested by T3. Connected call-capable headsets are preferred;
+otherwise the call uses speakerphone. The audio output control lists the
+phone speaker and available headsets or earpiece by name. Use the phone volume buttons or
+the **Increase call volume** control during a call. Actual headset compatibility
+and call controls depend on the device's Bluetooth support.
+
+Mobile requires a new native installation, not an OTA-only update.
