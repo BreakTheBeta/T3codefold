@@ -34,7 +34,7 @@ Android's native selection controls work across mixed response content, includin
 
 <img src="docs/images/t3codefold-text-selection.webp" alt="Native Android text selection spanning Markdown headings, paragraphs, lists, links, inline code, and a table" width="420">
 
-Download the current arm64 Android preview from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases/latest). The preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
+Download the Android preview from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
 
 ## About upstream T3 Code
 

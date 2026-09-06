@@ -676,6 +676,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           </Pressable>
         ) : null}
 
+        {codexVoiceActive ? (
+          <View className="mb-2 self-end rounded-2xl bg-screen px-3 py-2">{codexVoiceControl}</View>
+        ) : null}
+
         <ComposerSurface
           style={
             isExpanded
@@ -789,7 +793,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             ) : null}
             {!isExpanded ? (
               <View className="flex-row items-center">
-                {codexVoiceControl}
+                {!codexVoiceActive ? codexVoiceControl : null}
                 <ComposerDictationStartAction
                   state={voiceInput.state}
                   isAvailable={voiceInput.isAvailable && !codexVoiceActive}
@@ -843,7 +847,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 paddingTop={0}
                 style={{ gap: 0 }}
               >
-                {isExpanded ? codexVoiceControl : null}
+                {isExpanded && !codexVoiceActive ? codexVoiceControl : null}
                 <ComposerDictationCancelAction
                   presentation={voicePresentation}
                   onCancel={voiceInput.cancel}
