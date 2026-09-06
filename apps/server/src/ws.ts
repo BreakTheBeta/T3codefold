@@ -51,6 +51,7 @@ import {
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
+  ProviderRealtimeVoiceError,
   ProviderUploadFeedbackError,
   ProviderSetupError,
   RelayClientInstallFailedError,
@@ -1830,6 +1831,46 @@ const makeWsRpcLayer = (
                   new ProviderUploadFeedbackError({
                     threadId: input.threadId,
                     cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerRealtimeVoiceStart]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRealtimeVoiceStart,
+            providerService.startRealtimeVoice(input).pipe(
+              Effect.tapError((cause) =>
+                Effect.logError("Failed to start provider realtime voice.", {
+                  threadId: input.threadId,
+                  cause,
+                }),
+              ),
+              Effect.mapError(
+                () =>
+                  new ProviderRealtimeVoiceError({
+                    threadId: input.threadId,
+                    operation: "start",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerRealtimeVoiceStop]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRealtimeVoiceStop,
+            providerService.stopRealtimeVoice(input).pipe(
+              Effect.tapError((cause) =>
+                Effect.logError("Failed to stop provider realtime voice.", {
+                  threadId: input.threadId,
+                  cause,
+                }),
+              ),
+              Effect.mapError(
+                () =>
+                  new ProviderRealtimeVoiceError({
+                    threadId: input.threadId,
+                    operation: "stop",
                   }),
               ),
             ),

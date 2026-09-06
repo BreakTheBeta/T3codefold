@@ -228,6 +228,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
+    versionCode: 4,
     icon: variant.assets.appIcon,
     package: variant.androidPackage,
     adaptiveIcon: {
@@ -244,6 +245,7 @@ const config: ExpoConfig = {
     favicon: variant.assets.appIcon,
   },
   plugins: [
+    "./plugins/withRealtimeVoice.cjs",
     "expo-asset",
     [
       "expo-font",

@@ -43,6 +43,13 @@ export const codexSessionAppServerArgs = (
   appServerArgs: ReadonlyArray<string> | undefined,
   launchArgs: string | undefined,
 ) => {
-  const launchAppServerArgs = codexAppServerArgs(launchArgs);
+  // Realtime is opt-in upstream. Enable it for T3 sessions without changing the host config.
+  // Explicit launch overrides still come last so an administrator can disable it.
+  const launchAppServerArgs = [
+    "app-server",
+    "-c",
+    "features.realtime_conversation=true",
+    ...codexLaunchArgv(launchArgs),
+  ];
   return appServerArgs ? [...launchAppServerArgs, ...appServerArgs] : launchAppServerArgs;
 };

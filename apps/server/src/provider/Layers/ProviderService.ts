@@ -15,6 +15,8 @@ import {
   ModelSelection,
   NonNegativeInt,
   ProviderInterruptTurnInput,
+  ProviderRealtimeVoiceStartInput,
+  ProviderRealtimeVoiceStopInput,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
   RuntimeRequestId,
@@ -1668,6 +1670,77 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const startRealtimeVoice: ProviderServiceMethod<"startRealtimeVoice"> = Effect.fn(
+    "startRealtimeVoice",
+  )(function* (rawInput) {
+    const input = yield* decodeInputOrValidationError({
+      operation: "ProviderService.startRealtimeVoice",
+      schema: ProviderRealtimeVoiceStartInput,
+      payload: rawInput,
+    });
+    let routed = yield* resolveRoutableSession({
+      threadId: input.threadId,
+      operation: "ProviderService.startRealtimeVoice",
+      allowRecovery: false,
+    });
+    if (!routed.adapter.startRealtimeVoice) {
+      return yield* toValidationError(
+        "ProviderService.startRealtimeVoice",
+        `Provider '${routed.adapter.provider}' does not support realtime voice.`,
+      );
+    }
+    if (!routed.isActive) {
+      routed = yield* resolveRoutableSession({
+        threadId: input.threadId,
+        operation: "ProviderService.startRealtimeVoice",
+        allowRecovery: true,
+      });
+    }
+    const startVoice = routed.adapter.startRealtimeVoice;
+    if (!startVoice) {
+      return yield* toValidationError(
+        "ProviderService.startRealtimeVoice",
+        `Provider '${routed.adapter.provider}' does not support realtime voice.`,
+      );
+    }
+    yield* Effect.annotateCurrentSpan({
+      "provider.operation": "start-realtime-voice",
+      "provider.kind": routed.adapter.provider,
+      "provider.thread_id": input.threadId,
+    });
+    return yield* startVoice(input);
+  });
+
+  const stopRealtimeVoice: ProviderServiceMethod<"stopRealtimeVoice"> = Effect.fn(
+    "stopRealtimeVoice",
+  )(function* (rawInput) {
+    const input = yield* decodeInputOrValidationError({
+      operation: "ProviderService.stopRealtimeVoice",
+      schema: ProviderRealtimeVoiceStopInput,
+      payload: rawInput,
+    });
+    const routed = yield* resolveRoutableSession({
+      threadId: input.threadId,
+      operation: "ProviderService.stopRealtimeVoice",
+      allowRecovery: false,
+    });
+    if (!routed.isActive) {
+      return;
+    }
+    if (!routed.adapter.stopRealtimeVoice) {
+      return yield* toValidationError(
+        "ProviderService.stopRealtimeVoice",
+        `Provider '${routed.adapter.provider}' does not support realtime voice.`,
+      );
+    }
+    yield* Effect.annotateCurrentSpan({
+      "provider.operation": "stop-realtime-voice",
+      "provider.kind": routed.adapter.provider,
+      "provider.thread_id": input.threadId,
+    });
+    yield* routed.adapter.stopRealtimeVoice(input);
+  });
+
   const respondToRequest: ProviderServiceMethod<"respondToRequest"> = Effect.fn("respondToRequest")(
     function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
@@ -2071,6 +2144,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     sendTurn,
     compactThread,
     interruptTurn,
+    startRealtimeVoice,
+    stopRealtimeVoice,
     respondToRequest,
     respondToUserInput,
     stopSession,

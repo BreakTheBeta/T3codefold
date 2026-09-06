@@ -187,6 +187,8 @@ describe("ProviderSessionReaper", () => {
       },
       rollbackConversation: () => unsupported(),
       uploadFeedback: () => unsupported(),
+      startRealtimeVoice: () => unsupported(),
+      stopRealtimeVoice: () => unsupported(),
       streamEvents: Stream.empty,
     };
 

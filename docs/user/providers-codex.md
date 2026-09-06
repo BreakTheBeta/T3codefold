@@ -69,3 +69,26 @@ In an existing Codex thread, send `/feedback` with an optional description, for
 example `/feedback The agent stopped before finishing the tests`. This uploads
 the conversation and Codex logs to OpenAI. The returned thread ID can be shared
 with OpenAI support.
+
+## Talk to Codex (Fold beta)
+
+Open an existing Codex thread and choose **Talk to Codex** to start a two-way voice
+conversation. Allow microphone access, wait for **Voice live**, then speak. Mute
+pauses your microphone; **End Codex voice** ends the call. Send the thread's first
+message before starting voice. Other providers do not support this mode.
+
+Install the voice-enabled Fold server on your host and the matching desktop,
+web, or mobile client. The host needs a signed-in Codex CLI version 0.145.0 or
+newer with realtime access; T3 enables its experimental realtime feature for
+managed sessions. Restart an existing Codex session after upgrading the host.
+
+For a host such as beta1, pair the client with that environment and open a
+thread there. Voice uses the selected environment's Codex account. Both host
+and client need internet access. Remote web pages require HTTPS, including on
+a tailnet; an HTTP LAN address cannot request browser microphone access. Use
+the fork's web client, since the upstream hosted app does not include this beta.
+
+Keep the mobile app open in the thread while talking. Leaving the thread,
+backgrounding the app, or losing the connection ends voice; reconnect and start
+again to continue. This beta does not provide screen-locked calling. Mobile
+requires a new native installation, not an OTA-only update.

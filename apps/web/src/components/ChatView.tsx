@@ -459,6 +459,7 @@ import {
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "./chat/composerPromptHistory";
+import { useCodexRealtimeVoice } from "../hooks/useCodexRealtimeVoice";
 
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
@@ -2561,6 +2562,14 @@ export default function ChatView(props: ChatViewProps) {
   const supportsConversationRollback =
     conversationProviderStatus !== null &&
     conversationProviderStatus.supportsConversationRollback !== false;
+  const codexRealtimeVoice = useCodexRealtimeVoice({
+    environmentId,
+    threadId: routeKind === "server" ? activeThreadId : null,
+    enabled:
+      routeKind === "server" &&
+      selectedProvider === ProviderDriverKind.make("codex") &&
+      activeEnvironmentUnavailableState === null,
+  });
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const latestCheckpointCompletedAt = activeThread?.checkpoints.at(-1)?.completedAt ?? null;
@@ -8267,6 +8276,7 @@ export default function ChatView(props: ChatViewProps) {
                             providerStatuses={providerStatuses as ServerProvider[]}
                             activeProjectDefaultModelSelection={activeProjectDefaultModelSelection}
                             activeThreadModelSelection={activeThread?.modelSelection}
+                            codexRealtimeVoice={codexRealtimeVoice}
                             activeContextWindow={activeContextWindow}
                             compactThreadUnavailable={compactThreadUnavailable}
                             compactDisabled={compactDisabled}

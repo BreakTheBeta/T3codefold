@@ -12,6 +12,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 import { buildCodexDeveloperInstructions } from "../CodexDeveloperInstructions.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
+  buildCodexRealtimeStartParams,
   buildTurnStartParams,
   describeMcpElicitation,
   hasConfiguredMcpServer,
@@ -21,6 +22,17 @@ import {
   toMcpElicitationResponse,
 } from "./CodexSessionRuntime.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
+
+describe("buildCodexRealtimeStartParams", () => {
+  it("uses Codex's v3 WebRTC audio transport", () => {
+    NodeAssert.deepStrictEqual(buildCodexRealtimeStartParams("provider-thread-1", "offer-sdp"), {
+      threadId: "provider-thread-1",
+      outputModality: "audio",
+      version: "v3",
+      transport: { type: "webrtc", sdp: "offer-sdp" },
+    });
+  });
+});
 
 describe("CodexSessionRuntimeIdentifierGenerationError", () => {
   it("retains identifier purpose and the random source failure", () => {
@@ -699,6 +711,8 @@ describe("codexSessionAppServerArgs", () => {
     NodeAssert.deepStrictEqual(codexSessionAppServerArgs(["-c", "model=gpt-5"], undefined), [
       "app-server",
       "-c",
+      "features.realtime_conversation=true",
+      "-c",
       "model=gpt-5",
     ]);
   });
@@ -711,6 +725,8 @@ describe("codexSessionAppServerArgs", () => {
       ),
       [
         "app-server",
+        "-c",
+        "features.realtime_conversation=true",
         "--strict-config",
         "--enable",
         "foo",

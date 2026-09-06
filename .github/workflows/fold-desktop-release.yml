@@ -1,0 +1,86 @@
+name: Fold Windows desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Desktop version
+        required: true
+        default: 0.1.3-preview.1
+      release_tag:
+        description: Existing Fold release to attach the installer to
+        required: true
+        default: fold-preview-v0.1.3
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fold-windows-release
+  cancel-in-progress: false
+
+jobs:
+  wsl:
+    if: github.repository == 'BreakTheBeta/T3codefold'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Build WSL terminal binding
+        shell: bash
+        run: |
+          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['./apps/server'] }))")"
+          pty_dir="$(dirname "$pty_pkg")"
+          (cd "$pty_dir" && npx --yes node-gyp rebuild)
+          mkdir -p wsl-prebuild
+          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fold-wsl-pty
+          path: wsl-prebuild/pty.node
+  windows:
+    needs: wsl
+    runs-on: windows-2025
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Install Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup override set 1.95.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: fold-wsl-pty
+          path: wsl-prebuild
+      - name: Build Windows installer
+        shell: pwsh
+        env:
+          FOLD_VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --build-version "$env:FOLD_VERSION" --output-dir release-assets --wsl-prebuild wsl-prebuild/pty.node --verbose
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fold-windows-x64
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Attach installer to Fold release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $assets = Get-ChildItem release-assets -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' }
+          if (!$assets) { throw "No Windows release assets found" }
+          gh release upload "$env:RELEASE_TAG" --repo "$env:GITHUB_REPOSITORY" @($assets.FullName)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
