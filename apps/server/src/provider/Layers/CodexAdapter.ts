@@ -2504,14 +2504,13 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       ),
     );
 
-  const compactThread: NonNullable<CodexAdapterShape["compactThread"]> = Effect.fn("compactThread")(
-    function* (threadId) {
-      const session = yield* requireSession(threadId);
-      yield* session.runtime.compactThread.pipe(
-        Effect.mapError((cause) => mapCodexRuntimeError(threadId, "thread/compact/start", cause)),
-      );
-    },
-  );
+  const compactThread = Effect.fn("compactThread")(function* (threadId: ThreadId) {
+    const session = yield* requireSession(threadId);
+    yield* session.runtime.compactThread.pipe(
+      Effect.mapError((cause) => mapCodexRuntimeError(threadId, "thread/compact/start", cause)),
+    );
+  });
+
   const startRealtimeVoice: CodexAdapterShape["startRealtimeVoice"] = (input) =>
     requireSession(input.threadId).pipe(
       Effect.flatMap((session) => session.runtime.startRealtimeVoice(input.sdp)),
@@ -2678,7 +2677,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     },
     startSession,
     sendTurn,
-    compactThread,
+    compaction: { type: "native", start: compactThread },
     interruptTurn,
     startRealtimeVoice,
     stopRealtimeVoice,
