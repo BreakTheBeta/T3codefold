@@ -548,6 +548,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu
         ? ["Show skills in slash menu"]
         : []),
+      ...(settings.citeSelectionEnabled !== DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled
+        ? ["Show Cite on text selection"]
+        : []),
       ...(settings.composerCollapseOnBlur !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnBlur ||
       settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
         ? ["Collapse composer"]
@@ -637,6 +640,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.showSkillsInSlashMenu,
+      settings.citeSelectionEnabled,
       settings.timestampFormat,
       settings.wordWrap,
       followSystem,
@@ -715,6 +719,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
+      citeSelectionEnabled: DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled,
       composerCollapseOnBlur: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnBlur,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
@@ -2329,6 +2334,32 @@ export function GeneralSettingsPanel() {
                 updateSettings({ proactivePanelsEnabled: Boolean(checked) })
               }
               aria-label="Proactive panels"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("cite-selection")}
+          description="Show a Cite bubble when selecting assistant text to quote it in the composer."
+          resetAction={
+            settings.citeSelectionEnabled !== DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled ? (
+              <SettingResetButton
+                label="Cite on text selection"
+                onClick={() =>
+                  updateSettings({
+                    citeSelectionEnabled: DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.citeSelectionEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ citeSelectionEnabled: Boolean(checked) })
+              }
+              aria-label="Show Cite on text selection"
             />
           }
         />

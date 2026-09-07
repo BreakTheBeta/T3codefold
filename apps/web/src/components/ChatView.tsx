@@ -7854,7 +7854,9 @@ export default function ChatView(props: ChatViewProps) {
               <MessagesTimeline
                 citationRequest={citationRequest}
                 citationHistoryLoading={threadDetailLoading}
-                onCiteAssistantText={citeAssistantText}
+                {...(settings.citeSelectionEnabled
+                  ? { onCiteAssistantText: citeAssistantText }
+                  : {})}
                 agentPanelModel={agentPanelModel}
                 onOpenAgents={addAgentsSurface}
                 key={activeThread.id}
