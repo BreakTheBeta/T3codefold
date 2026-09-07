@@ -771,7 +771,7 @@ export function BranchToolbarBranchSelector({
               >
                 <span
                   data-composer-label-motion
-                  className="block w-full min-w-0 max-w-12 origin-left truncate transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:[transform:translateX(-0.25rem)_scaleX(0.95)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transform-none motion-reduce:transition-opacity"
+                  className="block w-full min-w-0 max-w-12 truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
                 >
                   #{branchPr.number}
                 </span>
@@ -801,13 +801,22 @@ export function BranchToolbarBranchSelector({
             <span
               data-composer-label
               className={cn(
-                "min-w-0 max-w-[240px] truncate",
+                "min-w-0 max-w-[240px]",
                 displayMode === "panel"
                   ? "max-w-none flex-1 text-left"
-                  : "transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0",
+                  : "group-data-[compact]/composer-context:max-w-0",
               )}
             >
-              {triggerLabel}
+              <span
+                data-composer-label-motion
+                className={cn(
+                  "block w-full min-w-0 truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+                  displayMode === "toolbar" &&
+                    "max-w-[240px] group-data-[compact]/composer-context:opacity-0",
+                )}
+              >
+                {triggerLabel}
+              </span>
             </span>
             {displayMode === "panel" ? (
               <span data-slot="select-icon">

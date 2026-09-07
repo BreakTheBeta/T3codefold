@@ -356,9 +356,9 @@ it.effect("a start retry returns its initial run and persisted model after later
             rootNodeId: null,
             activeAttemptId: null,
             status: "completed",
-            requestedAt: saved.createdAt,
-            startedAt: saved.createdAt,
-            completedAt: saved.createdAt,
+            requestedAt: saved.thread.createdAt,
+            startedAt: saved.thread.createdAt,
+            completedAt: saved.thread.createdAt,
             checkpointId: null,
             contextHandoffId: null,
           };

@@ -75,9 +75,14 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         />
         <span
           data-composer-label
-          className="min-w-0 max-w-[240px] truncate transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0"
+          className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
         >
-          {activeEnvironment?.label ?? "Run on"}
+          <span
+            data-composer-label-motion
+            className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+          >
+            {activeEnvironment?.label ?? "Run on"}
+          </span>
         </span>
       </span>
     );
@@ -108,9 +113,14 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         />
         <span
           data-composer-label
-          className="min-w-0 max-w-[240px] truncate transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0"
+          className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
         >
-          <SelectValue />
+          <span
+            data-composer-label-motion
+            className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+          >
+            <SelectValue />
+          </span>
         </span>
       </SelectTrigger>
       <SelectPopup

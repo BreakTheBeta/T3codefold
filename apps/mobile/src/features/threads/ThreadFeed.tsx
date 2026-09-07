@@ -218,6 +218,7 @@ function formatMessageTime(input: string): string {
 const TURN_FOLD_HEIGHT = 42;
 
 const THREAD_FEED_LAYOUT_TRANSITION = LinearTransition.duration(THREAD_DISCLOSURE_TRANSITION_MS);
+const THREAD_FEED_IMMEDIATE_TRANSITION = LinearTransition.duration(0);
 // Let neighboring rows move out of the new rows' space before showing their text.
 const THREAD_FEED_DISCLOSURE_ENTER_TRANSITION = FadeIn.delay(
   THREAD_DISCLOSURE_TRANSITION_MS,
@@ -2394,10 +2395,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   );
   const markdownStyles = useMarkdownStyles(onMarkdownLinkPress, renderMarkdownImage);
   const reviewCommentColors = useReviewCommentColors();
+  const unsettledTurnId = threadFeedRunIsUnsettled(props.latestRun) ? props.latestRun.runId : null;
   // LegendList does not invalidate visible rows when only the renderItem closure changes.
-  // Keep row-local interaction props in extraData so disclosures and copy feedback repaint.
+  // Include turn completion so unchanged message rows reveal their footer and spacing
+  // even when the final message update arrives before the turn settles.
   const listAppearanceData = useMemo(
     () => ({
+      dispatchingMessageId: props.dispatchingMessageId,
+      unsettledTurnId,
       copiedRowId,
       expandedWorkGroups,
       expandedWorkRows,
@@ -2410,6 +2415,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       viewportWidth,
     }),
     [
+      props.dispatchingMessageId,
+      unsettledTurnId,
       copiedRowId,
       expandedWorkGroups,
       expandedWorkRows,
@@ -2596,8 +2603,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
     return new Set(terminalIdsByTurn.values());
   }, [props.feed]);
-  const unsettledTurnId = threadFeedRunIsUnsettled(props.latestRun) ? props.latestRun.runId : null;
-
   useEffect(() => {
     const previous = previousLatestTurnRef.current;
     previousLatestTurnRef.current = props.latestRun;
@@ -2983,7 +2988,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               entry.type === "message" ? `message:${entry.message.role}` : entry.type
             }
             getFixedItemSize={getFixedItemSize}
-            itemLayoutAnimation={THREAD_FEED_LAYOUT_TRANSITION}
+            // LegendList swaps its position and size component types when this
+            // becomes undefined, remounting the feed and replaying row entrances.
+            // Keep those containers mounted while ordinary updates stay immediate.
+            itemLayoutAnimation={
+              disclosureToggleSettling
+                ? THREAD_FEED_LAYOUT_TRANSITION
+                : THREAD_FEED_IMMEDIATE_TRANSITION
+            }
             onItemSizeChanged={handleItemSizeChanged}
             // Measure rows well before they scroll into view so estimate→actual
             // corrections land offscreen instead of under the user's finger.
