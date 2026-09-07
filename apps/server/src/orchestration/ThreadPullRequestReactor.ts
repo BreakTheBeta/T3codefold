@@ -1,3 +1,5 @@
+import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import { type OrchestrationV2DomainEvent } from "@t3tools/contracts";
 import {
   CommandId,
   type OrchestrationEvent,
@@ -79,6 +81,7 @@ export function pullRequestMatchesProject(
 
 export const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+  const orchestrator = yield* OrchestratorV2;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const git = yield* GitManager.GitManager;
   const pullRequests = yield* PullRequestService.PullRequestService;
@@ -104,8 +107,9 @@ export const make = Effect.gen(function* () {
   const synchronize = Effect.fn("ThreadPullRequestReactor.synchronize")(function* (
     request: RefreshRequest,
   ) {
-    const snapshot = yield* snapshots.getShellSnapshot();
-    const projects = new Map(snapshot.projects.map((project) => [project.id, project]));
+    const snapshot = yield* orchestrator.getShellSnapshot();
+    const projectShells = yield* snapshots.getProjectShellsWithoutEnrichment();
+    const projects = new Map(projectShells.map((project) => [project.id, project]));
     if (request.backfill) {
       for (const thread of snapshot.threads) {
         if (thread.settledOverride === "settled" && thread.branchPullRequest == null) {
@@ -135,8 +139,12 @@ export const make = Effect.gen(function* () {
       (group) =>
         Effect.gen(function* () {
           const first = group[0]!;
-          const project = projects.get(first.projectId);
-          if (project === undefined) return finishBackfill(group);
+          const projectShell = projects.get(first.projectId);
+          if (projectShell === undefined) return finishBackfill(group);
+          const project = {
+            ...projectShell,
+            repositoryIdentity: yield* repositoryIdentities.resolve(projectShell.workspaceRoot),
+          };
           const repository = PullRequestService.repositoryIdentityOf(project);
           if (first.branch !== null && repository === null) return finishBackfill(group);
           const worktreeExists =
@@ -253,7 +261,7 @@ export const make = Effect.gen(function* () {
             ({ thread, branchPullRequest, replacement }) =>
               Effect.gen(function* () {
                 const uuid = yield* crypto.randomUUIDv4;
-                yield* engine.dispatch({
+                yield* orchestrator.dispatch({
                   type: "thread.pull-request.sync",
                   commandId: CommandId.make(`server:thread-pull-request:${thread.id}:${uuid}`),
                   threadId: thread.id,
@@ -273,8 +281,7 @@ export const make = Effect.gen(function* () {
               }).pipe(
                 // The thread changed since the lookup. Its own events requeue it.
                 Effect.catchTags({
-                  OrchestrationCommandInvariantError: () =>
-                    Effect.sync(() => finishBackfill([thread])),
+                  OrchestratorDispatchError: () => Effect.sync(() => finishBackfill([thread])),
                 }),
                 Effect.catchCause((cause) =>
                   Cause.hasInterruptsOnly(cause)
@@ -313,35 +320,23 @@ export const make = Effect.gen(function* () {
     ),
   );
 
-  const processEvent = (event: OrchestrationEvent) => {
+  const processEvent = (event: OrchestrationEvent) =>
+    event.type === "project.meta-updated" && event.payload.workspaceRoot !== undefined
+      ? worker.enqueue({ threadId: null, refresh: false })
+      : Effect.void;
+
+  const processThreadEvent = (event: OrchestrationV2DomainEvent) => {
     switch (event.type) {
       case "thread.created":
       case "thread.unarchived":
-        return worker.enqueue({ threadId: event.payload.threadId, refresh: false });
-      case "thread.meta-updated":
-        if (
-          event.payload.branchPullRequest === undefined &&
-          (event.payload.branch !== undefined ||
-            event.payload.worktreePath !== undefined ||
-            event.payload.linkedPullRequest !== undefined)
-        ) {
-          return worker.enqueue({ threadId: event.payload.threadId, refresh: false });
-        }
-        break;
-      case "thread.session-set":
-        if (
-          event.payload.session.status !== "running" &&
-          event.payload.session.status !== "starting"
-        ) {
-          return worker.enqueue({ threadId: event.payload.threadId, refresh: true });
-        }
-        break;
-      case "thread.turn-diff-completed":
+      case "thread.metadata-updated":
+        return worker.enqueue({ threadId: event.threadId, refresh: false });
       case "thread.unsettled":
-        return worker.enqueue({ threadId: event.payload.threadId, refresh: true });
-      case "project.meta-updated":
-        if (event.payload.workspaceRoot !== undefined) {
-          return worker.enqueue({ threadId: null, refresh: false });
+      case "checkpoint.captured":
+        return worker.enqueue({ threadId: event.threadId, refresh: true });
+      case "run.updated":
+        if (["completed", "failed", "interrupted"].includes(event.payload.status)) {
+          return worker.enqueue({ threadId: event.threadId, refresh: true });
         }
         break;
     }
@@ -351,6 +346,15 @@ export const make = Effect.gen(function* () {
   const start = Effect.fn("ThreadPullRequestReactor.start")(function* () {
     const events = yield* engine.subscribeDomainEvents;
     yield* forkParked(Stream.runForEach(events, processEvent));
+    yield* forkParked(
+      Stream.runForEach(orchestrator.streamDomainEvents, processThreadEvent).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("thread pull request event stream failed", {
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      ),
+    );
     // Run without client demand. Saved branch lookups share GitManager's
     // provider cache and retry backoff with status and automatic settlement.
     yield* forkParked(

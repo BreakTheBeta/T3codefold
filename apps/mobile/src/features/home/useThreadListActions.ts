@@ -5,6 +5,7 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useRef } from "react";
 import { Alert } from "react-native";
 
+import { threadCanArchive } from "./threadArchive";
 import { showConfirmDialog } from "../../components/ConfirmDialogHost";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { refreshArchivedThreadsForEnvironment } from "../archive/useArchivedThreadSnapshots";
@@ -120,11 +121,7 @@ function useThreadActionExecutor(
         }
         // Archive keeps its original, narrower guard: never interrupt a
         // thread mid-turn.
-        if (
-          action === "archive" &&
-          thread.session?.status === "running" &&
-          thread.session.activeTurnId != null
-        ) {
+        if (action === "archive" && !threadCanArchive(thread.runtime)) {
           Alert.alert(
             actionFailureTitle(action),
             "This thread is working. Interrupt it first, then try again.",

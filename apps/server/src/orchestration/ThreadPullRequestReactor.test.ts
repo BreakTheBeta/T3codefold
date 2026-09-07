@@ -1,14 +1,18 @@
+import * as DateTime from "effect/DateTime";
+import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import { emptyProjection, threadShellFromProjection } from "../orchestration-v2/ProjectionStore.ts";
 import {
   EventId,
   GitManagerError,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type OrchestrationCommand,
-  type OrchestrationEvent,
+  type OrchestrationV2Command as OrchestrationCommand,
+  type OrchestrationV2DomainEvent as OrchestrationEvent,
+  type OrchestrationV2AppThread,
   type OrchestrationProjectShell,
-  type OrchestrationShellSnapshot,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShellSnapshot,
+  type OrchestrationV2ThreadShell as OrchestrationThreadShell,
   type PullRequestRef,
   type PullRequestSummary,
   type ThreadLinkedPullRequest,
@@ -76,30 +80,46 @@ function summary(input: PullRequestRef, state: PullRequestSummary["state"]): Pul
   };
 }
 
+function appThread(id: string): OrchestrationV2AppThread {
+  const threadId = ThreadId.make(id);
+  return {
+    id: threadId,
+    projectId: PROJECT_ID,
+    title: id,
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+    createdBy: "user",
+    creationSource: "web",
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: "feature",
+    worktreePath: null,
+    activeProviderThreadId: null,
+    lineage: { rootThreadId: threadId, parentThreadId: null, relationshipToParent: null },
+    forkedFrom: null,
+    createdAt: DateTime.makeUnsafe(NOW),
+    updatedAt: DateTime.makeUnsafe(NOW),
+    archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
+    lastVisitedAt: null,
+    deletedAt: null,
+  };
+}
 function thread(
   id: string,
   overrides: Partial<OrchestrationThreadShell> = {},
 ): OrchestrationThreadShell {
   return {
-    id: ThreadId.make(id),
-    projectId: PROJECT_ID,
-    title: id,
-    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
-    runtimeMode: "full-access",
-    interactionMode: "default",
-    branch: "feature",
-    worktreePath: null,
-    latestTurn: null,
-    createdAt: NOW,
-    updatedAt: NOW,
-    archivedAt: null,
-    settledOverride: null,
-    settledAt: null,
-    session: null,
-    latestUserMessageAt: NOW,
-    hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
+    ...threadShellFromProjection(
+      emptyProjection({
+        type: "thread.created",
+        id: EventId.make(`create:${id}`),
+        threadId: ThreadId.make(id),
+        occurredAt: DateTime.makeUnsafe(NOW),
+        payload: appThread(id),
+      }),
+    ),
     ...overrides,
   };
 }
@@ -133,11 +153,16 @@ const makeHarness = Effect.fn("makeThreadPullRequestHarness")(function* (options
   readonly resolveRepositoryIdentity?: RepositoryIdentityResolver["Service"]["resolve"];
 }) {
   const activation = yield* Deferred.make<void>();
-  const snapshots = yield* Ref.make<OrchestrationShellSnapshot>({
+  const snapshots = yield* Ref.make<
+    OrchestrationV2ThreadShellSnapshot & {
+      readonly projects: ReadonlyArray<OrchestrationProjectShell>;
+    }
+  >({
+    schemaVersion: 1,
+    archivedThreads: [],
     snapshotSequence: 1,
     projects: [options.project ?? project],
     threads: options.threads,
-    updatedAt: NOW,
   });
   const reads = yield* Queue.unbounded<void>();
   const events = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -149,8 +174,8 @@ const makeHarness = Effect.fn("makeThreadPullRequestHarness")(function* (options
   let uuid = 0;
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
-      getShellSnapshot: () =>
-        Ref.get(snapshots).pipe(Effect.tap(() => Queue.offer(reads, undefined))),
+      getProjectShellsWithoutEnrichment: () =>
+        Ref.get(snapshots).pipe(Effect.map((snapshot) => snapshot.projects)),
     }),
     Layer.mock(GitManager)({
       branchPullRequest: (input, readOptions) =>
@@ -174,10 +199,11 @@ const makeHarness = Effect.fn("makeThreadPullRequestHarness")(function* (options
         options.resolveRepositoryIdentity ??
         (() => Effect.succeed(options.project?.repositoryIdentity ?? project.repositoryIdentity)),
     }),
-    Layer.mock(OrchestrationEngineService)({
-      subscribeDomainEvents: PubSub.subscribe(events).pipe(
-        Effect.map((subscription) => Stream.fromSubscription(subscription)),
-      ),
+    Layer.mock(OrchestrationEngineService)({ subscribeDomainEvents: Effect.succeed(Stream.empty) }),
+    Layer.mock(OrchestratorV2)({
+      getShellSnapshot: () =>
+        Ref.get(snapshots).pipe(Effect.tap(() => Queue.offer(reads, undefined))),
+      streamDomainEvents: Stream.fromPubSub(events),
       dispatch: (command) => {
         if (command.type !== "thread.pull-request.sync") {
           return Effect.die(`Unexpected command: ${command.type}`);
@@ -200,7 +226,7 @@ const makeHarness = Effect.fn("makeThreadPullRequestHarness")(function* (options
               ),
             })),
           ),
-          Effect.map((snapshot) => ({ sequence: snapshot.snapshotSequence })),
+          Effect.map((snapshot) => ({ sequence: snapshot.snapshotSequence, storedEvents: [] })),
         );
       },
     }),
@@ -246,7 +272,7 @@ describe("ThreadPullRequestReactor", () => {
           threads: [
             thread("first"),
             thread("second"),
-            thread("archived", { archivedAt: NOW }),
+            thread("archived", { archivedAt: DateTime.makeUnsafe(NOW) }),
             thread("no-branch", { branch: null }),
           ],
           branchPullRequest: () => Effect.succeed(branchPullRequest()),
@@ -326,28 +352,11 @@ describe("ThreadPullRequestReactor", () => {
           const reactor = yield* fixture.start();
           expect(yield* Ref.get(fixture.commands)).toHaveLength(0);
           yield* fixture.publish({
-            type: "thread.session-set",
-            sequence: 2,
-            eventId: EventId.make("turn-finished"),
-            aggregateKind: "thread",
-            aggregateId: current.id,
-            occurredAt: NOW,
-            commandId: null,
-            causationEventId: null,
-            correlationId: null,
-            metadata: {},
-            payload: {
-              threadId: current.id,
-              session: {
-                threadId: current.id,
-                status: "ready",
-                providerName: "Codex",
-                runtimeMode: "full-access",
-                activeTurnId: null,
-                lastError: null,
-                updatedAt: NOW,
-              },
-            },
+            type: "thread.unsettled",
+            id: EventId.make("turn-finished"),
+            threadId: current.id,
+            occurredAt: DateTime.makeUnsafe(NOW),
+            payload: appThread(current.id),
           });
           yield* Queue.take(fixture.reads);
           yield* reactor.drain;
@@ -460,11 +469,11 @@ describe("ThreadPullRequestReactor", () => {
         const online = yield* Ref.make(false);
         const fixture = yield* makeHarness({
           threads: [
-            thread("backfill", { settledOverride: "settled", settledAt: NOW }),
+            thread("backfill", { settledOverride: "settled", settledAt: DateTime.makeUnsafe(NOW) }),
             thread("known", {
               branch: "known",
               settledOverride: "settled",
-              settledAt: NOW,
+              settledAt: DateTime.makeUnsafe(NOW),
               branchPullRequest: reference(1),
             }),
           ],
@@ -508,7 +517,9 @@ describe("ThreadPullRequestReactor", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* makeHarness({
-          threads: [thread("backfill", { settledOverride: "settled", settledAt: NOW })],
+          threads: [
+            thread("backfill", { settledOverride: "settled", settledAt: DateTime.makeUnsafe(NOW) }),
+          ],
           branchPullRequest: ({ cwd }) =>
             Effect.fail(
               new GitManagerError({ operation: "branchPullRequest", cwd, detail: "No gh" }),

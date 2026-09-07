@@ -1282,28 +1282,20 @@ function parseThreadSnapshot(
   };
 }
 
-export const makeCodexSessionRuntime = (
-  options: CodexSessionRuntimeOptions,
-): Effect.Effect<
-  CodexSessionRuntimeShape,
-  CodexErrors.CodexAppServerError,
-  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Scope.Scope
-> =>
+/** Coordinates WebRTC negotiation and bounded cleanup on one native Codex thread. */
+export const makeCodexRealtimeVoice = (
+  client: CodexClient.CodexAppServerClient["Service"],
+  options: {
+    readonly readProviderThreadId: Effect.Effect<string, CodexSessionRuntimeError>;
+    readonly currentSessionProviderThreadId: Effect.Effect<string | undefined>;
+    readonly realtimeVoiceNegotiationTimeoutMs?: number;
+    readonly realtimeVoiceStopTimeoutMs?: number;
+  },
+) =>
   Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const runtimeScope = yield* Scope.Scope;
-    const crypto = yield* Crypto.Crypto;
-    const events = yield* Queue.unbounded<ProviderEvent>();
-    const pendingApprovalsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingApproval>());
-    const approvalCorrelationsRef = yield* Ref.make(new Map<string, ApprovalCorrelation>());
-    const pendingUserInputsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingUserInput>());
-    const collabReceiverTurnsRef = yield* Ref.make(new Map<string, TurnId>());
-    const collabChildAgentsRef = yield* Ref.make(new Map<string, CollabChildAgentState>());
-    const collabChildMetadataRef = yield* Ref.make(new Map<string, CollabChildMetadataState>());
-    /** Child provider-thread id → its currently running provider turn id. */
-    const collabChildLiveTurnsRef = yield* Ref.make(new Map<string, string>());
-    const suppressMemoryConsolidationNotification = makeMemoryConsolidationNotificationFilter();
+    const { readProviderThreadId, currentSessionProviderThreadId } = options;
     const closedRef = yield* Ref.make(false);
+    const activeRef = yield* Ref.make(false);
     const realtimeVoiceStateRef = yield* Ref.make<RealtimeVoiceState | null>(null);
     const realtimeVoiceNegotiationTimeoutMs = Math.max(
       1,
@@ -1484,6 +1476,187 @@ export const makeCodexSessionRuntime = (
         }),
       );
 
+    yield* client.handleServerNotification("thread/realtime/sdp", (payload) =>
+      currentSessionProviderThreadId.pipe(
+        Effect.flatMap((providerThreadId) => {
+          if (providerThreadId && payload.threadId !== providerThreadId) {
+            return Effect.void;
+          }
+          return Ref.get(realtimeVoiceStateRef).pipe(
+            Effect.flatMap((state) =>
+              state?._tag !== "pending" || state.providerThreadId !== payload.threadId
+                ? Effect.void
+                : Deferred.succeed(state.answer, payload.sdp).pipe(Effect.asVoid),
+            ),
+          );
+        }),
+      ),
+    );
+
+    yield* client.handleServerNotification("thread/realtime/error", (payload) =>
+      currentSessionProviderThreadId.pipe(
+        Effect.flatMap((providerThreadId) => {
+          if (providerThreadId && payload.threadId !== providerThreadId) {
+            return Effect.void;
+          }
+          return failPendingRealtimeVoice(
+            payload.threadId,
+            new CodexSessionRuntimeRealtimeVoiceNegotiationError({
+              providerThreadId: payload.threadId,
+              detail: payload.message,
+            }),
+          ).pipe(
+            Effect.tap(() =>
+              Effect.logWarning("Codex voice provider error", {
+                providerThreadId: payload.threadId,
+                message: payload.message,
+              }),
+            ),
+          );
+        }),
+      ),
+    );
+
+    yield* client.handleServerNotification("thread/realtime/closed", (payload) =>
+      currentSessionProviderThreadId.pipe(
+        Effect.flatMap((providerThreadId) => {
+          if (providerThreadId && payload.threadId !== providerThreadId) {
+            return Effect.void;
+          }
+          return Ref.set(activeRef, false)
+            .pipe(
+              Effect.andThen(
+                settleClosedRealtimeVoice(
+                  payload.threadId,
+                  new CodexSessionRuntimeRealtimeVoiceNegotiationError({
+                    providerThreadId: payload.threadId,
+                    detail: payload.reason ?? "Realtime transport closed during negotiation.",
+                  }),
+                ),
+              ),
+            )
+            .pipe(
+              Effect.tap(() =>
+                Effect.logInfo("Codex voice transport closed", {
+                  providerThreadId: payload.threadId,
+                  reason: payload.reason ?? "unspecified",
+                }),
+              ),
+            );
+        }),
+      ),
+    );
+
+    return {
+      startRealtimeVoice: (sdp: string) =>
+        Effect.gen(function* () {
+          const providerThreadId = yield* readProviderThreadId;
+          const stoppedError = new CodexSessionRuntimeRealtimeVoiceStoppedError({
+            providerThreadId,
+          });
+          if (yield* Ref.get(closedRef)) {
+            return yield* stoppedError;
+          }
+          const previousState = yield* Ref.get(realtimeVoiceStateRef);
+          if (previousState?._tag === "stopFailed") {
+            yield* coordinateRealtimeVoiceStop(providerThreadId, stoppedError);
+          }
+          const answer = yield* Deferred.make<string, CodexSessionRuntimeError>();
+          const pending = {
+            _tag: "pending",
+            providerThreadId,
+            answer,
+          } satisfies PendingRealtimeVoice;
+          const installed = yield* installPendingRealtimeVoice(pending);
+          if (!installed) {
+            return yield* new CodexSessionRuntimeRealtimeVoiceAlreadyStartingError({
+              providerThreadId,
+            });
+          }
+          if (yield* Ref.get(closedRef)) {
+            yield* coordinateRealtimeVoiceStop(providerThreadId, stoppedError, pending).pipe(
+              Effect.ignore,
+            );
+            return yield* stoppedError;
+          }
+
+          const result = yield* Effect.raceFirst(
+            client.raw
+              .request(
+                "thread/realtime/start",
+                buildCodexRealtimeStartParams(providerThreadId, sdp),
+              )
+              .pipe(Effect.andThen(Effect.never)),
+            Deferred.await(answer),
+          ).pipe(
+            Effect.timeoutOption(`${realtimeVoiceNegotiationTimeoutMs} millis`),
+            Effect.onExit((exit) =>
+              Exit.isSuccess(exit) && Option.isSome(exit.value)
+                ? Effect.void
+                : coordinateRealtimeVoiceStop(providerThreadId, stoppedError, pending).pipe(
+                    Effect.ignore,
+                  ),
+            ),
+          );
+          if (Option.isNone(result)) {
+            return yield* new CodexSessionRuntimeRealtimeVoiceAnswerTimeoutError({
+              providerThreadId,
+              timeoutMs: realtimeVoiceNegotiationTimeoutMs,
+            });
+          }
+          const completed = yield* completePendingRealtimeVoice(pending);
+          if (!completed) {
+            yield* coordinateRealtimeVoiceStop(providerThreadId, stoppedError).pipe(Effect.ignore);
+            return yield* stoppedError;
+          }
+          yield* Ref.set(activeRef, true);
+          return result.value;
+        }),
+      isActive: Ref.get(activeRef),
+      stopRealtimeVoice: Effect.gen(function* () {
+        yield* Ref.set(activeRef, false);
+        const providerThreadId = yield* readProviderThreadId;
+        yield* coordinateRealtimeVoiceStop(
+          providerThreadId,
+          new CodexSessionRuntimeRealtimeVoiceStoppedError({ providerThreadId }),
+        );
+      }),
+      close: Effect.gen(function* () {
+        if (yield* Ref.getAndSet(closedRef, true)) return;
+        yield* Ref.set(activeRef, false);
+        const providerThreadId = yield* currentSessionProviderThreadId;
+        if (providerThreadId) {
+          yield* coordinateRealtimeVoiceStop(
+            providerThreadId,
+            new CodexSessionRuntimeRealtimeVoiceStoppedError({ providerThreadId }),
+          ).pipe(Effect.ignore);
+        }
+      }),
+    };
+  });
+
+export const makeCodexSessionRuntime = (
+  options: CodexSessionRuntimeOptions,
+): Effect.Effect<
+  CodexSessionRuntimeShape,
+  CodexErrors.CodexAppServerError,
+  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Scope.Scope
+> =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const runtimeScope = yield* Scope.Scope;
+    const crypto = yield* Crypto.Crypto;
+    const events = yield* Queue.unbounded<ProviderEvent>();
+    const pendingApprovalsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingApproval>());
+    const approvalCorrelationsRef = yield* Ref.make(new Map<string, ApprovalCorrelation>());
+    const pendingUserInputsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingUserInput>());
+    const collabReceiverTurnsRef = yield* Ref.make(new Map<string, TurnId>());
+    const collabChildAgentsRef = yield* Ref.make(new Map<string, CollabChildAgentState>());
+    const collabChildMetadataRef = yield* Ref.make(new Map<string, CollabChildMetadataState>());
+    /** Child provider-thread id → its currently running provider turn id. */
+    const collabChildLiveTurnsRef = yield* Ref.make(new Map<string, string>());
+    const suppressMemoryConsolidationNotification = makeMemoryConsolidationNotificationFilter();
+    const closedRef = yield* Ref.make(false);
     // `~` is not shell-expanded when env vars are set via
     // `child_process.spawn`; `expandHomePath` lets a configured
     // `CODEX_HOME=~/.codex_work` reach codex as an absolute path.
@@ -2227,71 +2400,6 @@ export const makeCodexSessionRuntime = (
       ),
     );
 
-    yield* client.handleServerNotification("thread/realtime/sdp", (payload) =>
-      currentSessionProviderThreadId.pipe(
-        Effect.flatMap((providerThreadId) => {
-          if (providerThreadId && payload.threadId !== providerThreadId) {
-            return Effect.void;
-          }
-          return Ref.get(realtimeVoiceStateRef).pipe(
-            Effect.flatMap((state) =>
-              state?._tag !== "pending" || state.providerThreadId !== payload.threadId
-                ? Effect.void
-                : Deferred.succeed(state.answer, payload.sdp).pipe(Effect.asVoid),
-            ),
-          );
-        }),
-      ),
-    );
-
-    yield* client.handleServerNotification("thread/realtime/error", (payload) =>
-      currentSessionProviderThreadId.pipe(
-        Effect.flatMap((providerThreadId) => {
-          if (providerThreadId && payload.threadId !== providerThreadId) {
-            return Effect.void;
-          }
-          return failPendingRealtimeVoice(
-            payload.threadId,
-            new CodexSessionRuntimeRealtimeVoiceNegotiationError({
-              providerThreadId: payload.threadId,
-              detail: payload.message,
-            }),
-          ).pipe(
-            Effect.tap(() =>
-              Effect.logWarning("Codex voice provider error", {
-                providerThreadId: payload.threadId,
-                message: payload.message,
-              }),
-            ),
-          );
-        }),
-      ),
-    );
-
-    yield* client.handleServerNotification("thread/realtime/closed", (payload) =>
-      currentSessionProviderThreadId.pipe(
-        Effect.flatMap((providerThreadId) => {
-          if (providerThreadId && payload.threadId !== providerThreadId) {
-            return Effect.void;
-          }
-          return settleClosedRealtimeVoice(
-            payload.threadId,
-            new CodexSessionRuntimeRealtimeVoiceNegotiationError({
-              providerThreadId: payload.threadId,
-              detail: payload.reason ?? "Realtime transport closed during negotiation.",
-            }),
-          ).pipe(
-            Effect.tap(() =>
-              Effect.logInfo("Codex voice transport closed", {
-                providerThreadId: payload.threadId,
-                reason: payload.reason ?? "unspecified",
-              }),
-            ),
-          );
-        }),
-      ),
-    );
-
     yield* client.handleServerRequest("item/commandExecution/requestApproval", (payload) =>
       Effect.gen(function* () {
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4("command-approval-request"));
@@ -2646,6 +2754,17 @@ export const makeCodexSessionRuntime = (
       return providerThreadId;
     });
 
+    const realtimeVoice = yield* makeCodexRealtimeVoice(client, {
+      readProviderThreadId,
+      currentSessionProviderThreadId,
+      ...(options.realtimeVoiceNegotiationTimeoutMs === undefined
+        ? {}
+        : { realtimeVoiceNegotiationTimeoutMs: options.realtimeVoiceNegotiationTimeoutMs }),
+      ...(options.realtimeVoiceStopTimeoutMs === undefined
+        ? {}
+        : { realtimeVoiceStopTimeoutMs: options.realtimeVoiceStopTimeoutMs }),
+    });
+
     const close = Effect.gen(function* () {
       const alreadyClosed = yield* Ref.getAndSet(closedRef, true);
       if (alreadyClosed) {
@@ -2653,13 +2772,7 @@ export const makeCodexSessionRuntime = (
       }
       yield* settlePendingApprovals("cancel");
       yield* settlePendingUserInputs({});
-      const providerThreadId = currentProviderThreadId(yield* Ref.get(sessionRef));
-      if (providerThreadId) {
-        yield* coordinateRealtimeVoiceStop(
-          providerThreadId,
-          new CodexSessionRuntimeRealtimeVoiceStoppedError({ providerThreadId }),
-        ).pipe(Effect.ignore);
-      }
+      yield* realtimeVoice.close;
       yield* updateSession(sessionRef, {
         status: "closed",
         activeTurnId: undefined,
@@ -2771,76 +2884,8 @@ export const makeCodexSessionRuntime = (
             turnId: effectiveTurnId,
           });
         }),
-      startRealtimeVoice: (sdp) =>
-        Effect.gen(function* () {
-          const providerThreadId = yield* readProviderThreadId;
-          const stoppedError = new CodexSessionRuntimeRealtimeVoiceStoppedError({
-            providerThreadId,
-          });
-          if (yield* Ref.get(closedRef)) {
-            return yield* stoppedError;
-          }
-          const previousState = yield* Ref.get(realtimeVoiceStateRef);
-          if (previousState?._tag === "stopFailed") {
-            yield* coordinateRealtimeVoiceStop(providerThreadId, stoppedError);
-          }
-          const answer = yield* Deferred.make<string, CodexSessionRuntimeError>();
-          const pending = {
-            _tag: "pending",
-            providerThreadId,
-            answer,
-          } satisfies PendingRealtimeVoice;
-          const installed = yield* installPendingRealtimeVoice(pending);
-          if (!installed) {
-            return yield* new CodexSessionRuntimeRealtimeVoiceAlreadyStartingError({
-              providerThreadId,
-            });
-          }
-          if (yield* Ref.get(closedRef)) {
-            yield* coordinateRealtimeVoiceStop(providerThreadId, stoppedError, pending).pipe(
-              Effect.ignore,
-            );
-            return yield* stoppedError;
-          }
-
-          const result = yield* Effect.raceFirst(
-            client.raw
-              .request(
-                "thread/realtime/start",
-                buildCodexRealtimeStartParams(providerThreadId, sdp),
-              )
-              .pipe(Effect.andThen(Effect.never)),
-            Deferred.await(answer),
-          ).pipe(
-            Effect.timeoutOption(`${realtimeVoiceNegotiationTimeoutMs} millis`),
-            Effect.onExit((exit) =>
-              Exit.isSuccess(exit) && Option.isSome(exit.value)
-                ? Effect.void
-                : coordinateRealtimeVoiceStop(providerThreadId, stoppedError, pending).pipe(
-                    Effect.ignore,
-                  ),
-            ),
-          );
-          if (Option.isNone(result)) {
-            return yield* new CodexSessionRuntimeRealtimeVoiceAnswerTimeoutError({
-              providerThreadId,
-              timeoutMs: realtimeVoiceNegotiationTimeoutMs,
-            });
-          }
-          const completed = yield* completePendingRealtimeVoice(pending);
-          if (!completed) {
-            yield* coordinateRealtimeVoiceStop(providerThreadId, stoppedError).pipe(Effect.ignore);
-            return yield* stoppedError;
-          }
-          return result.value;
-        }),
-      stopRealtimeVoice: Effect.gen(function* () {
-        const providerThreadId = yield* readProviderThreadId;
-        yield* coordinateRealtimeVoiceStop(
-          providerThreadId,
-          new CodexSessionRuntimeRealtimeVoiceStoppedError({ providerThreadId }),
-        );
-      }),
+      startRealtimeVoice: realtimeVoice.startRealtimeVoice,
+      stopRealtimeVoice: realtimeVoice.stopRealtimeVoice,
       readThread: Effect.gen(function* () {
         const providerThreadId = yield* readProviderThreadId;
         const response = yield* client.request("thread/read", {

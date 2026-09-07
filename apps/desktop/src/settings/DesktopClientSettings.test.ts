@@ -13,6 +13,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "./DesktopClientSettings.ts";
 
 const clientSettings: ClientSettings = {
+  citeSelectionEnabled: true,
   appearanceContrast: 100,
   browserDefaultViewport: { _tag: "preset", width: 1024, height: 600, presetId: "nest-hub" },
   browserDefaultZoomFactor: 1.25,
@@ -48,6 +49,7 @@ const clientSettings: ClientSettings = {
   planModeEnabled: false,
   proactivePanelsEnabled: true,
   showSkillsInSlashMenu: false,
+  persistComposerContextStrip: true,
   providerModelPreferences: {},
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {

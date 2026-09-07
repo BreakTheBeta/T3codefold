@@ -1,4 +1,4 @@
-import { ApprovalRequestId } from "@t3tools/contracts";
+import { RuntimeRequestId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -6,7 +6,8 @@ import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import type { PendingUserInput } from "../../session-logic";
 
 const prompt: PendingUserInput = {
-  requestId: ApprovalRequestId.make("request-1"),
+  requestId: RuntimeRequestId.make("request-1"),
+  responseCapability: "live" as const,
   createdAt: "2026-08-15T00:00:00.000Z",
   questions: [
     {
@@ -20,13 +21,12 @@ const prompt: PendingUserInput = {
       multiSelect: false,
     },
   ],
-  dismissible: true,
 };
 
-function renderPanel(pendingUserInput: PendingUserInput = prompt) {
+function renderPanel() {
   return renderToStaticMarkup(
     <ComposerPendingUserInputPanel
-      pendingUserInputs={[pendingUserInput]}
+      pendingUserInputs={[prompt]}
       respondingRequestIds={[]}
       answers={{}}
       questionIndex={0}
@@ -50,13 +50,6 @@ describe("ComposerPendingUserInputPanel", () => {
     const controlledId = toggle?.match(/aria-controls="([^"]+)"/)?.[1];
     expect(controlledId).toBeDefined();
     expect(markup).toMatch(new RegExp(`<div[^>]*\\sid="${controlledId}"`));
-  });
-
-  it("offers dismiss only for async questions", () => {
-    expect(renderPanel()).toContain("data-pending-user-input-dismiss");
-    expect(renderPanel({ ...prompt, dismissible: false })).not.toContain(
-      "data-pending-user-input-dismiss",
-    );
   });
 
   it("starts expanded so the question and its options are visible", () => {

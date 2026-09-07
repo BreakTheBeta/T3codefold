@@ -846,7 +846,7 @@ export function HomeScreen(props: HomeScreenProps) {
               ?.providers.find(
                 (provider) =>
                   provider.instanceId ===
-                  (thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
+                  (thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId),
               )?.driver ?? null
           }
           environmentLabel={

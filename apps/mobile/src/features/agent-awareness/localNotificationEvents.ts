@@ -16,8 +16,8 @@ type NotificationThread = Pick<
   | "title"
   | "hasPendingApprovals"
   | "hasPendingUserInput"
-  | "latestTurn"
-  | "session"
+  | "latestRun"
+  | "runtime"
 >;
 
 function threadKey(thread: NotificationThread): string {
@@ -39,18 +39,18 @@ export function localAgentNotificationEvents(input: {
       kind = "approval";
     } else if (!previous.hasPendingUserInput && thread.hasPendingUserInput) {
       kind = "input";
-    } else if (previous.session?.status !== "error" && thread.session?.status === "error") {
+    } else if (previous.runtime?.status !== "failed" && thread.runtime?.status === "failed") {
       kind = "failure";
     } else if (
-      thread.latestTurn?.state === "error" &&
-      (previous.latestTurn?.turnId !== thread.latestTurn.turnId ||
-        previous.latestTurn.state !== "error")
+      thread.latestRun?.status === "failed" &&
+      (previous.latestRun?.runId !== thread.latestRun.runId ||
+        previous.latestRun.status !== "failed")
     ) {
       kind = "failure";
     } else if (
-      thread.latestTurn?.state === "completed" &&
-      (previous.latestTurn?.turnId !== thread.latestTurn.turnId ||
-        previous.latestTurn.state !== "completed")
+      thread.latestRun?.status === "completed" &&
+      (previous.latestRun?.runId !== thread.latestRun.runId ||
+        previous.latestRun.status !== "completed")
     ) {
       kind = "completion";
     }

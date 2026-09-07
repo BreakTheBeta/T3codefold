@@ -1,3 +1,4 @@
+import { useProject } from "../../state/entities";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -27,6 +28,7 @@ import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regenerati
 import {
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
+  threadHasUnseenCompletion,
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
   type ThreadListV2Status,
@@ -427,7 +429,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const snoozedRow = props.snoozed === true;
   const pinnedRow = props.pinned === true;
 
-  const pr = useThreadPr(thread);
+  const project = useProject({ environmentId: thread.environmentId, projectId: thread.projectId });
+  const projectCwd = project?.workspaceRoot ?? null;
+  const pr = useThreadPr(thread, projectCwd);
 
   const theme = useUniwindTheme();
   const screenColor = theme["--color-screen"];
@@ -438,7 +442,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const selected = props.selected === true;
 
   const status = resolveThreadListV2Status(thread);
-  const statusLabel = STATUS_LABEL_BY_STATUS[status];
+  const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
+  const statusLabel =
+    STATUS_LABEL_BY_STATUS[status] ??
+    (isUnread ? { label: "Done", className: "text-adaptive-emerald-700-300" } : undefined);
   // Settled rows label by the same stamp they sort by, so order and label
   // can't disagree. updatedAt is always present, so the resolver never
   // returns null here.
@@ -758,7 +765,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2">
-        {status === "failed" && thread.session?.lastError ? (
+        {status === "failed" && thread.runtime?.lastError ? (
           <Text
             className={cn(
               "flex-1 text-xs",
@@ -766,7 +773,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             )}
             numberOfLines={1}
           >
-            {thread.session.lastError}
+            {thread.runtime.lastError}
           </Text>
         ) : thread.branch || props.environmentLabel ? (
           /* "branch · machine" share one truncating line. The machine sits

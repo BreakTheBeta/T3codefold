@@ -49,4 +49,20 @@ describe("resolveThreadReferenceCopyTarget", () => {
       failureTitle: "Failed to copy thread ID",
     });
   });
+
+  it("uses a detected pull request only when no explicit link exists", () => {
+    expect(
+      resolveThreadReferenceCopyTarget({
+        threadId: "thread-1",
+        detectedPullRequestUrl: "https://github.com/t3/pr/16",
+      }),
+    ).toMatchObject({ kind: "pull-request", value: "https://github.com/t3/pr/16" });
+    expect(
+      resolveThreadReferenceCopyTarget({
+        threadId: "thread-1",
+        linkedPullRequestUrl: "https://github.com/t3/pr/12",
+        detectedPullRequestUrl: "https://github.com/t3/pr/16",
+      }),
+    ).toMatchObject({ kind: "pull-request", value: "https://github.com/t3/pr/12" });
+  });
 });

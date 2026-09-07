@@ -1,6 +1,10 @@
 "use client";
 
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -77,11 +81,13 @@ import { filesystemEnvironment } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { sourceControlEnvironment } from "../state/sourceControl";
+import { vcsEnvironment } from "../state/vcs";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useThreadShells } from "../state/entities";
+import { useProject, useProjects, useThreadShells } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
+import * as ThreadPr from "./ThreadStatusIndicators";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
@@ -172,19 +178,6 @@ import {
 import type { Project } from "../types";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
-
-function projectFavicon(project: Project) {
-  return (
-    <ProjectFavicon
-      environmentId={project.environmentId}
-      cwd={project.workspaceRoot}
-      projectName={project.title}
-      faviconPath={project.faviconPath}
-      projectIcon={project.projectIcon}
-      className="size-4"
-    />
-  );
-}
 
 function getEnvironmentBrowsePlatform(os: string | null | undefined): string {
   if (os === "windows") {
@@ -292,6 +285,19 @@ function remoteProjectSourceIcon(source: AddProjectRemoteSource, className: stri
     case "url":
       return <LinkIcon className={className} />;
   }
+}
+
+function projectFaviconIcon(project: Project): ReactNode {
+  return (
+    <ProjectFavicon
+      environmentId={project.environmentId}
+      cwd={project.workspaceRoot}
+      projectName={project.title}
+      faviconPath={project.faviconPath}
+      projectIcon={project.projectIcon}
+      className={ITEM_ICON_CLASS}
+    />
+  );
 }
 
 function remoteProjectInputPlaceholder(flow: AddProjectCloneFlow | null): string | null {
@@ -599,6 +605,35 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const projects = useProjects();
+  const changeRequestSnapshotByKey = useAtomValue(ThreadPr.threadChangeRequestSnapshotsAtom);
+  const activeThreadProject = useProject(
+    activeThread === null
+      ? null
+      : scopeProjectRef(activeThread.environmentId, activeThread.projectId),
+  );
+  const activeThreadCwd = activeThread?.worktreePath ?? activeThreadProject?.workspaceRoot ?? null;
+  const activeThreadGitStatus = useEnvironmentQuery(
+    activeThread != null &&
+      activeThread.linkedPullRequest == null &&
+      activeThread.branch !== null &&
+      activeThreadCwd !== null
+      ? vcsEnvironment.status({
+          environmentId: activeThread.environmentId,
+          input: { cwd: activeThreadCwd },
+        })
+      : null,
+  ).data;
+  const detectedPullRequestUrl =
+    activeThread == null || activeThread.linkedPullRequest != null
+      ? null
+      : (ThreadPr.resolveDisplayedThreadPr({
+          threadBranch: activeThread.branch,
+          gitStatus: activeThreadGitStatus ?? null,
+          snapshot: changeRequestSnapshotByKey.get(
+            scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id)),
+          ),
+          retainTerminalOnBranchMismatch: activeThread.worktreePath === null,
+        })?.url ?? null);
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(
     activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null,
   );
@@ -608,8 +643,8 @@ function OpenCommandPaletteDialog(props: {
       : resolveThreadReferenceCopyTarget({
           threadId: activeThread.id,
           openPanelPullRequestUrl,
-          linkedPullRequestUrl:
-            activeThread.linkedPullRequest?.url ?? activeThread.branchPullRequest?.url ?? null,
+          linkedPullRequestUrl: activeThread.linkedPullRequest?.url ?? null,
+          detectedPullRequestUrl,
         });
   const copyActiveThreadReference = useCallback(async () => {
     const target = activeThreadReferenceCopyTarget;
@@ -1072,7 +1107,7 @@ function OpenCommandPaletteDialog(props: {
             group?.memberProjects.flatMap((member) => [member.title, member.workspaceRoot]) ?? []
           );
         },
-        icon: projectFavicon,
+        icon: projectFaviconIcon,
         runProject: openProjectFromSearch,
       }),
     [openProjectFromSearch, pickerProjects, projectGroupByTargetKey],
@@ -1116,7 +1151,7 @@ function OpenCommandPaletteDialog(props: {
               </span>
             );
           },
-          icon: projectFavicon,
+          icon: projectFaviconIcon,
           runProject: async (project) => {
             const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
             const contextualRefBelongsToGroup =
@@ -1151,11 +1186,18 @@ function OpenCommandPaletteDialog(props: {
         projectTitleById,
         sortOrder: clientSettings.sidebarThreadSortOrder,
         icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
-        renderLeadingContent: (thread) => <ThreadRowLeadingStatus thread={thread} />,
+        renderLeadingContent: (thread) => (
+          <ThreadRowLeadingStatus
+            thread={thread}
+            snapshot={changeRequestSnapshotByKey.get(
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            )}
+          />
+        ),
         renderTrailingContent: (thread) => <ThreadRowTrailingStatus thread={thread} />,
         renderDescription: (thread, { projectTitle }) => {
           const modelInstanceId =
-            thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+            thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
           const providerEntry =
             providerEntryByEnvironmentAndInstanceId.get(
               `${thread.environmentId}:${modelInstanceId}`,
@@ -1174,7 +1216,7 @@ function OpenCommandPaletteDialog(props: {
               isCurrent={thread.id === activeThreadId}
               driverKind={providerEntry?.driverKind ?? null}
               providerDisplayName={
-                thread.session?.providerName ?? providerEntry?.displayName ?? modelInstanceId
+                thread.runtime?.providerName ?? providerEntry?.displayName ?? modelInstanceId
               }
             />
           );
@@ -1203,6 +1245,7 @@ function OpenCommandPaletteDialog(props: {
       }),
     [
       activeThreadId,
+      changeRequestSnapshotByKey,
       clientSettings.sidebarThreadSortOrder,
       navigate,
       projectCwdById,
@@ -1756,8 +1799,6 @@ function OpenCommandPaletteDialog(props: {
     run: async () => {
       await navigate({
         to: item.to,
-        search: (previous) =>
-          item.to === "/settings/projects" ? { ...previous, project: undefined } : previous,
         hash: item.targetId ?? item.id,
         replace: pathname === item.to,
         hashScrollIntoView: false,
