@@ -62,6 +62,11 @@ update can roll back to the previous version. If the update still fails:
 
 ## Mobile updates
 
+The mobile app automatically uses compatibility mode for servers from before the
+orchestration upgrade. You can browse projects and threads, send messages, and
+answer approvals and questions without upgrading those servers. Server-side queues
+and newer orchestration actions still require an updated server.
+
 Install App Store or Google Play releases as usual. The mobile app can also
 download updates in the background and apply them when you next leave the app.
 It saves drafts and queued messages before restarting. If you keep the app open

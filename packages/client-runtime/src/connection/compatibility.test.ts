@@ -35,12 +35,8 @@ describe("orchestration protocol compatibility", () => {
     expect(socketUrl.searchParams.get("connectionMethod")).toBe("relay");
   });
 
-  it("blocks a host that predates negotiation with host-specific upgrade guidance", () => {
-    const error = orchestrationProtocolCompatibilityError(descriptor());
-
-    expect(error).toMatchObject({ reason: "unsupported" });
-    expect(error?.message).toContain("Update T3 Code on Build Mac");
-    expect(error?.message).toContain(`protocol ${ORCHESTRATION_PROTOCOL_VERSION}`);
+  it("accepts a pre-orchestration host for the legacy adapter", () => {
+    expect(orchestrationProtocolCompatibilityError(descriptor())).toBeNull();
   });
 
   it("blocks a different explicit protocol instead of attempting to decode it", () => {

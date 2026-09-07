@@ -24,6 +24,7 @@ import * as RpcClientError from "effect/unstable/rpc/RpcClientError";
 import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
 import * as Socket from "effect/unstable/socket/Socket";
 
+import { makeLegacyWsRpcClient } from "./legacy.ts";
 import { makeWsRpcProtocolClient, type WsRpcProtocolClient } from "./protocol.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
 import type {
@@ -209,7 +210,10 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const protocolContext = yield* Layer.build(protocolLayer).pipe(
       Effect.withSpan("environment.websocket.connect"),
     );
-    const protocolClient = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
+    const protocolClient: WsRpcProtocolClient =
+      connection.legacyOrchestration === true
+        ? yield* makeLegacyWsRpcClient.pipe(Effect.provide(protocolContext))
+        : yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
     const initialConfigDeferred = yield* Deferred.make<ServerConfig>();
     const serverConfigExit = yield* Deferred.make<void, ServerConfigSubscriptionError>();
     const configSubscriptionClosed = yield* Deferred.make<never, ConnectionAttemptError>();

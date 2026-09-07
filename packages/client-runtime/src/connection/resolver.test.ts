@@ -178,7 +178,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
 });
 
 describe("ConnectionResolver", () => {
-  it.effect("blocks an old host during discovery before opening orchestration RPC", () =>
+  it.effect("selects the legacy adapter without advertising the newer protocol", () =>
     Effect.gen(function* () {
       const brokerLayer = yield* makeDependencies({ descriptorProtocolVersion: null });
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
@@ -189,10 +189,10 @@ describe("ConnectionResolver", () => {
         wsBaseUrl: "ws://127.0.0.1:3777",
       });
 
-      const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
+      const prepared = yield* broker.prepare(catalogEntry(target));
 
-      expect(error).toMatchObject({ reason: "unsupported" });
-      expect(error.message).toContain("Update T3 Code on Compatible environment");
+      expect(prepared.legacyOrchestration).toBe(true);
+      expect(new URL(prepared.socketUrl).searchParams.has("orchestrationProtocol")).toBe(false);
     }),
   );
 

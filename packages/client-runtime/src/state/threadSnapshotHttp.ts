@@ -108,32 +108,39 @@ export const threadSnapshotLoaderLayer: Layer.Layer<
     const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
     return ThreadSnapshotLoader.of({
       load: (prepared: PreparedConnection, threadId: ThreadId) =>
-        fetchEnvironmentThreadSnapshot({ prepared, threadId, signer, remoteAuthorization }).pipe(
-          Effect.map((snapshot): ThreadSnapshotLoadResult => ({
-            _tag: "present",
-            snapshot,
-          })),
-          Effect.provideService(HttpClient.HttpClient, httpClient),
-          // A genuinely missing thread (404) is definitive: do not fall back to
-          // the socket or retry. Callers mark the thread deleted and clear cache.
-          Effect.catchTags({
-            EnvironmentResourceNotFoundError: () =>
-              Effect.logDebug(
-                "Thread snapshot not found over HTTP; treating the thread as deleted.",
-              ).pipe(
-                Effect.annotateLogs({ threadId }),
-                Effect.as({ _tag: "missing" } satisfies ThreadSnapshotLoadResult),
+        prepared.legacyOrchestration === true
+          ? Effect.succeed({ _tag: "unavailable" } satisfies ThreadSnapshotLoadResult)
+          : fetchEnvironmentThreadSnapshot({
+              prepared,
+              threadId,
+              signer,
+              remoteAuthorization,
+            }).pipe(
+              Effect.map((snapshot): ThreadSnapshotLoadResult => ({
+                _tag: "present",
+                snapshot,
+              })),
+              Effect.provideService(HttpClient.HttpClient, httpClient),
+              // A genuinely missing thread (404) is definitive: do not fall back to
+              // the socket or retry. Callers mark the thread deleted and clear cache.
+              Effect.catchTags({
+                EnvironmentResourceNotFoundError: () =>
+                  Effect.logDebug(
+                    "Thread snapshot not found over HTTP; treating the thread as deleted.",
+                  ).pipe(
+                    Effect.annotateLogs({ threadId }),
+                    Effect.as({ _tag: "missing" } satisfies ThreadSnapshotLoadResult),
+                  ),
+              }),
+              Effect.catchCause((cause) =>
+                Effect.logWarning(
+                  "Could not load the thread snapshot over HTTP; using the socket snapshot instead.",
+                ).pipe(
+                  Effect.annotateLogs({ threadId, cause: Cause.pretty(cause) }),
+                  Effect.as({ _tag: "unavailable" } satisfies ThreadSnapshotLoadResult),
+                ),
               ),
-          }),
-          Effect.catchCause((cause) =>
-            Effect.logWarning(
-              "Could not load the thread snapshot over HTTP; using the socket snapshot instead.",
-            ).pipe(
-              Effect.annotateLogs({ threadId, cause: Cause.pretty(cause) }),
-              Effect.as({ _tag: "unavailable" } satisfies ThreadSnapshotLoadResult),
             ),
-          ),
-        ),
     });
   }),
 );
