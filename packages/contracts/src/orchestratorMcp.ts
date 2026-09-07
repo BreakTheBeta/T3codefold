@@ -4,6 +4,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import {
   ContextTransferId,
+  EnvironmentId,
   IsoDateTime,
   MessageId,
   NodeId,
@@ -256,6 +257,8 @@ export const OrchestratorMcpCreatedThreadStatus = Schema.Union([
 export type OrchestratorMcpCreatedThreadStatus = typeof OrchestratorMcpCreatedThreadStatus.Type;
 
 export const OrchestratorMcpCreatedThread = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   threadId: ThreadId,
   runId: Schema.NullOr(RunId),
   status: OrchestratorMcpCreatedThreadStatus,
@@ -273,6 +276,8 @@ export const OrchestratorMcpCreateThreadsResult = Schema.Struct({
 export type OrchestratorMcpCreateThreadsResult = typeof OrchestratorMcpCreateThreadsResult.Type;
 
 export const OrchestratorMcpThreadStartInput = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   prompt: OrchestratorMcpPrompt,
   title: Schema.optional(OrchestratorMcpTitle),
   target: Schema.optional(OrchestratorMcpTarget),
@@ -289,6 +294,8 @@ export const OrchestratorMcpThreadStatus = Schema.Union([
 export type OrchestratorMcpThreadStatus = typeof OrchestratorMcpThreadStatus.Type;
 
 export const OrchestratorMcpThreadListInput = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   statuses: Schema.optional(
     Schema.Array(OrchestratorMcpThreadStatus).check(Schema.isMaxLength(10)),
   ),
@@ -320,8 +327,9 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
 export type OrchestratorMcpThreadListItem = typeof OrchestratorMcpThreadListItem.Type;
 
 export const OrchestratorMcpThreadListResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   projectId: ProjectId,
-  currentThreadId: ThreadId,
+  currentThreadId: Schema.NullOr(ThreadId),
   threads: Schema.Array(OrchestratorMcpThreadListItem),
   nextCursor: Schema.NullOr(NonNegativeInt),
   total: NonNegativeInt,
@@ -329,6 +337,8 @@ export const OrchestratorMcpThreadListResult = Schema.Struct({
 export type OrchestratorMcpThreadListResult = typeof OrchestratorMcpThreadListResult.Type;
 
 export const OrchestratorMcpThreadReadInput = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   threadId: ThreadId,
   view: Schema.optional(Schema.Literals(["messages", "activity"])),
   afterPosition: Schema.optional(NonNegativeInt),
@@ -397,6 +407,8 @@ export const OrchestratorMcpThreadTimelineItem = Schema.Struct({
 export type OrchestratorMcpThreadTimelineItem = typeof OrchestratorMcpThreadTimelineItem.Type;
 
 export const OrchestratorMcpThreadReadResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   thread: OrchestratorMcpThreadDetail,
   recentRuns: Schema.Array(OrchestratorMcpThreadRun),
   items: Schema.Array(OrchestratorMcpThreadTimelineItem),
@@ -406,6 +418,8 @@ export const OrchestratorMcpThreadReadResult = Schema.Struct({
 export type OrchestratorMcpThreadReadResult = typeof OrchestratorMcpThreadReadResult.Type;
 
 export const OrchestratorMcpThreadSendInput = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   threadId: ThreadId,
   message: OrchestratorMcpPrompt,
   mode: Schema.optional(Schema.Literals(["auto", "queue", "steer", "restart"])),
@@ -414,6 +428,8 @@ export const OrchestratorMcpThreadSendInput = Schema.Struct({
 export type OrchestratorMcpThreadSendInput = typeof OrchestratorMcpThreadSendInput.Type;
 
 export const OrchestratorMcpThreadSendResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   threadId: ThreadId,
   messageId: MessageId,
   runId: RunId,
@@ -423,6 +439,8 @@ export const OrchestratorMcpThreadSendResult = Schema.Struct({
 export type OrchestratorMcpThreadSendResult = typeof OrchestratorMcpThreadSendResult.Type;
 
 export const OrchestratorMcpThreadWaitInput = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   threadId: ThreadId,
   runId: Schema.optional(RunId),
   timeoutMs: Schema.optional(Schema.Number),
@@ -430,6 +448,8 @@ export const OrchestratorMcpThreadWaitInput = Schema.Struct({
 export type OrchestratorMcpThreadWaitInput = typeof OrchestratorMcpThreadWaitInput.Type;
 
 export const OrchestratorMcpThreadWaitResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
   threadId: ThreadId,
   runId: Schema.NullOr(RunId),
   status: OrchestratorMcpThreadStatus,
@@ -475,9 +495,11 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
 export type OrchestratorMcpProviderCapability = typeof OrchestratorMcpProviderCapability.Type;
 
 export const OrchestratorMcpCapabilitiesResult = Schema.Struct({
-  parentThreadId: ThreadId,
-  inheritedProviderInstanceId: ProviderInstanceId,
-  inheritedModel: Schema.String,
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
+  parentThreadId: Schema.NullOr(ThreadId),
+  inheritedProviderInstanceId: Schema.NullOr(ProviderInstanceId),
+  inheritedModel: Schema.NullOr(Schema.String),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   providers: Schema.Array(OrchestratorMcpProviderCapability),
@@ -587,3 +609,11 @@ export class OrchestratorMcpFailure extends Schema.TaggedErrorClass<Orchestrator
     message: Schema.String,
   },
 ) {}
+
+export const OrchestratorMcpCapabilitiesInput = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projectId: Schema.optional(ProjectId),
+});
+export const OrchestratorMcpProjectListInput = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+});

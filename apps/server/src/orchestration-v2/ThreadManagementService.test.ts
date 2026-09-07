@@ -1,12 +1,23 @@
+import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
+import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
+import * as DateTime from "effect/DateTime";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import { EventSinkV2, layer as eventSinkLayer } from "./EventSink.ts";
+import { layer as eventStoreLayer } from "./EventStore.ts";
+import { layer as projectionStoreLayer } from "./ProjectionStore.ts";
+import { makeLayer as registryLayer } from "./ProviderAdapterRegistry.ts";
+import { makeOrchestratorV2ReplayLayerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 import { expect, it } from "@effect/vitest";
 import {
   CommandId,
+  EventId,
   MessageId,
   NodeId,
   type OrchestrationV2Command,
   type OrchestrationV2ThreadProjection,
   ProjectId,
   ProviderInstanceId,
+  ProviderDriverKind,
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -347,4 +358,114 @@ it.effect("preserves failed legacy materialization when reading checkpoint conte
     expect(error).toBeInstanceOf(OrchestratorProjectionError);
     expect(error).toMatchObject({ threadId, cause: importError });
   }).pipe(Effect.provide(testLayer));
+});
+
+it.effect("replays durable send receipts after completion without dispatching another run", () => {
+  const databaseLayer = SqlitePersistenceMemory;
+  const stores = Layer.mergeAll(eventStoreLayer, projectionStoreLayer).pipe(
+    Layer.provideMerge(databaseLayer),
+  );
+  const orchestratorLayer = makeOrchestratorV2ReplayLayerWithRegistry(
+    { name: "send-retry" },
+    registryLayer([
+      {
+        instanceId: ProviderInstanceId.make("codex"),
+        driver: ProviderDriverKind.make("codex"),
+        getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
+        planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
+        openSession: () => Effect.die("provider execution disabled"),
+      } as ProviderAdapterV2Shape,
+    ]),
+    { databaseLayer, runEffectWorker: false },
+  );
+  const runtime = Layer.mergeAll(
+    layer.pipe(Layer.provide(orchestratorLayer)),
+    orchestratorLayer,
+    eventSinkLayer.pipe(Layer.provide(stores)),
+  );
+  return Effect.gen(function* () {
+    const orchestrator = yield* OrchestratorV2;
+    const service = yield* ThreadManagementService;
+    const sink = yield* EventSinkV2;
+    const projectId = ProjectId.make("retry-project");
+    const threadId = ThreadId.make("retry-thread");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-retry"),
+      threadId,
+      projectId,
+      title: "Retry",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const input = {
+      projectId,
+      threadId,
+      commandId: CommandId.make("send-retry"),
+      messageId: MessageId.make("message-retry"),
+      text: "Continue",
+      attachments: [],
+      mode: "auto" as const,
+      createdBy: "user" as const,
+      creationSource: "web" as const,
+    };
+    const accepted = yield* service.sendToThread(input);
+    const now = yield* DateTime.now;
+    yield* sink.write({
+      events: [
+        {
+          id: EventId.make("complete-retry"),
+          type: "run.updated",
+          threadId,
+          runId: accepted.run.id,
+          occurredAt: now,
+          payload: { ...accepted.run, status: "completed", completedAt: now },
+        },
+      ],
+    });
+    for (const mode of ["auto", "queue", "steer", "restart"] as const) {
+      const replayed = yield* service.sendToThread({ ...input, mode });
+      expect(replayed.dispatch.sequence).toBe(accepted.dispatch.sequence);
+      expect(replayed.dispatch.storedEvents).toEqual(accepted.dispatch.storedEvents);
+      expect(replayed.message.id).toBe(accepted.message.id);
+      expect(replayed.run.id).toBe(accepted.run.id);
+      expect(replayed.run.status).toBe("completed");
+      expect(replayed.projection.messages).toHaveLength(1);
+      expect(replayed.projection.runs).toHaveLength(1);
+    }
+    const freshCompleted = yield* Effect.result(
+      service.sendToThread({
+        ...input,
+        commandId: CommandId.make("fresh-completed-send"),
+        messageId: MessageId.make("fresh-completed-message"),
+        mode: "steer",
+      }),
+    );
+    expect(freshCompleted._tag === "Failure" && freshCompleted.failure._tag).toBe(
+      "ThreadManagementNoSteerableRunError",
+    );
+    yield* orchestrator.dispatch({
+      type: "thread.archive",
+      commandId: CommandId.make("archive-retry"),
+      threadId,
+    });
+    const archivedReplay = yield* service.sendToThread({ ...input, mode: "restart" });
+    expect(archivedReplay.dispatch.sequence).toBe(accepted.dispatch.sequence);
+    const fresh = yield* Effect.result(
+      service.sendToThread({
+        ...input,
+        commandId: CommandId.make("fresh-send"),
+        messageId: MessageId.make("fresh-message"),
+        mode: "restart",
+      }),
+    );
+    expect(fresh._tag === "Failure" && fresh.failure._tag).toBe(
+      "ThreadManagementThreadArchivedError",
+    );
+  }).pipe(Effect.provide(runtime));
 });

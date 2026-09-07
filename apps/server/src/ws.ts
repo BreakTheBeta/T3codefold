@@ -1,3 +1,6 @@
+import { FleetBroker } from "./mcp/FleetBroker.ts";
+import { FleetRouter } from "./mcp/FleetRouter.ts";
+import { FleetThreadService } from "./mcp/FleetThreadService.ts";
 import * as Crypto from "effect/Crypto";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
@@ -537,6 +540,9 @@ const makeWsRpcLayer = (
   ServerWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
+      const fleetBroker = yield* FleetBroker;
+      const fleetRouter = yield* FleetRouter;
+      const fleetThreads = yield* FleetThreadService;
       const sql = yield* SqlClient.SqlClient;
       const crypto = yield* Crypto.Crypto;
       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
@@ -2637,6 +2643,16 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.previewReportStatus, previewManager.reportStatus(input), {
             "rpc.aggregate": "preview",
           }),
+        [WS_METHODS.fleetConnect]: (input) =>
+          observeRpcStreamEffect(
+            WS_METHODS.fleetConnect,
+            fleetBroker.connect(currentSessionId, input),
+            { "rpc.aggregate": "fleet" },
+          ),
+        [WS_METHODS.fleetRespond]: (input) => fleetBroker.respond(currentSessionId, input),
+        [WS_METHODS.fleetExecute]: (input) => fleetThreads.execute(input),
+        [WS_METHODS.fleetInvoke]: (input) => fleetRouter.invoke(input),
+        [WS_METHODS.fleetEnvironments]: () => fleetRouter.environments,
         [WS_METHODS.previewAutomationConnect]: (input) =>
           observeRpcStreamEffect(
             WS_METHODS.previewAutomationConnect,
@@ -2865,6 +2881,9 @@ const makeWsRpcLayer = (
 
 export const websocketRpcRouteLayer = Layer.unwrap(
   Effect.gen(function* () {
+    const fleetBroker = yield* FleetBroker;
+    const fleetRouter = yield* FleetRouter;
+    const fleetThreads = yield* FleetThreadService;
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2913,6 +2932,9 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               previewAutomationBroker,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provide(Layer.succeed(FleetBroker, fleetBroker)),
+              Layer.provide(Layer.succeed(FleetRouter, fleetRouter)),
+              Layer.provide(Layer.succeed(FleetThreadService, fleetThreads)),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),

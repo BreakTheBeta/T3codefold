@@ -208,7 +208,7 @@ function scheduledTaskSummary(task: ScheduledTask): OrchestratorMcpScheduledTask
   };
 }
 
-function providerConstraints(
+export function providerConstraints(
   provider: ServerProvider | undefined,
   supportsOrchestrationV2: boolean,
 ): ReadonlyArray<string> {
@@ -420,7 +420,7 @@ function interactionModeRank(mode: ProviderInteractionMode): number {
   return mode === "plan" ? 0 : 1;
 }
 
-function resolveRuntimeMode(
+export function resolveRuntimeMode(
   parentMode: RuntimeMode,
   requested: OrchestratorMcpRuntimeMode | undefined,
 ): Effect.Effect<RuntimeMode, OrchestratorMcpFailure> {
@@ -435,7 +435,7 @@ function resolveRuntimeMode(
     : Effect.succeed(resolved);
 }
 
-function resolveInteractionMode(
+export function resolveInteractionMode(
   parentMode: ProviderInteractionMode,
   requested: OrchestratorMcpInteractionMode | undefined,
 ): Effect.Effect<ProviderInteractionMode, OrchestratorMcpFailure> {
@@ -537,7 +537,9 @@ function taskPrompt(input: OrchestratorMcpDelegateTaskInput): string {
     : `Act as the ${input.role} sub-agent for this task.\n\n${input.task}`;
 }
 
-function listItemFromShell(shell: OrchestrationV2ThreadShell): OrchestratorMcpThreadListItem {
+export function listItemFromShell(
+  shell: OrchestrationV2ThreadShell,
+): OrchestratorMcpThreadListItem {
   return {
     threadId: shell.id,
     title: shell.title,
@@ -558,7 +560,9 @@ function listItemFromShell(shell: OrchestrationV2ThreadShell): OrchestratorMcpTh
   };
 }
 
-function threadDetail(projection: OrchestrationV2ThreadProjection): OrchestratorMcpThreadDetail {
+export function threadDetail(
+  projection: OrchestrationV2ThreadProjection,
+): OrchestratorMcpThreadDetail {
   const latest = latestRun(projection);
   const active = latestActiveRun(projection);
   return {
@@ -598,7 +602,7 @@ function threadDetail(projection: OrchestrationV2ThreadProjection): Orchestrator
   };
 }
 
-function threadRun(run: OrchestrationV2Run): OrchestratorMcpThreadRun {
+export function threadRun(run: OrchestrationV2Run): OrchestratorMcpThreadRun {
   return {
     runId: run.id,
     ordinal: run.ordinal,
@@ -676,7 +680,7 @@ function turnItemText(item: OrchestrationV2TurnItem): string | null {
   }
 }
 
-function timelineItem(input: {
+export function timelineItem(input: {
   readonly row: OrchestrationV2ThreadProjection["visibleTurnItems"][number];
   readonly maxChars: number;
   readonly messagesByThreadId: ReadonlyMap<ThreadId, OrchestrationV2ThreadProjection["messages"]>;
@@ -710,6 +714,114 @@ function timelineItem(input: {
     updatedAt: DateTime.formatIso(input.row.item.updatedAt),
   };
 }
+
+export const resolveFleetModelTarget = (input: {
+  readonly defaultModelSelection: ModelSelection;
+  readonly target: OrchestratorMcpTarget | undefined;
+  readonly providers: ReadonlyArray<ServerProvider>;
+}): Effect.Effect<ResolvedTarget, OrchestratorMcpFailure> =>
+  Effect.gen(function* () {
+    const requestedInstanceId = input.target?.providerInstanceId;
+    const requestedDriver = input.target?.driverKind;
+    let instanceId = requestedInstanceId;
+
+    if (instanceId === undefined && requestedDriver !== undefined) {
+      const candidates = input.providers.filter(
+        (provider) =>
+          provider.driver === requestedDriver && isBuiltInProviderAdapterDriverV2(provider.driver),
+      );
+      if (candidates.length === 0) {
+        return yield* failure(
+          "provider_unavailable",
+          `No V2 provider adapter is registered for driver ${requestedDriver}.`,
+        );
+      }
+      const inheritedCandidate = candidates.find(
+        (candidate) => candidate.instanceId === input.defaultModelSelection.instanceId,
+      );
+      const availableCandidate = candidates.find((candidate) => {
+        return (
+          providerConstraints(candidate, isBuiltInProviderAdapterDriverV2(candidate.driver))
+            .length === 0
+        );
+      });
+      instanceId = inheritedCandidate?.instanceId ?? availableCandidate?.instanceId;
+    }
+    instanceId ??= input.defaultModelSelection.instanceId;
+
+    const provider = input.providers.find((candidate) => candidate.instanceId === instanceId);
+    if (provider === undefined) {
+      return yield* failure(
+        "provider_unavailable",
+        `Provider instance ${instanceId} is not registered.`,
+      );
+    }
+    if (requestedDriver !== undefined && provider.driver !== requestedDriver) {
+      return yield* failure(
+        "invalid_request",
+        `Provider instance ${instanceId} uses driver ${provider.driver}, not ${requestedDriver}.`,
+      );
+    }
+    const constraints = providerConstraints(
+      provider,
+      isBuiltInProviderAdapterDriverV2(provider.driver),
+    );
+    if (constraints.length > 0) {
+      return yield* failure(
+        "provider_unavailable",
+        `Provider ${instanceId} cannot run a child task: ${constraints.join(" ")}`,
+      );
+    }
+
+    const inheritedSelection = input.defaultModelSelection;
+    const requestedModel = input.target?.model;
+    const model =
+      requestedModel ??
+      (instanceId === inheritedSelection.instanceId
+        ? inheritedSelection.model
+        : provider?.models[0]?.slug);
+    if (model === undefined) {
+      return yield* failure(
+        "model_unavailable",
+        `Provider ${instanceId} has no model available for inheritance.`,
+      );
+    }
+    if (
+      requestedModel !== undefined &&
+      provider !== undefined &&
+      provider.models.length > 0 &&
+      !provider.models.some((candidate) => candidate.slug === requestedModel)
+    ) {
+      return yield* failure(
+        "model_unavailable",
+        `Model ${requestedModel} is not advertised by provider ${instanceId}.`,
+      );
+    }
+
+    const requestedOptions = input.target?.options;
+    if (requestedOptions !== undefined) {
+      const descriptors = provider.models.find((candidate) => candidate.slug === model)
+        ?.capabilities?.optionDescriptors;
+      const invalid = invalidOptionSelections(requestedOptions, descriptors);
+      if (invalid.length > 0) {
+        return yield* failure(
+          "invalid_request",
+          `Model ${model} on provider ${instanceId} rejected options: ${invalid.join(" ")}`,
+        );
+      }
+    }
+
+    return {
+      modelSelection:
+        instanceId === inheritedSelection.instanceId &&
+        model === inheritedSelection.model &&
+        requestedOptions === undefined
+          ? inheritedSelection
+          : requestedOptions === undefined
+            ? { instanceId, model }
+            : { instanceId, model, options: requestedOptions },
+    };
+  });
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
@@ -764,109 +876,10 @@ const make = Effect.gen(function* () {
     readonly parent: OrchestrationV2ThreadProjection;
     readonly target: OrchestratorMcpTarget | undefined;
     readonly providers: ReadonlyArray<ServerProvider>;
-  }): Effect.Effect<ResolvedTarget, OrchestratorMcpFailure> =>
-    Effect.gen(function* () {
-      const requestedInstanceId = input.target?.providerInstanceId;
-      const requestedDriver = input.target?.driverKind;
-      let instanceId = requestedInstanceId;
-
-      if (instanceId === undefined && requestedDriver !== undefined) {
-        const candidates = input.providers.filter(
-          (provider) =>
-            provider.driver === requestedDriver &&
-            isBuiltInProviderAdapterDriverV2(provider.driver),
-        );
-        if (candidates.length === 0) {
-          return yield* failure(
-            "provider_unavailable",
-            `No V2 provider adapter is registered for driver ${requestedDriver}.`,
-          );
-        }
-        const inheritedCandidate = candidates.find(
-          (candidate) => candidate.instanceId === input.parent.thread.modelSelection.instanceId,
-        );
-        const availableCandidate = candidates.find((candidate) => {
-          return (
-            providerConstraints(candidate, isBuiltInProviderAdapterDriverV2(candidate.driver))
-              .length === 0
-          );
-        });
-        instanceId = inheritedCandidate?.instanceId ?? availableCandidate?.instanceId;
-      }
-      instanceId ??= input.parent.thread.modelSelection.instanceId;
-
-      const provider = input.providers.find((candidate) => candidate.instanceId === instanceId);
-      if (provider === undefined) {
-        return yield* failure(
-          "provider_unavailable",
-          `Provider instance ${instanceId} is not registered.`,
-        );
-      }
-      if (requestedDriver !== undefined && provider.driver !== requestedDriver) {
-        return yield* failure(
-          "invalid_request",
-          `Provider instance ${instanceId} uses driver ${provider.driver}, not ${requestedDriver}.`,
-        );
-      }
-      const constraints = providerConstraints(
-        provider,
-        isBuiltInProviderAdapterDriverV2(provider.driver),
-      );
-      if (constraints.length > 0) {
-        return yield* failure(
-          "provider_unavailable",
-          `Provider ${instanceId} cannot run a child task: ${constraints.join(" ")}`,
-        );
-      }
-
-      const inheritedSelection = input.parent.thread.modelSelection;
-      const requestedModel = input.target?.model;
-      const model =
-        requestedModel ??
-        (instanceId === inheritedSelection.instanceId
-          ? inheritedSelection.model
-          : provider?.models[0]?.slug);
-      if (model === undefined) {
-        return yield* failure(
-          "model_unavailable",
-          `Provider ${instanceId} has no model available for inheritance.`,
-        );
-      }
-      if (
-        requestedModel !== undefined &&
-        provider !== undefined &&
-        provider.models.length > 0 &&
-        !provider.models.some((candidate) => candidate.slug === requestedModel)
-      ) {
-        return yield* failure(
-          "model_unavailable",
-          `Model ${requestedModel} is not advertised by provider ${instanceId}.`,
-        );
-      }
-
-      const requestedOptions = input.target?.options;
-      if (requestedOptions !== undefined) {
-        const descriptors = provider.models.find((candidate) => candidate.slug === model)
-          ?.capabilities?.optionDescriptors;
-        const invalid = invalidOptionSelections(requestedOptions, descriptors);
-        if (invalid.length > 0) {
-          return yield* failure(
-            "invalid_request",
-            `Model ${model} on provider ${instanceId} rejected options: ${invalid.join(" ")}`,
-          );
-        }
-      }
-
-      return {
-        modelSelection:
-          instanceId === inheritedSelection.instanceId &&
-          model === inheritedSelection.model &&
-          requestedOptions === undefined
-            ? inheritedSelection
-            : requestedOptions === undefined
-              ? { instanceId, model }
-              : { instanceId, model, options: requestedOptions },
-      };
+  }) =>
+    resolveFleetModelTarget({
+      ...input,
+      defaultModelSelection: input.parent.thread.modelSelection,
     });
 
   const requestKey = (clientRequestId: string | undefined): Effect.Effect<string> =>

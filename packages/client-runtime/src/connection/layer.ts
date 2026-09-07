@@ -2,6 +2,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
+import { startFleetBridge } from "./fleetBridge.ts";
+
 import * as ConnectionResolver from "./resolver.ts";
 import * as ConnectionDriver from "./driver.ts";
 import * as EnvironmentRegistry from "./registry.ts";
@@ -27,6 +29,7 @@ export function layerWithOptions(options: RpcSession.RpcSessionOptions) {
       const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
       const platformSource = yield* PlatformConnectionSource.PlatformConnectionSource;
       yield* registry.start;
+      yield* startFleetBridge;
       yield* platformSource.registrations.pipe(
         Stream.runForEach(registry.reconcilePlatform),
         Effect.forkScoped,

@@ -1,5 +1,9 @@
 import {
   OrchestratorMcpCapabilitiesResult,
+  OrchestratorMcpCapabilitiesInput,
+  OrchestratorMcpProjectListInput,
+  FleetProjectList,
+  FleetEnvironmentList,
   OrchestratorMcpCreatedThread,
   OrchestratorMcpCreateThreadsInput,
   OrchestratorMcpCreateThreadsResult,
@@ -35,7 +39,10 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { OrchestratorMcpService } from "../../OrchestratorMcpService.ts";
 import { ThreadMetadataMcpService } from "../../ThreadMetadataMcpService.ts";
 
+import { FleetRouter } from "../../FleetRouter.ts";
+
 const dependencies = [McpInvocationContext.McpInvocationContext, OrchestratorMcpService];
+const fleetDependencies = [...dependencies, FleetRouter];
 const threadMetadataDependencies = [
   McpInvocationContext.McpInvocationContext,
   ThreadMetadataMcpService,
@@ -44,10 +51,11 @@ const threadMetadataDependencies = [
 export const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
   description:
     "List the V2 provider instances, models, inherited runtime settings, and app-owned orchestration features available to this T3 thread.",
+  parameters: OrchestratorMcpCapabilitiesInput,
   success: OrchestratorMcpCapabilitiesResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
-  dependencies,
+  dependencies: fleetDependencies,
 })
   .annotate(Tool.Title, "Get orchestration capabilities")
   .annotate(Tool.Readonly, true)
@@ -56,7 +64,7 @@ export const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities
 
 export const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Delegate one task to a T3-owned child agent/subagent of THIS thread and run it with only the supplied task prompt, without copying parent conversation history. Use this whenever the user asks for an agent, subagent, worker, delegated task, or parallel help, including cross-provider work. The childThreadId is backing storage, not an ordinary top-level thread. Provider, model, model options (see orchestrator_capabilities), runtime mode, and interaction mode inherit unless target overrides them. Prefer mode='async' for long work; mode='wait' blocks until completion or timeout. timeoutMs on mode=wait is only the parent's wait budget and does not cancel the child. waitTimedOut on that wait call means the timeout fired; keep that taskId and read status on later task_status. An async child's completion wakes this thread with a continuation message naming the task (queued behind any turn in progress), so end the turn instead of polling or spawning watchers; use task_status only when the result is needed mid-turn.",
+    "Delegate one task to a T3-owned child agent/subagent of THIS thread and run it with only the supplied task prompt, without copying parent conversation history. Use this for bounded child work that reports back to the current thread. Use t3_thread_start for an independent main task or work handed off to another environment. The childThreadId is backing storage, not an ordinary top-level thread. Provider, model, model options (see orchestrator_capabilities), runtime mode, and interaction mode inherit unless target overrides them. Prefer mode='async' for long work; mode='wait' blocks until completion or timeout. timeoutMs on mode=wait is only the parent's wait budget and does not cancel the child. waitTimedOut on that wait call means the timeout fired; keep that taskId and read status on later task_status. An async child's completion wakes this thread with a continuation message naming the task (queued behind any turn in progress), so end the turn instead of polling or spawning watchers; use task_status only when the result is needed mid-turn.",
   parameters: OrchestratorMcpDelegateTaskInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,
@@ -145,7 +153,7 @@ export const DeleteScheduledTaskTool = Tool.make("delete_scheduled_task", {
 
 export const CreateThreadsTool = Tool.make("create_threads", {
   description:
-    "Create one or more ORDINARY TOP-LEVEL T3 conversations. This is not delegation and does not create child agents/subagents. If the user asks for agents, subagents, workers, delegation, or parallel help, call delegate_task once per child instead—even when selecting different providers. Use create_threads only when the user explicitly asks for separate/new/top-level threads or conversations. Each entry may override provider, model, options, runtime mode, and interaction mode; omitted settings inherit.",
+    "Create one or more ORDINARY TOP-LEVEL T3 conversations. This is not delegation and does not create child agents/subagents. Use delegate_task for bounded child tasks; use t3_thread_start with environmentId and projectId for an independent task on another host. Each entry may override provider, model, options, runtime mode, and interaction mode; omitted settings inherit.",
   parameters: OrchestratorMcpCreateThreadsInput,
   success: OrchestratorMcpCreateThreadsResult,
   failure: OrchestratorMcpFailure,
@@ -158,12 +166,12 @@ export const CreateThreadsTool = Tool.make("create_threads", {
 
 export const ThreadStartTool = Tool.make("t3_thread_start", {
   description:
-    "Create an ordinary TOP-LEVEL T3 conversation and immediately start its first turn. This is not a child agent/subagent; use delegate_task for delegated work. The new thread inherits this thread's project, checkout, provider, model, and runtime settings unless overridden. Use t3_thread_wait and t3_thread_read to collect its result.",
+    "Create an ordinary TOP-LEVEL T3 conversation and immediately start its first turn. Use this for independent main tasks and work handoffs. With environmentId/projectId, it runs in that destination project root using destination provider/model defaults and bounded source runtime settings. Include a concise handoff and git refs in prompt; histories and files are not transferred. Without selectors, it inherits this thread's project and checkout. Use t3_thread_wait and t3_thread_read to collect its result.",
   parameters: OrchestratorMcpThreadStartInput,
   success: OrchestratorMcpCreatedThread,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
-  dependencies,
+  dependencies: fleetDependencies,
 })
   .annotate(Tool.Title, "Start a T3 thread")
   .annotate(Tool.Destructive, true)
@@ -171,12 +179,12 @@ export const ThreadStartTool = Tool.make("t3_thread_start", {
 
 export const ThreadListTool = Tool.make("t3_thread_list", {
   description:
-    "List T3 threads in the calling thread's project, newest first. Filter by durable run status or title and paginate with the returned cursor. Threads from other projects are never exposed.",
+    "List T3 threads in the calling thread's project, newest first. Filter by durable run status or title and paginate with the returned cursor. Select another project or connected environment with projectId/environmentId; discover them with t3_project_list/t3_environment_list.",
   parameters: OrchestratorMcpThreadListInput,
   success: OrchestratorMcpThreadListResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
-  dependencies,
+  dependencies: fleetDependencies,
 })
   .annotate(Tool.Title, "List T3 threads")
   .annotate(Tool.Readonly, true)
@@ -185,12 +193,12 @@ export const ThreadListTool = Tool.make("t3_thread_list", {
 
 export const ThreadReadTool = Tool.make("t3_thread_read", {
   description:
-    "Read durable state and a paginated timeline from a T3 thread in the calling project. The default messages view returns user messages, assistant messages, and proposed plans; activity returns all summarized timeline items. Reading an untruncated terminal assistant result from this parent thread's direct app-owned child acknowledges that child's automatic completion delivery. Continue with afterPosition=nextPosition.",
+    "Read durable state and a paginated timeline from a T3 thread. Use environmentId/projectId for a selected destination. The default messages view returns user messages, assistant messages, and proposed plans; activity returns all summarized timeline items. Reading an untruncated terminal assistant result from this parent thread's direct app-owned child acknowledges that child's automatic completion delivery. Continue with afterPosition=nextPosition.",
   parameters: OrchestratorMcpThreadReadInput,
   success: OrchestratorMcpThreadReadResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
-  dependencies,
+  dependencies: fleetDependencies,
 })
   .annotate(Tool.Title, "Read a T3 thread")
   .annotate(Tool.Readonly, false)
@@ -212,12 +220,12 @@ export const ThreadUpdateTool = Tool.make("t3_thread_update", {
 
 export const ThreadSendTool = Tool.make("t3_thread_send", {
   description:
-    "Send a message to a T3 thread in the calling project. mode='auto' starts an idle thread, steers a fully active turn, or queues behind a turn that is not yet steerable. Use queue for a separate follow-up turn, steer for an in-flight update, or restart to interrupt-and-restart the active turn. clientRequestId makes retries idempotent.",
+    "Send a message to a T3 thread, optionally selecting a connected environment/project. mode='auto' starts an idle thread, steers a fully active turn, or queues behind a turn that is not yet steerable. Use queue for a separate follow-up turn, steer for an in-flight update, or restart to interrupt-and-restart the active turn. clientRequestId makes retries idempotent.",
   parameters: OrchestratorMcpThreadSendInput,
   success: OrchestratorMcpThreadSendResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
-  dependencies,
+  dependencies: fleetDependencies,
 })
   .annotate(Tool.Title, "Send to a T3 thread")
   .annotate(Tool.Destructive, true)
@@ -225,12 +233,12 @@ export const ThreadSendTool = Tool.make("t3_thread_send", {
 
 export const ThreadWaitTool = Tool.make("t3_thread_wait", {
   description:
-    "Wait for a T3 thread run to reach a terminal durable state. Without runId, the latest run at call time is selected; an idle thread returns immediately. Timeout does not interrupt work, so call again or use t3_thread_read/list after timedOut=true. Waiting reports status only and does not acknowledge a delegated result.",
+    "Wait for a T3 thread run to reach a terminal durable state. Without runId, the latest run at call time is selected; an idle thread returns immediately. Timeout does not interrupt work, so call again or use t3_thread_read/list after timedOut=true. Fleet routes cap each wait at 120 seconds; repeat after timedOut=true. Waiting reports status only and does not acknowledge a delegated result.",
   parameters: OrchestratorMcpThreadWaitInput,
   success: OrchestratorMcpThreadWaitResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
-  dependencies,
+  dependencies: fleetDependencies,
 })
   .annotate(Tool.Title, "Wait for a T3 thread")
   .annotate(Tool.Readonly, true)
@@ -249,8 +257,31 @@ export const ThreadInterruptTool = Tool.make("t3_thread_interrupt", {
   .annotate(Tool.Title, "Interrupt a T3 thread")
   .annotate(Tool.Destructive, true);
 
+export const EnvironmentListTool = Tool.make("t3_environment_list", {
+  description: "List this environment and environments reachable through connected T3 clients.",
+  success: FleetEnvironmentList,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: fleetDependencies,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Idempotent, true);
+export const ProjectListTool = Tool.make("t3_project_list", {
+  description:
+    "List projects on this or a selected connected environment. Use the returned projectId for thread creation and listing.",
+  parameters: OrchestratorMcpProjectListInput,
+  success: FleetProjectList,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: fleetDependencies,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Idempotent, true);
+
 export const OrchestratorToolkit = Toolkit.make(
   OrchestratorCapabilitiesTool,
+  EnvironmentListTool,
+  ProjectListTool,
   DelegateTaskTool,
   TaskStatusTool,
   TaskCancelTool,

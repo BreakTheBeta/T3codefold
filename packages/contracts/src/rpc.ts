@@ -1,3 +1,12 @@
+import {
+  FleetConnectInput,
+  FleetInvocation,
+  FleetResponse,
+  FleetExecuteInput,
+  FleetInvokeInput,
+  FleetEnvironmentList,
+} from "./fleet.ts";
+import { OrchestratorMcpFailure } from "./orchestratorMcp.ts";
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
@@ -336,6 +345,11 @@ export const WS_METHODS = {
   previewClose: "preview.close",
   previewList: "preview.list",
   previewReportStatus: "preview.reportStatus",
+  fleetConnect: "fleet.connect",
+  fleetRespond: "fleet.respond",
+  fleetExecute: "fleet.execute",
+  fleetInvoke: "fleet.invoke",
+  fleetEnvironments: "fleet.environments",
   previewAutomationConnect: "previewAutomation.connect",
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
@@ -1090,6 +1104,32 @@ const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus, {
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
 });
 
+const WsFleetConnectRpc = Rpc.make(WS_METHODS.fleetConnect, {
+  payload: FleetConnectInput,
+  success: FleetInvocation,
+  error: Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsFleetRespondRpc = Rpc.make(WS_METHODS.fleetRespond, {
+  payload: FleetResponse,
+  error: Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]),
+});
+const WsFleetExecuteRpc = Rpc.make(WS_METHODS.fleetExecute, {
+  payload: FleetExecuteInput,
+  success: Schema.Unknown,
+  error: Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]),
+});
+const WsFleetInvokeRpc = Rpc.make(WS_METHODS.fleetInvoke, {
+  payload: FleetInvokeInput,
+  success: Schema.Unknown,
+  error: Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]),
+});
+const WsFleetEnvironmentsRpc = Rpc.make(WS_METHODS.fleetEnvironments, {
+  payload: Schema.Struct({}),
+  success: FleetEnvironmentList,
+  error: EnvironmentAuthorizationError,
+});
+
 const WsPreviewAutomationConnectRpc = Rpc.make(WS_METHODS.previewAutomationConnect, {
   payload: PreviewAutomationHost,
   success: PreviewAutomationStreamEvent,
@@ -1437,6 +1477,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewCloseRpc,
   WsPreviewListRpc,
   WsPreviewReportStatusRpc,
+  WsFleetConnectRpc,
+  WsFleetRespondRpc,
+  WsFleetExecuteRpc,
+  WsFleetInvokeRpc,
+  WsFleetEnvironmentsRpc,
   WsPreviewAutomationConnectRpc,
   WsPreviewAutomationRespondRpc,
   WsPreviewAutomationFocusHostRpc,

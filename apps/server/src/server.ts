@@ -1,3 +1,6 @@
+import * as FleetBroker from "./mcp/FleetBroker.ts";
+import * as FleetRouter from "./mcp/FleetRouter.ts";
+import * as FleetThreadService from "./mcp/FleetThreadService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ThreadPullRequestReactor from "./orchestration/ThreadPullRequestReactor.ts";
 import { EnvironmentHttpApi, ProviderDriverKind } from "@t3tools/contracts";
@@ -561,6 +564,12 @@ export const makeRoutesLayer = Layer.mergeAll(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),
+  Layer.provideMerge(
+    FleetRouter.layer.pipe(
+      Layer.provideMerge(FleetBroker.layer),
+      Layer.provideMerge(FleetThreadService.layer),
+    ),
+  ),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(DesktopAppUpdateLayerLive))),
   Layer.provide(commandReadinessLayer),
