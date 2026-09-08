@@ -2605,6 +2605,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
+      // Both app slices retain these architecture-named prebuilds; their loaders
+      // select the matching binary at runtime, so universal packaging must not lipo them.
+      x64ArchFiles: "**/{*.darwin-{arm64,x64}.node,*darwin-{arm64,x64}/**/*}",
       category: "public.app-category.developer-tools",
       extendInfo: { NSMicrophoneUsageDescription: "Allow T3 Code to talk with Codex." },
       protocols: [
