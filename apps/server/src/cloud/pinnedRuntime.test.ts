@@ -79,6 +79,10 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
         commands.map((command) => command.command),
         ["npm", "pnpm"],
       );
+      assert.equal(
+        commands[0]!.args.at(-1),
+        "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v1.2.3/t3-1.2.3.tgz",
+      );
       assert.deepEqual(commands[1]!.args, ["--package=npm@11", "dlx", "npm", ...commands[0]!.args]);
       assert.equal(yield* fs.readFileString(paths.sentinelPath), "1.2.3\n");
     }),
@@ -248,7 +252,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
 
       yield* Deferred.await(started);
       yield* Fiber.interrupt(install);
-      const versionsDir = path.join(baseDir, "runtime", "versions");
+      const versionsDir = path.join(baseDir, "runtime/fold", "versions");
       assert.deepEqual(yield* fs.readDirectory(versionsDir), []);
     }),
   );

@@ -38,15 +38,15 @@ The offered action depends on how the server runs:
 For a background service, run the matching version's CLI on the host:
 
 ```sh
-npx t3@<client-version> service update
+npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v<client-version>/t3-<client-version>.tgz t3 service update
 ```
 
 Replace `<client-version>` with the version shown in the notice. Using
-`@latest` only resolves the mismatch if your client is on that release. An older
+the `fold-server-latest` package only resolves the mismatch if your client is on that release. An older
 service launcher may require this local update before it supports remote updates
 and rollback.
 
-For a foreground server, the copied command is `npx t3@<client-version>`. Add
+For a foreground server, the copied command is `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v<client-version>/t3-<client-version>.tgz t3`. Add
 `serve` if you normally run without a browser, and preserve options such as
 `--host` or `--tailscale-serve`. See
 [background services](./background-service.md) for service management.
@@ -60,14 +60,19 @@ update can roll back to the previous version. If the update still fails:
 2. Check that you updated the server's machine, not only the device you are using.
 3. For a command-line server, stop it and relaunch the exact version shown in the notice.
 
-## Mobile updates
+## Compatibility with older servers
 
-The mobile app automatically uses compatibility mode for servers from before the
+Web, desktop (including macOS), and Android clients automatically use compatibility mode for servers from before the
 orchestration upgrade. You can browse projects and threads, send messages, and
 answer approvals and questions without upgrading those servers. Server-side queues
 and newer orchestration actions still require an updated server.
 
-Install App Store or Google Play releases as usual. The mobile app can also
+Older servers without a Fold-aware updater show a manual Fold command. Run it on
+the server host once to enable future Fold updates.
+
+## Mobile updates
+
+Install Fold APK releases from [the fork’s releases](https://github.com/BreakTheBeta/T3codefold/releases). The mobile app can also
 download updates in the background and apply them when you next leave the app.
 It saves drafts and queued messages before restarting. If you keep the app open
 for a long time, it may ask to install immediately; choosing **Later** leaves the

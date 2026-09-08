@@ -298,6 +298,10 @@
     "./projectIconModel": {
       "types": "./src/projectIconModel.ts",
       "import": "./src/projectIconModel.ts"
+    },
+    "./foldRelease": {
+      "types": "./src/foldRelease.ts",
+      "import": "./src/foldRelease.ts"
     }
   },
   "scripts": {

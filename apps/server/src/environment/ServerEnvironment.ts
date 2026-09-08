@@ -1,3 +1,4 @@
+import { FOLD_REPOSITORY } from "@t3tools/shared/foldRelease";
 import {
   ORCHESTRATION_PROTOCOL_VERSION,
   EnvironmentId,
@@ -234,6 +235,7 @@ export const make = Effect.gen(function* () {
       threadVisitedTracking: true,
       threadPullRequestLinking: true,
       environmentIcon: true,
+      updateRepository: FOLD_REPOSITORY,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
       // V2 restart recovery uses the environment-owned opt-in. The old
       // per-update request flag is not wired into the V2 update RPC path.

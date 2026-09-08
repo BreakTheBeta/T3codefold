@@ -74,44 +74,16 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 The easiest way to test T3 Code is to run the server in your terminal (requires Node.js 22.16+, 23.11+, or 24.10+):
 
 ```bash
-npx t3@latest
+npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
 ```
 
 This will launch T3 Code's backend on your machine as well as the local web app to control your agents.
 
-Tip: Use `npx t3@latest --help` for the full CLI reference.
+Tip: Use `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 --help` for the full CLI reference.
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
+Download Fold desktop builds from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The upstream Homebrew, winget, and AUR packages install regular T3 Code.
 
 ## Some notes
 

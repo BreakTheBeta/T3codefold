@@ -1,3 +1,6 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -57,6 +60,37 @@ describe("DesktopUpdates", () => {
       "Desktop update install action failed unexpectedly.",
     );
   });
+
+  it.effect("replaces an upstream feed and keeps both release channels on Fold", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const resourcesPath = yield* fs.makeTempDirectoryScoped({ prefix: "fold-update-feed-" });
+      yield* fs.writeFileString(
+        path.join(resourcesPath, "app-update.yml"),
+        "provider: github\nowner: pingdotgg\nrepo: t3code\n",
+      );
+      const harness = makeHarness({ resourcesPath, env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" } });
+      yield* Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        assert.isTrue((yield* updates.getState).enabled);
+        yield* updates.setChannel("nightly");
+        assert.deepEqual(harness.feedUrls(), [
+          {
+            provider: "generic",
+            url: "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-desktop-latest",
+            channel: "latest",
+          },
+          {
+            provider: "generic",
+            url: "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-desktop-nightly",
+            channel: "nightly",
+          },
+        ]);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 
   it.effect("configures the updater and runs startup checks on the test clock", () => {
     const harness = makeHarness();

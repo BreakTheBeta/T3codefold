@@ -402,7 +402,7 @@ const config: ExpoConfig = {
       projectId: "5c3bde99-9c75-4cd6-b0a0-cc5d2cf846df",
     },
   },
-  owner: APP_VARIANT === "preview" ? "BreakTheBeta" : "pingdotgg",
+  owner: "BreakTheBeta",
 };
 
 export default config;

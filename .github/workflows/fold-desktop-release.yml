@@ -1,4 +1,4 @@
-name: Fold Windows desktop release
+name: Fold desktop release
 
 on:
   workflow_dispatch:
@@ -6,20 +6,70 @@ on:
       version:
         description: Desktop version
         required: true
-        default: 0.1.3-preview.1
+        default: 0.1.6
       release_tag:
         description: Existing Fold release to attach the installer to
         required: true
-        default: fold-preview-v0.1.3
+        default: fold-preview-v0.1.6
 
 permissions:
   contents: read
 
 concurrency:
-  group: fold-windows-release
+  group: fold-desktop-release
   cancel-in-progress: false
 
 jobs:
+  server:
+    if: github.repository == 'BreakTheBeta/T3codefold'
+    uses: ./.github/workflows/fold-server-release.yml
+    permissions:
+      contents: write
+    with:
+      version: ${{ inputs.version }}
+      channel: ${{ contains(inputs.version, '-nightly.') && 'nightly' || 'latest' }}
+  unix:
+    needs: server
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: mac
+            target: dmg
+            arch: universal
+          - runner: ubuntu-24.04
+            platform: linux
+            target: AppImage
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Build desktop artifacts
+        env:
+          FOLD_VERSION: ${{ inputs.version }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: node scripts/build-desktop-artifact.ts --platform "$BUILD_PLATFORM" --target "$BUILD_TARGET" --arch "$BUILD_ARCH" --build-version "$FOLD_VERSION" --output-dir release-assets --verbose
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fold-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Publish Fold desktop feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          FOLD_VERSION: ${{ inputs.version }}
+        run: node scripts/publish-fold-desktop.ts release-assets "$RELEASE_TAG" "$FOLD_VERSION"
   wsl:
     if: github.repository == 'BreakTheBeta/T3codefold'
     runs-on: ubuntu-24.04
@@ -42,7 +92,7 @@ jobs:
           name: fold-wsl-pty
           path: wsl-prebuild/pty.node
   windows:
-    needs: wsl
+    needs: [wsl, server]
     runs-on: windows-2025
     timeout-minutes: 60
     permissions:
@@ -90,13 +140,12 @@ jobs:
           name: fold-windows-x64
           path: release-assets/*
           if-no-files-found: error
-      - name: Attach installer to Fold release
+      - name: Publish Fold desktop feed
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          FOLD_VERSION: ${{ inputs.version }}
         run: |
-          $assets = Get-ChildItem release-assets -File | Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' }
-          if (!$assets) { throw "No Windows release assets found" }
-          gh release upload "$env:RELEASE_TAG" --repo "$env:GITHUB_REPOSITORY" @($assets.FullName)
+          node scripts/publish-fold-desktop.ts release-assets "$env:RELEASE_TAG" "$env:FOLD_VERSION"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
