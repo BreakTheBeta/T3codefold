@@ -25,10 +25,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: fold-desktop-release
-  cancel-in-progress: false
-
 jobs:
   server:
     if: github.repository == 'BreakTheBeta/T3codefold' && !inputs.desktop_only
@@ -45,6 +41,9 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(inputs.platform == 'mac' && '[{"runner":"macos-15","platform":"mac","target":"dmg","arch":"universal"}]' || inputs.platform == 'linux' && '[{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]' || '[{"runner":"macos-15","platform":"mac","target":"dmg","arch":"universal"},{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]') }}
+    concurrency:
+      group: fold-desktop-${{ matrix.platform }}
+      cancel-in-progress: false
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
@@ -138,6 +137,9 @@ jobs:
   windows:
     if: ${{ !cancelled() && needs.wsl.result == 'success' && (needs.server.result == 'success' || (inputs.desktop_only && needs.server.result == 'skipped')) }}
     needs: [wsl, server]
+    concurrency:
+      group: fold-desktop-win
+      cancel-in-progress: false
     runs-on: windows-2025
     timeout-minutes: 60
     permissions:
