@@ -53,12 +53,42 @@ jobs:
           node-version-file: package.json
           run-install: true
       - name: Build desktop artifacts
+        id: build
+        shell: bash
         env:
           FOLD_VERSION: ${{ inputs.version }}
           BUILD_PLATFORM: ${{ matrix.platform }}
           BUILD_TARGET: ${{ matrix.target }}
           BUILD_ARCH: ${{ matrix.arch }}
-        run: node scripts/build-desktop-artifact.ts --platform "$BUILD_PLATFORM" --target "$BUILD_TARGET" --arch "$BUILD_ARCH" --build-version "$FOLD_VERSION" --output-dir release-assets --verbose
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          args=(--platform "$BUILD_PLATFORM" --target "$BUILD_TARGET" --arch "$BUILD_ARCH" --build-version "$FOLD_VERSION" --output-dir release-assets --verbose)
+          publish_mode=""
+          if [[ "$BUILD_PLATFORM" == mac ]]; then
+            if [[ -n "$CSC_LINK" && -n "$CSC_KEY_PASSWORD" && -n "$APPLE_API_KEY" && -n "$APPLE_API_KEY_ID" && -n "$APPLE_API_ISSUER" && -n "$APPLE_TEAM_ID" && -n "$MACOS_PROVISIONING_PROFILE" ]]; then
+              key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+              printf '%s' "$APPLE_API_KEY" > "$key_path"
+              export APPLE_API_KEY="$key_path"
+              profile_path="$RUNNER_TEMP/fold.provisionprofile"
+              printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
+              security cms -D -i "$profile_path" >/dev/null
+              export T3CODE_APPLE_TEAM_ID="$APPLE_TEAM_ID"
+              export T3CODE_MACOS_PROVISIONING_PROFILE="$profile_path"
+              args+=(--signed)
+            else
+              publish_mode="--manual-only"
+              echo "Apple signing is not configured; publishing a manual download only."
+            fi
+          fi
+          node scripts/build-desktop-artifact.ts "${args[@]}"
+          echo "publish_mode=$publish_mode" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: fold-${{ matrix.platform }}-${{ matrix.arch }}
@@ -69,7 +99,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           FOLD_VERSION: ${{ inputs.version }}
-        run: node scripts/publish-fold-desktop.ts release-assets "$RELEASE_TAG" "$FOLD_VERSION"
+          PUBLISH_MODE: ${{ steps.build.outputs.publish_mode }}
+        run: node scripts/publish-fold-desktop.ts release-assets "$RELEASE_TAG" "$FOLD_VERSION" "$PUBLISH_MODE"
   wsl:
     if: github.repository == 'BreakTheBeta/T3codefold'
     runs-on: ubuntu-24.04

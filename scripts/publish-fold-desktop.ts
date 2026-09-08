@@ -21,7 +21,10 @@ function gh(args: string[]) {
     encoding: "utf8",
   });
 }
-for (const releaseTag of [tag, `fold-desktop-${channel}`]) {
+const releaseTags = process.argv.includes("--manual-only")
+  ? [tag]
+  : [tag, `fold-desktop-${channel}`];
+for (const releaseTag of releaseTags) {
   try {
     gh(["release", "view", releaseTag]);
   } catch {

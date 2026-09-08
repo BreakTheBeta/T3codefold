@@ -17,7 +17,9 @@ macOS universal, and Linux x64 artifacts. It attaches installers to the selected
 to `fold-desktop-latest` or `fold-desktop-nightly`. Keep the platform-specific YAML
 files with their referenced installers and blockmaps. These feeds are separate
 from Android releases. macOS distribution still requires the maintainer's signing
-and notarization setup for trusted installation and automatic updates.
+and notarization setup for trusted installation and automatic updates. Without those
+credentials, the workflow publishes a manual Mac download and leaves the automatic
+Mac feed unchanged.
 
 Android APKs and the mobile OTA branch continue to use this fork's existing release
 process. OTA updates must match the installed native runtime fingerprint.
