@@ -402,6 +402,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onChangeSelection: composerMenu.onSelectionChange,
   });
   const codexVoice = useCodexRealtimeVoice({
+    title: props.selectedThread.title,
     environmentId: props.environmentId,
     threadId: props.selectedThread.id,
     enabled:
@@ -409,7 +410,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       props.connectionState === "connected" &&
       !voiceInput.isBusy,
   });
-  const codexVoiceActive = codexVoice.status === "connecting" || codexVoice.status === "live";
+  const codexVoiceActive = codexVoice.status !== "idle" && codexVoice.status !== "error";
   const codexVoiceControl =
     selectedProviderStatus?.driver === "codex" ? (
       <CodexVoiceControl
@@ -674,10 +675,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           <Pressable accessibilityRole="button" className="px-3 py-2" onPress={openSettings}>
             <Text className="text-xs text-foreground">Model unavailable. Open model settings.</Text>
           </Pressable>
-        ) : null}
-
-        {codexVoiceActive ? (
-          <View className="mb-2 self-end rounded-2xl bg-screen px-3 py-2">{codexVoiceControl}</View>
         ) : null}
 
         <ComposerSurface

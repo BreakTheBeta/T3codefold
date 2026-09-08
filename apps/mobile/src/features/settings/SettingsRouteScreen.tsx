@@ -1,3 +1,4 @@
+import { VoiceSettings } from "../voice-input/VoiceWorkspaceProvider";
 import { useAuth, useUser } from "@clerk/expo";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import Constants from "expo-constants";
@@ -130,6 +131,7 @@ function LocalSettingsRouteScreen() {
           paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
+        <VoiceSettings />
         <SettingsSection title="Configuration">
           <SettingsRow
             icon="desktopcomputer"
@@ -490,6 +492,7 @@ function ConfiguredSettingsRouteScreen() {
           </Text>
         </View>
 
+        <VoiceSettings />
         <SettingsSection title="Configuration">
           <SettingsRow
             icon="desktopcomputer"

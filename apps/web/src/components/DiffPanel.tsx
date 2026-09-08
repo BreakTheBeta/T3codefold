@@ -1,3 +1,4 @@
+import { useVoiceViewContext } from "./voice/VoiceWorkspaceProvider";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import type { FileDiffContentsLoader } from "@pierre/diffs";
@@ -391,6 +392,12 @@ export default function DiffPanel({
     ? activeCheckpointDiff.isPending
     : branchDiffPreview.isPending;
   const selectedPatchError = selectedTurn ? activeCheckpointDiff.error : branchDiffPreview.error;
+  useVoiceViewContext(
+    "diff",
+    selectedPatch
+      ? `Selected file: ${selectedFilePath ?? "all"}\n${selectedPatch.slice(0, 2500)}`
+      : null,
+  );
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(

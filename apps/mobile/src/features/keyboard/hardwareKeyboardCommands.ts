@@ -2,6 +2,9 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useEffect } from "react";
 
 export type HardwareKeyboardCommand =
+  | "voiceToggle"
+  | "voiceMute"
+  | "voiceOutputMute"
   | "newTask"
   | "focusSearch"
   | "back"

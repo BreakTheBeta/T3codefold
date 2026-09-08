@@ -6,6 +6,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { RpcClient } from "effect/unstable/rpc";
 import { OrchestrationThread } from "@t3tools/contracts/legacy-orchestration";
+import { voiceStartInput } from "../realtime-voice/workspace.ts";
+import { EnvironmentId } from "@t3tools/contracts";
 import { makeLegacyWsRpcClient } from "./legacy.ts";
 
 const thread = Schema.decodeUnknownSync(OrchestrationThread)({
@@ -50,7 +52,15 @@ const makeHarness = Effect.gen(function* () {
             yield* write(clientId, {
               _tag: "Exit",
               requestId: request.id,
-              exit: { _tag: "Success", value: { sequence: 6 } },
+              exit: {
+                _tag: "Success",
+                value:
+                  request.tag === "provider.realtimeVoice.start"
+                    ? { sdp: "legacy-answer" }
+                    : request.tag === "provider.realtimeVoice.stop"
+                      ? null
+                      : { sequence: 6 },
+              },
             });
           }
         }),
@@ -63,6 +73,24 @@ const makeHarness = Effect.gen(function* () {
 });
 
 describe("legacy RPC adapter", () => {
+  it.effect("keeps the original voice wire protocol through the pre-orchestration adapter", () =>
+    Effect.gen(function* () {
+      const { client, requests } = yield* makeHarness;
+      const input = voiceStartInput(
+        { environmentId: EnvironmentId.make("old-host"), threadId: thread.id, title: "Old task" },
+        "offer",
+        "new-call-id",
+        "spruce",
+      );
+      const answer = yield* client["provider.realtimeVoice.start"](input);
+      expect(answer).toEqual({ sdp: "legacy-answer" });
+      yield* client["provider.realtimeVoice.stop"]({ threadId: thread.id });
+      expect(requests).toEqual([
+        { tag: "provider.realtimeVoice.start", payload: { threadId: thread.id, sdp: "offer" } },
+        { tag: "provider.realtimeVoice.stop", payload: { threadId: thread.id } },
+      ]);
+    }).pipe(Effect.scoped),
+  );
   it.effect("resubscribes from a full legacy snapshot and preserves the ready marker", () =>
     Effect.gen(function* () {
       const { client, requests } = yield* makeHarness;

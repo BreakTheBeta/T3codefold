@@ -1,3 +1,4 @@
+import { VoiceWorkspaceProvider } from "./features/voice-input/VoiceWorkspaceProvider";
 import { BlurTargetView } from "expo-blur";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
@@ -91,10 +92,12 @@ function AppContent() {
                 the system is in dark mode. */}
             {/* Blur target for Android dropdown backdrops — see appBlurTarget.ts. */}
             <BlurTargetView ref={appBlurTargetRef} style={{ flex: 1 }}>
-              <IncomingShareProvider>
-                <LocalAgentNotificationsCoordinator />
-                <Navigation linking={appLinking} theme={navigationTheme} />
-              </IncomingShareProvider>
+              <VoiceWorkspaceProvider>
+                <IncomingShareProvider>
+                  <LocalAgentNotificationsCoordinator />
+                  <Navigation linking={appLinking} theme={navigationTheme} />
+                </IncomingShareProvider>
+              </VoiceWorkspaceProvider>
               <ConfirmDialogHost />
             </BlurTargetView>
             {/* Anchored-menu overlays render here — in-window, so the

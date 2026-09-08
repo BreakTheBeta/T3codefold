@@ -10,6 +10,8 @@ export interface VoiceMedia {
   answer(sdp: string): Promise<void>;
   mute(muted: boolean): void;
   resume(): Promise<void>;
+  muteOutput?(muted: boolean): void;
+  changeMicrophone?(deviceId: string): Promise<void>;
   close(): void;
 }
 
@@ -150,6 +152,14 @@ export class RealtimeVoiceController {
     if (!this.session?.media) return;
     this.session.media.mute(muted);
     this.update({ muted });
+  }
+
+  setOutputMuted(muted: boolean) {
+    this.session?.media?.muteOutput?.(muted);
+  }
+
+  async changeMicrophone(deviceId: string) {
+    await this.session?.media?.changeMicrophone?.(deviceId);
   }
 
   async resumeAudio() {

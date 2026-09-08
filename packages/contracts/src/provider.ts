@@ -131,9 +131,36 @@ const RealtimeSessionDescription = Schema.String.check(
   Schema.isMaxLength(256 * 1024),
 );
 
+export const RealtimeVoiceOptions = Schema.Struct({
+  voice: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(40))),
+  callId: Schema.optional(Schema.String.check(Schema.isMaxLength(80))),
+});
+export type RealtimeVoiceOptions = typeof RealtimeVoiceOptions.Type;
+export const RealtimeVoiceContext = Schema.String.check(Schema.isMaxLength(8_192));
+export const ProviderRealtimeVoiceContextInput = Schema.Struct({
+  threadId: ThreadId,
+  callId: Schema.String,
+  text: RealtimeVoiceContext,
+});
+export const ProviderRealtimeVoiceListResult = Schema.Struct({
+  voices: Schema.Array(Schema.String),
+  defaultVoice: Schema.String,
+});
+export type ProviderRealtimeVoiceListResult = typeof ProviderRealtimeVoiceListResult.Type;
+export const ProviderRealtimeVoiceEvent = Schema.Struct({
+  callId: Schema.String,
+  sequence: Schema.Number,
+  type: Schema.Literals(["started", "closed", "error", "transcript"]),
+  role: Schema.optional(Schema.Literals(["user", "assistant"])),
+  text: Schema.optional(Schema.String.check(Schema.isMaxLength(8_192))),
+  final: Schema.optional(Schema.Boolean),
+});
+export type ProviderRealtimeVoiceEvent = typeof ProviderRealtimeVoiceEvent.Type;
+
 export const ProviderRealtimeVoiceStartInput = Schema.Struct({
   threadId: ThreadId,
   sdp: RealtimeSessionDescription,
+  options: Schema.optional(RealtimeVoiceOptions),
 });
 export type ProviderRealtimeVoiceStartInput = typeof ProviderRealtimeVoiceStartInput.Type;
 
@@ -151,7 +178,7 @@ export class ProviderRealtimeVoiceError extends Schema.TaggedErrorClass<Provider
   "ProviderRealtimeVoiceError",
   {
     threadId: ThreadId,
-    operation: Schema.Literals(["start", "stop"]),
+    operation: Schema.Literals(["start", "stop", "list voices", "share context", "subscribe"]),
   },
 ) {
   override get message(): string {

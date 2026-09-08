@@ -1,3 +1,5 @@
+import { keybindingsForVoiceClient } from "@t3tools/shared/keybindings";
+import { makeRealtimeVoiceSessionResolver } from "./orchestration-v2/RealtimeVoiceSession.ts";
 import { FleetBroker } from "./mcp/FleetBroker.ts";
 import { FleetRouter } from "./mcp/FleetRouter.ts";
 import { FleetThreadService } from "./mcp/FleetThreadService.ts";
@@ -576,6 +578,10 @@ const makeWsRpcLayer = (
         return true;
       });
       const providerSessionsV2 = yield* ProviderSessionManagerV2;
+      const realtimeVoiceSession = yield* makeRealtimeVoiceSessionResolver({
+        getThreadProjection: threadManagement.getThreadProjection,
+        sessions: providerSessionsV2,
+      });
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Client-origin attribution (#7774): every thread/turn the connecting
       // client starts is credited to its surface + app version. Best-effort:
@@ -753,7 +759,10 @@ const makeWsRpcLayer = (
           ),
         );
 
-      const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
+      const loadServerConfig = (options: {
+        readonly usageLimitsCommand: boolean;
+        readonly realtimeVoiceControls?: boolean;
+      }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
           const currentProviders = yield* providerRegistry.getProviders;
@@ -779,7 +788,10 @@ const makeWsRpcLayer = (
             auth,
             cwd: config.cwd,
             keybindingsConfigPath: config.keybindingsConfigPath,
-            keybindings: keybindingsConfig.keybindings,
+            keybindings: keybindingsForVoiceClient(
+              keybindingsConfig.keybindings,
+              options.realtimeVoiceControls === true,
+            ),
             issues: keybindingsConfig.issues,
             providers,
             availableEditors,
@@ -1723,30 +1735,105 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "provider" },
           ),
+        [WS_METHODS.providerRealtimeVoiceList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRealtimeVoiceList,
+            Effect.gen(function* () {
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "list voices",
+                true,
+              );
+              if (!runtime.listRealtimeVoices)
+                return yield* new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "list voices",
+                });
+              return yield* runtime.listRealtimeVoices({ providerThread });
+            }).pipe(
+              Effect.mapError(
+                () =>
+                  new ProviderRealtimeVoiceError({
+                    threadId: input.threadId,
+                    operation: "list voices",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerRealtimeVoiceContext]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRealtimeVoiceContext,
+            Effect.gen(function* () {
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "share context",
+              );
+              if (!runtime.appendRealtimeVoiceContext)
+                return yield* new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "share context",
+                });
+              return yield* runtime.appendRealtimeVoiceContext({
+                providerThread,
+                callId: input.callId,
+                text: input.text,
+              });
+            }).pipe(
+              Effect.mapError(
+                () =>
+                  new ProviderRealtimeVoiceError({
+                    threadId: input.threadId,
+                    operation: "share context",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerRealtimeVoiceEvents]: (input) =>
+          Stream.unwrap(
+            Effect.gen(function* () {
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "subscribe",
+                true,
+              );
+              if (!runtime.realtimeVoiceEvents)
+                return yield* new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "subscribe",
+                });
+              return runtime.realtimeVoiceEvents({ providerThread });
+            }),
+          ).pipe(
+            Stream.mapError(
+              () =>
+                new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "subscribe",
+                }),
+            ),
+          ),
         [WS_METHODS.providerRealtimeVoiceStart]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerRealtimeVoiceStart,
             Effect.gen(function* () {
-              const projection = yield* threadManagement.getThreadProjection(input.threadId);
-              const providerThread =
-                projection.providerThreads.find(
-                  (candidate) => candidate.id === projection.thread.activeProviderThreadId,
-                ) ?? projection.providerThreads.at(-1);
-              const providerSessionId = providerThread?.providerSessionId;
-              if (!providerThread || !providerSessionId) {
-                return yield* new ProviderRealtimeVoiceError({
-                  threadId: input.threadId,
-                  operation: "start",
-                });
-              }
-              const runtime = Option.getOrNull(yield* providerSessionsV2.get(providerSessionId));
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "start",
+                true,
+              );
               if (!runtime?.startRealtimeVoice) {
                 return yield* new ProviderRealtimeVoiceError({
                   threadId: input.threadId,
                   operation: "start",
                 });
               }
-              return yield* runtime.startRealtimeVoice({ providerThread, sdp: input.sdp });
+              return yield* runtime.startRealtimeVoice({
+                providerThread,
+                sdp: input.sdp,
+                ...(input.options ? { options: input.options } : {}),
+              });
             }).pipe(
               Effect.tapError((cause) =>
                 Effect.logError("Failed to start provider realtime voice.", {
@@ -1937,7 +2024,13 @@ const makeWsRpcLayer = (
             WS_METHODS.serverUpsertKeybinding,
             Effect.gen(function* () {
               const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
-              return { keybindings: keybindingsConfig, issues: [] };
+              return {
+                keybindings: keybindingsForVoiceClient(
+                  keybindingsConfig,
+                  rule.command.startsWith("voice."),
+                ),
+                issues: [],
+              };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -1946,7 +2039,13 @@ const makeWsRpcLayer = (
             WS_METHODS.serverRemoveKeybinding,
             Effect.gen(function* () {
               const keybindingsConfig = yield* keybindings.removeKeybindingRule(rule);
-              return { keybindings: keybindingsConfig, issues: [] };
+              return {
+                keybindings: keybindingsForVoiceClient(
+                  keybindingsConfig,
+                  rule.command.startsWith("voice."),
+                ),
+                issues: [],
+              };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -2710,13 +2809,17 @@ const makeWsRpcLayer = (
             WS_METHODS.subscribeServerConfig,
             Effect.gen(function* () {
               const usageLimitsCommand = input.usageLimitsCommand === true;
-              const config = yield* loadServerConfig({ usageLimitsCommand });
+              const realtimeVoiceControls = input.realtimeVoiceControls === true;
+              const config = yield* loadServerConfig({ usageLimitsCommand, realtimeVoiceControls });
               const keybindingsUpdates = keybindings.streamChanges.pipe(
                 Stream.map((event) => ({
                   version: 1 as const,
                   type: "keybindingsUpdated" as const,
                   payload: {
-                    keybindings: event.keybindings,
+                    keybindings: keybindingsForVoiceClient(
+                      event.keybindings,
+                      realtimeVoiceControls,
+                    ),
                     issues: event.issues,
                   },
                 })),
