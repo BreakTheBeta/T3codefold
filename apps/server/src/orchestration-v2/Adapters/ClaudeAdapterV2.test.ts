@@ -1827,6 +1827,37 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
 
+  it.effect("reports a limited retry when only the assistant carries rate-limit evidence", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarness;
+      const now = yield* DateTime.now;
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          attemptId: RunAttemptId.make("attempt-limited-retry"),
+          providerTurnOrdinal: 1,
+          text: "Continue.",
+          attachments: [],
+        }),
+      );
+      yield* Queue.offerAll(harness.sdkMessages, [
+        claudeSdkFrame({
+          ...makeAssistantTextFrame({ uuid: "limited-assistant", text: "Limit reached" }),
+          error: "rate_limit",
+        }),
+        makeResultFrame({ uuid: "limited-result", result: "API error", isError: true }),
+      ]);
+      const terminal = yield* Queue.take(harness.terminalReceipts);
+      assert.equal(terminal.status, "failed");
+      assert.equal(
+        terminal.failure?.message,
+        "Claude usage limit reached. Send the message again once the limit resets.",
+      );
+    }).pipe(Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
+  );
+
   it.effect("announces usage-limit pauses once per window and again on a new turn", () =>
     Effect.gen(function* () {
       const harness = yield* makeWakeHarness;

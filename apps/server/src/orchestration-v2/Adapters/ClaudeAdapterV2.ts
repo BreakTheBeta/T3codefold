@@ -804,6 +804,8 @@ export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";
 // Must stay in sync with the Tool.Readonly annotations on OrchestratorToolkit;
 // ClaudeAdapterV2.test.ts cross-checks this list against the toolkit.
 export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
+  "mcp__t3-code__t3_environment_list",
+  "mcp__t3-code__t3_project_list",
   "mcp__t3-code__orchestrator_capabilities",
   "mcp__t3-code__list_scheduled_tasks",
   "mcp__t3-code__t3_thread_list",
@@ -2045,10 +2047,11 @@ function isClaudeTaskNotificationOriginResult(message: SDKMessage): message is S
 
 function providerFailureFromResult(
   message: SDKResultMessage,
+  failureHint?: string,
 ): OrchestrationV2ProviderFailure | null {
   if (message.subtype !== "success") {
     return makeProviderFailure({
-      message: resultUserFacingError(message) ?? message.errors.join("\n"),
+      message: resultUserFacingError(message) ?? failureHint ?? message.errors.join("\n"),
       code: message.subtype,
       class: "provider_error",
     });
@@ -2058,7 +2061,10 @@ function providerFailureFromResult(
   }
   const apiErrorStatus = message.api_error_status ?? null;
   return makeProviderFailure({
-    message: message.result,
+    message:
+      apiErrorStatus === null || apiErrorStatus === 429
+        ? (failureHint ?? message.result)
+        : message.result,
     code: apiErrorStatus === null ? "sdk_result_error" : `api_error_${apiErrorStatus}`,
     class: "provider_error",
     retryable: apiErrorStatus === 429 || apiErrorStatus === 529 ? true : null,
@@ -2229,6 +2235,8 @@ interface ActiveClaudeTurnContext {
   readonly toolCalls: Map<string, ActiveClaudeToolCall>;
   readonly ignoredTaskIds: Set<string>;
   readonly announcedUsageLimits: Set<string>;
+  latestAssistantRateLimited: boolean;
+  authenticationFailureMessage: string | undefined;
   readonly subagentsByTaskId: Map<string, ActiveClaudeSubagent>;
   readonly subagentsByToolUseId: Map<string, ActiveClaudeSubagent>;
   readonly subagentNodesByTaskId: Map<string, OrchestrationV2ExecutionNode["id"]>;
@@ -4448,6 +4456,13 @@ export function makeClaudeAdapterV2(
 
           if (message.type === "assistant") {
             context.nativeMessageCursor = message.uuid;
+            if (!message.parent_tool_use_id) {
+              context.latestAssistantRateLimited = message.error === "rate_limit";
+              if (message.error === "authentication_failed") {
+                context.authenticationFailureMessage =
+                  "Claude authentication failed. Sign in again to continue.";
+              }
+            }
           }
 
           if (message.type === "system" && message.subtype === "compact_boundary") {
@@ -4920,7 +4935,14 @@ export function makeClaudeAdapterV2(
               next.delete(context.providerTurnId);
               return next;
             });
-            const resultFailure = interrupted ? null : providerFailureFromResult(message);
+            const failureHint =
+              context.authenticationFailureMessage ??
+              (context.latestAssistantRateLimited || context.announcedUsageLimits.size > 0
+                ? "Claude usage limit reached. Send the message again once the limit resets."
+                : undefined);
+            const resultFailure = interrupted
+              ? null
+              : providerFailureFromResult(message, failureHint);
             yield* finalizeActiveTurn({
               context,
               status: interrupted ? "interrupted" : terminalStatusFromResult(message),
@@ -5385,6 +5407,8 @@ export function makeClaudeAdapterV2(
               toolCalls: new Map(),
               ignoredTaskIds: new Set(),
               announcedUsageLimits: new Set(),
+              latestAssistantRateLimited: false,
+              authenticationFailureMessage: undefined,
               subagentsByTaskId: new Map(),
               subagentsByToolUseId: new Map(),
               subagentNodesByTaskId: new Map(),
