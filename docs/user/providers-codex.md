@@ -92,7 +92,9 @@ the fork's web client, since the upstream hosted app does not include this beta.
 
 Start mobile voice with the app open. Android calls can continue when the screen
 locks or the app goes into the background; an ongoing call notification lets you
-return or end the call. Leaving the thread ends the call. Short network interruptions
+return or end the call. Calls stay connected while you browse other threads, files,
+diffs, or Settings. The voice panel shows which task the call belongs to; browsing
+does not change that task. Short network interruptions
 show **Reconnecting** while the client waits for audio to recover.
 
 Android uses the system call audio routes. Pair Bluetooth glasses or a headset and
@@ -103,4 +105,34 @@ phone speaker and available headsets or earpiece by name. Use the phone volume b
 the **Increase call volume** control during a call. Actual headset compatibility
 and call controls depend on the device's Bluetooth support.
 
-Mobile requires a new native installation, not an OTA-only update.
+Open **Settings → General → Live voice** on web/desktop, **Settings → Live voice**
+on mobile, or expand the voice panel to choose a
+speaking voice and microphone. Voice choices come from the connected host and apply
+to the next call. Microphone changes apply immediately. **Mute mic** pauses what you
+send; **Mute speaker** silences what you hear. Mobile also offers the system audio
+route picker for headsets and speakerphone.
+
+Expand the voice panel for the current call’s transcript and the coding agent’s
+status. Speech transcripts are separate from accepted chat messages and do not
+prove that the agent has acted. The transcript stays in client memory until you
+start another call or close the panel.
+
+Enable **Share what I’m viewing** to send bounded excerpts of the open file, diff,
+and pending question to the call. This is optional and off by default. It uses
+content already loaded in T3; it does not capture your screen or other apps.
+Turning sharing off stops future updates but cannot remove already shared content.
+
+Say **“end voice call”** to hang up, or **“switch voice to [thread title]”** to move
+the call to a uniquely named Codex task. Switching closes the current call and
+reconnects to that task; it is not seamless audio transfer. You can also choose a
+task in the voice panel. Duplicate titles require choosing the task explicitly.
+An existing idle Codex task is resumed without submitting a new coding prompt.
+
+Web and desktop also expose voice actions in the command palette. The default
+shortcuts are **Ctrl+Alt+V** (start/end), **Ctrl+Alt+M** (microphone mute), and
+**Ctrl+Alt+S** (speaker mute); use **Cmd** instead of **Ctrl** on macOS. Web/desktop
+shortcuts can be changed in keyboard settings. Mobile hardware keyboards use the
+same combinations (Cmd on iOS).
+
+Use matching updated host and client builds for these controls. Mobile hardware
+shortcut changes require a new native installation, not an OTA-only update.

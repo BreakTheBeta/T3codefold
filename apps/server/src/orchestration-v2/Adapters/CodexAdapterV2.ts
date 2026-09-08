@@ -4853,6 +4853,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           }),
         );
 
+        const voiceScope = yield* Effect.scope;
         const voiceControllers = new Map<
           string,
           Effect.Success<ReturnType<typeof makeCodexRealtimeVoice>>
@@ -4866,7 +4867,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               const voice = yield* makeCodexRealtimeVoice(client, {
                 readProviderThreadId: Effect.succeed(nativeThreadId),
                 currentSessionProviderThreadId: Effect.succeed(nativeThreadId),
-              });
+              }).pipe(Effect.provideService(Scope.Scope, voiceScope));
               voiceControllers.set(nativeThreadId, voice);
               return voice;
             }),
@@ -5493,11 +5494,55 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                     }),
               ),
             ),
+          listRealtimeVoices: (voiceInput) =>
+            Effect.gen(function* () {
+              const id = yield* getNativeThreadId(voiceInput.providerThread);
+              return yield* (yield* voiceForThread(id)).listVoices;
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterProtocolError({
+                    driver: CODEX_PROVIDER,
+                    detail: "Could not list voices.",
+                    payload: cause,
+                  }),
+              ),
+            ),
+          appendRealtimeVoiceContext: (voiceInput) =>
+            Effect.gen(function* () {
+              const id = yield* getNativeThreadId(voiceInput.providerThread);
+              yield* (yield* voiceForThread(id)).appendContext(voiceInput.callId, voiceInput.text);
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterProtocolError({
+                    driver: CODEX_PROVIDER,
+                    detail: "Could not share voice context.",
+                    payload: cause,
+                  }),
+              ),
+            ),
+          realtimeVoiceEvents: (voiceInput) =>
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const id = yield* getNativeThreadId(voiceInput.providerThread);
+                return (yield* voiceForThread(id)).events;
+              }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapterProtocolError({
+                      driver: CODEX_PROVIDER,
+                      detail: "Could not subscribe to voice.",
+                      payload: cause,
+                    }),
+                ),
+              ),
+            ),
           startRealtimeVoice: (voiceInput) =>
             Effect.gen(function* () {
               const nativeThreadId = yield* getNativeThreadId(voiceInput.providerThread);
               const voice = yield* voiceForThread(nativeThreadId);
-              return { sdp: yield* voice.startRealtimeVoice(voiceInput.sdp) };
+              return { sdp: yield* voice.startRealtimeVoice(voiceInput.sdp, voiceInput.options) };
             }).pipe(
               Effect.mapError(
                 (cause) =>

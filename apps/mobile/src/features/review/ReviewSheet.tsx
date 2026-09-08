@@ -1,3 +1,4 @@
+import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
@@ -523,6 +524,10 @@ export function ReviewSheet(props: ReviewSheetProps) {
 
   const parsedDiffNotice =
     parsedDiff.kind === "files" || parsedDiff.kind === "raw" ? parsedDiff.notice : null;
+  useVoiceViewContext(
+    "diff",
+    selectedSection?.diff ? JSON.stringify(selectedSection.diff).slice(0, 2500) : null,
+  );
   const hasCachedSelectedDiff = selectedSection?.diff != null;
   const hasAnyCachedDiff = reviewSections.some((section) => section.diff != null);
   const sectionMenu = useMemo(() => buildReviewSectionMenu(reviewSections), [reviewSections]);

@@ -107,6 +107,9 @@ import {
   ProviderRealtimeVoiceStartInput,
   ProviderRealtimeVoiceStartResult,
   ProviderRealtimeVoiceStopInput,
+  ProviderRealtimeVoiceContextInput,
+  ProviderRealtimeVoiceListResult,
+  ProviderRealtimeVoiceEvent,
   ProviderUploadFeedbackError,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
@@ -308,6 +311,9 @@ export const WS_METHODS = {
   providerInstallRemove: "provider.install.remove",
   providerRealtimeVoiceStart: "provider.realtimeVoice.start",
   providerRealtimeVoiceStop: "provider.realtimeVoice.stop",
+  providerRealtimeVoiceList: "provider.realtimeVoice.list",
+  providerRealtimeVoiceContext: "provider.realtimeVoice.context",
+  providerRealtimeVoiceEvents: "provider.realtimeVoice.events",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -937,6 +943,22 @@ export const WsProviderRealtimeVoiceStopRpc = Rpc.make(WS_METHODS.providerRealti
   error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
 });
 
+export const WsProviderRealtimeVoiceListRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceList, {
+  payload: ProviderRealtimeVoiceStopInput,
+  success: ProviderRealtimeVoiceListResult,
+  error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
+});
+export const WsProviderRealtimeVoiceContextRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceContext, {
+  payload: ProviderRealtimeVoiceContextInput,
+  error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
+});
+export const WsProviderRealtimeVoiceEventsRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceEvents, {
+  payload: ProviderRealtimeVoiceStopInput,
+  success: ProviderRealtimeVoiceEvent,
+  stream: true,
+  error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
+});
+
 const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
   payload: VcsStatusInput,
   success: VcsStatusStreamEvent,
@@ -1447,6 +1469,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderUploadFeedbackRpc,
   WsProviderRealtimeVoiceStartRpc,
   WsProviderRealtimeVoiceStopRpc,
+  WsProviderRealtimeVoiceListRpc,
+  WsProviderRealtimeVoiceContextRpc,
+  WsProviderRealtimeVoiceEventsRpc,
   WsSubscribeVcsStatusRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,

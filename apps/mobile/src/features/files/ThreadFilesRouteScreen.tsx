@@ -1,3 +1,4 @@
+import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
@@ -630,6 +631,10 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
       : null,
   );
   const fileData = fileQuery.data as ProjectReadFileResult | null;
+  useVoiceViewContext(
+    "file",
+    relativePath ? `Path: ${relativePath}\n${fileData?.contents?.slice(0, 2500) ?? ""}` : null,
+  );
 
   const handleSelectFile = useCallback(
     (path: string) => {

@@ -526,9 +526,27 @@ export interface ProviderAdapterV2SessionRuntime {
    * Providers that accept product feedback for a thread (#7949, Codex → OpenAI)
    * expose it here; absent means the driver has no feedback channel.
    */
+  readonly listRealtimeVoices?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+  }) => Effect.Effect<
+    import("@t3tools/contracts").ProviderRealtimeVoiceListResult,
+    ProviderAdapterV2Error
+  >;
+  readonly appendRealtimeVoiceContext?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+    readonly callId: string;
+    readonly text: string;
+  }) => Effect.Effect<void, ProviderAdapterV2Error>;
+  readonly realtimeVoiceEvents?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+  }) => Stream.Stream<
+    import("@t3tools/contracts").ProviderRealtimeVoiceEvent,
+    ProviderAdapterV2Error
+  >;
   readonly startRealtimeVoice?: (input: {
     readonly providerThread: OrchestrationV2ProviderThread;
     readonly sdp: string;
+    readonly options?: import("@t3tools/contracts").RealtimeVoiceOptions;
   }) => Effect.Effect<{ readonly sdp: string }, ProviderAdapterV2Error>;
   readonly stopRealtimeVoice?: (input: {
     readonly providerThread: OrchestrationV2ProviderThread;

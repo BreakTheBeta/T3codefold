@@ -1,3 +1,4 @@
+import { useVoiceViewContext } from "./voice/VoiceWorkspaceProvider";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useCodexRealtimeVoice } from "../hooks/useCodexRealtimeVoice";
@@ -2746,6 +2747,7 @@ export default function ChatView(props: ChatViewProps) {
     conversationProviderStatus !== null &&
     conversationProviderStatus.supportsConversationRollback !== false;
   const codexRealtimeVoice = useCodexRealtimeVoice({
+    title: activeThread?.title ?? "Current thread",
     environmentId,
     threadId: routeKind === "server" ? activeThreadId : null,
     enabled:
@@ -2770,6 +2772,10 @@ export default function ChatView(props: ChatViewProps) {
     [pendingRequests.userInputs],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
+  useVoiceViewContext(
+    "question",
+    activePendingUserInput ? JSON.stringify(activePendingUserInput.questions).slice(0, 2500) : null,
+  );
   const activePendingDraftAnswers = useMemo(
     () =>
       activePendingUserInput

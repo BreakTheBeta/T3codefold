@@ -29,6 +29,18 @@ class T3KeyboardCommandsView(
   var enabledCommands = emptySet<String>()
 
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && event.isCtrlPressed && event.isAltPressed && !event.isShiftPressed) {
+      val command = when (event.keyCode) {
+        KeyEvent.KEYCODE_V -> "voiceToggle"
+        KeyEvent.KEYCODE_M -> "voiceMute"
+        KeyEvent.KEYCODE_S -> "voiceOutputMute"
+        else -> null
+      }
+      if (command != null && enabledCommands.contains(command)) {
+        onCommand(mapOf("command" to command))
+        return true
+      }
+    }
     val copiesThreadReference =
       event.action == KeyEvent.ACTION_DOWN &&
         event.repeatCount == 0 &&

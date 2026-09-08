@@ -1,4 +1,5 @@
-"use client";
+import { useOptionalVoiceWorkspace, runVoiceAction } from "./voice/VoiceWorkspaceProvider";
+("use client");
 
 import {
   scopedThreadKey,
@@ -1593,7 +1594,27 @@ function OpenCommandPaletteDialog(props: {
     pushPaletteView,
   ]);
 
+  const voiceWorkspace = useOptionalVoiceWorkspace();
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  if (voiceWorkspace) {
+    for (const [command, title] of [
+      ["voice.toggle", "Start or end voice call"],
+      ["voice.mute", "Mute or unmute voice microphone"],
+      ["voice.outputMute", "Mute or unmute voice speaker"],
+    ] as const) {
+      actionItems.push({
+        kind: "action",
+        value: `action:${command}`,
+        title,
+        searchTerms: ["voice", "live", "audio", "microphone"],
+        icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: command,
+        run: async () => {
+          runVoiceAction(voiceWorkspace, command);
+        },
+      });
+    }
+  }
 
   if (projects.length > 0) {
     const activeProjectTitle =

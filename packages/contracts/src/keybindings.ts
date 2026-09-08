@@ -51,6 +51,9 @@ const MODEL_PICKER_KEYBINDING_COMMANDS = [
 export type ModelPickerKeybindingCommand = (typeof MODEL_PICKER_KEYBINDING_COMMANDS)[number];
 
 export const STATIC_KEYBINDING_COMMANDS = [
+  "voice.toggle",
+  "voice.mute",
+  "voice.outputMute",
   "sidebar.toggle",
   "terminal.toggle",
   "terminal.split",
