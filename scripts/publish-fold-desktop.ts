@@ -11,7 +11,9 @@ if (!directory || !tag || !version || !tag.startsWith("fold-preview-v")) {
 const repository = "BreakTheBeta/T3codefold";
 const channel = version.includes("-nightly.") ? "nightly" : "latest";
 const assets = (await NodeFSP.readdir(directory))
-  .filter((file) => /\.(?:yml|exe|dmg|zip|AppImage|blockmap)$/.test(file))
+  .filter(
+    (file) => file !== "builder-debug.yml" && /\.(?:yml|exe|dmg|zip|AppImage|blockmap)$/.test(file),
+  )
   .map((file) => NodePath.resolve(directory, file));
 if (!assets.some((file) => file.endsWith(".yml")))
   throw new Error("Desktop update metadata is missing.");
