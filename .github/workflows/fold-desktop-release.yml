@@ -12,6 +12,11 @@ on:
         required: true
         default: fold-preview-v0.1.6
 
+      desktop_only:
+        description: Rebuild desktop installers using an already published server version
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -21,7 +26,7 @@ concurrency:
 
 jobs:
   server:
-    if: github.repository == 'BreakTheBeta/T3codefold'
+    if: github.repository == 'BreakTheBeta/T3codefold' && !inputs.desktop_only
     uses: ./.github/workflows/fold-server-release.yml
     permissions:
       contents: write
@@ -29,6 +34,7 @@ jobs:
       version: ${{ inputs.version }}
       channel: ${{ contains(inputs.version, '-nightly.') && 'nightly' || 'latest' }}
   unix:
+    if: ${{ !cancelled() && (needs.server.result == 'success' || (inputs.desktop_only && needs.server.result == 'skipped')) }}
     needs: server
     strategy:
       fail-fast: false
@@ -52,6 +58,16 @@ jobs:
         with:
           node-version-file: package.json
           run-install: true
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup override set 1.95.0
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config imagemagick
+      - name: Install macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Build desktop artifacts
         id: build
         shell: bash
@@ -123,6 +139,7 @@ jobs:
           name: fold-wsl-pty
           path: wsl-prebuild/pty.node
   windows:
+    if: ${{ !cancelled() && needs.wsl.result == 'success' && (needs.server.result == 'success' || (inputs.desktop_only && needs.server.result == 'skipped')) }}
     needs: [wsl, server]
     runs-on: windows-2025
     timeout-minutes: 60
