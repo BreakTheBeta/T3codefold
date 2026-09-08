@@ -1,3 +1,4 @@
+import { foldServerCommand } from "@t3tools/shared/foldRelease";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -82,7 +83,7 @@ export function formatServiceStatus(
       `  Unit: ${status.unitPath}`,
       `  Logs: ${status.logPath}`,
       ...problems,
-      `  Next: Use \`npx t3@${installedVersion} service update\` to repair it, or pass \`--allow-downgrade\` explicitly.`,
+      `  Next: Use \`${foldServerCommand(installedVersion)} service update\` to repair it, or pass \`--allow-downgrade\` explicitly.`,
     ].join("\n");
   }
   return [
@@ -91,7 +92,7 @@ export function formatServiceStatus(
     `  Unit: ${status.unitPath}`,
     `  Logs: ${status.logPath}`,
     ...problems,
-    ...(status.current ? [] : [`  Next: Run \`npx t3@${cliVersion} service update\`.`]),
+    ...(status.current ? [] : [`  Next: Run \`${foldServerCommand(cliVersion)} service update\`.`]),
   ].join("\n");
 }
 
@@ -135,7 +136,7 @@ const serviceInstallCommand = Command.make("install", serviceReconcileFlags).pip
 
 const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
   Command.withDescription(
-    "Update or repair the background service using this CLI version. Use `npx t3@latest service update` for the latest release.",
+    `Update or repair the background service using this CLI version. Use ${foldServerCommand("latest")} service update for the latest Fold release.`,
   ),
   Command.withHandler((flags) =>
     runServiceCommand(

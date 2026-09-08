@@ -1,0 +1,75 @@
+name: Fold server release
+on:
+  workflow_call:
+    inputs:
+      channel:
+        type: string
+        default: latest
+      version:
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact Fold version (defaults to the version on this commit)
+        type: string
+        default: ""
+      channel:
+        description: Fold update channel
+        type: choice
+        options: [latest, nightly]
+        default: latest
+permissions:
+  contents: write
+concurrency:
+  group: fold-server-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.repository == 'BreakTheBeta/T3codefold'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Align versions for a desktop release
+        if: inputs.version != ''
+        env:
+          FOLD_VERSION: ${{ inputs.version }}
+        run: node scripts/update-release-package-versions.ts "$FOLD_VERSION"
+      - name: Build server and web client
+        run: vp run --filter t3 build
+      - name: Package Fold runtime
+        run: node scripts/pack-fold-server.ts release-assets
+      - name: Verify install outside the workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_dir="$(mktemp -d)"
+          npm install --prefix "$runtime_dir" --no-audit --no-fund "$PWD"/release-assets/t3-*.tgz
+          "$runtime_dir/node_modules/.bin/t3" --version
+      - name: Publish immutable version and update channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./apps/server/package.json').version")"
+          tag="fold-server-v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            published_commit="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
+            test "$published_commit" = "$GITHUB_SHA" || { echo "Version already belongs to another commit" >&2; exit 1; }
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "t3-$version.tgz" --dir published
+            cp "published/t3-$version.tgz" "release-assets/t3-$version.tgz"
+          else
+          gh release create "$tag" "release-assets/t3-$version.tgz" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Fold server $version" --notes "Fold server and web client. Install using the attached npm-compatible tarball." --prerelease
+          fi
+          cp "release-assets/t3-$version.tgz" release-assets/t3.tgz
+          channel_tag="fold-server-$CHANNEL"
+          if ! gh release view "$channel_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$channel_tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Fold server $CHANNEL" --notes "Rolling Fold server package. Exact versions are published separately." --prerelease
+          fi
+          gh release upload "$channel_tag" release-assets/t3.tgz --repo "$GITHUB_REPOSITORY" --clobber

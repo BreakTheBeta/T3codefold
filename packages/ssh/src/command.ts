@@ -1,3 +1,4 @@
+import { foldServerPackageSpec } from "@t3tools/shared/foldRelease";
 import * as NodeCrypto from "node:crypto";
 
 import type { DesktopSshEnvironmentTarget, DesktopUpdateChannel } from "@t3tools/contracts";
@@ -371,12 +372,14 @@ export function resolveRemoteT3CliPackageSpec(input: {
 }): string {
   const appVersion = input.appVersion.trim();
   if (!input.isDevelopment && PUBLISHABLE_T3_VERSION_PATTERN.test(appVersion)) {
-    return `t3@${appVersion}`;
+    return foldServerPackageSpec(appVersion);
   }
 
   if (input.isDevelopment) {
-    return "t3@nightly";
+    return foldServerPackageSpec("nightly");
   }
 
-  return input.updateChannel === "nightly" ? "t3@nightly" : "t3@latest";
+  return input.updateChannel === "nightly"
+    ? foldServerPackageSpec("nightly")
+    : foldServerPackageSpec("latest");
 }

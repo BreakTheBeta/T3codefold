@@ -1,3 +1,4 @@
+import { foldDesktopFeed } from "@t3tools/shared/foldRelease";
 import {
   DesktopUpdateChannelSchema,
   type DesktopRuntimeInfo,
@@ -271,6 +272,7 @@ function isArm64HostRunningIntelBuild(runtimeInfo: DesktopRuntimeInfo): boolean 
   return runtimeInfo.hostArch === "arm64" && runtimeInfo.appArch === "x64";
 }
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
@@ -376,6 +378,7 @@ export const make = Effect.gen(function* () {
   ) {
     yield* Effect.annotateCurrentSpan({ channel });
     const allowsPrerelease = channel === "nightly";
+    if (!config.mockUpdates) yield* electronUpdater.setFeedURL(foldDesktopFeed(channel));
     yield* electronUpdater.setChannel(channel);
     yield* electronUpdater.setAllowPrerelease(allowsPrerelease);
     yield* electronUpdater.setAllowDowngrade(allowsPrerelease);

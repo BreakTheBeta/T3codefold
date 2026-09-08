@@ -75,6 +75,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
   readonly primaryBearerToken?: string;
   readonly prepareSsh?: ClientCapabilities.SshEnvironmentGateway["Service"]["prepare"];
   readonly descriptorProtocolVersion?: number | null | undefined;
+  readonly surface?: "web" | "desktop" | "mobile";
 }) => {
   const profiles = new Map(
     (options?.profiles ?? []).map((profile) => [profile.connectionId, profile]),
@@ -166,7 +167,11 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
     Layer.succeed(
       ClientCapabilities.ClientPresentation,
       ClientCapabilities.ClientPresentation.of({
-        metadata: { label: "Test Client", deviceType: "desktop", surface: "web" },
+        metadata: {
+          label: "Test Client",
+          deviceType: options?.surface === "mobile" ? "mobile" : "desktop",
+          surface: options?.surface ?? "web",
+        },
         scopes: [],
       }),
     ),
@@ -178,6 +183,62 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
 });
 
 describe("ConnectionResolver", () => {
+  for (const surface of ["web", "desktop", "mobile"] as const) {
+    for (const protocol of [null, ORCHESTRATION_PROTOCOL_VERSION]) {
+      it.effect(
+        `${surface} selects the host protocol across direct, relay, and SSH connections (${protocol ?? "legacy"})`,
+        () =>
+          Effect.gen(function* () {
+            const brokerLayer = yield* makeDependencies({
+              surface,
+              descriptorProtocolVersion: protocol,
+              primaryBearerToken: "local-token",
+            });
+            const broker = yield* ConnectionResolver.ConnectionResolver.pipe(
+              Effect.provide(brokerLayer),
+            );
+            const targets = [
+              catalogEntry(
+                new PrimaryConnectionTarget({
+                  environmentId: ENVIRONMENT_ID,
+                  label: "Local",
+                  ...ENDPOINT,
+                }),
+              ),
+              catalogEntry(
+                new RelayConnectionTarget({ environmentId: ENVIRONMENT_ID, label: "Remote" }),
+              ),
+              catalogEntry(
+                new SshConnectionTarget({
+                  environmentId: ENVIRONMENT_ID,
+                  label: "SSH",
+                  connectionId: "ssh-1",
+                }),
+                Option.some(
+                  new SshConnectionProfile({
+                    environmentId: ENVIRONMENT_ID,
+                    label: "SSH",
+                    connectionId: "ssh-1",
+                    target: SSH_TARGET,
+                  }),
+                ),
+              ),
+            ];
+            for (const target of targets) {
+              const prepared = yield* broker.prepare(target);
+              expect(prepared.legacyOrchestration === true).toBe(protocol === null);
+              const socket = new URL(prepared.socketUrl);
+              expect(socket.searchParams.get("orchestrationProtocol")).toBe(
+                protocol === null ? null : String(protocol),
+              );
+              expect(prepared.httpAuthorization).not.toBeNull();
+              expect(socket.searchParams.get("wsTicket")).not.toBeNull();
+            }
+          }),
+      );
+    }
+  }
+
   it.effect("selects the legacy adapter without advertising the newer protocol", () =>
     Effect.gen(function* () {
       const brokerLayer = yield* makeDependencies({ descriptorProtocolVersion: null });

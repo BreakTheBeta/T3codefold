@@ -1,3 +1,4 @@
+import { foldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
 import {
   type EnvironmentId,
   type ServerConfig,
@@ -85,6 +86,15 @@ const serverUpdateStateAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.withLabel(`environment-data:server:update-state:${environmentId}`),
   ),
 );
+
+export class ServerUpdateSourceMismatchError extends Schema.TaggedErrorClass<ServerUpdateSourceMismatchError>()(
+  "ServerUpdateSourceMismatchError",
+  { targetVersion: Schema.String },
+) {
+  override get message(): string {
+    return `This server updater does not identify itself as Fold. Update it manually with: ${foldServerCommand(this.targetVersion)} service update`;
+  }
+}
 
 export class ServerUpdateResumeTimeoutError extends Schema.TaggedErrorClass<ServerUpdateResumeTimeoutError>()(
   "ServerUpdateResumeTimeoutError",
@@ -624,6 +634,9 @@ export function createServerEnvironmentAtoms<R, E>(
           target,
           Effect.gen(function* () {
             const currentConfig = atomRegistry.get(configValueAtom(target.environmentId));
+            if (!supportsFoldUpdates(currentConfig?.environment.capabilities ?? {})) {
+              return yield* Effect.fail(new ServerUpdateSourceMismatchError({ targetVersion }));
+            }
             fromVersion = currentConfig?.environment.serverVersion ?? targetVersion;
             atomRegistry.set(stateAtom, {
               status: "running",

@@ -1,3 +1,4 @@
+import { normalizeFoldPackageSpec } from "@t3tools/shared/foldRelease";
 import type {
   DesktopSshEnvironmentBootstrap,
   DesktopSshEnvironmentTarget,
@@ -414,9 +415,6 @@ if [ -n "$T3_NODE_SCRIPT_PATH" ]; then
   fi
   exec node "$T3_NODE_SCRIPT_PATH" "$@"
 fi
-if command -v t3 >/dev/null 2>&1; then
-  exec t3 "$@"
-fi
 # npm extracts a package before it runs the native builds of its dependencies,
 # so a failed build (t3 depends on node-pty, which needs a C toolchain) leaves
 # the npx cache without a t3 executable. \`npx --yes\` then exits 0 without
@@ -436,11 +434,11 @@ require_installed_t3_cli() {
 }
 # The launcher records this PID, so exec the CLI without an npm wrapper process.
 if command -v npx >/dev/null 2>&1; then
-  require_installed_t3_cli npx --yes --package @@T3_PACKAGE_SPEC@@ || exit 1
+  require_installed_t3_cli npx --yes --prefer-online --package @@T3_PACKAGE_SPEC@@ || exit 1
   exec "$T3_CLI_PATH" "$@"
 fi
 if command -v npm >/dev/null 2>&1; then
-  require_installed_t3_cli npm exec --yes --package @@T3_PACKAGE_SPEC@@ || exit 1
+  require_installed_t3_cli npm exec --yes --prefer-online --package @@T3_PACKAGE_SPEC@@ || exit 1
   exec "$T3_CLI_PATH" "$@"
 fi
 printf 'Remote host is missing the t3 CLI and could not install @@T3_PACKAGE_SPEC@@ because node/npm/npx are unavailable on PATH. Install Node or configure a supported version manager for non-interactive shells.\\n' >&2
@@ -651,7 +649,7 @@ fi
 `;
 
 export function buildRemoteT3RunnerScript(input?: RemoteT3RunnerOptions): string {
-  const packageSpec = shellSingleQuote(input?.packageSpec?.trim() || "t3@latest");
+  const packageSpec = shellSingleQuote(normalizeFoldPackageSpec(input?.packageSpec));
   const nodeScriptPath = input?.nodeScriptPath?.trim() || "";
   return stripTrailingNewlines(
     applyScriptPlaceholders(REMOTE_RUNNER_SCRIPT, {

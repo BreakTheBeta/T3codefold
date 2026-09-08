@@ -1,3 +1,4 @@
+import { foldServerCommand } from "@t3tools/shared/foldRelease";
 /**
  * `t3 pair` - mint a pairing token for an already-running server and print it
  * as a QR code, without restarting anything.
@@ -79,7 +80,7 @@ export class NoRunningServerError extends Schema.TaggedErrorClass<NoRunningServe
     return [
       "No running T3 Code server found.",
       ...this.checkedStatePaths.map((statePath) => `  checked ${statePath}`),
-      "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`.",
+      `Start one with ${foldServerCommand("latest")} serve, or connect this machine with T3 Connect: ${foldServerCommand("latest")} connect.`,
     ].join("\n");
   }
 }

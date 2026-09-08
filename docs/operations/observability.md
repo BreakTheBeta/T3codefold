@@ -85,7 +85,7 @@ You do not need any extra env vars. Just run the app normally and inspect `serve
 Examples:
 
 ```bash
-npx t3
+npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
 ```
 
 ```bash
@@ -136,7 +136,7 @@ export T3CODE_TRACE_TIMING_ENABLED=true
 CLI:
 
 ```bash
-npx t3
+npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
 ```
 
 Monorepo web/server dev:

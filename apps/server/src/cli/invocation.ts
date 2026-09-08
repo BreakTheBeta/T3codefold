@@ -1,3 +1,4 @@
+import { foldServerPackageSpec } from "@t3tools/shared/foldRelease";
 import * as Effect from "effect/Effect";
 
 import { HostProcessArguments } from "@t3tools/shared/hostProcess";
@@ -36,22 +37,12 @@ function detectCliRunner(entryPath: string): CliRunner | null {
   return null;
 }
 
-/**
- * The `t3` package spec to suggest. The literal spec the user typed (e.g.
- * `t3@nightly`) is resolved away before our process starts, so re-derive it
- * from the running version: nightly builds re-suggest the nightly channel,
- * anything else suggests the bare package.
- */
+/** Preserve the Fold release source when suggesting another CLI invocation. */
 function suggestedPackageSpec(version: string): string {
-  return version.includes("-nightly.") ? "t3@nightly" : "t3";
+  return foldServerPackageSpec(version.includes("-nightly.") ? "nightly" : version);
 }
 
-/**
- * Render a `t3 <subcommand>` suggestion that matches how this process was
- * launched, so copy/pasting it actually works: `npx t3 connect` suggests
- * `npx t3 serve`, a global install suggests `t3 serve`, and a nightly build
- * keeps the `@nightly` tag.
- */
+/** Render a CLI suggestion using the runner that launched this process. */
 export function formatCliCommand(input: {
   readonly subcommand: string;
   readonly entryPath: string;
@@ -61,7 +52,12 @@ export function formatCliCommand(input: {
   if (runner === null) {
     return `t3 ${input.subcommand}`;
   }
-  return `${runner} ${suggestedPackageSpec(input.version)} ${input.subcommand}`;
+  const spec = suggestedPackageSpec(input.version);
+  return runner === "npx"
+    ? `npx --yes --prefer-online --package=${spec} t3 ${input.subcommand}`
+    : runner === "pnpm dlx"
+      ? `pnpm --package=${spec} dlx t3 ${input.subcommand}`
+      : `bunx --package ${spec} t3 ${input.subcommand}`;
 }
 
 /** `formatCliCommand` against this process's real entry path and version. */

@@ -54,7 +54,7 @@ import {
   resolveResourceMonitorRustTargets,
   resolveWindowsServerAsarIgnoreGlobs,
   resourceMonitorExecutableName,
-  resolveGitHubPublishConfig,
+  resolveDesktopPublishConfig,
   resolveMockUpdateServerPort,
   resolveMockUpdateServerUrl,
   resolvePackageManagerUserAgent,
@@ -285,7 +285,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("resolves GitHub desktop publish config from Effect config", () =>
     Effect.gen(function* () {
-      const latestConfig = yield* resolveGitHubPublishConfig("latest").pipe(
+      const latestConfig = yield* resolveDesktopPublishConfig("latest").pipe(
         Effect.provide(
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
@@ -296,7 +296,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ),
         ),
       );
-      const nightlyConfig = yield* resolveGitHubPublishConfig("nightly").pipe(
+      const nightlyConfig = yield* resolveDesktopPublishConfig("nightly").pipe(
         Effect.provide(
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
@@ -309,16 +309,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       );
 
       assert.deepStrictEqual(latestConfig, {
-        provider: "github",
-        owner: "pingdotgg",
-        repo: "t3code",
-        releaseType: "release",
+        provider: "generic",
+        url: "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-desktop-latest",
+        channel: "latest",
       });
       assert.deepStrictEqual(nightlyConfig, {
-        provider: "github",
-        owner: "pingdotgg",
-        repo: "t3code",
-        releaseType: "prerelease",
+        provider: "generic",
+        url: "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-desktop-nightly",
         channel: "nightly",
       });
     }),
@@ -348,10 +345,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.notProperty(preview, "publish");
       assert.deepStrictEqual(release.publish, [
         {
-          provider: "github",
-          owner: "pingdotgg",
-          repo: "t3code",
-          releaseType: "release",
+          provider: "generic",
+          url: "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-desktop-latest",
+          channel: "latest",
         },
       ]);
     }).pipe(

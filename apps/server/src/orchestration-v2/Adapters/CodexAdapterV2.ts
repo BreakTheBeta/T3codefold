@@ -16,7 +16,12 @@ import {
   type CodexTurnTokenUsageState,
 } from "../../provider/CodexTurnTokenUsage.ts";
 import type { ServerProviderShape } from "../../provider/Services/ServerProvider.ts";
-import { codexRateLimitsToUpdate } from "../../provider/Layers/codexUsageLimits.ts";
+import {
+  codexRateLimitsToUpdate,
+  mergeCodexRateLimits,
+  codexUsageLimitMessage,
+  type CodexRateLimitSnapshot,
+} from "../../provider/Layers/codexUsageLimits.ts";
 import { CodexSettings, defaultInstanceIdForDriver, ProviderDriverKind } from "@t3tools/contracts";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -1560,6 +1565,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           now,
         });
         const events = yield* Queue.unbounded<ProviderAdapterV2Event>();
+        let rateLimits: CodexRateLimitSnapshot | undefined;
         const activeTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
         const turnTokenUsageByThread = new Map<string, CodexTurnTokenUsageState>();
         const usageStateForThread = (nativeThreadId: string) => {
@@ -3500,6 +3506,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
 
         yield* client.handleServerNotification("account/rateLimits/updated", (payload) =>
           Effect.gen(function* () {
+            rateLimits = mergeCodexRateLimits(rateLimits, payload.rateLimits);
             const update = codexRateLimitsToUpdate(payload.rateLimits);
             if (update && adapterOptions.onUsageLimits) {
               const checkedAt = DateTime.formatIso(yield* DateTime.now);
@@ -4848,7 +4855,15 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               completedAt: codexTimestamp(payload.turn.completedAt),
               ...(payload.turn.error?.message === undefined
                 ? {}
-                : { failureMessage: payload.turn.error.message }),
+                : {
+                    failureMessage:
+                      payload.turn.error.codexErrorInfo === "usageLimitExceeded"
+                        ? codexUsageLimitMessage(
+                            rateLimits,
+                            DateTime.formatIso(yield* DateTime.now),
+                          )
+                        : payload.turn.error.message,
+                  }),
             });
           }),
         );
