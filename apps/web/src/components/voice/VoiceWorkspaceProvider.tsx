@@ -1,3 +1,4 @@
+import { withDefaultVoiceKeybindings } from "@t3tools/shared/keybindings";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { resolveShortcutCommand } from "../../keybindings";
 import { randomUUID } from "../../lib/utils";
@@ -15,6 +16,8 @@ import { Option } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import {
   VoiceWorkspace,
+  voiceStartInput,
+  BASIC_VOICE_NOTICE,
   type VoicePreferences,
 } from "@t3tools/client-runtime/realtime-voice/workspace";
 import { emptyVoiceFeed } from "@t3tools/client-runtime/realtime-voice/feed";
@@ -75,11 +78,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
             unwrap(
               await start({
                 environmentId: target.environmentId,
-                input: {
-                  threadId: target.threadId,
-                  sdp,
-                  options: { callId, ...(voice ? { voice } : {}) },
-                },
+                input: voiceStartInput(target, sdp, callId, voice),
               }),
             ).sdp,
           stopRemote: async (target) => {
@@ -117,7 +116,11 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
       ),
     [start, stop, list, context],
   );
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const keybindings = useMemo(
+    () => withDefaultVoiceKeybindings(serverKeybindings),
+    [serverKeybindings],
+  );
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat) return;
@@ -153,12 +156,18 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
           environmentId: shell.environmentId,
           threadId: shell.id,
           title: shell.title,
+          enhancedVoice:
+            configs.get(shell.environmentId)?.environment.capabilities.realtimeVoiceControls ===
+            true,
         })),
     [shells, configs],
   );
   useEffect(() => workspace.setTargets(targets), [workspace, targets]);
   const subscription = useAtomValue(
-    state.target && state.voice.status !== "idle" && state.voice.status !== "error"
+    state.target &&
+      workspace.hasVoiceEvents &&
+      state.voice.status !== "idle" &&
+      state.voice.status !== "error"
       ? threadEnvironment.realtimeVoiceEvents({
           environmentId: state.target.environmentId,
           input: { threadId: state.target.threadId },
@@ -182,6 +191,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
 }
 export function VoiceSettings() {
   const { workspace, state } = useVoiceWorkspace();
+  const enhanced = workspace.supportsVoiceControls();
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const refreshMicrophones = async () => {
@@ -196,12 +206,14 @@ export function VoiceSettings() {
   return (
     <fieldset className="space-y-3 rounded-lg border p-3 text-sm">
       <legend className="px-1 font-medium">Live voice</legend>
+      {!enhanced && <p className="text-xs text-muted-foreground">{BASIC_VOICE_NOTICE}</p>}
       {deviceError && <p role="status">{deviceError}</p>}
       <label className="flex items-center justify-between gap-3">
         Speaking voice
         <select
+          disabled={!enhanced}
           aria-label="Speaking voice"
-          value={state.preferences.voice}
+          value={enhanced ? state.preferences.voice : ""}
           onFocus={() => void workspace.loadVoices()}
           onChange={(event) => void workspace.setPreferences({ voice: event.target.value })}
         >
@@ -250,7 +262,8 @@ export function VoiceSettings() {
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
-          checked={state.preferences.shareContext}
+          disabled={!enhanced}
+          checked={enhanced && state.preferences.shareContext}
           onChange={(event) =>
             void workspace.setPreferences({ shareContext: event.target.checked })
           }
@@ -369,7 +382,9 @@ function VoicePanel() {
             </button>
           )}
           <p className="text-xs text-muted-foreground">
-            Say “end voice call” or “switch voice to [thread title]”. Switching reconnects the call.
+            {workspace.hasVoiceEvents
+              ? "Say ‘end voice call’ or ‘switch voice to [thread title]’. Switching reconnects the call."
+              : BASIC_VOICE_NOTICE}
           </p>
           <div aria-label="Voice transcript" className="space-y-2 text-sm">
             {state.feed.transcripts.map((entry) => (

@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { VoiceWorkspace, type VoiceWorkspaceDependencies } from "./workspace.ts";
+import { VoiceWorkspace, voiceStartInput, type VoiceWorkspaceDependencies } from "./workspace.ts";
 import { emptyVoiceFeed, parseVoiceCommand, reduceVoiceFeed } from "./feed.ts";
 import type { VoiceMedia, VoiceDependencies } from "./controller.ts";
 const first = {
   environmentId: EnvironmentId.make("env"),
   threadId: ThreadId.make("one"),
   title: "First task",
+  enhancedVoice: true,
 };
 const second = { ...first, threadId: ThreadId.make("two"), title: "Second task" };
 function fixture() {
@@ -39,6 +40,75 @@ function fixture() {
   return { workspace, deps, media, connected: () => handlers?.connected() };
 }
 describe("voice workspace", () => {
+  it("sends the original start payload to hosts missing the capability", () => {
+    const { enhancedVoice: _, ...old } = first;
+    expect(voiceStartInput(old, "offer", "owner", "spruce")).toEqual({
+      threadId: first.threadId,
+      sdp: "offer",
+    });
+    expect(voiceStartInput(first, "offer", "owner", "spruce")).toEqual({
+      threadId: first.threadId,
+      sdp: "offer",
+      options: { callId: "owner", voice: "spruce" },
+    });
+  });
+  it("uses only basic voice on an older host even with advanced preferences saved", async () => {
+    const f = fixture();
+    const older = { ...first, enhancedVoice: false };
+    f.workspace.setTargets([older, second]);
+    await f.workspace.setPreferences({ voice: "spruce", shareContext: true });
+    await f.workspace.loadVoices();
+    expect(f.deps.listVoices).not.toHaveBeenCalled();
+    await f.workspace.start();
+    f.connected();
+    await f.workspace.shareContext();
+    await f.workspace.setPreferences({ shareContext: false });
+    expect(f.deps.appendContext).not.toHaveBeenCalled();
+    expect(f.deps.startRemote).toHaveBeenCalledWith(older, "offer", "call-1", "");
+    f.workspace.toggleMuted();
+    await f.workspace.setPreferences({ outputMuted: true });
+    expect(f.media.mute).toHaveBeenCalledWith(true);
+    expect(f.media.muteOutput).toHaveBeenCalledWith(true);
+    f.workspace.setView(second);
+    expect(f.workspace.getSnapshot().target).toEqual(older);
+    await f.workspace.stop();
+    expect(f.deps.stopRemote).toHaveBeenCalledWith(older);
+  });
+  it("uses independent capabilities when switching between old and updated environments", async () => {
+    const f = fixture();
+    const older = { ...first, enhancedVoice: false };
+    const newer = { ...second, environmentId: EnvironmentId.make("updated-host") };
+    f.workspace.setTargets([older, newer]);
+    await f.workspace.setPreferences({ voice: "spruce", shareContext: true });
+    await f.workspace.start();
+    f.connected();
+    expect(f.workspace.hasVoiceEvents).toBe(false);
+    await f.workspace.switchTo(newer.title);
+    f.connected();
+    await f.workspace.shareContext();
+    expect(f.workspace.hasVoiceEvents).toBe(true);
+    expect(f.deps.stopRemote).toHaveBeenCalledWith(older);
+    expect(f.deps.startRemote).toHaveBeenLastCalledWith(newer, "offer", "call-2", "spruce");
+    expect(f.deps.appendContext).toHaveBeenCalledWith(newer, "call-2", expect.any(String));
+  });
+  it("rechecks each host on new calls without changing an existing call during rollout", async () => {
+    const f = fixture();
+    const older = { ...first, enhancedVoice: false };
+    f.workspace.setTargets([older, second]);
+    await f.workspace.start();
+    f.connected();
+    f.workspace.setTargets([first, second]);
+    expect(f.media.close).not.toHaveBeenCalled();
+    expect(f.workspace.getSnapshot().target?.enhancedVoice).toBe(false);
+    await f.workspace.stop();
+    await f.workspace.start();
+    f.connected();
+    expect(f.workspace.getSnapshot().target?.enhancedVoice).toBe(true);
+    f.workspace.setTargets([older, second]);
+    await f.workspace.stop();
+    await f.workspace.start();
+    expect(f.workspace.getSnapshot().target?.enhancedVoice).toBe(false);
+  });
   it("keeps media and its original agent when browsing another thread or leaving chat", async () => {
     const f = fixture();
     await f.workspace.start();

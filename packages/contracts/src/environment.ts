@@ -86,6 +86,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   fleetOrchestration: Schema.optionalKey(Schema.Boolean),
   repositoryIdentity: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   connectionProbe: Schema.optionalKey(Schema.Boolean),
+  /** Voice selection, transcript events and view context; absent on basic-voice hosts. */
+  realtimeVoiceControls: Schema.optionalKey(Schema.Boolean),
   /** Missing on older servers, which still accept inline image attachments. */
   attachmentUploads: Schema.optionalKey(Schema.Boolean),
   /** Missing on servers that only accept image attachments. */

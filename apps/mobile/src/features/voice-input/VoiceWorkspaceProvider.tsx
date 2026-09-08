@@ -17,6 +17,8 @@ import { Platform, View, Pressable, ScrollView, Switch } from "react-native";
 import { AppText as Text } from "../../components/AppText";
 import {
   VoiceWorkspace,
+  voiceStartInput,
+  BASIC_VOICE_NOTICE,
   type VoicePreferences,
 } from "@t3tools/client-runtime/realtime-voice/workspace";
 import { emptyVoiceFeed } from "@t3tools/client-runtime/realtime-voice/feed";
@@ -89,11 +91,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
           unwrap(
             await start({
               environmentId: target.environmentId,
-              input: {
-                threadId: target.threadId,
-                sdp,
-                options: { callId, ...(voice ? { voice } : {}) },
-              },
+              input: voiceStartInput(target, sdp, callId, voice),
             }),
           ).sdp,
         stopRemote: async (target) => {
@@ -196,12 +194,18 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
           environmentId: shell.environmentId,
           threadId: shell.id,
           title: shell.title,
+          enhancedVoice:
+            configs.get(shell.environmentId)?.environment.capabilities.realtimeVoiceControls ===
+            true,
         })),
     [shells, configs],
   );
   useEffect(() => workspace.setTargets(targets), [workspace, targets]);
   const subscription = useAtomValue(
-    state.target && state.voice.status !== "idle" && state.voice.status !== "error"
+    state.target &&
+      workspace.hasVoiceEvents &&
+      state.voice.status !== "idle" &&
+      state.voice.status !== "error"
       ? threadEnvironment.realtimeVoiceEvents({
           environmentId: state.target.environmentId,
           input: { threadId: state.target.threadId },
@@ -265,10 +269,11 @@ function Action({ label, onPress }: { label: string; onPress(): void }) {
 }
 export function VoiceSettings() {
   const { workspace, state, audio } = useVoiceWorkspace();
+  const enhanced = workspace.supportsVoiceControls();
   const [microphones, setMicrophones] = useState<Array<{ deviceId: string; label: string }>>([]);
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const refresh = async () => {
-    await workspace.loadVoices();
+    if (enhanced) await workspace.loadVoices();
     try {
       const devices = await mediaDevices.enumerateDevices();
       if (Array.isArray(devices))
@@ -288,23 +293,31 @@ export function VoiceSettings() {
   return (
     <View style={{ gap: 8, padding: 12 }}>
       <Text style={{ fontWeight: "600" }}>Live voice</Text>
-      <Action label="Load voices and microphones" onPress={() => void refresh()} />
+      <Action
+        label={enhanced ? "Load voices and microphones" : "Load microphones"}
+        onPress={() => void refresh()}
+      />
       {deviceError && <Text>{deviceError}</Text>}
-      <Text>Speaking voice: {state.preferences.voice || "Provider default"}</Text>
-      <ScrollView horizontal>
-        <Action
-          label="Provider default"
-          onPress={() => void workspace.setPreferences({ voice: "" })}
-        />
-        {state.voices.map((voice) => (
-          <Action
-            key={voice}
-            label={voice}
-            onPress={() => void workspace.setPreferences({ voice })}
-          />
-        ))}
-      </ScrollView>
-      <Text>Voice changes apply to the next call.</Text>
+      {!enhanced && <Text>{BASIC_VOICE_NOTICE}</Text>}
+      {enhanced && (
+        <>
+          <Text>Speaking voice: {state.preferences.voice || "Provider default"}</Text>
+          <ScrollView horizontal>
+            <Action
+              label="Provider default"
+              onPress={() => void workspace.setPreferences({ voice: "" })}
+            />
+            {state.voices.map((voice) => (
+              <Action
+                key={voice}
+                label={voice}
+                onPress={() => void workspace.setPreferences({ voice })}
+              />
+            ))}
+          </ScrollView>
+          <Text>Voice changes apply to the next call.</Text>
+        </>
+      )}
       <Text>Microphone</Text>
       <ScrollView horizontal>
         <Action
@@ -338,7 +351,8 @@ export function VoiceSettings() {
         <Text>Share what I’m viewing</Text>
         <Switch
           accessibilityLabel="Share what I’m viewing"
-          value={state.preferences.shareContext}
+          disabled={!enhanced}
+          value={enhanced && state.preferences.shareContext}
           onValueChange={(shareContext) => void workspace.setPreferences({ shareContext })}
         />
       </View>
@@ -422,7 +436,9 @@ function VoicePanel() {
             />
           )}
           <Text>
-            Say “end voice call” or “switch voice to [thread title]”. Switching reconnects.
+            {workspace.hasVoiceEvents
+              ? "Say ‘end voice call’ or ‘switch voice to [thread title]’. Switching reconnects."
+              : BASIC_VOICE_NOTICE}
           </Text>
           {state.feed.transcripts.map((entry) => (
             <Text key={entry.id} className="text-foreground" style={{ paddingVertical: 5 }}>

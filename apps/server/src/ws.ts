@@ -1,3 +1,4 @@
+import { keybindingsForVoiceClient } from "@t3tools/shared/keybindings";
 import { makeRealtimeVoiceSessionResolver } from "./orchestration-v2/RealtimeVoiceSession.ts";
 import { FleetBroker } from "./mcp/FleetBroker.ts";
 import { FleetRouter } from "./mcp/FleetRouter.ts";
@@ -758,7 +759,10 @@ const makeWsRpcLayer = (
           ),
         );
 
-      const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
+      const loadServerConfig = (options: {
+        readonly usageLimitsCommand: boolean;
+        readonly realtimeVoiceControls?: boolean;
+      }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
           const currentProviders = yield* providerRegistry.getProviders;
@@ -784,7 +788,10 @@ const makeWsRpcLayer = (
             auth,
             cwd: config.cwd,
             keybindingsConfigPath: config.keybindingsConfigPath,
-            keybindings: keybindingsConfig.keybindings,
+            keybindings: keybindingsForVoiceClient(
+              keybindingsConfig.keybindings,
+              options.realtimeVoiceControls === true,
+            ),
             issues: keybindingsConfig.issues,
             providers,
             availableEditors,
@@ -2017,7 +2024,13 @@ const makeWsRpcLayer = (
             WS_METHODS.serverUpsertKeybinding,
             Effect.gen(function* () {
               const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
-              return { keybindings: keybindingsConfig, issues: [] };
+              return {
+                keybindings: keybindingsForVoiceClient(
+                  keybindingsConfig,
+                  rule.command.startsWith("voice."),
+                ),
+                issues: [],
+              };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -2026,7 +2039,13 @@ const makeWsRpcLayer = (
             WS_METHODS.serverRemoveKeybinding,
             Effect.gen(function* () {
               const keybindingsConfig = yield* keybindings.removeKeybindingRule(rule);
-              return { keybindings: keybindingsConfig, issues: [] };
+              return {
+                keybindings: keybindingsForVoiceClient(
+                  keybindingsConfig,
+                  rule.command.startsWith("voice."),
+                ),
+                issues: [],
+              };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -2790,13 +2809,17 @@ const makeWsRpcLayer = (
             WS_METHODS.subscribeServerConfig,
             Effect.gen(function* () {
               const usageLimitsCommand = input.usageLimitsCommand === true;
-              const config = yield* loadServerConfig({ usageLimitsCommand });
+              const realtimeVoiceControls = input.realtimeVoiceControls === true;
+              const config = yield* loadServerConfig({ usageLimitsCommand, realtimeVoiceControls });
               const keybindingsUpdates = keybindings.streamChanges.pipe(
                 Stream.map((event) => ({
                   version: 1 as const,
                   type: "keybindingsUpdated" as const,
                   payload: {
-                    keybindings: event.keybindings,
+                    keybindings: keybindingsForVoiceClient(
+                      event.keybindings,
+                      realtimeVoiceControls,
+                    ),
                     issues: event.issues,
                   },
                 })),

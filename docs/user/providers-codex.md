@@ -141,5 +141,18 @@ shortcuts are **Ctrl+Alt+V** (start/end), **Ctrl+Alt+M** (microphone mute), and
 shortcuts can be changed in keyboard settings. Mobile hardware keyboards use the
 same combinations (Cmd on iOS).
 
-Use matching updated host and client builds for these controls. Mobile hardware
-shortcut changes require a new native installation, not an OTA-only update.
+You can update the client first and update connected Fold hosts gradually. Each
+connection enables advanced controls only when its host advertises support.
+On older hosts that already support Fold live voice, calls use the original
+start/stop protocol. Microphone selection, separate mute controls, local shortcuts,
+and navigation during a call remain available. Voice selection, transcripts,
+view sharing, spoken call controls, and automatic idle-session resumption need an
+updated host. Saved voice and sharing preferences are retained for updated hosts.
+
+Older clients can keep using basic voice with an updated host. Reconnect after a
+host update to discover its capabilities; an active call does not change modes
+mid-conversation. Updating a server can interrupt its active calls.
+
+Web/desktop voice shortcuts use their defaults on older hosts; custom voice
+keybindings need an updated host. Mobile hardware shortcut changes require a new
+native installation, not an OTA-only update.
