@@ -1690,7 +1690,32 @@ export const makeCodexRealtimeVoice = (
                 "thread/realtime/start",
                 buildCodexRealtimeStartParams(providerThreadId, sdp, voiceOptions),
               )
-              .pipe(Effect.andThen(Effect.never)),
+              .pipe(
+                Effect.catch((cause) => {
+                  if (
+                    cause._tag !== "CodexAppServerRequestError" ||
+                    cause.code !== -32600 ||
+                    cause.errorMessage !== `thread not found: ${providerThreadId}`
+                  )
+                    return Effect.fail(cause);
+                  // A persisted conversation may not be loaded in this app-server.
+                  // Resume before retrying, without a coding turn or a failed-call teardown.
+                  return client.raw
+                    .request("thread/resume", {
+                      threadId: providerThreadId,
+                      excludeTurns: true,
+                    })
+                    .pipe(
+                      Effect.andThen(
+                        client.raw.request(
+                          "thread/realtime/start",
+                          buildCodexRealtimeStartParams(providerThreadId, sdp, voiceOptions),
+                        ),
+                      ),
+                    );
+                }),
+                Effect.andThen(Effect.never),
+              ),
             Deferred.await(answer),
           ).pipe(
             Effect.timeoutOption(`${realtimeVoiceNegotiationTimeoutMs} millis`),

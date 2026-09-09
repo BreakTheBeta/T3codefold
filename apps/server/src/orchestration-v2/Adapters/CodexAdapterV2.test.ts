@@ -1509,6 +1509,115 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, idAllocatorLayer))),
   );
 
+  it.effect("recovers voice when Codex has unloaded a persisted thread", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const nativeThreadId = "voice-native-thread";
+        const preamble = codexReplayPreamble({
+          nativeThreadId,
+          nativeTurnId: "unused",
+          prompt: "unused",
+        });
+        const transcript = makeCodexReplayTranscript({
+          scenario: "realtime-voice-unloaded",
+          entries: [
+            ...preamble.slice(
+              0,
+              preamble.findIndex((entry) => "label" in entry && entry.label === "turn/start"),
+            ),
+            {
+              type: "expect_outbound",
+              label: "voice/start",
+              frame: {
+                id: 3,
+                method: "thread/realtime/start",
+                params: {
+                  threadId: nativeThreadId,
+                  outputModality: "audio",
+                  version: "v3",
+                  transport: { type: "webrtc", sdp: "offer-sdp" },
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "voice/start",
+              frame: {
+                id: 3,
+                error: { code: -32600, message: `thread not found: ${nativeThreadId}` },
+              },
+            },
+            {
+              type: "expect_outbound",
+              label: "voice/resume",
+              frame: {
+                id: 4,
+                method: "thread/resume",
+                params: { threadId: nativeThreadId, excludeTurns: true },
+              },
+            },
+            { type: "emit_inbound", label: "voice/resume", frame: { id: 4, result: {} } },
+            {
+              type: "expect_outbound",
+              label: "voice/retry",
+              frame: {
+                id: 5,
+                method: "thread/realtime/start",
+                params: {
+                  threadId: nativeThreadId,
+                  outputModality: "audio",
+                  version: "v3",
+                  transport: { type: "webrtc", sdp: "offer-sdp" },
+                },
+              },
+            },
+            { type: "emit_inbound", label: "voice/retry", frame: { id: 5, result: {} } },
+            {
+              type: "emit_inbound",
+              label: "voice/sdp",
+              frame: {
+                method: "thread/realtime/sdp",
+                params: { threadId: nativeThreadId, sdp: "answer-sdp" },
+              },
+            },
+            {
+              type: "expect_outbound",
+              label: "voice/stop",
+              frame: {
+                id: 6,
+                method: "thread/realtime/stop",
+                params: { threadId: nativeThreadId },
+              },
+            },
+            { type: "emit_inbound", label: "voice/stop", frame: { id: 6, result: {} } },
+            {
+              type: "expect_outbound",
+              label: "voice/cleanup",
+              frame: {
+                id: 7,
+                method: "thread/realtime/stop",
+                params: { threadId: nativeThreadId },
+              },
+            },
+            { type: "emit_inbound", label: "voice/cleanup", frame: { id: 7, result: {} } },
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(transcript);
+        const { startRealtimeVoice, stopRealtimeVoice } = harness.runtime;
+        if (!startRealtimeVoice || !stopRealtimeVoice)
+          return yield* Effect.die("Codex must support realtime voice.");
+        assert.isFalse(yield* harness.hasPendingBackgroundWork);
+        assert.deepEqual(
+          yield* startRealtimeVoice({ providerThread: harness.providerThread, sdp: "offer-sdp" }),
+          { sdp: "answer-sdp" },
+        );
+        assert.isTrue(yield* harness.hasPendingBackgroundWork);
+        yield* stopRealtimeVoice({ providerThread: harness.providerThread });
+        assert.isFalse(yield* harness.hasPendingBackgroundWork);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, idAllocatorLayer))),
+  );
+
   it.effect(
     "lists voices, shares owned context and replays bounded transcripts to a late subscriber",
     () =>
