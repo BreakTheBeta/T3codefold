@@ -9,6 +9,9 @@ Enable **Settings → General → Vim keyboard mode** for Vim-style conversation
 navigation and modal composer editing on web and desktop. The terminal, browser
 preview, dialogs, and menus keep their native keyboard behavior.
 
+New to the feature? Follow the [Vim keyboard mode learning guide](./vim-keyboard-mode.md)
+for the sidebar → response → composer workflow and a progressive practice plan.
+
 In a conversation, use `j`/`k` to scroll, `Ctrl+d`/`Ctrl+u` for half pages,
 `gg`/`G` for the start or end, and `{`/`}` for the previous or next message.
 Use `Ctrl+w h` to focus the thread sidebar and `Ctrl+w l` to return to the

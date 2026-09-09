@@ -18,6 +18,7 @@ Compared with upstream `main` at [08463e2c40](https://github.com/pingdotgg/t3cod
 | **Task handoff skill**         | Give another thread ownership of work with its objective, progress, code location, constraints, and a return contact. [Handoff instructions](.agents/skills/t3-handoff/SKILL.md).                                                                                                                                   | Agents with T3 tools or CLI              |
 | **Older-server compatibility** | Connect the same client to pre-orchestration and current servers; browse threads, send messages, and answer approvals and questions. [Compatibility guide](docs/user/updating.md#compatibility-with-older-servers).                                                                                                 | Web · Desktop, including macOS · Android |
 | **Optional Cite bubble**       | Hide the selection bubble through **Settings → General → Show Cite on text selection**, without disabling text selection.                                                                                                                                                                                           | Web · Desktop                            |
+| **Vim keyboard mode**          | Navigate threads, responses, controls, and the composer with Zed-style modal keyboard controls. Follow the [learning guide](docs/user/vim-keyboard-mode.md) to get started.                                                                                                                                         | Web · Desktop                            |
 
 ### Android and foldable phones
 
@@ -135,6 +136,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Install and first run](./docs/user/install.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)
+- [Vim keyboard mode learning guide](./docs/user/vim-keyboard-mode.md)
 - [Project settings](./docs/user/project-settings.md)
 - [Appearance preferences](./docs/user/appearance.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
