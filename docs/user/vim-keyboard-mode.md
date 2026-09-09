@@ -12,19 +12,22 @@ in-app reference.
 
 Start with this sequence. It covers the interaction you will repeat most often:
 
-1. Press `Ctrl+w`, then `h` to focus the thread sidebar.
+1. From the conversation, press `Ctrl+w`, then `h` to focus the thread sidebar.
 2. Move through projects and threads with `j` and `k`.
 3. Press `Enter` or `o` to open the focused thread.
 4. Press `Ctrl+w`, then `l` to return to the conversation.
 5. Read with `j`/`k`, jump between messages with `{`/`}`, or use `gg`/`G`.
 6. Press `v` to begin selecting an assistant response. Extend the selection with
    motions, then press `y` to copy or `c` to cite it.
-7. Press `i` to focus the composer in Insert mode and write your response.
+7. Press `Ctrl+w`, then `j` to move down to the composer, or press `i` to focus
+   it directly in Insert mode and write your response.
 8. Press `Esc` for composer Normal mode. Press `Esc` again to return keyboard
    control to the conversation.
 
 `Ctrl+w h` and similar commands are sequences: hold Control while pressing `w`,
-release it, then press `h`. `Ctrl+w w` toggles between the sidebar and conversation.
+release it, then press the direction. The layout is spatial: threads are left of
+the conversation, and the composer is below it. `Ctrl+w w` cycles through all
+three regions.
 
 ## Understand the focus zones
 
@@ -46,16 +49,19 @@ If you need to type into a control that Vim mode would otherwise intercept, pres
 
 ## Navigate threads
 
-| Keys                | Result                                              |
-| ------------------- | --------------------------------------------------- |
-| `Ctrl+w h`          | Focus the thread sidebar, opening it when necessary |
-| `Ctrl+w l`          | Return focus to the conversation                    |
-| `Ctrl+w w`          | Toggle between sidebar and conversation             |
-| `j` / `k`           | Focus the next or previous project or thread        |
-| `h` / `l`           | Collapse or expand a focused project                |
-| `Enter` / `o`       | Open the focused project or thread                  |
-| `/`                 | Focus the thread filter                             |
-| `Ctrl+n` / `Ctrl+p` | Move down or up through filtered results            |
+| Keys                | Result                                                     |
+| ------------------- | ---------------------------------------------------------- |
+| `Ctrl+w h/j/k/l`    | Move focus left, down, up, or right relative to its region |
+| `Ctrl+w h`          | From the conversation, focus or open the thread sidebar    |
+| `Ctrl+w j`          | From the conversation, focus the composer below it         |
+| `Ctrl+w k`          | From the composer, return to the conversation above it     |
+| `Ctrl+w l`          | From the sidebar, focus the region directly to its right   |
+| `Ctrl+w w`          | Cycle through sidebar, conversation, and composer          |
+| `j` / `k`           | Focus the next or previous project or thread               |
+| `h` / `l`           | Collapse or expand a focused project                       |
+| `Enter` / `o`       | Open the focused project or thread                         |
+| `/`                 | Focus the thread filter                                    |
+| `Ctrl+n` / `Ctrl+p` | Move down or up through filtered results                   |
 
 After typing a filter, press `Enter` to open the highlighted result. You can use
 `Ctrl+w l` directly from the filter to return to the conversation.
