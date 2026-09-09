@@ -30,6 +30,8 @@ import {
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   KEY_BACKSPACE_COMMAND,
+  REDO_COMMAND,
+  UNDO_COMMAND,
   BLUR_COMMAND,
   FOCUS_COMMAND,
   $getRoot,
@@ -88,6 +90,16 @@ import { formatProviderSkillDisplayName } from "@t3tools/client-runtime/provider
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { registerComposerInlineTokenPaste } from "./composerInlineTokenPaste";
 import { didComposerSelectionChangeVisibly } from "./composerSelection";
+import {
+  currentLineRange,
+  currentWordRange,
+  lineEnd,
+  lineStart,
+  moveTextCursor,
+  orderedRange,
+  type TextRange,
+  type VimMotion,
+} from "~/vim/vimText";
 import {
   $consumeComposerCitationCommentRequest,
   $createComposerCitationNode,
@@ -917,6 +929,7 @@ interface ComposerPromptEditorProps {
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   skills: ReadonlyArray<ServerProviderSkill>;
   disabled: boolean;
+  vimModeEnabled?: boolean;
   placeholder: string;
   containerClassName?: string;
   className?: string;
@@ -940,6 +953,419 @@ interface ComposerPromptEditorProps {
   onCitationSubmitAndSend?: () => void;
   onPaste: React.ClipboardEventHandler<HTMLElement>;
   editorRef: React.RefObject<ComposerPromptEditorHandle | null>;
+}
+
+type ComposerVimMode = "NORMAL" | "INSERT" | "VISUAL" | "VISUAL LINE";
+type ComposerVimOperator = "c" | "d" | "y";
+
+const COMPOSER_VIM_MOTIONS = new Set(["h", "j", "k", "l", "w", "b", "e", "0", "^", "$", "{", "}"]);
+
+function ComposerVimPlugin({ enabled }: { enabled: boolean }) {
+  const [editor] = useLexicalComposerContext();
+  const [display, setDisplay] = useState({ mode: "NORMAL" as ComposerVimMode, pending: "" });
+  const stateRef = useRef({
+    mode: "NORMAL" as ComposerVimMode,
+    count: "",
+    pending: "",
+    visualAnchor: 0,
+    visualFocus: 0,
+    register: "",
+    lastFind: null as { character: string; direction: -1 | 1; till: boolean } | null,
+  });
+
+  const publish = useCallback(() => {
+    const state = stateRef.current;
+    const root = editor.getRootElement();
+    if (root) root.dataset.vimMode = state.mode.toLowerCase().replace(" ", "-");
+    setDisplay({ mode: state.mode, pending: `${state.count}${state.pending}` });
+  }, [editor]);
+  const clearPending = useCallback(() => {
+    stateRef.current.count = "";
+    stateRef.current.pending = "";
+    publish();
+  }, [publish]);
+  const count = useCallback(
+    () => Math.max(1, Number.parseInt(stateRef.current.count || "1", 10)),
+    [],
+  );
+
+  useEffect(() => {
+    if (!enabled) return;
+    const root = editor.getRootElement();
+    if (!root) return;
+
+    const read = () =>
+      editor.getEditorState().read(() => {
+        const text = $getRoot().getTextContent();
+        const fallback = 0;
+        const selection = $getSelection();
+        const range = getSelectionRangeForExpandedComposerOffsets(selection);
+        return {
+          text,
+          cursor:
+            stateRef.current.mode === "VISUAL" || stateRef.current.mode === "VISUAL LINE"
+              ? stateRef.current.visualFocus
+              : $readExpandedSelectionOffsetFromEditorState(fallback),
+          range: range ?? { start: fallback, end: fallback },
+        };
+      });
+
+    const select = (range: TextRange) => {
+      editor.update(() => $setSelectionRangeAtComposerOffsets(range.start, range.end));
+    };
+    const replace = (range: TextRange, value: string, cursor = range.start + value.length) => {
+      editor.update(() => {
+        $setSelectionRangeAtComposerOffsets(range.start, range.end);
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText(value);
+        $setSelectionAtComposerOffset(cursor);
+      });
+    };
+    const copy = (value: string) => {
+      stateRef.current.register = value;
+      void navigator.clipboard?.writeText(value).catch(() => undefined);
+    };
+    const enterMode = (mode: ComposerVimMode, cursor?: number) => {
+      stateRef.current.mode = mode;
+      stateRef.current.count = "";
+      stateRef.current.pending = "";
+      if (cursor !== undefined) {
+        stateRef.current.visualFocus = cursor;
+        editor.update(() => $setSelectionAtComposerOffset(cursor));
+      }
+      publish();
+    };
+    const findCharacter = (
+      text: string,
+      cursor: number,
+      character: string,
+      direction: -1 | 1,
+      till: boolean,
+      repetitions: number,
+    ) => {
+      let next = cursor;
+      for (let index = 0; index < repetitions; index += 1) {
+        const found =
+          direction > 0
+            ? text.indexOf(character, next + 1)
+            : text.lastIndexOf(character, Math.max(0, next - 1));
+        if (found === -1) break;
+        next = found;
+      }
+      if (next !== cursor && till) next -= direction;
+      return next;
+    };
+    const applyOperator = (operator: ComposerVimOperator, range: TextRange) => {
+      const snapshot = read();
+      const bounded = {
+        start: Math.max(0, Math.min(snapshot.text.length, range.start)),
+        end: Math.max(0, Math.min(snapshot.text.length, range.end)),
+      };
+      const ordered = {
+        start: Math.min(bounded.start, bounded.end),
+        end: Math.max(bounded.start, bounded.end),
+      };
+      if (operator === "y") {
+        copy(snapshot.text.slice(ordered.start, ordered.end));
+        enterMode("NORMAL", ordered.start);
+        return;
+      }
+      replace(ordered, "");
+      enterMode(operator === "c" ? "INSERT" : "NORMAL", ordered.start);
+    };
+    const motionFromKey = (key: string): VimMotion | null => {
+      if (key === "W") return "w";
+      if (key === "B") return "b";
+      if (key === "E") return "e";
+      if (key === "G") return "G";
+      return COMPOSER_VIM_MOTIONS.has(key) ? (key as VimMotion) : null;
+    };
+    const finishMotion = (motion: VimMotion) => {
+      const snapshot = read();
+      const next = moveTextCursor(snapshot.text, snapshot.cursor, motion, count());
+      if (stateRef.current.mode === "VISUAL" || stateRef.current.mode === "VISUAL LINE") {
+        const range =
+          stateRef.current.mode === "VISUAL LINE"
+            ? {
+                start: lineStart(snapshot.text, Math.min(stateRef.current.visualAnchor, next)),
+                end: currentLineRange(snapshot.text, Math.max(stateRef.current.visualAnchor, next))
+                  .end,
+              }
+            : orderedRange(stateRef.current.visualAnchor, next, true);
+        stateRef.current.visualFocus = next;
+        select(range);
+      } else {
+        editor.update(() => $setSelectionAtComposerOffset(next));
+      }
+      clearPending();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229 || !enabled) return;
+      const state = stateRef.current;
+      const escape = event.key === "Escape" || (event.ctrlKey && event.key === "[");
+      if (state.mode === "INSERT") {
+        if (!escape) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        enterMode("NORMAL");
+        return;
+      }
+      if (
+        event.metaKey ||
+        event.altKey ||
+        (event.ctrlKey && event.key !== "r" && event.key !== "[")
+      ) {
+        return;
+      }
+
+      const consume = () => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
+      if (escape) {
+        consume();
+        if (state.mode === "VISUAL" || state.mode === "VISUAL LINE" || state.pending) {
+          const snapshot = read();
+          enterMode("NORMAL", snapshot.cursor);
+        } else {
+          root.blur();
+        }
+        return;
+      }
+      if (event.ctrlKey && event.key === "r") {
+        consume();
+        editor.dispatchCommand(REDO_COMMAND, undefined);
+        clearPending();
+        return;
+      }
+
+      const key = event.key;
+      if (/^[1-9]$/u.test(key) || (key === "0" && state.count.length > 0)) {
+        consume();
+        state.count += key;
+        publish();
+        return;
+      }
+      if (state.pending.startsWith("find:")) {
+        consume();
+        if (key.length !== 1) {
+          clearPending();
+          return;
+        }
+        const command = state.pending.slice(5);
+        const direction = command === "f" || command === "t" ? 1 : -1;
+        const till = command === "t" || command === "T";
+        const snapshot = read();
+        const next = findCharacter(snapshot.text, snapshot.cursor, key, direction, till, count());
+        state.lastFind = { character: key, direction, till };
+        if (state.mode === "VISUAL" || state.mode === "VISUAL LINE") {
+          state.visualFocus = next;
+          select(orderedRange(state.visualAnchor, next, true));
+        } else {
+          editor.update(() => $setSelectionAtComposerOffset(next));
+        }
+        clearPending();
+        return;
+      }
+      if (state.pending === "g") {
+        consume();
+        if (key === "g") finishMotion("gg");
+        else clearPending();
+        return;
+      }
+
+      const operator = state.pending[0] as ComposerVimOperator | undefined;
+      if (operator === "c" || operator === "d" || operator === "y") {
+        consume();
+        const snapshot = read();
+        if (state.pending.length === 2) {
+          if (key === "w")
+            applyOperator(
+              operator,
+              currentWordRange(snapshot.text, snapshot.cursor, state.pending[1] === "a"),
+            );
+          else clearPending();
+          return;
+        }
+        if (key === operator) {
+          let range = currentLineRange(snapshot.text, snapshot.cursor);
+          for (let index = 1; index < count(); index += 1) {
+            range = { start: range.start, end: currentLineRange(snapshot.text, range.end).end };
+          }
+          applyOperator(operator, range);
+          return;
+        }
+        if (key === "i" || key === "a") {
+          state.pending += key;
+          publish();
+          return;
+        }
+        const motion = motionFromKey(key);
+        if (!motion) {
+          clearPending();
+          return;
+        }
+        const target = moveTextCursor(snapshot.text, snapshot.cursor, motion, count());
+        applyOperator(operator, orderedRange(snapshot.cursor, target, motion === "e"));
+        return;
+      }
+
+      const snapshot = read();
+      if (key === "g") {
+        consume();
+        state.pending = "g";
+        publish();
+        return;
+      }
+      if (key === "f" || key === "F" || key === "t" || key === "T") {
+        consume();
+        state.pending = `find:${key}`;
+        publish();
+        return;
+      }
+      if ((key === ";" || key === ",") && state.lastFind) {
+        consume();
+        const last = state.lastFind;
+        const direction = key === ";" ? last.direction : last.direction === 1 ? -1 : 1;
+        const next = findCharacter(
+          snapshot.text,
+          snapshot.cursor,
+          last.character,
+          direction,
+          last.till,
+          count(),
+        );
+        if (state.mode === "VISUAL" || state.mode === "VISUAL LINE") {
+          state.visualFocus = next;
+          select(orderedRange(state.visualAnchor, next, true));
+        } else editor.update(() => $setSelectionAtComposerOffset(next));
+        clearPending();
+        return;
+      }
+      const motion = motionFromKey(key);
+      if (motion) {
+        consume();
+        finishMotion(motion);
+        return;
+      }
+      if (state.mode === "VISUAL" || state.mode === "VISUAL LINE") {
+        if (key === "o") {
+          consume();
+          const focus = snapshot.cursor;
+          state.visualAnchor = focus;
+          state.visualFocus = snapshot.range.start;
+          editor.update(() => $setSelectionAtComposerOffset(snapshot.range.start));
+          publish();
+          return;
+        }
+        if (key === "y" || key === "d" || key === "c" || key === "x") {
+          consume();
+          applyOperator(key === "x" ? "d" : key, snapshot.range);
+          return;
+        }
+      } else {
+        if (key === "v" || key === "V") {
+          consume();
+          state.visualAnchor = snapshot.cursor;
+          state.visualFocus = snapshot.cursor;
+          state.mode = key === "v" ? "VISUAL" : "VISUAL LINE";
+          const range =
+            key === "V"
+              ? currentLineRange(snapshot.text, snapshot.cursor)
+              : orderedRange(snapshot.cursor, snapshot.cursor, true);
+          select(range);
+          publish();
+          return;
+        }
+        if (key === "c" || key === "d" || key === "y") {
+          consume();
+          state.pending = key;
+          publish();
+          return;
+        }
+        if (key === "u") {
+          consume();
+          editor.dispatchCommand(UNDO_COMMAND, undefined);
+          clearPending();
+          return;
+        }
+        if (key === "x") {
+          consume();
+          applyOperator("d", {
+            start: snapshot.cursor,
+            end: Math.min(snapshot.text.length, snapshot.cursor + count()),
+          });
+          return;
+        }
+        if (key === "p" || key === "P") {
+          consume();
+          const insertAt =
+            key === "p" ? Math.min(snapshot.text.length, snapshot.cursor + 1) : snapshot.cursor;
+          replace(
+            { start: insertAt, end: insertAt },
+            state.register.repeat(count()),
+            insertAt + state.register.length * count(),
+          );
+          clearPending();
+          return;
+        }
+        if (["i", "a", "I", "A", "o", "O"].includes(key)) {
+          consume();
+          if (key === "i") enterMode("INSERT", snapshot.cursor);
+          if (key === "a") enterMode("INSERT", Math.min(snapshot.text.length, snapshot.cursor + 1));
+          if (key === "I") enterMode("INSERT", moveTextCursor(snapshot.text, snapshot.cursor, "^"));
+          if (key === "A") enterMode("INSERT", lineEnd(snapshot.text, snapshot.cursor));
+          if (key === "o") {
+            const at = lineEnd(snapshot.text, snapshot.cursor);
+            replace({ start: at, end: at }, "\n", at + 1);
+            enterMode("INSERT", at + 1);
+          }
+          if (key === "O") {
+            const at = lineStart(snapshot.text, snapshot.cursor);
+            replace({ start: at, end: at }, "\n", at);
+            enterMode("INSERT", at);
+          }
+          return;
+        }
+      }
+
+      if (key === "Enter" || key === "Backspace" || key === "Delete" || key.length === 1) {
+        consume();
+        clearPending();
+      }
+    };
+
+    const handleEnterInsert = () => enterMode("INSERT");
+
+    root.dataset.vimMode = stateRef.current.mode.toLowerCase().replace(" ", "-");
+    root.addEventListener("keydown", handleKeyDown, true);
+    root.addEventListener("t3-vim-insert", handleEnterInsert);
+    return () => {
+      root.removeEventListener("keydown", handleKeyDown, true);
+      root.removeEventListener("t3-vim-insert", handleEnterInsert);
+      delete root.dataset.vimMode;
+    };
+  }, [clearPending, count, editor, enabled, publish]);
+
+  useEffect(() => {
+    if (enabled) return;
+    stateRef.current.mode = "NORMAL";
+    stateRef.current.count = "";
+    stateRef.current.pending = "";
+  }, [enabled]);
+
+  if (!enabled) return null;
+  return (
+    <div
+      aria-live="polite"
+      className="pointer-events-none absolute right-2 top-2 z-10 rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary"
+      data-testid="composer-vim-mode"
+    >
+      {display.mode}
+      {display.pending ? ` ${display.pending}` : ""}
+    </div>
+  );
 }
 
 /**
@@ -1634,6 +2060,7 @@ function ComposerPromptEditorInner({
   terminalContexts,
   skills,
   disabled,
+  vimModeEnabled = false,
   placeholder,
   containerClassName,
   className,
@@ -2043,6 +2470,7 @@ function ComposerPromptEditorInner({
             ErrorBoundary={LexicalErrorBoundary}
           />
           <OnChangePlugin onChange={handleEditorChange} />
+          <ComposerVimPlugin enabled={Boolean(vimModeEnabled)} />
           <ComposerCommandKeyPlugin {...(onCommandKeyDown ? { onCommandKeyDown } : {})} />
           <ComposerSurroundSelectionPlugin terminalContexts={terminalContexts} skills={skills} />
           <ComposerHomeEndKeyPlugin />
@@ -2064,6 +2492,7 @@ export function ComposerPromptEditor({
   terminalContexts,
   skills,
   disabled,
+  vimModeEnabled = false,
   placeholder,
   containerClassName,
   className,
@@ -2114,6 +2543,7 @@ export function ComposerPromptEditor({
         terminalContexts={terminalContexts}
         skills={skills}
         disabled={disabled}
+        vimModeEnabled={vimModeEnabled}
         placeholder={placeholder}
         {...(containerClassName ? { containerClassName } : {})}
         onRemoveTerminalContext={onRemoveTerminalContext}

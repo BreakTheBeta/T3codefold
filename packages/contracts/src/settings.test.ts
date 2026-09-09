@@ -255,6 +255,13 @@ describe("ClientSettings proactive panels", () => {
   });
 });
 
+describe("ClientSettings Vim keyboard mode", () => {
+  it("is opt-in and accepts client-local updates", () => {
+    expect(decodeClientSettings({}).vimModeEnabled).toBe(false);
+    expect(decodeClientSettingsPatch({ vimModeEnabled: true }).vimModeEnabled).toBe(true);
+  });
+});
+
 describe("ClientSettings quit confirmation", () => {
   it("defaults to hold", () => {
     expect(decodeClientSettings({}).confirmQuit).toBe("hold");

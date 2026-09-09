@@ -5710,6 +5710,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 )}
               >
                 <ComposerPromptEditor
+                  vimModeEnabled={settings.vimModeEnabled}
                   editorRef={composerEditorRef}
                   value={
                     isComposerApprovalState

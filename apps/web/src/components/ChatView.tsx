@@ -313,6 +313,7 @@ import {
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
+import { TimelineVimMode } from "~/vim/TimelineVimMode";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -8673,6 +8674,16 @@ export default function ChatView(props: ChatViewProps) {
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col">
+              {settings.vimModeEnabled ? (
+                <TimelineVimMode
+                  key={activeThreadKey ?? routeThreadKey}
+                  routeKey={activeThreadKey ?? routeThreadKey}
+                  getScrollNode={getTimelineScrollableNode}
+                  focusComposer={() => composerRef.current?.focusAtEnd()}
+                  onUserNavigation={cancelTimelineLiveFollowForUserNavigation}
+                  onScrollToEnd={() => scrollToEnd(false)}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 citationRequest={citationRequest}
