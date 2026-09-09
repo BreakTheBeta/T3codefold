@@ -3,6 +3,29 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+## Vim keyboard mode
+
+Enable **Settings → General → Vim keyboard mode** for Vim-style conversation
+navigation and modal composer editing on web and desktop. The terminal, browser
+preview, dialogs, and menus keep their native keyboard behavior.
+
+In a conversation, use `j`/`k` to scroll, `Ctrl+d`/`Ctrl+u` for half pages,
+`gg`/`G` for the start or end, and `{`/`}` for the previous or next message.
+Use `m` plus a letter to set a thread-local mark, backtick plus that letter to
+jump to it, and two backticks to jump back. `f` labels visible controls for
+activation; `F` labels them for focus. `i` focuses the composer in Insert mode,
+`gi` focuses it in Normal mode, and `z` passes keys through until `Esc`.
+
+Press `v` to select text in the visible assistant response, then use Vim motions.
+`y` copies the selection and `c` cites it in the composer. `V` selects the whole
+visible response. Press `?` for the in-app reference.
+
+The composer supports Normal, Insert, Visual, and Visual Line modes, counts,
+common character/word/line/document motions, `f`/`t` searches, `d`/`c`/`y`
+operators, `iw`/`aw` text objects, paste, undo, and redo. `Esc` moves from Insert
+to Normal; pressing it again returns keyboard ownership to the conversation.
+Existing `Cmd`/`Ctrl` shortcuts continue to work in every mode.
+
 ## Edit the configuration file
 
 Keybindings live on the environment's machine, in

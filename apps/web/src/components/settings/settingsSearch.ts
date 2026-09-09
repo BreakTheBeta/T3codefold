@@ -220,6 +220,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["citation quote bubble popup highlight assistant text selection"],
   },
   {
+    id: "vim-keyboard-mode",
+    title: "Vim keyboard mode",
+    to: "/settings/general",
+    searchTerms: ["vim vimium zed keyboard modal navigation normal insert visual hjkl"],
+  },
+  {
     id: "skills-in-slash-menu",
     title: "Show skills in slash menu",
     to: "/settings/general",
