@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildVimHintLabels } from "./TimelineVimMode";
+import { buildVimHintLabels, nextVimListIndex } from "./TimelineVimMode";
 
 describe("Vim hint labels", () => {
   it("uses one key for small target sets", () => {
@@ -20,5 +20,15 @@ describe("Vim hint labels", () => {
     expect(labels[0]).toBe("aaa");
     expect(labels.at(-1)).toHaveLength(3);
     expect(new Set(labels).size).toBe(labels.length);
+  });
+});
+
+describe("Vim list navigation", () => {
+  it("enters from either edge, applies counts, and stops at list boundaries", () => {
+    expect(nextVimListIndex(5, -1, 1, 1)).toBe(0);
+    expect(nextVimListIndex(5, -1, -1, 1)).toBe(4);
+    expect(nextVimListIndex(5, 1, 1, 2)).toBe(3);
+    expect(nextVimListIndex(5, 1, -1, 20)).toBe(0);
+    expect(nextVimListIndex(0, -1, 1, 1)).toBe(-1);
   });
 });

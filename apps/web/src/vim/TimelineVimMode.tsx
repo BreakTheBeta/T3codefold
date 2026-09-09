@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { openCommandPalette } from "~/commandPaletteBus";
 import { isPreviewFocused } from "~/lib/previewFocus";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import { moveTextCursor, orderedRange, type VimMotion } from "./vimText";
@@ -22,6 +23,12 @@ const FLOATING_SELECTOR = [
   '[data-slot="popover-popup"]',
   '[data-slot="combobox-popup"]',
   '[data-slot="autocomplete-popup"]',
+].join(",");
+const SIDEBAR_ITEM_SELECTOR = [
+  "[data-app-sidebar] [data-thread-item] [role=button]",
+  "[data-app-sidebar] [data-thread-item] [data-sidebar='menu-sub-button']",
+  "[data-app-sidebar] [data-sidebar='menu-button']",
+  "[data-app-sidebar] [data-sidebar='menu-sub-button']",
 ].join(",");
 
 type Hint = { element: HTMLElement; label: string; left: number; top: number };
@@ -48,6 +55,17 @@ export function buildVimHintLabels(length: number): string[] {
   });
 }
 
+export function nextVimListIndex(
+  length: number,
+  current: number,
+  direction: -1 | 1,
+  count: number,
+): number {
+  if (length <= 0) return -1;
+  if (current < 0) return direction > 0 ? 0 : length - 1;
+  return Math.max(0, Math.min(length - 1, current + direction * Math.max(1, count)));
+}
+
 function visible(element: HTMLElement): boolean {
   const rect = element.getBoundingClientRect();
   const style = window.getComputedStyle(element);
@@ -60,6 +78,12 @@ function visible(element: HTMLElement): boolean {
     rect.left < window.innerWidth &&
     style.visibility !== "hidden" &&
     style.display !== "none"
+  );
+}
+
+function rendered(element: HTMLElement): boolean {
+  return (
+    element.getClientRects().length > 0 && element.closest("[hidden], [aria-hidden=true]") === null
   );
 }
 
@@ -135,6 +159,51 @@ function firstVisibleAssistantSource(): HTMLElement | null {
     sources[0] ??
     null
   );
+}
+
+function sidebarItems(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>(SIDEBAR_ITEM_SELECTOR)].filter(
+    (element) => rendered(element) && !element.matches(":disabled, [aria-disabled=true]"),
+  );
+}
+
+function focusSidebar(): void {
+  const focusTarget = () => {
+    const items = sidebarItems();
+    const target =
+      items.find((item) => item.matches('[aria-current="page"], [data-active=true]')) ??
+      items.find((item) => item.closest("[data-thread-item]")) ??
+      items[0];
+    target?.focus({ preventScroll: false });
+  };
+  const sidebar = document.querySelector<HTMLElement>("[data-app-sidebar]");
+  if (!sidebar || !visible(sidebar)) {
+    document.querySelector<HTMLElement>('[aria-label="Toggle main sidebar"]')?.click();
+    requestAnimationFrame(() => requestAnimationFrame(focusTarget));
+    return;
+  }
+  focusTarget();
+}
+
+function focusSidebarSearch(): void {
+  const focusSearch = () =>
+    document.querySelector<HTMLElement>('[aria-label="Search threads"]')?.focus();
+  const sidebar = document.querySelector<HTMLElement>("[data-app-sidebar]");
+  if (!sidebar || !visible(sidebar)) {
+    document.querySelector<HTMLElement>('[aria-label="Toggle main sidebar"]')?.click();
+    requestAnimationFrame(() => requestAnimationFrame(focusSearch));
+    return;
+  }
+  focusSearch();
+}
+
+function moveSidebarFocus(direction: -1 | 1, repetitions: number): void {
+  const items = sidebarItems();
+  if (items.length === 0) return;
+  const active = document.activeElement;
+  const current = active instanceof HTMLElement ? items.indexOf(active) : -1;
+  const next = nextVimListIndex(items.length, current, direction, repetitions);
+  items[next]?.focus({ preventScroll: false });
 }
 
 export function TimelineVimMode({
@@ -274,6 +343,10 @@ export function TimelineVimMode({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
       const state = stateRef.current;
+      const consume = () => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
       if (state.mode === "PASS") {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -283,14 +356,54 @@ export function TimelineVimMode({
         return;
       }
       const active = document.activeElement;
-      if (
-        isTerminalFocused() ||
-        isPreviewFocused() ||
-        active?.closest(EDITABLE_SELECTOR) ||
-        [...document.querySelectorAll<HTMLElement>(FLOATING_SELECTOR)].some(visible)
-      ) {
+      if (isTerminalFocused() || isPreviewFocused()) return;
+      if ([...document.querySelectorAll<HTMLElement>(FLOATING_SELECTOR)].some(visible)) {
         return;
       }
+      const sidebarSearch =
+        active instanceof HTMLElement && active.matches('[aria-label="Search threads"]')
+          ? active
+          : null;
+      if (event.ctrlKey && event.key.toLowerCase() === "w") {
+        consume();
+        state.pending = "CTRL-W";
+        update();
+        return;
+      }
+      if (state.pending === "CTRL-W") {
+        consume();
+        state.pending = "";
+        if (event.key === "h") focusSidebar();
+        else if (event.key === "l") {
+          const scrollNode = getScrollNode();
+          if (scrollNode) {
+            scrollNode.tabIndex = -1;
+            scrollNode.focus({ preventScroll: true });
+          }
+        } else if (event.key === "w") {
+          if (active instanceof HTMLElement && active.closest("[data-app-sidebar]")) {
+            const scrollNode = getScrollNode();
+            if (scrollNode) {
+              scrollNode.tabIndex = -1;
+              scrollNode.focus({ preventScroll: true });
+            }
+          } else focusSidebar();
+        }
+        update();
+        return;
+      }
+      if (sidebarSearch && event.ctrlKey && (event.key === "n" || event.key === "p")) {
+        consume();
+        sidebarSearch.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: event.key === "n" ? "ArrowDown" : "ArrowUp",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        return;
+      }
+      if (active?.closest(EDITABLE_SELECTOR)) return;
       if (
         event.metaKey ||
         event.altKey ||
@@ -298,10 +411,6 @@ export function TimelineVimMode({
       ) {
         return;
       }
-      const consume = () => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      };
       if (event.key === "Escape") {
         consume();
         window.getSelection()?.removeAllRanges();
@@ -402,6 +511,16 @@ export function TimelineVimMode({
         update();
         return;
       }
+      if (state.pending === "SPACE") {
+        consume();
+        state.pending = "";
+        if (event.key === "f") openCommandPalette({ mode: "files" });
+        else if (event.key === "/") openCommandPalette({ mode: "content" });
+        else if (event.key === "b") openCommandPalette({ mode: "command" });
+        else if (event.key === "s") focusSidebar();
+        update();
+        return;
+      }
       if (state.pending === "m" || state.pending === "`") {
         consume();
         const pending = state.pending;
@@ -421,6 +540,33 @@ export function TimelineVimMode({
         return;
       }
       const scrollNode = getScrollNode();
+      const sidebarActive = active instanceof HTMLElement && active.closest("[data-app-sidebar]");
+      if (sidebarActive) {
+        if (event.key === "j" || event.key === "k") {
+          consume();
+          moveSidebarFocus(event.key === "j" ? 1 : -1, repetitions);
+        } else if (event.key === "/") {
+          consume();
+          focusSidebarSearch();
+        } else if (event.key === "Enter" || event.key === "o" || event.key === "l") {
+          consume();
+          if (
+            event.key !== "l" ||
+            !(active instanceof HTMLElement) ||
+            active.ariaExpanded !== "true"
+          ) {
+            if (active instanceof HTMLElement) active.click();
+          }
+        } else if (event.key === "h") {
+          consume();
+          if (active instanceof HTMLElement && active.ariaExpanded === "true") active.click();
+        } else {
+          return;
+        }
+        state.count = "";
+        update();
+        return;
+      }
       if (
         event.key === "j" ||
         event.key === "k" ||
@@ -471,6 +617,17 @@ export function TimelineVimMode({
       } else if (event.key === "z") {
         consume();
         state.mode = "PASS";
+      } else if (event.key === ":") {
+        consume();
+        openCommandPalette({ mode: "command" });
+      } else if (event.key === "/") {
+        consume();
+        const search = document.querySelector<HTMLElement>('[aria-label="Search threads"]');
+        if (search) focusSidebarSearch();
+        else openCommandPalette({ mode: "content" });
+      } else if (event.key === " ") {
+        consume();
+        state.pending = "SPACE";
       } else if (event.key.length === 1) {
         consume();
       } else {
@@ -485,7 +642,7 @@ export function TimelineVimMode({
 
   const matchingHints = view.hints.filter((hint) => hint.label.startsWith(view.hintInput));
   return (
-    <div className="contents" data-vim-hint-ignore="true">
+    <div className="contents" data-timeline-vim-mode="" data-vim-hint-ignore="true">
       <div className="pointer-events-none absolute bottom-3 left-3 z-40 rounded bg-background/90 px-2 py-1 font-mono text-[10px] font-semibold text-primary shadow-sm ring-1 ring-border">
         {view.mode}
         {view.count || view.pending ? ` ${view.count}${view.pending}` : ""}
@@ -521,6 +678,12 @@ export function TimelineVimMode({
               <span>set mark / jump / jump back</span>
               <kbd>f / F</kbd>
               <span>activate / focus a visible control</span>
+              <kbd>Ctrl-w h / l</kbd>
+              <span>thread sidebar / conversation</span>
+              <kbd>Sidebar j / k</kbd>
+              <span>previous / next project or thread</span>
+              <kbd>Sidebar / · Enter</kbd>
+              <span>filter threads · open selection</span>
               <kbd>i / gi</kbd>
               <span>composer Insert / Normal mode</span>
               <kbd>v / V</kbd>
@@ -529,6 +692,8 @@ export function TimelineVimMode({
               <span>copy / cite a visual selection</span>
               <kbd>z</kbd>
               <span>pass keys through until Escape</span>
+              <kbd>: · Space f / /</kbd>
+              <span>commands · files / conversation search</span>
             </div>
             <p className="mt-4 text-muted-foreground">Press any key to close this help.</p>
           </div>
