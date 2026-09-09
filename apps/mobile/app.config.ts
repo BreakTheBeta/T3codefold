@@ -175,7 +175,7 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
-  version: "1.0.12",
+  version: "1.0.13",
 
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
@@ -238,7 +238,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    versionCode: 12,
+    versionCode: 13,
     icon: variant.assets.appIcon,
     package: variant.androidPackage,
     adaptiveIcon: {
