@@ -11,6 +11,7 @@
 - [Project settings](./user/project-settings.md)
 - [Appearance and themes](./user/appearance.md)
 - [Keyboard shortcuts](./user/keybindings.md)
+- [Vim keyboard mode learning guide](./user/vim-keyboard-mode.md)
 - [SnapShots](./user/snap-shot.md)
 - [Import browser sessions](./user/browser-import.md)
 - [Usage and limits](./user/usage.md)
