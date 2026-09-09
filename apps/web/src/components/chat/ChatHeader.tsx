@@ -1,5 +1,6 @@
 import { type EnvironmentId } from "@t3tools/contracts";
 import { memo } from "react";
+
 import { readLocalApi } from "~/localApi";
 
 import { cn } from "~/lib/utils";
@@ -13,6 +14,7 @@ interface ChatHeaderProps {
   activeProjectCwd: string | null;
   activeProjectFaviconPath: string | null;
   activeProjectIcon: import("@t3tools/contracts").ProjectIconOverride | null;
+
   rightPanelOpen: boolean;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
@@ -25,6 +27,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectCwd,
   activeProjectFaviconPath,
   activeProjectIcon,
+
   rightPanelOpen,
   onNewThreadInProject,
   onOpenProjectSettings,
@@ -71,11 +74,13 @@ export const ChatHeader = memo(function ChatHeader({
                 }
               >
                 <ProjectFavicon
-                  environmentId={activeThreadEnvironmentId}
-                  cwd={activeProjectCwd ?? ""}
-                  faviconPath={activeProjectFaviconPath}
-                  projectIcon={activeProjectIcon}
-                  projectName={activeProjectName}
+                  project={{
+                    environmentId: activeThreadEnvironmentId,
+                    workspaceRoot: activeProjectCwd ?? "",
+                    title: activeProjectName,
+                    faviconPath: activeProjectFaviconPath,
+                    projectIcon: activeProjectIcon,
+                  }}
                   className="size-3.5"
                 />
                 <span className="max-w-40 truncate text-sm font-medium">{activeProjectName}</span>

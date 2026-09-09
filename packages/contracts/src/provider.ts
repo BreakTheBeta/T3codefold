@@ -21,6 +21,7 @@ import {
   ProviderRequestKind,
   ProviderSandboxMode,
   ProviderUserInputAnswers,
+  UserInputAttachments,
   RuntimeMode,
 } from "./providerPolicy.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
@@ -112,6 +113,7 @@ export const ProviderRespondToUserInputInput = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   answers: ProviderUserInputAnswers,
+  attachmentsByQuestionId: Schema.optional(UserInputAttachments),
 });
 export type ProviderRespondToUserInputInput = typeof ProviderRespondToUserInputInput.Type;
 
@@ -174,7 +176,7 @@ export const ProviderRealtimeVoiceStopInput = Schema.Struct({
 });
 export type ProviderRealtimeVoiceStopInput = typeof ProviderRealtimeVoiceStopInput.Type;
 
-export class ProviderRealtimeVoiceError extends Schema.TaggedErrorClass<ProviderRealtimeVoiceError>()(
+export class ProviderRealtimeVoiceError extends Schema.TaggedError<ProviderRealtimeVoiceError>()(
   "ProviderRealtimeVoiceError",
   {
     threadId: ThreadId,
@@ -186,7 +188,7 @@ export class ProviderRealtimeVoiceError extends Schema.TaggedErrorClass<Provider
   }
 }
 
-export class ProviderUploadFeedbackError extends Schema.TaggedErrorClass<ProviderUploadFeedbackError>()(
+export class ProviderUploadFeedbackError extends Schema.TaggedError<ProviderUploadFeedbackError>()(
   "ProviderUploadFeedbackError",
   {
     threadId: ThreadId,

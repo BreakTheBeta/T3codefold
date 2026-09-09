@@ -79,6 +79,7 @@ export function pullRequestMatchesProject(
   );
 }
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const orchestrator = yield* OrchestratorV2;

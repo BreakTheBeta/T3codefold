@@ -84,10 +84,9 @@ describe("persistClientSettingsUpdate", () => {
       persist,
     );
     await Promise.resolve();
-    persistClientSettingsPatch({ wordWrap: false }, persist);
+    const patch = persistClientSettingsPatch({ wordWrap: false }, persist);
     finishFirstPersistence();
-    await pending;
-    await Promise.resolve();
+    await Promise.all([pending, patch]);
 
     expect(persist).toHaveBeenCalledTimes(3);
     expect(persist.mock.calls[1]?.[0]).toMatchObject({
@@ -118,7 +117,7 @@ describe("persistClientSettingsUpdate", () => {
       });
     __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
 
-    persistClientSettingsPatch({ wordWrap: false }, persist);
+    void persistClientSettingsPatch({ wordWrap: false }, persist);
     const importedProfile = { id: "profile-import", name: "Imported", kind: "persistent" as const };
     const registration = persistClientSettingsUpdate(
       (current) => ({

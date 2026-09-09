@@ -7,6 +7,12 @@ within each theme. Appearance preferences are saved separately on each device or
 Mobile has its own themes and text, code, and terminal preferences. It does not follow environment
 themes or defaults.
 
+On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
+your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
+can be selected separately for light and dark appearances.
+Android also offers **Material You Layout**, which changes shapes and spacing independently
+of the selected theme.
+
 ## Composer context
 
 Git-backed projects show branch and worktree controls below the composer while you create a thread.
@@ -14,6 +20,7 @@ The controls retreat as the composer docks after you send the first message.
 
 Turn on **Composer context** to keep those controls visible after the thread starts. This preference
 applies to the web and desktop clients.
+
 
 ## Motion
 

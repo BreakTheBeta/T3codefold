@@ -132,6 +132,7 @@ export function makeReplayServerConfig(
       providerStatusCacheDir,
       worktreesDir,
       attachmentsDir,
+      browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
       environmentThemesDir,
       logsDir,
       serverLogPath: path.join(logsDir, "server.log"),
@@ -338,6 +339,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     Layer.provide(Layer.merge(storesLayer, providerSessionManagerProvided)),
   );
   const runtimeRequestServiceProvided = runtimeRequestServiceLayer.pipe(
+    Layer.provide(serverConfigLayer),
     Layer.provide(Layer.merge(storesLayer, providerSessionManagerProvided)),
   );
   const checkpointRollbackServiceProvided = checkpointRollbackServiceLayer.pipe(

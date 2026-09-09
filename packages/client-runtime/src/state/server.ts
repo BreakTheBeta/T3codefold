@@ -87,7 +87,7 @@ const serverUpdateStateAtom = Atom.family((environmentId: EnvironmentId) =>
   ),
 );
 
-export class ServerUpdateSourceMismatchError extends Schema.TaggedErrorClass<ServerUpdateSourceMismatchError>()(
+export class ServerUpdateSourceMismatchError extends Schema.TaggedError<ServerUpdateSourceMismatchError>()(
   "ServerUpdateSourceMismatchError",
   { targetVersion: Schema.String },
 ) {
@@ -96,7 +96,7 @@ export class ServerUpdateSourceMismatchError extends Schema.TaggedErrorClass<Ser
   }
 }
 
-export class ServerUpdateResumeTimeoutError extends Schema.TaggedErrorClass<ServerUpdateResumeTimeoutError>()(
+export class ServerUpdateResumeTimeoutError extends Schema.TaggedError<ServerUpdateResumeTimeoutError>()(
   "ServerUpdateResumeTimeoutError",
   {
     environmentId: Schema.String,
@@ -108,7 +108,7 @@ export class ServerUpdateResumeTimeoutError extends Schema.TaggedErrorClass<Serv
   }
 }
 
-export class ServerUpdateProgressIncompleteError extends Schema.TaggedErrorClass<ServerUpdateProgressIncompleteError>()(
+export class ServerUpdateProgressIncompleteError extends Schema.TaggedError<ServerUpdateProgressIncompleteError>()(
   "ServerUpdateProgressIncompleteError",
   {
     targetVersion: Schema.String,
@@ -119,7 +119,7 @@ export class ServerUpdateProgressIncompleteError extends Schema.TaggedErrorClass
   }
 }
 
-export class ServerUpdateTerminalError extends Schema.TaggedErrorClass<ServerUpdateTerminalError>()(
+export class ServerUpdateTerminalError extends Schema.TaggedError<ServerUpdateTerminalError>()(
   "ServerUpdateTerminalError",
   {
     targetVersion: Schema.String,

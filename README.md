@@ -6,7 +6,7 @@ T3 Code Fold extends [T3 Code](https://github.com/pingdotgg/t3code) with a folda
 
 ## Extra features
 
-Compared with upstream `main` at [d081ab7ab](https://github.com/pingdotgg/t3code/commit/d081ab7abc16a21570d3d96948acb6c1f8d847a4), reviewed **8 September 2026**. These tables describe the code on Fold's `main`; an older published installer may not include every change.
+Compared with upstream `main` at [08463e2c40](https://github.com/pingdotgg/t3code/commit/08463e2c40), reviewed **9 September 2026**. These tables describe the code on Fold's `main`; an older published installer may not include every change.
 
 ### Agents, voice, and compatibility
 
@@ -65,7 +65,7 @@ Fold also includes [upstream's orchestration work](https://github.com/pingdotgg/
 
 Upgrading an older server also migrates its conversation transcripts into the new runtime. Read [older-thread migration](docs/user/thread-migration.md) for what carries over and how sessions resume.
 
-Upstream already supplies the core clients, remote connections, provider support, voice dictation, source-control tools, and much of the project styling. The tables above describe Fold's additions or extensions to that foundation. Recheck them after upstream merges overlapping functionality; Pebble's separate watch app and its legacy compatibility branch are not features of this main branch.
+Upstream already supplies the core clients, remote connections, provider support, voice dictation, source-control tools, and much of the project styling. The September 9 sync also includes desktop window capture, question-answer attachments, Android wallpaper colors and optional Material You layout, minimap turn navigation, and pull-request merge defaults. These are shared upstream features, not Fold-only additions. The tables above describe Fold's additions or extensions to that foundation. Recheck them after upstream merges overlapping functionality; Pebble's separate watch app and its legacy compatibility branch are not features of this main branch.
 
 ## Foldable demo
 

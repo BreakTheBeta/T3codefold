@@ -13,6 +13,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { useProject, useThreadShell, useThreadShellsForProjectRefs } from "../state/entities";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+
 import {
   type EnvMode,
   type EnvironmentOption,
@@ -470,6 +471,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
+
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const activeProjectRef = serverThread
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)

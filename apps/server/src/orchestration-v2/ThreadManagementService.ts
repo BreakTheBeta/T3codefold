@@ -155,7 +155,7 @@ export type ThreadManagementInterruptResult =
       readonly run: OrchestrationV2Run & { readonly status: ThreadManagementTerminalRunStatus };
     };
 
-export class ThreadManagementThreadNotFoundError extends Schema.TaggedErrorClass<ThreadManagementThreadNotFoundError>()(
+export class ThreadManagementThreadNotFoundError extends Schema.TaggedError<ThreadManagementThreadNotFoundError>()(
   "ThreadManagementThreadNotFoundError",
   {
     projectId: ProjectId,
@@ -167,7 +167,7 @@ export class ThreadManagementThreadNotFoundError extends Schema.TaggedErrorClass
   }
 }
 
-export class ThreadManagementRunNotFoundError extends Schema.TaggedErrorClass<ThreadManagementRunNotFoundError>()(
+export class ThreadManagementRunNotFoundError extends Schema.TaggedError<ThreadManagementRunNotFoundError>()(
   "ThreadManagementRunNotFoundError",
   {
     threadId: ThreadId,
@@ -179,7 +179,7 @@ export class ThreadManagementRunNotFoundError extends Schema.TaggedErrorClass<Th
   }
 }
 
-export class ThreadManagementThreadArchivedError extends Schema.TaggedErrorClass<ThreadManagementThreadArchivedError>()(
+export class ThreadManagementThreadArchivedError extends Schema.TaggedError<ThreadManagementThreadArchivedError>()(
   "ThreadManagementThreadArchivedError",
   {
     threadId: ThreadId,
@@ -190,7 +190,7 @@ export class ThreadManagementThreadArchivedError extends Schema.TaggedErrorClass
   }
 }
 
-export class ThreadManagementNoSteerableRunError extends Schema.TaggedErrorClass<ThreadManagementNoSteerableRunError>()(
+export class ThreadManagementNoSteerableRunError extends Schema.TaggedError<ThreadManagementNoSteerableRunError>()(
   "ThreadManagementNoSteerableRunError",
   {
     threadId: ThreadId,
@@ -202,7 +202,7 @@ export class ThreadManagementNoSteerableRunError extends Schema.TaggedErrorClass
   }
 }
 
-export class ThreadManagementThreadNotInterruptibleError extends Schema.TaggedErrorClass<ThreadManagementThreadNotInterruptibleError>()(
+export class ThreadManagementThreadNotInterruptibleError extends Schema.TaggedError<ThreadManagementThreadNotInterruptibleError>()(
   "ThreadManagementThreadNotInterruptibleError",
   {
     threadId: ThreadId,
@@ -214,7 +214,7 @@ export class ThreadManagementThreadNotInterruptibleError extends Schema.TaggedEr
   }
 }
 
-export class ThreadManagementProjectionLoadError extends Schema.TaggedErrorClass<ThreadManagementProjectionLoadError>()(
+export class ThreadManagementProjectionLoadError extends Schema.TaggedError<ThreadManagementProjectionLoadError>()(
   "ThreadManagementProjectionLoadError",
   {
     projectId: ProjectId,
@@ -227,7 +227,7 @@ export class ThreadManagementProjectionLoadError extends Schema.TaggedErrorClass
   }
 }
 
-export class ThreadManagementProjectThreadsListError extends Schema.TaggedErrorClass<ThreadManagementProjectThreadsListError>()(
+export class ThreadManagementProjectThreadsListError extends Schema.TaggedError<ThreadManagementProjectThreadsListError>()(
   "ThreadManagementProjectThreadsListError",
   {
     projectId: ProjectId,
@@ -239,7 +239,7 @@ export class ThreadManagementProjectThreadsListError extends Schema.TaggedErrorC
   }
 }
 
-export class ThreadManagementDurableRunProjectionError extends Schema.TaggedErrorClass<ThreadManagementDurableRunProjectionError>()(
+export class ThreadManagementDurableRunProjectionError extends Schema.TaggedError<ThreadManagementDurableRunProjectionError>()(
   "ThreadManagementDurableRunProjectionError",
   {
     threadId: ThreadId,

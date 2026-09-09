@@ -24,6 +24,7 @@ import { ThreadManagementService } from "../orchestration-v2/ThreadManagementSer
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
 
 /** Import transcript text and its native resume reference through the serialized V2 command path. */
+
 export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(function* (
   input: AgentSessionImportInput,
 ) {

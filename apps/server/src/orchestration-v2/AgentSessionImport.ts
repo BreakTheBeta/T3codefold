@@ -14,7 +14,7 @@ import * as Schema from "effect/Schema";
 import type { IdAllocatorV2 } from "./IdAllocator.ts";
 import type { PendingOrchestrationEffectV2 } from "./EffectOutbox.ts";
 
-class AgentSessionImportConflict extends Schema.TaggedErrorClass<AgentSessionImportConflict>()(
+class AgentSessionImportConflict extends Schema.TaggedError<AgentSessionImportConflict>()(
   "AgentSessionImportConflict",
   { threadId: ThreadId },
 ) {}

@@ -1,3 +1,4 @@
+import type { UserInputAttachments } from "@t3tools/contracts";
 import {
   type ThreadLinkedPullRequest,
   CommandId,
@@ -184,6 +185,7 @@ export interface RespondToThreadApprovalInput extends ThreadCommandInput {
 export interface RespondToThreadUserInputInput extends ThreadCommandInput {
   readonly requestId: RuntimeRequestId;
   readonly answers: ProviderUserInputAnswers;
+  readonly attachmentsByQuestionId?: UserInputAttachments;
 }
 
 export interface DismissThreadUserInputInput extends ThreadCommandInput {
@@ -755,6 +757,9 @@ export const respondToThreadUserInput = Effect.fn("EnvironmentCommands.respondTo
       threadId: input.threadId,
       requestId: input.requestId,
       answers: input.answers,
+      ...(input.attachmentsByQuestionId === undefined
+        ? {}
+        : { attachmentsByQuestionId: input.attachmentsByQuestionId }),
     });
   },
 );

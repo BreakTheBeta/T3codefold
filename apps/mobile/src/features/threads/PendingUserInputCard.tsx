@@ -1,6 +1,8 @@
 import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
 import type { RuntimeRequestId } from "@t3tools/contracts";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
+import { QuestionAttachments } from "./QuestionAttachments";
+
 import { useCallback, useRef } from "react";
 import { Platform, Pressable, ScrollView, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
@@ -17,7 +19,7 @@ import Animated, {
 import { USER_INPUT_TOGGLE_DURATION_MS } from "./pendingUserInputLayout";
 
 import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { AppText as Text } from "../../components/AppText";
 import { ControlPill } from "../../components/ControlPill";
 import { cn } from "../../lib/cn";
 import {
@@ -323,16 +325,16 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                 })}
               </View>
               {question.allowCustomAnswer !== false ? (
-                <TextInput
-                  editable={canRespond}
+                <QuestionAttachments
+                  requestId={props.pendingUserInput.requestId}
+                  question={question}
+                  questions={props.pendingUserInput.questions}
+                  disabled={props.respondingUserInputId === props.pendingUserInput.requestId}
                   value={draft?.customAnswer ?? ""}
                   onChangeText={(value) =>
                     props.onChangeCustomAnswer(props.pendingUserInput.requestId, question.id, value)
                   }
-                  onFocus={() => props.onInputFocusChange?.(true)}
-                  onBlur={() => props.onInputFocusChange?.(false)}
-                  placeholder="Or type a custom answer"
-                  className="min-h-[54px] rounded-2xl border border-adaptive-neutral-200-white-a8 bg-adaptive-white-neutral-950-a70 px-3.5 py-3 font-sans text-base text-adaptive-neutral-950-50"
+                  onInputFocusChange={props.onInputFocusChange}
                 />
               ) : null}
             </View>

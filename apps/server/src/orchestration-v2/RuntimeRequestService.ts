@@ -1,3 +1,7 @@
+import { ServerConfig } from "../config.ts";
+import * as FileSystem from "effect/FileSystem";
+import { appendUserInputAttachmentPaths } from "../provider/userInputAttachments.ts";
+import type { UserInputAttachments } from "@t3tools/contracts";
 import {
   ProviderApprovalDecision,
   ProviderSessionId,
@@ -14,7 +18,7 @@ import * as Schema from "effect/Schema";
 import { ProjectionStoreV2 } from "./ProjectionStore.ts";
 import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
 
-export class RuntimeRequestResponseExecutionError extends Schema.TaggedErrorClass<RuntimeRequestResponseExecutionError>()(
+export class RuntimeRequestResponseExecutionError extends Schema.TaggedError<RuntimeRequestResponseExecutionError>()(
   "RuntimeRequestResponseExecutionError",
   {
     reason: Schema.Literals([
@@ -55,6 +59,7 @@ export interface RuntimeRequestServiceV2Shape {
     readonly requestId: RuntimeRequestId;
     readonly decision?: ProviderApprovalDecision;
     readonly answers?: ProviderUserInputAnswers;
+    readonly attachmentsByQuestionId?: UserInputAttachments;
   }) => Effect.Effect<void, RuntimeRequestResponseExecutionError>;
 }
 
@@ -66,10 +71,12 @@ export class RuntimeRequestServiceV2 extends Context.Service<
 export const layer: Layer.Layer<
   RuntimeRequestServiceV2,
   never,
-  ProjectionStoreV2 | ProviderSessionManagerV2
+  ProjectionStoreV2 | ProviderSessionManagerV2 | ServerConfig | FileSystem.FileSystem
 > = Layer.effect(
   RuntimeRequestServiceV2,
   Effect.gen(function* () {
+    const config = yield* ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
     const projections = yield* ProjectionStoreV2;
     const sessions = yield* ProviderSessionManagerV2;
 
@@ -115,10 +122,18 @@ export const layer: Layer.Layer<
               requestId: input.requestId,
             });
           }
+          const answers =
+            input.attachmentsByQuestionId === undefined
+              ? input.answers
+              : yield* appendUserInputAttachmentPaths({
+                  answers: input.answers ?? {},
+                  attachmentsByQuestionId: input.attachmentsByQuestionId,
+                  attachmentsDir: config.attachmentsDir,
+                }).pipe(Effect.provideService(FileSystem.FileSystem, fs));
           yield* session.value.respondToRuntimeRequest({
             requestId: input.requestId,
             ...(input.decision === undefined ? {} : { decision: input.decision }),
-            ...(input.answers === undefined ? {} : { answers: input.answers }),
+            ...(answers === undefined ? {} : { answers }),
           });
         }).pipe(
           Effect.mapError((cause) =>

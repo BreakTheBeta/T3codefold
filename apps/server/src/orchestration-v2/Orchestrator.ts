@@ -75,7 +75,7 @@ import { ThreadForkServiceV2 } from "./ThreadForkService.ts";
 import { planAgentSessionImport } from "./AgentSessionImport.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 
-export class OrchestratorDispatchError extends Schema.TaggedErrorClass<OrchestratorDispatchError>()(
+export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
   {
     commandId: CommandId,
@@ -88,7 +88,7 @@ export class OrchestratorDispatchError extends Schema.TaggedErrorClass<Orchestra
   }
 }
 
-export class OrchestratorProjectionError extends Schema.TaggedErrorClass<OrchestratorProjectionError>()(
+export class OrchestratorProjectionError extends Schema.TaggedError<OrchestratorProjectionError>()(
   "OrchestratorProjectionError",
   {
     threadId: ThreadId,
@@ -100,7 +100,7 @@ export class OrchestratorProjectionError extends Schema.TaggedErrorClass<Orchest
   }
 }
 
-export class OrchestratorDomainEventStreamError extends Schema.TaggedErrorClass<OrchestratorDomainEventStreamError>()(
+export class OrchestratorDomainEventStreamError extends Schema.TaggedError<OrchestratorDomainEventStreamError>()(
   "OrchestratorDomainEventStreamError",
   {
     cause: Schema.optional(Schema.Defect()),
@@ -111,7 +111,7 @@ export class OrchestratorDomainEventStreamError extends Schema.TaggedErrorClass<
   }
 }
 
-export class OrchestratorProviderAdapterError extends Schema.TaggedErrorClass<OrchestratorProviderAdapterError>()(
+export class OrchestratorProviderAdapterError extends Schema.TaggedError<OrchestratorProviderAdapterError>()(
   "OrchestratorProviderAdapterError",
   {
     commandId: CommandId,
@@ -124,7 +124,7 @@ export class OrchestratorProviderAdapterError extends Schema.TaggedErrorClass<Or
   }
 }
 
-export class OrchestratorCommandPreviouslyRejectedError extends Schema.TaggedErrorClass<OrchestratorCommandPreviouslyRejectedError>()(
+export class OrchestratorCommandPreviouslyRejectedError extends Schema.TaggedError<OrchestratorCommandPreviouslyRejectedError>()(
   "OrchestratorCommandPreviouslyRejectedError",
   {
     commandId: CommandId,
@@ -137,7 +137,7 @@ export class OrchestratorCommandPreviouslyRejectedError extends Schema.TaggedErr
   }
 }
 
-export class OrchestratorCommandIdConflictError extends Schema.TaggedErrorClass<OrchestratorCommandIdConflictError>()(
+export class OrchestratorCommandIdConflictError extends Schema.TaggedError<OrchestratorCommandIdConflictError>()(
   "OrchestratorCommandIdConflictError",
   {
     commandId: CommandId,
@@ -5152,6 +5152,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         resolvedAt: now,
         ...(command.decision === undefined ? {} : { decision: command.decision }),
         ...(command.answers === undefined ? {} : { answers: command.answers }),
+        ...(command.attachmentsByQuestionId === undefined
+          ? {}
+          : { attachmentsByQuestionId: command.attachmentsByQuestionId }),
       };
       const emitEvent = emit(events, command);
       const requestNode = projection.nodes.find((node) => node.id === runtimeRequest.nodeId);
@@ -5214,6 +5217,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           occurredAt: now,
           payload: {
             ...approvalTurnItem,
+            ...(approvalTurnItem.type === "user_input_request" &&
+            command.attachmentsByQuestionId !== undefined
+              ? {
+                  questionAnswer: {
+                    requestId: command.requestId,
+                    questionTextById: Object.fromEntries(
+                      approvalTurnItem.questions.map((q) => [q.id, q.question]),
+                    ),
+                    answers: command.answers ?? {},
+                    attachmentsByQuestionId: command.attachmentsByQuestionId,
+                  },
+                }
+              : {}),
             status: resolvedNodeStatus,
             completedAt: now,
             updatedAt: now,
@@ -5232,7 +5248,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const replies: string[] = [];
         for (const question of approvalTurnItem.questions) {
           const answer = command.answers?.[question.id];
-          if (typeof answer !== "string" || answer.trim().length === 0) {
+          if (
+            (typeof answer !== "string" || answer.trim().length === 0) &&
+            (command.attachmentsByQuestionId?.[question.id]?.length ?? 0) === 0
+          ) {
             if (question.required === false) continue;
             return yield* new OrchestratorDispatchError({
               commandId: command.commandId,
@@ -5240,7 +5259,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               cause: "Answer each question before sending.",
             });
           }
-          replies.push(`${question.question}\n${answer.trim()}`);
+          replies.push(
+            `${question.question}\n${typeof answer === "string" ? answer.trim() : "See attached files."}`,
+          );
         }
         if (replies.length === 0) {
           return yield* new OrchestratorDispatchError({
@@ -5290,7 +5311,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             threadId: command.threadId,
             messageId: MessageId.make(`async-answer:${command.requestId}`),
             text: replies.join("\n\n"),
-            attachments: [],
+            attachments: Object.values(command.attachmentsByQuestionId ?? {}).flat(),
             createdBy: "user",
             creationSource: "server",
             dispatchMode,
@@ -5312,6 +5333,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             requestId: command.requestId,
             ...(command.decision === undefined ? {} : { decision: command.decision }),
             ...(command.answers === undefined ? {} : { answers: command.answers }),
+            ...(command.attachmentsByQuestionId === undefined
+              ? {}
+              : { attachmentsByQuestionId: command.attachmentsByQuestionId }),
           },
         } satisfies PendingOrchestrationEffectV2,
       ]);

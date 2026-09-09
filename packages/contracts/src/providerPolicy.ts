@@ -60,3 +60,5 @@ export type ProviderApprovalOption = typeof ProviderApprovalOption.Type;
 
 export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unknown);
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
+
+export { UserInputAttachments } from "./chatAttachment.ts";

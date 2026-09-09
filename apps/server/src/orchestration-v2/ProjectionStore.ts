@@ -52,7 +52,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-export class ProjectionStoreApplyEventError extends Schema.TaggedErrorClass<ProjectionStoreApplyEventError>()(
+export class ProjectionStoreApplyEventError extends Schema.TaggedError<ProjectionStoreApplyEventError>()(
   "ProjectionStoreApplyEventError",
   {
     eventType: Schema.String,
@@ -64,7 +64,7 @@ export class ProjectionStoreApplyEventError extends Schema.TaggedErrorClass<Proj
   }
 }
 
-export class ProjectionStoreSetupError extends Schema.TaggedErrorClass<ProjectionStoreSetupError>()(
+export class ProjectionStoreSetupError extends Schema.TaggedError<ProjectionStoreSetupError>()(
   "ProjectionStoreSetupError",
   {
     cause: Schema.optional(Schema.Defect()),
@@ -75,7 +75,7 @@ export class ProjectionStoreSetupError extends Schema.TaggedErrorClass<Projectio
   }
 }
 
-export class ProjectionStoreThreadNotFoundError extends Schema.TaggedErrorClass<ProjectionStoreThreadNotFoundError>()(
+export class ProjectionStoreThreadNotFoundError extends Schema.TaggedError<ProjectionStoreThreadNotFoundError>()(
   "ProjectionStoreThreadNotFoundError",
   {
     threadId: ThreadId,
@@ -86,7 +86,7 @@ export class ProjectionStoreThreadNotFoundError extends Schema.TaggedErrorClass<
   }
 }
 
-export class ProjectionStoreReadError extends Schema.TaggedErrorClass<ProjectionStoreReadError>()(
+export class ProjectionStoreReadError extends Schema.TaggedError<ProjectionStoreReadError>()(
   "ProjectionStoreReadError",
   {
     threadId: ThreadId,

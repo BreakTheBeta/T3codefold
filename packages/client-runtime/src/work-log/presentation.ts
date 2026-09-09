@@ -30,6 +30,7 @@ export type WorkLogToolLifecycleStatus =
   | "idle";
 
 export interface WorkLogPresentationEntry {
+  readonly questionAnswer?: import("@t3tools/contracts").UserInputAttachmentAnswerPayload;
   readonly id: string;
   readonly createdAt: string;
   readonly label: string;

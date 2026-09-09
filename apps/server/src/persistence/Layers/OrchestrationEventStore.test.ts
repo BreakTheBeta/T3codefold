@@ -1,3 +1,5 @@
+import * as NodeV8 from "node:v8";
+
 import {
   CommandId,
   EventId,

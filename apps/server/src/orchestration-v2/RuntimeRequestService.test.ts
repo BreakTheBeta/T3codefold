@@ -1,3 +1,6 @@
+import * as FileSystem from "effect/FileSystem";
+import { NodeServices } from "@effect/platform-node";
+import { ServerConfig, layerTest as serverConfigTestLayer } from "../config.ts";
 import { assert, it, vi } from "@effect/vitest";
 import {
   NodeId,
@@ -58,6 +61,8 @@ function runtimeRequestTestLayer(
   getSession: ProviderSessionManagerV2Shape["get"],
 ) {
   return runtimeRequestServiceLayer.pipe(
+    Layer.provide(serverConfigTestLayer(process.cwd(), { prefix: "t3-request-test-" })),
+    Layer.provide(NodeServices.layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ProjectionStoreV2)({
@@ -105,6 +110,8 @@ it.effect("forwards orchestrator-resolved runtime requests to the live adapter",
     ],
   } as unknown as OrchestrationV2ThreadProjection;
   const testLayer = runtimeRequestServiceLayer.pipe(
+    Layer.provide(serverConfigTestLayer(process.cwd(), { prefix: "t3-request-test-" })),
+    Layer.provide(NodeServices.layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ProjectionStoreV2)({
@@ -169,6 +176,8 @@ it.effect("rejects expired runtime requests before invoking the live adapter", (
     ],
   } as unknown as OrchestrationV2ThreadProjection;
   const testLayer = runtimeRequestServiceLayer.pipe(
+    Layer.provide(serverConfigTestLayer(process.cwd(), { prefix: "t3-request-test-" })),
+    Layer.provide(NodeServices.layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ProjectionStoreV2)({
@@ -299,3 +308,63 @@ it.effect("preserves genuine provider session lookup failures as the cause", () 
     assert.strictEqual(error.cause, lookupFailure);
   }).pipe(Effect.provide(testLayer));
 });
+
+it.effect("delivers question attachment paths through the V2 runtime request adapter", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const threadId = ThreadId.make("thread-attachment-answer");
+    const providerSessionId = ProviderSessionId.make("session-attachment-answer");
+    const requestId = RuntimeRequestId.make("request-attachment-answer");
+    const attachment = {
+      type: "file" as const,
+      id: "answer-spec-txt",
+      name: "spec.txt",
+      mimeType: "text/plain",
+      sizeBytes: 4,
+    };
+    const path = `${config.attachmentsDir}/${attachment.id}.txt`;
+    yield* fs.makeDirectory(config.attachmentsDir, { recursive: true });
+    yield* fs.writeFileString(path, "spec");
+    const respond = vi.fn((_input: ProviderAdapterV2RuntimeRequestResponseInput) => Effect.void);
+    yield* Effect.gen(function* () {
+      const service = yield* RuntimeRequestServiceV2;
+      yield* service.respond({
+        threadId,
+        providerSessionId,
+        requestId,
+        answers: { q: "Use this specification" },
+        attachmentsByQuestionId: { q: [attachment] },
+      });
+    }).pipe(
+      Effect.provide(
+        runtimeRequestServiceLayer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(ProjectionStoreV2)({
+                getRuntimeRequest: () =>
+                  Effect.succeed({
+                    ...resolvedRuntimeRequest(requestId, providerSessionId),
+                    kind: "user_input",
+                  }),
+              }),
+              Layer.mock(ProviderSessionManagerV2)({
+                get: () =>
+                  Effect.succeed(Option.some({ respondToRuntimeRequest: respond } as never)),
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+    assert.equal(respond.mock.calls.length, 1);
+    assert.include(String(respond.mock.calls[0]?.[0].answers?.q), "Use this specification");
+    assert.include(String(respond.mock.calls[0]?.[0].answers?.q), path);
+  }).pipe(
+    Effect.provide(
+      serverConfigTestLayer(process.cwd(), { prefix: "t3-v2-attachment-" }).pipe(
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
+  ),
+);

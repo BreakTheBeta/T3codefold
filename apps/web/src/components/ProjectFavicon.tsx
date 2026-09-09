@@ -1,4 +1,6 @@
-import type { EnvironmentId, ProjectIconOverride } from "@t3tools/contracts";
+import type { ProjectIconColor, ProjectIconOverride } from "@t3tools/contracts";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+
 import {
   getProjectFaviconResourceKey,
   isProjectFaviconFallbackUrl,
@@ -32,11 +34,7 @@ import type { ComponentType } from "react";
 import { lazy, Suspense, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { projectFaviconUrlAtom } from "../state/assets";
-import {
-  PROJECT_ICON_COLOR_BY_NAME,
-  selectProjectIcon,
-  type ProjectIconName,
-} from "@t3tools/shared/projectIconModel";
+import { selectProjectIcon, type ProjectIconName } from "@t3tools/shared/projectIconModel";
 import { projectIconColorClassName } from "../projectIconColors";
 import { cn } from "~/lib/utils";
 
@@ -73,21 +71,58 @@ const PROJECT_ICONS: Record<ProjectIconName, ComponentType<{ className?: string 
   web: Globe2Icon,
 };
 
+const PROJECT_ICON_COLOR_BY_NAME: Record<ProjectIconName, ProjectIconColor> = {
+  ai: "violet",
+  book: "amber",
+  braces: "purple",
+  circuit: "teal",
+  cloud: "sky",
+  code: "blue",
+  database: "cyan",
+  desktop: "indigo",
+  "folder-code": "orange",
+  game: "emerald",
+  image: "pink",
+  layers: "fuchsia",
+  mobile: "lime",
+  music: "fuchsia",
+  package: "orange",
+  security: "teal",
+  server: "blue",
+  shopping: "rose",
+  terminal: "green",
+  test: "yellow",
+  video: "red",
+  web: "sky",
+};
+
+// The slice of a project that decides its icon. Every surface must pass the
+// project record itself (or a snapshot spread from it) so the saved title, favicon
+// and icon override always travel together. Passing a display label as the title
+// changes the automatic icon, which is how the command palette drifted once.
+export type ProjectFaviconProject = Pick<
+  EnvironmentProject,
+  "environmentId" | "workspaceRoot" | "title" | "faviconPath" | "projectIcon"
+>;
+
 export function ProjectFavicon(input: {
-  environmentId: EnvironmentId;
-  cwd: string;
-  projectName: string;
-  faviconPath?: string | null | undefined;
-  projectIcon?: ProjectIconOverride | null | undefined;
+  project: ProjectFaviconProject;
   className?: string | undefined;
   fallbackIcon?: ComponentType<{ className?: string }>;
 }) {
-  const src = useAtomValue(projectFaviconUrlAtom(input));
-  if (input.projectIcon?.kind === "emoji") {
-    return <ProjectFaviconFallback className={input.className} emoji={input.projectIcon.emoji} />;
+  const { project } = input;
+  const src = useAtomValue(
+    projectFaviconUrlAtom({
+      environmentId: project.environmentId,
+      cwd: project.workspaceRoot,
+      faviconPath: project.faviconPath,
+    }),
+  );
+  if (project.projectIcon?.kind === "emoji") {
+    return <ProjectFaviconFallback className={input.className} emoji={project.projectIcon.emoji} />;
   }
-  if (input.projectIcon?.kind === "lucide") {
-    const colorClassName = projectIconColorClassName(input.projectIcon.color);
+  if (project.projectIcon?.kind === "lucide") {
+    const colorClassName = projectIconColorClassName(project.projectIcon.color);
     const iconClassName = cn(
       "inline-flex size-3.5 shrink-0 items-center justify-center",
       colorClassName,
@@ -97,7 +132,7 @@ export function ProjectFavicon(input: {
       <span aria-hidden="true" className={iconClassName}>
         <Suspense fallback={<DynamicProjectIconFallback />}>
           <DynamicIcon
-            name={input.projectIcon.name as IconName}
+            name={project.projectIcon.name as IconName}
             className={cn("size-full", colorClassName)}
             fallback={DynamicProjectIconFallback}
           />
@@ -107,7 +142,7 @@ export function ProjectFavicon(input: {
   }
   const automaticIconName = input.fallbackIcon
     ? null
-    : selectProjectIcon(input.projectName, input.cwd);
+    : selectProjectIcon(project.title, project.workspaceRoot);
   const FallbackIcon =
     input.fallbackIcon ??
     (automaticIconName?.kind === "lucide" ? PROJECT_ICONS[automaticIconName.icon] : undefined);
@@ -128,7 +163,11 @@ export function ProjectFavicon(input: {
     );
   }
 
-  const cacheKey = getProjectFaviconResourceKey(input.environmentId, input.cwd, input.faviconPath);
+  const cacheKey = getProjectFaviconResourceKey(
+    project.environmentId,
+    project.workspaceRoot,
+    project.faviconPath,
+  );
 
   return (
     <ProjectFaviconImage

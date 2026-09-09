@@ -14,7 +14,7 @@ import * as Context from "effect/Context";
 import * as Schema from "effect/Schema";
 import type * as Effect from "effect/Effect";
 
-export class CheckpointPolicyPrepareRunError extends Schema.TaggedErrorClass<CheckpointPolicyPrepareRunError>()(
+export class CheckpointPolicyPrepareRunError extends Schema.TaggedError<CheckpointPolicyPrepareRunError>()(
   "CheckpointPolicyPrepareRunError",
   {
     threadId: ThreadId,
@@ -27,7 +27,7 @@ export class CheckpointPolicyPrepareRunError extends Schema.TaggedErrorClass<Che
   }
 }
 
-export class CheckpointPolicyFinalizeNodeError extends Schema.TaggedErrorClass<CheckpointPolicyFinalizeNodeError>()(
+export class CheckpointPolicyFinalizeNodeError extends Schema.TaggedError<CheckpointPolicyFinalizeNodeError>()(
   "CheckpointPolicyFinalizeNodeError",
   {
     threadId: ThreadId,
@@ -41,7 +41,7 @@ export class CheckpointPolicyFinalizeNodeError extends Schema.TaggedErrorClass<C
   }
 }
 
-export class CheckpointPolicyRollbackError extends Schema.TaggedErrorClass<CheckpointPolicyRollbackError>()(
+export class CheckpointPolicyRollbackError extends Schema.TaggedError<CheckpointPolicyRollbackError>()(
   "CheckpointPolicyRollbackError",
   {
     threadId: ThreadId,

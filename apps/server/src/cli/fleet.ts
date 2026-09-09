@@ -25,7 +25,7 @@ import * as ServerConfig from "../config.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { projectLocationFlags, resolveCliAuthConfig, type CliAuthLocationFlags } from "./config.ts";
 
-export class FleetCliError extends Schema.TaggedErrorClass<FleetCliError>()("FleetCliError", {
+export class FleetCliError extends Schema.TaggedError<FleetCliError>()("FleetCliError", {
   message: Schema.String,
 }) {}
 

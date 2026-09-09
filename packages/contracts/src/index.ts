@@ -54,3 +54,5 @@ export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 
 export * from "./fleet.ts";
+
+export { UserInputAttachmentAnswerPayload } from "./orchestration.ts";

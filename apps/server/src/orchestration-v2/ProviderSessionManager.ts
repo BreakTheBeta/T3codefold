@@ -62,7 +62,7 @@ export type ProviderSessionReleaseReason = typeof ProviderSessionReleaseReason.T
  * terminalizes provider-bound work and retires non-replayable effects; a later
  * user command or durable replay-safe operation opens a session lazily.
  */
-export class ProviderSessionOpenError extends Schema.TaggedErrorClass<ProviderSessionOpenError>()(
+export class ProviderSessionOpenError extends Schema.TaggedError<ProviderSessionOpenError>()(
   "ProviderSessionOpenError",
   {
     instanceId: ProviderInstanceId,
@@ -75,7 +75,7 @@ export class ProviderSessionOpenError extends Schema.TaggedErrorClass<ProviderSe
   }
 }
 
-export class ProviderSessionLookupError extends Schema.TaggedErrorClass<ProviderSessionLookupError>()(
+export class ProviderSessionLookupError extends Schema.TaggedError<ProviderSessionLookupError>()(
   "ProviderSessionLookupError",
   {
     providerSessionId: ProviderSessionId,
@@ -87,7 +87,7 @@ export class ProviderSessionLookupError extends Schema.TaggedErrorClass<Provider
   }
 }
 
-export class ProviderSessionCloseError extends Schema.TaggedErrorClass<ProviderSessionCloseError>()(
+export class ProviderSessionCloseError extends Schema.TaggedError<ProviderSessionCloseError>()(
   "ProviderSessionCloseError",
   {
     providerSessionId: ProviderSessionId,
@@ -99,7 +99,7 @@ export class ProviderSessionCloseError extends Schema.TaggedErrorClass<ProviderS
   }
 }
 
-export class ProviderSessionReleaseError extends Schema.TaggedErrorClass<ProviderSessionReleaseError>()(
+export class ProviderSessionReleaseError extends Schema.TaggedError<ProviderSessionReleaseError>()(
   "ProviderSessionReleaseError",
   {
     providerSessionId: ProviderSessionId,
@@ -112,7 +112,7 @@ export class ProviderSessionReleaseError extends Schema.TaggedErrorClass<Provide
   }
 }
 
-export class ProviderSessionActivityError extends Schema.TaggedErrorClass<ProviderSessionActivityError>()(
+export class ProviderSessionActivityError extends Schema.TaggedError<ProviderSessionActivityError>()(
   "ProviderSessionActivityError",
   {
     providerSessionId: ProviderSessionId,

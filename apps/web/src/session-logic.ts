@@ -77,6 +77,7 @@ export type WorkLogToolLifecycleStatus =
   | "stopped";
 
 export interface WorkLogEntry {
+  readonly questionAnswer?: import("@t3tools/contracts").UserInputAttachmentAnswerPayload;
   readonly id: string;
   readonly createdAt: string;
   readonly runId?: RunId | null;
@@ -164,6 +165,7 @@ export type TimelineEntry = (
 
 export function workLogEntryIsToolLike(entry: WorkLogEntry): boolean {
   return (
+    entry.questionAnswer !== undefined ||
     entry.tone === "tool" ||
     entry.tone === "thinking" ||
     entry.tone === "error" ||
@@ -531,6 +533,9 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
     itemType: item.type,
     toolLifecycleStatus: projectedWorkEntryStatus(item),
     structuredPayload: item,
+    ...(item.type === "user_input_request" && item.questionAnswer
+      ? { questionAnswer: item.questionAnswer }
+      : {}),
     projectedItem: row,
     ...extractToolActivityPresentation(item),
   } as const;

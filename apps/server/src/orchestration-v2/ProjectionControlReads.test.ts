@@ -1,3 +1,5 @@
+import { NodeServices } from "@effect/platform-node";
+import { layerTest as serverConfigTestLayer } from "../config.ts";
 import { assert, it } from "@effect/vitest";
 import {
   EventId,
@@ -291,7 +293,17 @@ for (const storage of ["sqlite", "memory"] as const) {
           "Failure",
         );
         assert.lengthOf(calls, 3);
-      }).pipe(Effect.provide(Layer.merge(controlLayer, replyLayer).pipe(Layer.provide(sessions))));
+      }).pipe(
+        Effect.provide(
+          Layer.merge(controlLayer, replyLayer).pipe(
+            Layer.provide(sessions),
+            Layer.provide(
+              serverConfigTestLayer(process.cwd(), { prefix: "t3-projection-control-" }),
+            ),
+            Layer.provide(NodeServices.layer),
+          ),
+        ),
+      );
     }).pipe(Effect.provide(Layer.merge(storeLayer, SqlitePersistenceMemory))),
   );
 }

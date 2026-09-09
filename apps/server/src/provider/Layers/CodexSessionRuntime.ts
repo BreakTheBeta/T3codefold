@@ -258,7 +258,7 @@ export type CodexSessionRuntimeError =
   | CodexSessionRuntimeRealtimeVoiceStoppedError
   | CodexSessionRuntimeRealtimeVoiceStopTimeoutError;
 
-export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.TaggedErrorClass<CodexSessionRuntimePendingApprovalNotFoundError>()(
+export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.TaggedError<CodexSessionRuntimePendingApprovalNotFoundError>()(
   "CodexSessionRuntimePendingApprovalNotFoundError",
   {
     requestId: Schema.String,
@@ -269,7 +269,7 @@ export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.Tagg
   }
 }
 
-export class CodexSessionRuntimePendingUserInputNotFoundError extends Schema.TaggedErrorClass<CodexSessionRuntimePendingUserInputNotFoundError>()(
+export class CodexSessionRuntimePendingUserInputNotFoundError extends Schema.TaggedError<CodexSessionRuntimePendingUserInputNotFoundError>()(
   "CodexSessionRuntimePendingUserInputNotFoundError",
   {
     requestId: Schema.String,
@@ -280,7 +280,7 @@ export class CodexSessionRuntimePendingUserInputNotFoundError extends Schema.Tag
   }
 }
 
-export class CodexSessionRuntimeInvalidUserInputAnswersError extends Schema.TaggedErrorClass<CodexSessionRuntimeInvalidUserInputAnswersError>()(
+export class CodexSessionRuntimeInvalidUserInputAnswersError extends Schema.TaggedError<CodexSessionRuntimeInvalidUserInputAnswersError>()(
   "CodexSessionRuntimeInvalidUserInputAnswersError",
   {
     questionId: Schema.String,
@@ -291,7 +291,7 @@ export class CodexSessionRuntimeInvalidUserInputAnswersError extends Schema.Tagg
   }
 }
 
-export class CodexSessionRuntimeThreadIdMissingError extends Schema.TaggedErrorClass<CodexSessionRuntimeThreadIdMissingError>()(
+export class CodexSessionRuntimeThreadIdMissingError extends Schema.TaggedError<CodexSessionRuntimeThreadIdMissingError>()(
   "CodexSessionRuntimeThreadIdMissingError",
   {
     threadId: Schema.String,
@@ -302,7 +302,7 @@ export class CodexSessionRuntimeThreadIdMissingError extends Schema.TaggedErrorC
   }
 }
 
-export class CodexSessionRuntimeRealtimeVoiceAlreadyStartingError extends Schema.TaggedErrorClass<CodexSessionRuntimeRealtimeVoiceAlreadyStartingError>()(
+export class CodexSessionRuntimeRealtimeVoiceAlreadyStartingError extends Schema.TaggedError<CodexSessionRuntimeRealtimeVoiceAlreadyStartingError>()(
   "CodexSessionRuntimeRealtimeVoiceAlreadyStartingError",
   { providerThreadId: Schema.String },
 ) {
@@ -311,7 +311,7 @@ export class CodexSessionRuntimeRealtimeVoiceAlreadyStartingError extends Schema
   }
 }
 
-export class CodexSessionRuntimeRealtimeVoiceAnswerTimeoutError extends Schema.TaggedErrorClass<CodexSessionRuntimeRealtimeVoiceAnswerTimeoutError>()(
+export class CodexSessionRuntimeRealtimeVoiceAnswerTimeoutError extends Schema.TaggedError<CodexSessionRuntimeRealtimeVoiceAnswerTimeoutError>()(
   "CodexSessionRuntimeRealtimeVoiceAnswerTimeoutError",
   { providerThreadId: Schema.String, timeoutMs: Schema.Number },
 ) {
@@ -320,7 +320,7 @@ export class CodexSessionRuntimeRealtimeVoiceAnswerTimeoutError extends Schema.T
   }
 }
 
-export class CodexSessionRuntimeRealtimeVoiceNegotiationError extends Schema.TaggedErrorClass<CodexSessionRuntimeRealtimeVoiceNegotiationError>()(
+export class CodexSessionRuntimeRealtimeVoiceNegotiationError extends Schema.TaggedError<CodexSessionRuntimeRealtimeVoiceNegotiationError>()(
   "CodexSessionRuntimeRealtimeVoiceNegotiationError",
   { providerThreadId: Schema.String, detail: Schema.String },
 ) {
@@ -329,7 +329,7 @@ export class CodexSessionRuntimeRealtimeVoiceNegotiationError extends Schema.Tag
   }
 }
 
-export class CodexSessionRuntimeRealtimeVoiceStoppedError extends Schema.TaggedErrorClass<CodexSessionRuntimeRealtimeVoiceStoppedError>()(
+export class CodexSessionRuntimeRealtimeVoiceStoppedError extends Schema.TaggedError<CodexSessionRuntimeRealtimeVoiceStoppedError>()(
   "CodexSessionRuntimeRealtimeVoiceStoppedError",
   { providerThreadId: Schema.String },
 ) {
@@ -338,7 +338,7 @@ export class CodexSessionRuntimeRealtimeVoiceStoppedError extends Schema.TaggedE
   }
 }
 
-export class CodexSessionRuntimeRealtimeVoiceStopTimeoutError extends Schema.TaggedErrorClass<CodexSessionRuntimeRealtimeVoiceStopTimeoutError>()(
+export class CodexSessionRuntimeRealtimeVoiceStopTimeoutError extends Schema.TaggedError<CodexSessionRuntimeRealtimeVoiceStopTimeoutError>()(
   "CodexSessionRuntimeRealtimeVoiceStopTimeoutError",
   { providerThreadId: Schema.String, timeoutMs: Schema.Number },
 ) {
