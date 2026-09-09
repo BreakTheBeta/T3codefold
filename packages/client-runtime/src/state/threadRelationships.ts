@@ -32,6 +32,12 @@ export interface ThreadRelationshipWalkRow {
   readonly edge: ThreadRelationshipEdge;
 }
 
+/** Delegated tasks have durable backing threads for navigation and history,
+ * but those implementation threads do not belong in ordinary thread lists. */
+export function isSubagentThread(thread: Pick<OrchestrationV2ThreadShell, "lineage">): boolean {
+  return thread.lineage.relationshipToParent === "subagent";
+}
+
 export function resolveMergeBackTargetThreadId(
   projection: Pick<OrchestrationV2ThreadProjection, "thread"> | null,
 ): ThreadId | null {

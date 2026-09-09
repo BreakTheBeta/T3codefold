@@ -280,6 +280,29 @@ describe("sortThreadsForListV2", () => {
 });
 
 describe("buildThreadListV2Items", () => {
+  it("hides delegated subagent backing threads from the mobile thread list", () => {
+    const parentId = ThreadId.make("parent");
+    const layout = buildThreadListV2Items({
+      threads: [
+        makeThread({ id: parentId, title: "Parent" }),
+        makeThread({
+          id: ThreadId.make("subagent"),
+          title: "Delegated research task",
+          lineage: {
+            rootThreadId: parentId,
+            parentThreadId: parentId,
+            relationshipToParent: "subagent",
+          },
+        }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(layout.items.map((item) => item.thread.id)).toEqual([parentId]);
+  });
+
   it("places a persisted settled thread in the settled shelf", () => {
     const thread = makeThread({
       id: ThreadId.make("linked-merged"),
