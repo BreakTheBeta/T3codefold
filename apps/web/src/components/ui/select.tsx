@@ -7,6 +7,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ChevronsUpDownIcon, ChevronUpIcon } from "lucide-react";
 import type * as React from "react";
 
+import { redirectDropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { cn } from "~/lib/utils";
 
 const Select = SelectPrimitive.Root;
@@ -116,6 +117,7 @@ function SelectPopup({
   alignItemWithTrigger = true,
   matchTriggerWidth = true,
   anchor,
+  onKeyDown,
   ...props
 }: SelectPrimitive.Popup.Props & {
   popupClassName?: string;
@@ -142,6 +144,10 @@ function SelectPopup({
         <SelectPrimitive.Popup
           className="origin-(--transform-origin) rounded-lg text-foreground outline-none"
           data-slot="select-popup"
+          onKeyDown={(event) => {
+            onKeyDown?.(event);
+            if (!event.defaultPrevented) redirectDropdownNavigationKey(event);
+          }}
           {...props}
         >
           <SelectPrimitive.ScrollUpArrow

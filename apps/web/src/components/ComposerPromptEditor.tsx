@@ -74,6 +74,7 @@ import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
 } from "~/lib/terminalContext";
+import { dropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { basenameOfPath } from "~/pierre-icons";
 import {
@@ -1478,12 +1479,21 @@ function ComposerCommandKeyPlugin(props: {
       (event) => handleCommand("Tab", event),
       COMMAND_PRIORITY_HIGH,
     );
+    const unregisterDropdownNavigation = editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event) => {
+        const key = dropdownNavigationKey(event);
+        return key === null ? false : handleCommand(key, event);
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
 
     return () => {
       unregisterArrowDown();
       unregisterArrowUp();
       unregisterEnter();
       unregisterTab();
+      unregisterDropdownNavigation();
     };
   }, [editor, props]);
 

@@ -69,6 +69,9 @@ If you need to type into a control that Vim mode would otherwise intercept, pres
 After typing a filter, press `Enter` to open the highlighted result. You can use
 `Ctrl+w l` directly from the filter to return to the conversation.
 
+The same `Ctrl+n` and `Ctrl+p` movement works in open dropdowns, command pickers,
+and composer completion menus throughout the workspace.
+
 ## Read and move through a conversation
 
 | Keys                   | Result                               |
