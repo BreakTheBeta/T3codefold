@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openCommandPalette } from "~/commandPaletteBus";
+import { redirectDropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { isPreviewFocused } from "~/lib/previewFocus";
 import { isTerminalFocused } from "~/lib/terminalFocus";
-import { moveTextCursor, orderedRange, type VimMotion } from "./vimText";
+import { currentLineRange, moveTextCursor, type VimMotion } from "./vimText";
 
 const HINT_ALPHABET = "asdfghjklqwertyuiopzxcvbnm";
 const HINT_SELECTOR = [
@@ -31,14 +32,19 @@ const SIDEBAR_ITEM_SELECTOR = [
   "[data-app-sidebar] [data-sidebar='menu-sub-button']",
 ].join(",");
 
-type Hint = { element: HTMLElement; label: string; left: number; top: number };
-type VisualState = {
-  source: HTMLElement;
+type HintPosition = { label: string; left: number; top: number };
+type ControlHint = HintPosition & { kind: "control"; element: HTMLElement };
+type TextHint = HintPosition & { kind: "text"; offset: number };
+type Hint = ControlHint | TextHint;
+type ConversationSelectionState = {
+  root: HTMLElement;
   chunks: Array<{ node: Text; start: number; end: number }>;
   text: string;
   anchor: number;
   focus: number;
 };
+type TimelineVimModeName = "NORMAL" | "PASS" | "CARET" | "VISUAL" | "HINT" | "TEXT HINT";
+type CaretRect = { left: number; top: number; height: number };
 type Mark = { rowId: string | null; rowOffset: number; scrollTop: number };
 export type VimFocusDirection = "h" | "j" | "k" | "l";
 export type VimFocusRegionId = "sidebar" | "conversation" | "composer";
@@ -136,6 +142,39 @@ function rendered(element: HTMLElement): boolean {
   );
 }
 
+function vimScrollBehavior(): ScrollBehavior {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+const vimScrollTargets = new WeakMap<HTMLElement, { top: number; timer: number }>();
+
+export function nextVimScrollTop(
+  scrollTop: number,
+  pendingTop: number | undefined,
+  distance: number,
+  maxScrollTop: number,
+): number {
+  return Math.max(0, Math.min(maxScrollTop, (pendingTop ?? scrollTop) + distance));
+}
+
+function vimScrollBy(element: HTMLElement, distance: number): void {
+  if (vimScrollBehavior() === "auto") {
+    element.scrollBy({ top: distance });
+    return;
+  }
+  const pending = vimScrollTargets.get(element);
+  if (pending) window.clearTimeout(pending.timer);
+  const top = nextVimScrollTop(
+    element.scrollTop,
+    pending?.top,
+    distance,
+    element.scrollHeight - element.clientHeight,
+  );
+  element.scrollTo({ top, behavior: "smooth" });
+  const timer = window.setTimeout(() => vimScrollTargets.delete(element), 350);
+  vimScrollTargets.set(element, { top, timer });
+}
+
 function collectHints(): Hint[] {
   const elements = [...document.querySelectorAll<HTMLElement>(HINT_SELECTOR)].filter(
     (element) =>
@@ -144,32 +183,42 @@ function collectHints(): Hint[] {
   const labels = buildVimHintLabels(elements.length);
   return elements.map((element, index) => {
     const rect = element.getBoundingClientRect();
-    return { element, label: labels[index]!, left: rect.left, top: rect.top };
+    return { kind: "control", element, label: labels[index]!, left: rect.left, top: rect.top };
   });
 }
 
-function collectVisualText(source: HTMLElement): Omit<VisualState, "source" | "anchor" | "focus"> {
-  const chunks: VisualState["chunks"] = [];
+function collectConversationText(
+  root: HTMLElement,
+): Omit<ConversationSelectionState, "root" | "anchor" | "focus"> {
+  const chunks: ConversationSelectionState["chunks"] = [];
   let text = "";
-  const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement;
-      return parent?.closest("button, input, textarea, select, [aria-hidden=true], script, style")
-        ? NodeFilter.FILTER_REJECT
-        : NodeFilter.FILTER_ACCEPT;
-    },
-  });
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const value = node.textContent ?? "";
-    if (value.length === 0) continue;
-    const start = text.length;
-    text += value;
-    chunks.push({ node: node as Text, start, end: text.length });
+  const messages = [...root.querySelectorAll<HTMLElement>("[data-vim-conversation-text]")];
+  for (const message of messages) {
+    const rowChunks: Array<{ node: Text; value: string }> = [];
+    const walker = document.createTreeWalker(message, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        return parent?.closest("button, input, textarea, select, [aria-hidden=true], script, style")
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const value = node.textContent ?? "";
+      if (value.length > 0) rowChunks.push({ node: node as Text, value });
+    }
+    if (rowChunks.length === 0) continue;
+    if (text.length > 0) text += "\n\n";
+    for (const chunk of rowChunks) {
+      const start = text.length;
+      text += chunk.value;
+      chunks.push({ node: chunk.node, start, end: text.length });
+    }
   }
   return { chunks, text };
 }
 
-function pointAt(chunks: VisualState["chunks"], offset: number) {
+function pointAt(chunks: ConversationSelectionState["chunks"], offset: number) {
   const last = chunks.at(-1);
   if (!last) return null;
   const bounded = Math.max(0, Math.min(last.end, offset));
@@ -180,12 +229,32 @@ function pointAt(chunks: VisualState["chunks"], offset: number) {
   };
 }
 
-function renderVisualSelection(state: VisualState): void {
-  if (!state.source.isConnected) return;
-  const range = orderedRange(state.anchor, state.focus, true);
+function caretRectAt(point: { node: Text; offset: number }): CaretRect | null {
+  const range = document.createRange();
+  const atEnd = point.offset >= point.node.length;
+  range.setStart(point.node, atEnd ? Math.max(0, point.offset - 1) : point.offset);
+  range.setEnd(point.node, atEnd ? point.offset : Math.min(point.node.length, point.offset + 1));
+  const rect = range.getClientRects().item(0) ?? range.getBoundingClientRect();
+  if (rect.height <= 0) return null;
+  return { left: atEnd ? rect.right : rect.left, top: rect.top, height: rect.height };
+}
+
+function conversationVisualRange(state: ConversationSelectionState) {
+  return {
+    start: Math.min(state.anchor, state.focus),
+    end: Math.min(state.text.length, Math.max(state.anchor, state.focus) + 1),
+  };
+}
+
+function renderConversationSelection(
+  state: ConversationSelectionState,
+  visual: boolean,
+): CaretRect | null {
+  if (!state.root.isConnected) return null;
+  const range = visual ? conversationVisualRange(state) : { start: state.focus, end: state.focus };
   const start = pointAt(state.chunks, range.start);
   const end = pointAt(state.chunks, range.end);
-  if (!start || !end) return;
+  if (!start || !end) return null;
   const domRange = document.createRange();
   domRange.setStart(start.node, start.offset);
   domRange.setEnd(end.node, end.offset);
@@ -193,21 +262,54 @@ function renderVisualSelection(state: VisualState): void {
   selection?.removeAllRanges();
   selection?.addRange(domRange);
   document.dispatchEvent(new Event("selectionchange"));
+  return caretRectAt(pointAt(state.chunks, state.focus) ?? end);
 }
 
-function firstVisibleAssistantSource(): HTMLElement | null {
-  const sources = [...document.querySelectorAll<HTMLElement>("[data-assistant-citation-source]")]
-    .filter(visible)
-    .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top);
-  const middle = window.innerHeight / 2;
-  return (
-    sources.find((source) => {
-      const rect = source.getBoundingClientRect();
-      return rect.top <= middle && rect.bottom >= middle;
-    }) ??
-    sources[0] ??
-    null
-  );
+function initialConversationCaret(state: ConversationSelectionState): number {
+  const viewport = state.root.getBoundingClientRect();
+  const middle = (viewport.top + viewport.bottom) / 2;
+  const candidates = state.chunks
+    .map((chunk) => ({ chunk, rect: chunk.node.parentElement?.getBoundingClientRect() }))
+    .filter(
+      (entry) => entry.rect && entry.rect.bottom > viewport.top && entry.rect.top < viewport.bottom,
+    )
+    .sort(
+      (left, right) =>
+        Math.abs((left.rect!.top + left.rect!.bottom) / 2 - middle) -
+        Math.abs((right.rect!.top + right.rect!.bottom) / 2 - middle),
+    );
+  const chunk = candidates[0]?.chunk ?? state.chunks[0];
+  if (!chunk) return 0;
+  const firstContent = chunk.node.data.search(/\S/u);
+  return chunk.start + Math.max(0, firstContent);
+}
+
+function collectTextHints(state: ConversationSelectionState): TextHint[] {
+  const viewport = state.root.getBoundingClientRect();
+  const targets: Array<{ offset: number; left: number; top: number }> = [];
+  const occupied = new Set<string>();
+  for (const chunk of state.chunks) {
+    for (const match of chunk.node.data.matchAll(
+      /(?<![\p{Letter}\p{Number}_])[\p{Letter}\p{Number}_]/gu,
+    )) {
+      const offset = chunk.start + match.index;
+      const point = pointAt(state.chunks, offset);
+      const rect = point ? caretRectAt(point) : null;
+      if (!rect || rect.top < viewport.top || rect.top > viewport.bottom) continue;
+      const cell = `${Math.round(rect.left / 48)}:${Math.round(rect.top / 18)}`;
+      if (occupied.has(cell)) continue;
+      occupied.add(cell);
+      targets.push({ offset, left: rect.left, top: rect.top });
+      if (targets.length >= 120) break;
+    }
+    if (targets.length >= 120) break;
+  }
+  const labels = buildVimHintLabels(targets.length);
+  return targets.map((target, index) => ({
+    kind: "text",
+    ...target,
+    label: labels[index]!,
+  }));
 }
 
 function sidebarItems(): HTMLElement[] {
@@ -317,22 +419,24 @@ export function TimelineVimMode({
   onScrollToEnd: () => void;
 }) {
   const [view, setView] = useState({
-    mode: "NORMAL" as "NORMAL" | "PASS" | "VISUAL" | "HINT",
+    mode: "NORMAL" as TimelineVimModeName,
     count: "",
     pending: "",
     hintInput: "",
     hints: [] as Hint[],
     helpOpen: false,
+    caretRect: null as CaretRect | null,
   });
   const stateRef = useRef({
-    mode: "NORMAL" as "NORMAL" | "PASS" | "VISUAL" | "HINT",
+    mode: "NORMAL" as TimelineVimModeName,
     count: "",
     pending: "",
     hintInput: "",
     hints: [] as Hint[],
     hintFocusOnly: false,
     helpOpen: false,
-    visual: null as VisualState | null,
+    selection: null as ConversationSelectionState | null,
+    caretRect: null as CaretRect | null,
     marks: new Map<string, Mark>(),
     previousJump: null as Mark | null,
   });
@@ -345,6 +449,7 @@ export function TimelineVimMode({
       hintInput: state.hintInput,
       hints: state.hints,
       helpOpen: state.helpOpen,
+      caretRect: state.caretRect,
     });
   }, []);
   const clear = useCallback(() => {
@@ -354,6 +459,8 @@ export function TimelineVimMode({
     state.hintInput = "";
     state.hints = [];
     state.helpOpen = false;
+    state.selection = null;
+    state.caretRect = null;
     if (state.mode !== "PASS") state.mode = "NORMAL";
     update();
   }, [update]);
@@ -399,28 +506,62 @@ export function TimelineVimMode({
           direction > 0
             ? rows.find((row) => row.getBoundingClientRect().top > viewport.top + 12)
             : rows.toReversed().find((row) => row.getBoundingClientRect().top < viewport.top - 12);
-        if (target) target.scrollIntoView({ block: "start" });
-        else scrollNode.scrollBy({ top: direction * scrollNode.clientHeight * 0.8 });
+        if (target) target.scrollIntoView({ block: "start", behavior: vimScrollBehavior() });
+        else {
+          vimScrollBy(scrollNode, direction * scrollNode.clientHeight * 0.8);
+        }
       }
     };
-    const beginVisual = (linewise: boolean) => {
-      const source = firstVisibleAssistantSource();
-      if (!source) return;
-      const collected = collectVisualText(source);
+    const beginCaret = () => {
+      const root = getScrollNode();
+      if (!root) return;
+      const collected = collectConversationText(root);
       if (!collected.text) return;
-      const anchor = collected.text.search(/\S/u);
-      const visual: VisualState = {
-        source,
+      const selection: ConversationSelectionState = {
+        root,
         ...collected,
-        anchor: Math.max(0, anchor),
-        focus: linewise ? collected.text.length : Math.max(0, anchor),
+        anchor: 0,
+        focus: 0,
       };
-      stateRef.current.visual = visual;
+      selection.focus = initialConversationCaret(selection);
+      selection.anchor = selection.focus;
+      stateRef.current.selection = selection;
+      stateRef.current.mode = "CARET";
+      stateRef.current.caretRect = renderConversationSelection(selection, false);
+      update();
+    };
+    const beginVisual = (linewise: boolean) => {
+      const selection = stateRef.current.selection;
+      if (!selection) return;
+      if (linewise) {
+        const range = currentLineRange(selection.text, selection.focus);
+        selection.anchor = range.start;
+        selection.focus = Math.max(range.start, range.end - 1);
+      } else {
+        selection.anchor = selection.focus;
+      }
       stateRef.current.mode = "VISUAL";
-      renderVisualSelection(visual);
+      stateRef.current.caretRect = renderConversationSelection(selection, true);
       update();
     };
     const finishHints = (hint: Hint) => {
+      if (hint.kind === "text") {
+        const selection = stateRef.current.selection;
+        if (!selection) {
+          clear();
+          return;
+        }
+        selection.anchor = hint.offset;
+        selection.focus = hint.offset;
+        stateRef.current.mode = "CARET";
+        stateRef.current.count = "";
+        stateRef.current.pending = "";
+        stateRef.current.hintInput = "";
+        stateRef.current.hints = [];
+        stateRef.current.caretRect = renderConversationSelection(selection, false);
+        update();
+        return;
+      }
       if (stateRef.current.hintFocusOnly || hint.element.matches(EDITABLE_SELECTOR)) {
         hint.element.focus({ preventScroll: false });
       } else {
@@ -435,6 +576,16 @@ export function TimelineVimMode({
       stateRef.current.hints = hints;
       stateRef.current.hintInput = "";
       stateRef.current.hintFocusOnly = focusOnly;
+      update();
+    };
+    const openTextHints = () => {
+      const selection = stateRef.current.selection;
+      if (!selection) return;
+      const hints = collectTextHints(selection);
+      if (hints.length === 0) return;
+      stateRef.current.mode = "TEXT HINT";
+      stateRef.current.hints = hints;
+      stateRef.current.hintInput = "";
       update();
     };
     const focusRegion = (region: VimFocusRegionId) => {
@@ -505,17 +656,7 @@ export function TimelineVimMode({
         update();
         return;
       }
-      if (sidebarSearch && event.ctrlKey && (event.key === "n" || event.key === "p")) {
-        consume();
-        sidebarSearch.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: event.key === "n" ? "ArrowDown" : "ArrowUp",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-        return;
-      }
+      if (sidebarSearch && redirectDropdownNavigationKey(event, sidebarSearch)) return;
       if (active?.closest(EDITABLE_SELECTOR)) return;
       if (
         event.metaKey ||
@@ -526,8 +667,18 @@ export function TimelineVimMode({
       }
       if (event.key === "Escape") {
         consume();
+        if ((state.mode === "VISUAL" || state.mode === "TEXT HINT") && state.selection) {
+          state.selection.anchor = state.selection.focus;
+          state.mode = "CARET";
+          state.count = "";
+          state.pending = "";
+          state.hintInput = "";
+          state.hints = [];
+          state.caretRect = renderConversationSelection(state.selection, false);
+          update();
+          return;
+        }
         window.getSelection()?.removeAllRanges();
-        state.visual = null;
         state.mode = "NORMAL";
         clear();
         return;
@@ -538,32 +689,49 @@ export function TimelineVimMode({
         update();
         return;
       }
-      if (state.mode === "HINT") {
+      if (state.mode === "HINT" || state.mode === "TEXT HINT") {
         consume();
         if (event.key === "Backspace") state.hintInput = state.hintInput.slice(0, -1);
         else if (event.key.length === 1) state.hintInput += event.key.toLowerCase();
         const matches = state.hints.filter((hint) => hint.label.startsWith(state.hintInput));
         if (matches.length === 1 && matches[0]!.label === state.hintInput) finishHints(matches[0]!);
-        else if (matches.length === 0) clear();
+        else if (matches.length === 0 && state.mode === "TEXT HINT" && state.selection) {
+          state.mode = "CARET";
+          state.hintInput = "";
+          state.hints = [];
+          state.caretRect = renderConversationSelection(state.selection, false);
+          update();
+        } else if (matches.length === 0) clear();
         else update();
         return;
       }
       const repetitions = Math.max(1, Number.parseInt(state.count || "1", 10));
-      if (state.mode === "VISUAL" && state.visual) {
-        const visual = state.visual;
-        if (event.key === "y" || event.key === "Enter") {
+      if ((state.mode === "CARET" || state.mode === "VISUAL") && state.selection) {
+        const selection = state.selection;
+        if (state.mode === "CARET" && (event.key === "v" || event.key === "V")) {
           consume();
-          const range = orderedRange(visual.anchor, visual.focus, true);
+          beginVisual(event.key === "V");
+          return;
+        }
+        if (state.mode === "CARET" && (event.key === "f" || event.key === "F")) {
+          consume();
+          openTextHints();
+          return;
+        }
+        if (event.key === "y" || event.key === "Enter") {
+          if (state.mode !== "VISUAL") return;
+          consume();
+          const range = conversationVisualRange(selection);
           void navigator.clipboard
-            ?.writeText(visual.text.slice(range.start, range.end))
+            ?.writeText(selection.text.slice(range.start, range.end))
             .catch(() => undefined);
           window.getSelection()?.removeAllRanges();
-          state.visual = null;
           state.mode = "NORMAL";
           clear();
           return;
         }
         if (event.key === "c") {
+          if (state.mode !== "VISUAL") return;
           consume();
           document.dispatchEvent(new Event("selectionchange"));
           requestAnimationFrame(() => {
@@ -571,15 +739,15 @@ export function TimelineVimMode({
               .querySelector<HTMLButtonElement>('[aria-label="Cite selection in composer"]')
               ?.click();
           });
-          state.visual = null;
           state.mode = "NORMAL";
           clear();
           return;
         }
         if (event.key === "o") {
+          if (state.mode !== "VISUAL") return;
           consume();
-          [visual.anchor, visual.focus] = [visual.focus, visual.anchor];
-          renderVisualSelection(visual);
+          [selection.anchor, selection.focus] = [selection.focus, selection.anchor];
+          state.caretRect = renderConversationSelection(selection, true);
           update();
           return;
         }
@@ -594,9 +762,10 @@ export function TimelineVimMode({
               : null;
         if (motion) {
           consume();
-          visual.focus = moveTextCursor(visual.text, visual.focus, motion, repetitions);
+          selection.focus = moveTextCursor(selection.text, selection.focus, motion, repetitions);
           state.count = "";
-          renderVisualSelection(visual);
+          if (state.mode === "CARET") selection.anchor = selection.focus;
+          state.caretRect = renderConversationSelection(selection, state.mode === "VISUAL");
           update();
           return;
         }
@@ -612,11 +781,17 @@ export function TimelineVimMode({
         state.pending = "";
         state.count = "";
         if (event.key === "g") {
-          const scrollNode = getScrollNode();
-          if (scrollNode) {
-            state.previousJump = currentMark();
-            onUserNavigation();
-            scrollNode.scrollTop = 0;
+          if ((state.mode === "CARET" || state.mode === "VISUAL") && state.selection) {
+            state.selection.focus = 0;
+            if (state.mode === "CARET") state.selection.anchor = 0;
+            state.caretRect = renderConversationSelection(state.selection, state.mode === "VISUAL");
+          } else {
+            const scrollNode = getScrollNode();
+            if (scrollNode) {
+              state.previousJump = currentMark();
+              onUserNavigation();
+              scrollNode.scrollTop = 0;
+            }
           }
         } else if (event.key === "i") {
           focusComposer();
@@ -690,7 +865,7 @@ export function TimelineVimMode({
         const direction = event.key === "j" || event.key === "d" ? 1 : -1;
         onUserNavigation();
         const distance = event.ctrlKey ? scrollNode.clientHeight / 2 : 64;
-        scrollNode.scrollBy({ top: direction * distance * repetitions });
+        vimScrollBy(scrollNode, direction * distance * repetitions);
         state.count = "";
         update();
         return;
@@ -714,7 +889,8 @@ export function TimelineVimMode({
         return;
       } else if (event.key === "v" || event.key === "V") {
         consume();
-        beginVisual(event.key === "V");
+        beginCaret();
+        if (event.key === "V") beginVisual(true);
         return;
       } else if (event.key === "i") {
         consume();
@@ -760,7 +936,14 @@ export function TimelineVimMode({
         {view.mode}
         {view.count || view.pending ? ` ${view.count}${view.pending}` : ""}
       </div>
-      {view.mode === "HINT"
+      {view.caretRect && (view.mode === "CARET" || view.mode === "VISUAL") ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none fixed z-80 w-0.5 bg-primary shadow-[0_0_0_1px_var(--background)]"
+          style={view.caretRect}
+        />
+      ) : null}
+      {view.mode === "HINT" || view.mode === "TEXT HINT"
         ? matchingHints.map((hint) => (
             <span
               key={hint.label}
@@ -801,10 +984,12 @@ export function TimelineVimMode({
               <span>filter threads · open selection</span>
               <kbd>i / gi</kbd>
               <span>composer Insert / Normal mode</span>
-              <kbd>v / V</kbd>
-              <span>select assistant text / whole response</span>
+              <kbd>v · motions · v / V</kbd>
+              <span>place caret · start character / line selection</span>
+              <kbd>Caret f</kbd>
+              <span>jump to visible conversation text</span>
               <kbd>y / c</kbd>
-              <span>copy / cite a visual selection</span>
+              <span>copy / cite selected messages</span>
               <kbd>z</kbd>
               <span>pass keys through until Escape</span>
               <kbd>: · Space f / /</kbd>
