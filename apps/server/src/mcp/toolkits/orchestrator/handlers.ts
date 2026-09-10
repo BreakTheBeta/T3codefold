@@ -1,3 +1,4 @@
+import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import {
   OrchestratorMcpFailure,
   OrchestratorMcpCapabilitiesResult,
@@ -64,6 +65,16 @@ const invoke = (input: FleetInvokeInput) =>
   });
 
 export const handlers = {
+  work_read: () =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext;
+      return yield* (yield* WorkStore).read({ type: "agent", threadId: scope.threadId });
+    }),
+  work_command: (input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext;
+      return yield* (yield* WorkStore).command(input, { type: "agent", threadId: scope.threadId });
+    }),
   t3_environment_list: () =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext;

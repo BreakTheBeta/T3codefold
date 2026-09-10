@@ -1,3 +1,4 @@
+import { PitbossPanel } from "./pitboss/PitbossPanel";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import { useVoiceViewContext } from "./voice/VoiceWorkspaceProvider";
@@ -8648,6 +8649,15 @@ export default function ChatView(props: ChatViewProps) {
               : {})}
           />
         </header>
+
+        {isServerThread && activeProject && (
+          <PitbossPanel
+            environmentId={activeThread.environmentId}
+            threadId={activeThread.id}
+            projectId={activeProject.id}
+            modelSelection={activeThread.modelSelection}
+          />
+        )}
 
         {/* Main content area with optional plan sidebar */}
         <div

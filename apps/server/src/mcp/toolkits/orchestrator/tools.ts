@@ -1,4 +1,11 @@
 import {
+  PitbossCommand,
+  PitbossError,
+  PitbossSnapshot,
+  PitbossReadInput,
+} from "@t3tools/contracts";
+import { WorkStore } from "../../../pitboss/WorkStore.ts";
+import {
   OrchestratorMcpCapabilitiesResult,
   OrchestratorMcpCapabilitiesInput,
   OrchestratorMcpProjectListInput,
@@ -278,7 +285,27 @@ export const ProjectListTool = Tool.make("t3_project_list", {
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Idempotent, true);
 
+export const WorkReadTool = Tool.make("work_read", {
+  description:
+    "Read your pitboss brief, task assignments, criteria and messages. Workers see only their own tasks. Read the current revision before a work_command.",
+  parameters: PitbossReadInput,
+  success: PitbossSnapshot,
+  failure: PitbossError,
+  failureMode: "return",
+  dependencies: [McpInvocationContext.McpInvocationContext, WorkStore],
+}).annotate(Tool.Readonly, true);
+export const WorkCommandTool = Tool.make("work_command", {
+  description:
+    "Manage durable T3 work using a typed action. Pitbosses create/assign tasks, inspect and accept evidence, request rework, and acknowledge messages. Workers report questions/progress and submit candidate evidence. Retry an uncertain call with exactly the same commandId and payload. New decisions require the current snapshot revision. Role and limit changes require the user.",
+  parameters: PitbossCommand,
+  success: PitbossSnapshot,
+  failure: PitbossError,
+  failureMode: "return",
+  dependencies: [McpInvocationContext.McpInvocationContext, WorkStore],
+});
 export const OrchestratorToolkit = Toolkit.make(
+  WorkReadTool,
+  WorkCommandTool,
   OrchestratorCapabilitiesTool,
   EnvironmentListTool,
   ProjectListTool,

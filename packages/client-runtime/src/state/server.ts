@@ -912,6 +912,30 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverGetProcessResourceHistory,
     }),
     /** Live scheduled-task list: snapshot on subscribe, fresh list after every server-side change. */
+    pitbossPeers: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "pitboss:peers",
+      tag: WS_METHODS.pitbossPeers,
+    }),
+    pitbossPeerCommand: createEnvironmentRpcCommand(runtime, {
+      label: "pitboss:peer-command",
+      tag: WS_METHODS.pitbossPeerCommand,
+    }),
+    pitbossSources: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "pitboss:sources",
+      tag: WS_METHODS.pitbossSources,
+    }),
+    pitbossSourceCommand: createEnvironmentRpcCommand(runtime, {
+      label: "pitboss:source-command",
+      tag: WS_METHODS.pitbossSourceCommand,
+    }),
+    pitbossLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:pitboss:live",
+      tag: WS_METHODS.pitbossSubscribe,
+    }),
+    pitbossCommand: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:pitboss:command",
+      tag: WS_METHODS.pitbossCommand,
+    }),
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,

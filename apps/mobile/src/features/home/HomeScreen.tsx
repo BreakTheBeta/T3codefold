@@ -1,3 +1,4 @@
+import { PitbossPins } from "../threads/PitbossWork";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
 import { createThreadMovePlanner } from "../threads/threadOrder";
 import {
@@ -1115,7 +1116,12 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  const listHeader = Platform.OS === "ios" ? null : <HomeTopContentSpacer />;
+  const listHeader = (
+    <>
+      {Platform.OS === "ios" ? null : <HomeTopContentSpacer />}
+      <PitbossPins environments={props.environments} />
+    </>
+  );
 
   // Project scoping lives in the header filter menu (no inline chip row on
   // mobile — the menu is the one filter surface).

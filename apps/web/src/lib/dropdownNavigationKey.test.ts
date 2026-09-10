@@ -26,9 +26,14 @@ describe("dropdownNavigationKey", () => {
     expect(dropdownNavigationKey(event("p", { altKey: true }))).toBeNull();
     expect(dropdownNavigationKey(event("n", { isComposing: true }))).toBeNull();
     expect(
-      dropdownNavigationKey(
-        event("n", { isComposing: undefined, nativeEvent: { isComposing: true } }),
-      ),
+      dropdownNavigationKey({
+        altKey: false,
+        ctrlKey: true,
+        key: "n",
+        metaKey: false,
+        shiftKey: false,
+        nativeEvent: { isComposing: true },
+      }),
     ).toBeNull();
     expect(dropdownNavigationKey(event("j"))).toBeNull();
   });

@@ -1,3 +1,4 @@
+import * as PitbossPeerHttp from "./pitboss/PeerHttp.ts";
 import * as FleetBroker from "./mcp/FleetBroker.ts";
 import * as FleetRouter from "./mcp/FleetRouter.ts";
 import * as FleetThreadService from "./mcp/FleetThreadService.ts";
@@ -573,6 +574,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   // The MCP session registry is provided globally (shared with V2 provider
   // sessions) rather than inline here.
   McpHttpServer.layer,
+  PitbossPeerHttp.layer,
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.

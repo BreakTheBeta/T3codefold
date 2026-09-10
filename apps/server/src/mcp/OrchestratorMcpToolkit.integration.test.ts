@@ -1,3 +1,4 @@
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -616,6 +617,7 @@ describe("orchestrator MCP toolkit", () => {
             }),
           );
           const testLayer = McpHttpServer.OrchestratorToolkitRegistrationLive.pipe(
+            Layer.provide(SqlitePersistenceMemory),
             Layer.provideMerge(McpServer.McpServer.layer),
             Layer.provideMerge(orchestrationLayer),
             Layer.provide(providerRegistryLayer),
@@ -2912,6 +2914,7 @@ describe("orchestrator MCP toolkit", () => {
           }),
         ]);
         const testLayer = McpHttpServer.OrchestratorToolkitRegistrationLive.pipe(
+          Layer.provide(SqlitePersistenceMemory),
           Layer.provideMerge(McpServer.McpServer.layer),
           Layer.provideMerge(orchestrationLayer),
           Layer.provide(providerRegistryLayer),

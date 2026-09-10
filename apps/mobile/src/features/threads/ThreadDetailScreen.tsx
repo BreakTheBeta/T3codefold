@@ -1,3 +1,4 @@
+import { PitbossWork } from "./PitbossWork";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
@@ -858,6 +859,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
+      <PitbossWork
+        environmentId={props.environmentId}
+        threadId={props.selectedThread.id}
+        projectId={props.selectedThread.projectId}
+        modelSelection={props.selectedThread.modelSelection}
+      />
       {showContent ? (
         <BlurTargetView
           ref={feedBlurTarget}

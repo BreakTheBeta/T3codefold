@@ -1372,6 +1372,7 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
           const scope = yield* Scope.Scope;
           const environment = {
             ...input.environment,
+            ...McpProviderSession.workCliEnvironment(input.threadId),
             ...(input.settings.homePath
               ? { CODEX_HOME: expandHomePath(input.settings.homePath) }
               : {}),

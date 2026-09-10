@@ -1,3 +1,7 @@
+import { PeerService } from "./pitboss/PeerService.ts";
+import { SourceService } from "./pitboss/SourceService.ts";
+import { WorkStore } from "./pitboss/WorkStore.ts";
+import { PitbossError } from "@t3tools/contracts";
 import { keybindingsForVoiceClient } from "@t3tools/shared/keybindings";
 import {
   threadPullRequestKeysEqual,
@@ -636,6 +640,9 @@ const makeWsRpcLayer = (
           ),
       );
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
+      const workSources = yield* SourceService;
+      const workPeers = yield* PeerService;
+      const work = yield* WorkStore;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
@@ -1659,6 +1666,32 @@ const makeWsRpcLayer = (
               "orchestration_v2.thread_id": input.threadId,
             },
           ),
+        [WS_METHODS.pitbossPeers]: () => workPeers.list(),
+        [WS_METHODS.pitbossPeerCommand]: (input) => workPeers.execute(input),
+        [WS_METHODS.pitbossSources]: () => workSources.list(),
+        [WS_METHODS.pitbossSourceCommand]: (input) => workSources.execute(input),
+        [WS_METHODS.pitbossRead]: () => work.read(),
+        [WS_METHODS.pitbossSubscribe]: () => work.subscribe(),
+        [WS_METHODS.pitbossCommand]: (input) =>
+          Effect.gen(function* () {
+            if (input.action.type === "elect") {
+              yield* threadManagement
+                .getProjectThread({
+                  projectId: input.action.projectId,
+                  threadId: input.action.threadId,
+                })
+                .pipe(
+                  Effect.mapError(
+                    () =>
+                      new PitbossError({
+                        code: "invalid",
+                        message: "Choose an existing thread in this project.",
+                      }),
+                  ),
+                );
+            }
+            return yield* work.command(input, { type: "user" });
+          }),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           observeRpcEffect(WS_METHODS.scheduledTasksList, scheduledTasks.list(), {
             "rpc.aggregate": "scheduledTasks",

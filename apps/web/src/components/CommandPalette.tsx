@@ -1,5 +1,7 @@
+"use client";
+
+import { openPitbossPanel } from "./pitboss/panelEvents";
 import { useOptionalVoiceWorkspace, runVoiceAction } from "./voice/VoiceWorkspaceProvider";
-("use client");
 
 import {
   scopedThreadKey,
@@ -44,6 +46,7 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  CrownIcon,
   ArrowLeftIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
@@ -1687,6 +1690,18 @@ function OpenCommandPaletteDialog(props: {
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "thread.copyReference",
       run: copyActiveThreadReference,
+    });
+  }
+
+  if (activeThread !== null) {
+    actionItems.push({
+      kind: "action",
+      value: "action:pitboss",
+      searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
+      title: "Set up or edit GLaDOS",
+      icon: <CrownIcon className={ITEM_ICON_CLASS} />,
+      run: async () =>
+        openPitbossPanel({ environmentId: activeThread.environmentId, threadId: activeThread.id }),
     });
   }
 

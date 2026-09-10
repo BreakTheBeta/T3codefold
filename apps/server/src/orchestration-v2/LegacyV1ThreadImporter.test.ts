@@ -249,7 +249,7 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
       );
       assert.equal(shellProjection.thread.linkedPullRequest?.number, 9000);
       assert.deepStrictEqual(
-        shellProjection.thread.pullRequests.map((pullRequest) => pullRequest.number),
+        shellProjection.thread.pullRequests?.map((pullRequest) => pullRequest.number),
         [9001],
       );
       const shellSnapshot = yield* projections.getShellSnapshot();

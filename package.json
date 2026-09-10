@@ -48,7 +48,9 @@
     "dist:desktop:win:x64": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
     "release:smoke": "node scripts/release-smoke.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
-    "sync:repos": "node scripts/sync-reference-repos.ts"
+    "sync:repos": "node scripts/sync-reference-repos.ts",
+    "test:pitboss:local": "vp test run apps/server/src/pitboss/Work.test.ts apps/server/src/pitboss/WorkStore.test.ts apps/server/src/cli/work.test.ts apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts apps/server/src/mcp/toolkits/worktree/registration.test.ts",
+    "test:pitboss:coordination": "vp test run apps/server/src/pitboss/Coordination.test.ts apps/server/src/pitboss/PeerService.test.ts apps/server/src/pitboss/TaskSources.test.ts apps/server/src/pitboss/TaskSources.live.test.ts"
   },
   "devDependencies": {
     "@effect/tsgo": "catalog:",

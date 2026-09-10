@@ -1,3 +1,4 @@
+import { PitbossPins } from "./PitbossWork";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { createThreadMovePlanner } from "./threadOrder";
 import type {
@@ -1212,6 +1213,7 @@ function ThreadNavigationSidebarPane(
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <GestureDetector gesture={sidebarScrollGesture}>
               <LegendList
+                ListHeaderComponent={<PitbossPins environments={environments} />}
                 data={listItems}
                 drawDistance={500}
                 estimatedItemSize={64}
@@ -1272,6 +1274,7 @@ function ThreadNavigationSidebarPane(
         <SwipeableScrollGateProvider enabled={swipeEnabled}>
           <GestureDetector gesture={sidebarScrollGesture}>
             <LegendList
+              ListHeaderComponent={<PitbossPins environments={environments} />}
               data={listItems}
               drawDistance={500}
               estimatedItemSize={64}

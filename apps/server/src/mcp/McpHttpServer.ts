@@ -1,3 +1,4 @@
+import { layer as workStoreLayer } from "../pitboss/WorkStore.ts";
 import * as NodeCrypto from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -447,7 +448,7 @@ export const PreviewToolkitRegistrationLive = Layer.mergeAll(
 );
 
 export const OrchestratorToolkitRegistrationLive = McpServer.toolkit(OrchestratorToolkit).pipe(
-  Layer.provide(OrchestratorToolkitHandlersLive),
+  Layer.provide(OrchestratorToolkitHandlersLive.pipe(Layer.provide(workStoreLayer))),
   Layer.provide(OrchestratorMcpService.layer),
   Layer.provide(ThreadMetadataMcpService.layer),
 );

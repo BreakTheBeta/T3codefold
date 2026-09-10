@@ -1,3 +1,12 @@
+import { PitbossPeerCommand, PitbossPeerList } from "./pitbossPeer.ts";
+import {
+  PitbossSourceRequest,
+  PitbossSourcesResult,
+  PitbossCommand,
+  PitbossError,
+  PitbossReadInput,
+  PitbossSnapshot,
+} from "./pitboss.ts";
 import {
   FleetConnectInput,
   FleetInvocation,
@@ -389,6 +398,13 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   // Scheduled tasks
+  pitbossPeers: "pitboss.peers",
+  pitbossPeerCommand: "pitboss.peerCommand",
+  pitbossSources: "pitboss.sources",
+  pitbossSourceCommand: "pitboss.sourceCommand",
+  pitbossRead: "pitboss.read",
+  pitbossSubscribe: "pitboss.subscribe",
+  pitbossCommand: "pitboss.command",
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -1344,6 +1360,43 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+export const WsPitbossPeersRpc = Rpc.make(WS_METHODS.pitbossPeers, {
+  payload: PitbossReadInput,
+  success: PitbossPeerList,
+  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
+});
+export const WsPitbossPeerCommandRpc = Rpc.make(WS_METHODS.pitbossPeerCommand, {
+  payload: PitbossPeerCommand,
+  success: PitbossPeerList,
+  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
+});
+export const WsPitbossSourcesRpc = Rpc.make(WS_METHODS.pitbossSources, {
+  payload: PitbossReadInput,
+  success: PitbossSourcesResult,
+  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
+});
+export const WsPitbossSourceCommandRpc = Rpc.make(WS_METHODS.pitbossSourceCommand, {
+  payload: PitbossSourceRequest,
+  success: PitbossSourcesResult,
+  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
+});
+export const WsPitbossReadRpc = Rpc.make(WS_METHODS.pitbossRead, {
+  payload: PitbossReadInput,
+  success: PitbossSnapshot,
+  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
+});
+export const WsPitbossSubscribeRpc = Rpc.make(WS_METHODS.pitbossSubscribe, {
+  payload: PitbossReadInput,
+  success: PitbossSnapshot,
+  stream: true,
+  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
+});
+export const WsPitbossCommandRpc = Rpc.make(WS_METHODS.pitbossCommand, {
+  payload: PitbossCommand,
+  success: PitbossSnapshot,
+  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
+});
+
 export const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -1435,6 +1488,13 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
+  WsPitbossPeersRpc,
+  WsPitbossPeerCommandRpc,
+  WsPitbossSourcesRpc,
+  WsPitbossSourceCommandRpc,
+  WsPitbossReadRpc,
+  WsPitbossSubscribeRpc,
+  WsPitbossCommandRpc,
   WsScheduledTasksListRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,
