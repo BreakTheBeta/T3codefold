@@ -3,6 +3,9 @@ import * as NodeCrypto from "node:crypto";
 import type { PitbossSourceAuthority, PitbossSourceConfig } from "@t3tools/contracts";
 import type { SourceObservation } from "./TaskSources.ts";
 import {
+  PitbossTask,
+  type EnvironmentId,
+  type PitbossPeerMessage,
   PitbossMessage,
   PitbossCommand,
   PitbossError,
@@ -18,7 +21,15 @@ import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { decide, importedCriteria, observeAttempt, workContext, type WorkActor } from "./Work.ts";
+import {
+  decide,
+  remoteTaskAuthority,
+  managerView,
+  importedCriteria,
+  observeAttempt,
+  workContext,
+  type WorkActor,
+} from "./Work.ts";
 
 export interface WorkEffect {
   readonly operation_id: string;
@@ -43,6 +54,12 @@ const unavailable = (cause: unknown) =>
 export class WorkStore extends Context.Service<
   WorkStore,
   {
+    resolveRemoteReceipt: (
+      operationId: string,
+      applied: boolean,
+      detail: string,
+    ) => Effect.Effect<void, PitbossError>;
+    mirrorTask: (sender: EnvironmentId, task: PitbossTask) => Effect.Effect<void, PitbossError>;
     receiveMessage: (message: typeof PitbossMessage.Type) => Effect.Effect<void, PitbossError>;
     rebuild: () => Effect.Effect<PitbossSnapshot, PitbossError>;
     read: (actor?: WorkActor) => Effect.Effect<PitbossSnapshot, PitbossError>;
@@ -74,7 +91,7 @@ export const layer = Layer.effect(
   WorkStore,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const notifications = yield* PubSub.unbounded<void>();
+    const notifications = yield* PubSub.sliding<void>(1);
     const persist = Effect.fn("WorkStore.persist")(function* (state: PitbossSnapshot) {
       const json = yield* encodeSnapshot(state);
       yield* sql`INSERT INTO pitboss_state (id, payload_json) VALUES (1, ${json}) ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json`;
@@ -107,7 +124,19 @@ export const layer = Layer.effect(
     );
     const read = Effect.fn("WorkStore.readScoped")(function* (actor?: WorkActor) {
       const state = yield* readAll();
-      if (!actor || actor.type === "user" || state.role?.threadId === actor.threadId) return state;
+      if (!actor || actor.type === "user") return state;
+      if (actor.type === "agent" && state.role?.threadId === actor.threadId)
+        return managerView(state);
+      if (actor.type === "peer")
+        return {
+          ...state,
+          role: null,
+          tasks: state.tasks.filter((task) => task.source?.scope === actor.scope),
+          messages: [],
+          sourceAuthorities: state.sourceAuthorities?.filter(
+            (authority) => authority.scope === actor.scope,
+          ),
+        };
       const tasks = state.tasks.filter((task) => task.attempts.at(-1)?.threadId === actor.threadId);
       if (!tasks.length)
         return yield* new PitbossError({
@@ -151,6 +180,24 @@ export const layer = Layer.effect(
           yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${input.commandId}, ${requestJson}, ${encodeJson({ type: "command", input, actor, now })}, ${now})`;
           yield* persist(after);
           const action = input.action;
+          const remote = remoteTaskAuthority(before, action);
+          if (remote && remote.peerId && remote.proposalId && before.role && "taskId" in action) {
+            const task = before.tasks.find((entry) => entry.id === action.taskId)!;
+            const message: PitbossPeerMessage = {
+              id: input.commandId,
+              text: `${action.type} task ${task.id}`,
+              originThreadId: before.role.threadId,
+              createdAt: now,
+              operation: {
+                type: "command",
+                proposalId: remote.proposalId,
+                taskRevision: task.revision,
+                action,
+              },
+            };
+            yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, 'forward', ${encodeJson({ peerId: remote.peerId, message })})`;
+            return after;
+          }
           if (
             ["elect", "assign", "rework", "cancel", "propose-coordination", "send-peer"].includes(
               action.type,
@@ -162,14 +209,106 @@ export const layer = Layer.effect(
         }),
       );
       yield* PubSub.publish(notifications, undefined);
-      return actor.type === "user" || result.role?.threadId === actor.threadId
-        ? result
-        : yield* read(actor);
+      return actor.type === "user" ? result : yield* read(actor);
     }, Effect.mapError(unavailable));
     return WorkStore.of({
       read,
       command,
       rebuild,
+      resolveRemoteReceipt: (operationId, applied, detail) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const state = yield* readAll();
+              const task = state.tasks.find((entry) => entry.pendingOperationId === operationId);
+              if (!task) return;
+              const updated = {
+                ...task,
+                pendingOperationId: undefined,
+                status: applied ? task.status : ("blocked" as const),
+                note: applied ? task.note : detail,
+              };
+              const id = `remote-receipt:${NodeCrypto.createHash("sha256").update(operationId).digest("hex")}`;
+              const now = DateTime.formatIso(yield* DateTime.now);
+              yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${id}, ${id}, ${encodeJson({ type: "source", task: updated })}, ${now})`;
+              yield* persist({
+                ...state,
+                revision: state.revision + 1,
+                tasks: state.tasks.map((entry) => (entry.id === task.id ? updated : entry)),
+              });
+            }),
+          )
+          .pipe(
+            Effect.tap(() => PubSub.publish(notifications, undefined)),
+            Effect.mapError(unavailable),
+          ),
+      mirrorTask: (sender, task) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const state = yield* readAll();
+              const authority = state.sourceAuthorities?.find(
+                (entry) => entry.scope === task.source?.scope,
+              );
+              if (!authority || authority.homeEnvironmentId !== sender || authority.self === sender)
+                return yield* new PitbossError({
+                  code: "forbidden",
+                  message: "Only the recorded remote task home can publish task state.",
+                });
+              const local = state.tasks.find(
+                (entry) => entry.id === task.id && entry.source?.scope === task.source?.scope,
+              );
+              if (!local)
+                return yield* new PitbossError({
+                  code: "invalid",
+                  message: "Import the shared source item locally before reconciling its work.",
+                });
+              if ((local.homeRevision ?? -1) >= task.revision) return;
+              if (
+                !local.homeEnvironmentId &&
+                local.attempts.some((attempt) =>
+                  ["pending", "running", "submitted", "stop_requested"].includes(attempt.state),
+                )
+              )
+                return yield* new PitbossError({
+                  code: "conflict",
+                  message: "Resolve the existing local writer before accepting remote task state.",
+                });
+              const mirrored = {
+                ...task,
+                projectId: local.projectId,
+                homeEnvironmentId: sender,
+                homeRevision: task.revision,
+                pendingOperationId: local.pendingOperationId,
+              };
+              const id = `peer-state:${NodeCrypto.createHash("sha256")
+                .update(encodeJson([sender, task.id, task.revision]))
+                .digest("hex")}`;
+              const message = {
+                id,
+                taskId: task.id,
+                threadId: state.role?.threadId ?? null,
+                kind: "progress" as const,
+                text: `Task home ${sender}: ${task.title} is ${task.status}. ${task.note}`.slice(
+                  0,
+                  16000,
+                ),
+                createdAt: DateTime.formatIso(yield* DateTime.now),
+                acknowledged: false,
+              };
+              yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${id}, ${id}, ${encodeJson({ type: "source", task: mirrored, message })}, ${message.createdAt})`;
+              yield* persist({
+                ...state,
+                revision: state.revision + 1,
+                tasks: state.tasks.map((entry) => (entry.id === task.id ? mirrored : entry)),
+                messages: [...state.messages, message],
+              });
+            }),
+          )
+          .pipe(
+            Effect.tap(() => PubSub.publish(notifications, undefined)),
+            Effect.mapError(unavailable),
+          ),
       receiveMessage: (message) =>
         sql
           .withTransaction(
@@ -205,10 +344,39 @@ export const layer = Layer.effect(
           Effect.mapError(unavailable),
         ),
       finishEffect: (id, error) =>
-        Effect.gen(function* () {
-          yield* sql`UPDATE pitboss_effects SET state = ${error ? "failed" : "done"}, attempts = attempts + 1, error = ${error ?? null} WHERE operation_id = ${id}`;
-          yield* PubSub.publish(notifications, undefined);
-        }).pipe(Effect.mapError(unavailable)),
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              yield* sql`UPDATE pitboss_effects SET state = ${error ? "failed" : "done"}, attempts = attempts + 1, error = ${error ?? null} WHERE operation_id = ${id}`;
+              if (!error) return;
+              const state = yield* readAll();
+              const messageId = `effect-failed:${NodeCrypto.createHash("sha256").update(id).digest("hex")}`;
+              if (state.messages.some((message) => message.id === messageId)) return;
+              const message = {
+                id: messageId,
+                taskId:
+                  state.tasks.find((task) => task.attempts.some((attempt) => attempt.id === id))
+                    ?.id ??
+                  state.messages.find((entry) => entry.id === id)?.taskId ??
+                  null,
+                threadId: state.role?.threadId ?? null,
+                kind: "question" as const,
+                text: `Work delivery needs attention: ${error}`.slice(0, 16000),
+                createdAt: DateTime.formatIso(yield* DateTime.now),
+                acknowledged: false,
+              };
+              yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${messageId}, ${messageId}, ${encodeJson({ type: "message", message })}, ${message.createdAt})`;
+              yield* persist({
+                ...state,
+                revision: state.revision + 1,
+                messages: [...state.messages, message],
+              });
+            }),
+          )
+          .pipe(
+            Effect.tap(() => PubSub.publish(notifications, undefined)),
+            Effect.mapError(unavailable),
+          ),
       updateAttempt: (taskId, attemptId, status, detail, workspacePath) =>
         sql
           .withTransaction(
@@ -234,11 +402,7 @@ export const layer = Layer.effect(
               const previous = state.sourceAuthorities?.find(
                 (entry) => entry.scope === authority.scope,
               );
-              if (
-                previous?.self === authority.self &&
-                previous.coordinator === authority.coordinator
-              )
-                return;
+              if (previous && encodeJson(previous) === encodeJson(authority)) return;
               const next = {
                 ...state,
                 revision: state.revision + 1,

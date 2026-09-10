@@ -1,6 +1,7 @@
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import * as NodeCrypto from "node:crypto";
 import {
+  CommandId,
   EnvironmentId,
   PitbossError,
   PitbossPeerConfig,
@@ -76,12 +77,16 @@ export const layer = Layer.effect(
         environmentId: self,
         peers: yield* Effect.forEach(rows, (row) =>
           Effect.gen(function* () {
+            const config = yield* decodeConfig(row.config_json);
             return {
-              config: yield* decodeConfig(row.config_json),
+              config,
+              homeEnvironmentId: (yield* store.read()).sourceAuthorities?.find(
+                (entry) => entry.scope === config.scope,
+              )?.homeEnvironmentId,
               pendingMessages:
                 (yield* sql<{
                   total: number;
-                }>`SELECT count(*) AS total FROM pitboss_mail WHERE peer_id = ${(yield* decodeConfig(row.config_json)).id} AND direction = 'out' AND delivered = 0`)[0]
+                }>`SELECT count(*) AS total FROM pitboss_mail WHERE peer_id = ${config.id} AND direction = 'out' AND delivered = 0`)[0]
                   ?.total ?? 0,
               view: yield* decodeView(row.view_json),
               lastSeenAt: row.last_seen_at,
@@ -103,6 +108,25 @@ export const layer = Layer.effect(
     ) {
       const peer = yield* find(id);
       const coordinator = agreedCoordinator(view, peer.config.scope);
+      const agreement = view.proposals.find(
+        (proposal) =>
+          proposal.scope === peer.config.scope &&
+          proposal.participants.every((participant) => view.approvals[participant] === proposal.id),
+      );
+      const previous = (yield* store.read()).sourceAuthorities?.find(
+        (entry) => entry.scope === peer.config.scope,
+      );
+      const proposedHome = agreement?.homeEnvironmentId ?? agreement?.coordinator;
+      if (
+        previous?.homeEnvironmentId &&
+        proposedHome &&
+        previous.homeEnvironmentId !== proposedHome
+      )
+        return yield* new PitbossError({
+          code: "conflict",
+          message:
+            "The task home cannot move in this pilot. Propose a coordinator change that retains the existing home.",
+        });
       // Fence new local assignments before publishing our approval to a peer.
       yield* store.setSourceAuthority({
         scope: peer.config.scope,
@@ -110,6 +134,8 @@ export const layer = Layer.effect(
         peerId: peer.config.id,
         peerEnvironmentId: peer.config.environmentId,
         coordinator: coordinator ? EnvironmentId.make(coordinator) : null,
+        homeEnvironmentId: previous?.homeEnvironmentId ?? proposedHome,
+        proposalId: agreement?.id,
       });
       yield* sql`UPDATE pitboss_peers SET view_json = ${json(view)} WHERE id = ${id}`;
     });
@@ -229,14 +255,115 @@ export const layer = Layer.effect(
           target = (yield* decodeMessage(original[0].payload_json)).originThreadId;
         }
         yield* sql`INSERT INTO pitboss_mail (peer_id, direction, message_id, payload_json, delivered) VALUES (${id}, 'in', ${message.id}, ${payload}, 1)`;
+        if (message.operation?.type === "task") {
+          if (message.operation.task.source?.scope !== input.scope)
+            return yield* new PitbossError({
+              code: "forbidden",
+              message: "Task state is outside the peer grant.",
+            });
+          yield* store.mirrorTask(input.environmentId, message.operation.task);
+          continue;
+        }
+        if (message.operation?.type === "receipt" && message.operation.task) {
+          if (message.operation.task.source?.scope !== input.scope)
+            return yield* new PitbossError({
+              code: "forbidden",
+              message: "Receipt task is outside the peer grant.",
+            });
+          yield* store.mirrorTask(input.environmentId, message.operation.task);
+        }
+        if (message.operation?.type === "receipt" && message.replyTo)
+          yield* store.resolveRemoteReceipt(
+            message.replyTo,
+            message.operation.applied,
+            message.operation.detail,
+          );
+        if (message.operation?.type === "command") {
+          const operation = message.operation;
+          const outcome = yield* Effect.result(
+            Effect.gen(function* () {
+              const state = yield* store.read();
+              const action = operation.action;
+              if (!("taskId" in action))
+                return yield* new PitbossError({
+                  code: "forbidden",
+                  message: "Remote control is restricted to existing shared tasks.",
+                });
+              const task = state.tasks.find((entry) => entry.id === action.taskId);
+              if (!task || task.source?.scope !== input.scope)
+                return yield* new PitbossError({
+                  code: "forbidden",
+                  message: "Task is outside the peer grant.",
+                });
+              if (task.revision !== operation.taskRevision)
+                return yield* new PitbossError({
+                  code: "conflict",
+                  message: "Task changed at its home. Reconcile and issue a new request.",
+                });
+              return yield* store.command(
+                {
+                  commandId: CommandId.make(
+                    `peer-command:${NodeCrypto.createHash("sha256")
+                      .update(json([id, message.id]))
+                      .digest("hex")}`,
+                  ),
+                  expectedRevision: state.revision,
+                  action:
+                    action.type === "edit" ? { ...action, projectId: task.projectId } : action,
+                },
+                {
+                  type: "peer",
+                  environmentId: input.environmentId,
+                  scope: input.scope,
+                  proposalId: operation.proposalId,
+                },
+              );
+            }),
+          );
+          const applied = outcome._tag === "Success";
+          const detail = applied
+            ? "Task home committed the request. Execution and acceptance remain separate."
+            : failure(outcome.failure).message;
+          yield* send(id, {
+            id: `receipt:${NodeCrypto.createHash("sha256").update(message.id).digest("hex")}`,
+            text: detail,
+            originThreadId: (yield* store.read()).role?.threadId ?? message.originThreadId,
+            replyTo: message.id,
+            createdAt: DateTime.formatIso(yield* DateTime.now),
+            operation: {
+              type: "receipt",
+              applied,
+              detail,
+              ...(outcome._tag === "Success" && "taskId" in operation.action
+                ? {
+                    task: outcome.success.tasks.find(
+                      (entry) =>
+                        "taskId" in operation.action && entry.id === operation.action.taskId,
+                    ),
+                  }
+                : {}),
+            },
+          });
+          continue;
+        }
         yield* store.receiveMessage({
           id: `peer:${NodeCrypto.createHash("sha256")
             .update(json([id, message.id]))
             .digest("hex")}`,
           taskId: null,
           threadId: target,
-          kind: message.replyTo ? "result" : "question",
-          text: `External peer ${id}; scope ${input.scope}; message ${message.id}${message.replyTo ? `; reply to ${message.replyTo}` : ""}:\n${message.text}`,
+          sourcePeerId: id,
+          sourceMessageId: message.id,
+          replyTo: message.replyTo,
+          kind:
+            message.operation?.type === "receipt"
+              ? message.operation.applied
+                ? "progress"
+                : "question"
+              : message.replyTo
+                ? "result"
+                : "question",
+          text: `Peer ${id}: ${message.text}`,
           createdAt: DateTime.formatIso(yield* DateTime.now),
           acknowledged: false,
         });
@@ -251,6 +378,23 @@ export const layer = Layer.effect(
           code: "invalid",
           message: "Configure a shared peer credential.",
         });
+      const state = yield* store.read();
+      const authority = state.sourceAuthorities?.find((entry) => entry.scope === peer.config.scope);
+      if (state.role && authority?.homeEnvironmentId === self) {
+        for (const task of state.tasks.filter(
+          (entry) => entry.source?.scope === peer.config.scope,
+        )) {
+          yield* send(id, {
+            id: `task:${NodeCrypto.createHash("sha256")
+              .update(json([task.id, task.revision, state.role.threadId]))
+              .digest("hex")}`,
+            text: `Task ${task.title.slice(0, 1000)}: ${task.status}`,
+            originThreadId: state.role.threadId,
+            createdAt: task.updatedAt,
+            operation: { type: "task", task },
+          });
+        }
+      }
       const outgoing = yield* envelope(id);
       const response = yield* httpClient
         .execute(
@@ -349,6 +493,9 @@ export const layer = Layer.effect(
               peerId: config.id,
               peerEnvironmentId: config.environmentId,
               coordinator: null,
+              homeEnvironmentId: state.sourceAuthorities?.find(
+                (entry) => entry.scope === config.scope,
+              )?.homeEnvironmentId,
             });
             yield* sql`INSERT INTO pitboss_peers (id, config_json, view_json) VALUES (${config.id}, ${json(config)}, ${json(emptyCoordination)}) ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json`;
           } else {
@@ -359,7 +506,19 @@ export const layer = Layer.effect(
                 message: "Enable the peer before proposing or approving shared coordination.",
               });
             if (input.type === "propose") {
-              const proposal = input.proposal;
+              const currentHome = (yield* store.read()).sourceAuthorities?.find(
+                (entry) => entry.scope === peer.config.scope,
+              )?.homeEnvironmentId;
+              const proposal = {
+                ...input.proposal,
+                homeEnvironmentId:
+                  input.proposal.homeEnvironmentId ?? currentHome ?? input.proposal.coordinator,
+              };
+              if (currentHome && proposal.homeEnvironmentId !== currentHome)
+                return yield* new PitbossError({
+                  code: "conflict",
+                  message: "Keep the task home when proposing a different coordinator.",
+                });
               if (
                 proposal.scope !== peer.config.scope ||
                 !proposal.participants.includes(self) ||

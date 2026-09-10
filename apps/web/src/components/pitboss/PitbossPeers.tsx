@@ -96,6 +96,10 @@ export function PitbossPeers({
             </Button>
           </div>
           <p className="mt-2 text-muted-foreground">
+            Task home: {peer.homeEnvironmentId ?? "Chosen with the first agreement"}. Coordinator
+            changes retain that home.
+          </p>
+          <p className="mt-2 text-muted-foreground">
             {peer.pendingMessages ?? 0} messages awaiting durable receipt
           </p>
           <form
@@ -155,6 +159,9 @@ export function PitbossPeers({
                 <p>
                   {proposal.coordinator === self ? "This environment" : peer.config.id} coordinates
                   this source · {approved ? "Approved by both" : "Awaiting approvals"}
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Task home: {proposal.homeEnvironmentId ?? proposal.coordinator}
                 </p>
                 <p className="mt-1 text-muted-foreground">
                   Local:{" "}
@@ -223,6 +230,7 @@ export function PitbossPeers({
                         id: randomUUID(),
                         scope: peer.config.scope,
                         coordinator,
+                        homeEnvironmentId: peer.homeEnvironmentId ?? coordinator,
                         participants: [self, peer.config.environmentId],
                       },
                     })
@@ -247,80 +255,83 @@ export function PitbossPeers({
           </div>
         </div>
       ))}
-      <form
-        className="mt-3 grid gap-2 text-xs md:grid-cols-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void execute({
-            type: "configure",
-            config: { id, environmentId: EnvironmentId.make(remote), url, scope, enabled: true },
-            secret,
-          });
-        }}
-      >
-        <label className="grid gap-1">
-          Peer name
-          <input
-            required
-            value={id}
-            onChange={(event) => setId(event.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="grid gap-1">
-          Peer environment ID
-          <input
-            required
-            value={remote}
-            onChange={(event) => setRemote(event.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="grid gap-1">
-          Peer server URL
-          <input
-            required
-            type="url"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="grid gap-1">
-          Shared tracker scope
-          <select
-            required
-            value={scope}
-            onChange={(event) => setScope(event.target.value)}
-            className={inputClass}
-          >
-            <option value="">Choose imported source</option>
-            {scopes.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="grid gap-1">
-          Shared peer key
-          <input
-            required
-            type="password"
-            minLength={32}
-            autoComplete="new-password"
-            value={secret}
-            onChange={(event) => setSecret(event.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <p className="self-center text-muted-foreground">
-          Configure both environments with the same dedicated random key (at least 32 characters).
-        </p>
-        <Button size="sm" type="submit" disabled={busy || scopes.length === 0}>
-          Connect peer
-        </Button>
-      </form>
+      <details className="mt-3" open={!query.data?.peers.length}>
+        <summary className="cursor-pointer text-xs font-medium">Connect an environment</summary>
+        <form
+          className="mt-3 grid gap-2 text-xs md:grid-cols-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void execute({
+              type: "configure",
+              config: { id, environmentId: EnvironmentId.make(remote), url, scope, enabled: true },
+              secret,
+            });
+          }}
+        >
+          <label className="grid gap-1">
+            Peer name
+            <input
+              required
+              value={id}
+              onChange={(event) => setId(event.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="grid gap-1">
+            Peer environment ID
+            <input
+              required
+              value={remote}
+              onChange={(event) => setRemote(event.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="grid gap-1">
+            Peer server URL
+            <input
+              required
+              type="url"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="grid gap-1">
+            Shared tracker scope
+            <select
+              required
+              value={scope}
+              onChange={(event) => setScope(event.target.value)}
+              className={inputClass}
+            >
+              <option value="">Choose imported source</option>
+              {scopes.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1">
+            Shared peer key
+            <input
+              required
+              type="password"
+              minLength={32}
+              autoComplete="new-password"
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <p className="self-center text-muted-foreground">
+            Configure both environments with the same dedicated random key (at least 32 characters).
+          </p>
+          <Button size="sm" type="submit" disabled={busy || scopes.length === 0}>
+            Connect peer
+          </Button>
+        </form>
+      </details>
     </details>
   );
 }

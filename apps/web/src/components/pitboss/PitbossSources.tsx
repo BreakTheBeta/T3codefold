@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   EnvironmentId,
   PitbossSourceConfig,
@@ -24,6 +24,14 @@ export function PitbossSources({
   const mutate = useAtomCommand(serverEnvironment.pitbossSourceCommand, {
     label: "pitboss task sources",
   });
+  const refreshSources = sources.refresh;
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    refreshSources();
+    const timer = setInterval(refreshSources, 15000);
+    return () => clearInterval(timer);
+  }, [open, refreshSources]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [kind, setKind] = useState<PitbossSourceConfig["kind"]>("vikunja");
@@ -45,7 +53,10 @@ export function PitbossSources({
     sources.refresh();
   };
   return (
-    <details className="mt-3 rounded-xl border border-border bg-background p-3">
+    <details
+      className="mt-3 rounded-xl border border-border bg-background p-3"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary className="cursor-pointer text-sm font-semibold">Task sources</summary>
       <p className="my-2 text-xs text-muted-foreground">
         Imports become candidates for review. Tracker status and accepted T3 work stay separate.
@@ -88,87 +99,90 @@ export function PitbossSources({
           </Button>
         </div>
       ))}
-      <form
-        className="mt-3 grid gap-2 text-xs md:grid-cols-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void execute({
-            type: "configure",
-            config: {
-              id,
-              kind,
-              baseUrl,
-              tenantId: new URL(baseUrl).origin,
-              remoteProjectId: scope,
-              projectId,
-              enabled: true,
-            },
-            token,
-          });
-        }}
-      >
-        <label className="grid gap-1">
-          Tracker
-          <select
-            value={kind}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (value === "jira" || value === "linear" || value === "vikunja") setKind(value);
-            }}
-            className="rounded border border-border bg-background p-2"
-          >
-            <option value="vikunja">Vikunja</option>
-            <option value="jira">Jira</option>
-            <option value="linear">Linear</option>
-          </select>
-        </label>
-        <label className="grid gap-1">
-          Connection name
-          <input
-            required
-            pattern={"[a-zA-Z0-9_\\-]{1,80}"}
-            value={id}
-            onChange={(event) => setId(event.target.value)}
-            className="rounded border border-border bg-background p-2"
-          />
-        </label>
-        <label className="grid gap-1">
-          Server URL
-          <input
-            required
-            type="url"
-            value={baseUrl}
-            onChange={(event) => setBaseUrl(event.target.value)}
-            placeholder={kind === "linear" ? "https://api.linear.app" : "http://localhost:18456"}
-            className="rounded border border-border bg-background p-2"
-          />
-        </label>
-        <label className="grid gap-1">
-          {kind === "linear" ? "Team ID" : "Project ID or key"}
-          <input
-            required
-            value={scope}
-            onChange={(event) => setScope(event.target.value)}
-            className="rounded border border-border bg-background p-2"
-          />
-        </label>
-        <label className="grid gap-1">
-          Read credential
-          <input
-            required
-            type="password"
-            autoComplete="new-password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            className="rounded border border-border bg-background p-2"
-          />
-        </label>
-        <div className="flex items-end">
-          <Button size="sm" type="submit" disabled={busy}>
-            Connect source
-          </Button>
-        </div>
-      </form>
+      <details className="mt-3" open={!sources.data?.sources.length}>
+        <summary className="cursor-pointer text-xs font-medium">Add or update a source</summary>
+        <form
+          className="mt-3 grid gap-2 text-xs md:grid-cols-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void execute({
+              type: "configure",
+              config: {
+                id,
+                kind,
+                baseUrl,
+                tenantId: new URL(baseUrl).origin,
+                remoteProjectId: scope,
+                projectId,
+                enabled: true,
+              },
+              token,
+            });
+          }}
+        >
+          <label className="grid gap-1">
+            Tracker
+            <select
+              value={kind}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === "jira" || value === "linear" || value === "vikunja") setKind(value);
+              }}
+              className="rounded border border-border bg-background p-2"
+            >
+              <option value="vikunja">Vikunja</option>
+              <option value="jira">Jira</option>
+              <option value="linear">Linear</option>
+            </select>
+          </label>
+          <label className="grid gap-1">
+            Connection name
+            <input
+              required
+              pattern={"[a-zA-Z0-9_\\-]{1,80}"}
+              value={id}
+              onChange={(event) => setId(event.target.value)}
+              className="rounded border border-border bg-background p-2"
+            />
+          </label>
+          <label className="grid gap-1">
+            Server URL
+            <input
+              required
+              type="url"
+              value={baseUrl}
+              onChange={(event) => setBaseUrl(event.target.value)}
+              placeholder={kind === "linear" ? "https://api.linear.app" : "http://localhost:18456"}
+              className="rounded border border-border bg-background p-2"
+            />
+          </label>
+          <label className="grid gap-1">
+            {kind === "linear" ? "Team ID" : "Project ID or key"}
+            <input
+              required
+              value={scope}
+              onChange={(event) => setScope(event.target.value)}
+              className="rounded border border-border bg-background p-2"
+            />
+          </label>
+          <label className="grid gap-1">
+            Read credential
+            <input
+              required
+              type="password"
+              autoComplete="new-password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              className="rounded border border-border bg-background p-2"
+            />
+          </label>
+          <div className="flex items-end">
+            <Button size="sm" type="submit" disabled={busy}>
+              Connect source
+            </Button>
+          </div>
+        </form>
+      </details>
     </details>
   );
 }

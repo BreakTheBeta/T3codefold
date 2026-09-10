@@ -7,5 +7,7 @@ export const PitbossSourceAuthority = Schema.Struct({
   peerId: Schema.optional(Id),
   peerEnvironmentId: Schema.optional(EnvironmentId),
   coordinator: Schema.NullOr(EnvironmentId),
+  homeEnvironmentId: Schema.optional(EnvironmentId),
+  proposalId: Schema.optional(Id),
 });
 export type PitbossSourceAuthority = typeof PitbossSourceAuthority.Type;

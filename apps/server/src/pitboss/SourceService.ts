@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
+import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
@@ -57,52 +58,57 @@ export const layer = Layer.effect(
         ),
       };
     }, Effect.mapError(error));
-    const sync = Effect.fn("SourceService.sync")(function* (id: string) {
-      const source = (yield* list()).sources.find((entry) => entry.config.id === id);
-      if (!source || !source.config.enabled)
-        return yield* new PitbossError({
-          code: "invalid",
-          message: "Source is absent or disabled.",
-        });
-      const result = yield* Effect.result(
-        Effect.gen(function* () {
-          const secret = yield* secrets.get(`pitboss-source-${id}`);
-          if (Option.isNone(secret))
-            return yield* new PitbossError({
-              code: "invalid",
-              message: "This source needs read credentials.",
-            });
-          const token = new TextDecoder().decode(secret.value);
-          let cursor: string | null = null;
-          const cursors = new Set<string>();
-          for (let page = 0; page < 10; page++) {
-            const result = yield* Effect.tryPromise({
-              try: () => readSourcePage(source.config, token, cursor),
-              catch: error,
-            });
-            yield* store.importSources(source.config, result.observations);
-            if (result.nextCursor === null) return;
-            if (cursors.has(result.nextCursor))
-              return yield* new PitbossError({
-                code: "invalid",
-                message: "Source repeated its page cursor.",
-              });
-            cursors.add(result.nextCursor);
-            cursor = result.nextCursor;
-          }
+    const syncLock = yield* Semaphore.make(1);
+    const sync = Effect.fn("SourceService.sync")(
+      function* (id: string) {
+        const source = (yield* list()).sources.find((entry) => entry.config.id === id);
+        if (!source || !source.config.enabled)
           return yield* new PitbossError({
             code: "invalid",
-            message: "Source exceeds the pilot's 500-item scan. Narrow its project scope.",
+            message: "Source is absent or disabled.",
           });
-        }),
-      );
-      const now = DateTime.formatIso(yield* DateTime.now);
-      if (result._tag === "Failure") {
-        yield* sql`UPDATE pitboss_sources SET error = ${error(result.failure).message} WHERE id = ${id}`;
-        return yield* result.failure;
-      }
-      yield* sql`UPDATE pitboss_sources SET last_sync_at = ${now}, error = NULL WHERE id = ${id}`;
-    }, Effect.mapError(error));
+        const result = yield* Effect.result(
+          Effect.gen(function* () {
+            const secret = yield* secrets.get(`pitboss-source-${id}`);
+            if (Option.isNone(secret))
+              return yield* new PitbossError({
+                code: "invalid",
+                message: "This source needs read credentials.",
+              });
+            const token = new TextDecoder().decode(secret.value);
+            let cursor: string | null = null;
+            const cursors = new Set<string>();
+            for (let page = 0; page < 10; page++) {
+              const result = yield* Effect.tryPromise({
+                try: () => readSourcePage(source.config, token, cursor),
+                catch: error,
+              });
+              yield* store.importSources(source.config, result.observations);
+              if (result.nextCursor === null) return;
+              if (cursors.has(result.nextCursor))
+                return yield* new PitbossError({
+                  code: "invalid",
+                  message: "Source repeated its page cursor.",
+                });
+              cursors.add(result.nextCursor);
+              cursor = result.nextCursor;
+            }
+            return yield* new PitbossError({
+              code: "invalid",
+              message: "Source exceeds the pilot's 500-item scan. Narrow its project scope.",
+            });
+          }),
+        );
+        const now = DateTime.formatIso(yield* DateTime.now);
+        if (result._tag === "Failure") {
+          yield* sql`UPDATE pitboss_sources SET error = ${error(result.failure).message} WHERE id = ${id}`;
+          return yield* result.failure;
+        }
+        yield* sql`UPDATE pitboss_sources SET last_sync_at = ${now}, error = NULL WHERE id = ${id}`;
+      },
+      syncLock.withPermits(1),
+      Effect.mapError(error),
+    );
     const execute = Effect.fn("SourceService.execute")(function* (input: PitbossSourceRequest) {
       if (input.type === "configure") {
         const config = input.config;

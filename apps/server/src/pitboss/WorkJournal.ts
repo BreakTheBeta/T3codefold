@@ -1,4 +1,5 @@
 import {
+  EnvironmentId,
   PitbossMessage,
   PitbossAttempt,
   PitbossSourceAuthority,
@@ -19,6 +20,12 @@ const Entry = Schema.Union([
     actor: Schema.Union([
       Schema.Struct({ type: Schema.Literal("user") }),
       Schema.Struct({ type: Schema.Literal("agent"), threadId: ThreadId }),
+      Schema.Struct({
+        type: Schema.Literal("peer"),
+        environmentId: EnvironmentId,
+        scope: Schema.String,
+        proposalId: Schema.String,
+      }),
     ]),
     now: Schema.String,
   }),

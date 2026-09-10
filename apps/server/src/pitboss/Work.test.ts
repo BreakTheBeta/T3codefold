@@ -1,12 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   CommandId,
   ProviderInstanceId,
   ProjectId,
   ThreadId,
   type PitbossBrief,
 } from "@t3tools/contracts";
-import { decide, emptyWork, observeAttempt } from "./Work.ts";
+import { decide, emptyWork, observeAttempt, readyTasks } from "./Work.ts";
 
 const projectId = ProjectId.make("project");
 const threadId = ThreadId.make("boss");
@@ -170,4 +171,92 @@ it("preserves a stopped candidate for takeover and rejects a second writer befor
   });
   expect(state.tasks[0]?.attempts.at(-1)?.model.model).toBe("stronger-test-model");
   expect(state.tasks[0]?.attempts[0]?.state).toBe("stopped");
+});
+
+it("forwards shared control to its fixed home and fences the previous coordinator", () => {
+  const elected = elect();
+  const created = decide(
+    elected,
+    {
+      commandId: CommandId.make("shared-create"),
+      expectedRevision: elected.revision,
+      action: {
+        type: "create",
+        taskId: "shared",
+        projectId,
+        title: "Shared work",
+        outcome: "One executor",
+        criteria: "One executor",
+        verifyCommand: "test executor",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      },
+    },
+    { type: "user" },
+    "2026-09-10T00:00:00Z",
+  );
+  const home = EnvironmentId.make("home");
+  const coordinator = EnvironmentId.make("coordinator");
+  const shared = {
+    ...created,
+    sourceAuthorities: [
+      {
+        scope: "shared",
+        self: coordinator,
+        coordinator,
+        homeEnvironmentId: home,
+        peerId: "home",
+        proposalId: "approved",
+      },
+    ],
+    tasks: created.tasks.map((task) => ({
+      ...task,
+      homeEnvironmentId: home,
+      source: {
+        kind: "vikunja" as const,
+        scope: "shared",
+        tenantId: "tenant",
+        itemId: "item",
+        key: "#1",
+        url: "http://tracker/tasks/1",
+        status: "Open",
+        priority: "1",
+        observedAt: "2026-09-10T00:00:00Z",
+      },
+    })),
+  };
+  const command = {
+    commandId: CommandId.make("remote-assign"),
+    expectedRevision: shared.revision,
+    authorityGeneration: elected.role?.generation,
+    action: { type: "assign" as const, taskId: "shared" },
+  };
+  const queued = decide(shared, command, { type: "agent", threadId }, "2026-09-10T00:00:00Z");
+  expect(queued.tasks[0]?.attempts).toHaveLength(0);
+  expect(queued.tasks[0]?.pendingOperationId).toBe("remote-assign");
+  expect(readyTasks(queued)).toHaveLength(0);
+  expect(queued.messages.at(-1)?.text).toContain("Queued");
+  const atHome = {
+    ...shared,
+    sourceAuthorities: shared.sourceAuthorities.map((authority) => ({ ...authority, self: home })),
+  };
+  const accepted = decide(
+    atHome,
+    command,
+    { type: "peer", environmentId: coordinator, scope: "shared", proposalId: "approved" },
+    "2026-09-10T00:00:00Z",
+  );
+  expect(accepted.tasks[0]?.attempts).toHaveLength(1);
+  expect(() =>
+    decide(
+      atHome,
+      command,
+      { type: "peer", environmentId: coordinator, scope: "shared", proposalId: "old" },
+      "2026-09-10T00:00:00Z",
+    ),
+  ).toThrow(/authority/);
+  expect(() =>
+    decide(atHome, command, { type: "agent", threadId }, "2026-09-10T00:00:00Z"),
+  ).toThrow(/coordinator/);
 });

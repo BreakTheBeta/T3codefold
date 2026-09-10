@@ -1,7 +1,12 @@
 // @effect-diagnostics nodeBuiltinImport:off - real loopback HTTP servers are the integration boundary under test.
 import * as NodeHttp from "node:http";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
+  PitbossForwardIntent,
   CommandId,
   ProjectId,
   ProviderInstanceId,
@@ -17,16 +22,25 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
+import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import {
+  SqlitePersistenceMemory,
+  makeSqlitePersistenceLive,
+} from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer as workLayer } from "./WorkStore.ts";
 import { PeerService, layer as peerLayer } from "./PeerService.ts";
 import { layer as routes } from "./PeerHttp.ts";
 
-const startPeer = Effect.fn("startPeer")(function* (name: string) {
-  const secrets = new Map<string, Uint8Array>();
+const decodeForward = Schema.decodeUnknownSync(Schema.fromJsonString(PitbossForwardIntent));
+const startPeer = Effect.fn("startPeer")(function* (
+  name: string,
+  options?: { dbPath: string; secrets: Map<string, Uint8Array> },
+) {
+  const runtimeScope = yield* Scope.fork(yield* Scope.Scope);
+  const secrets = options?.secrets ?? new Map<string, Uint8Array>();
   const identity = Layer.mock(ServerEnvironment)({
     getEnvironmentId: Effect.succeed(EnvironmentId.make(name)),
   });
@@ -37,7 +51,11 @@ const startPeer = Effect.fn("startPeer")(function* (name: string) {
         secrets.set(key, value);
       }),
   });
-  const database = Layer.fresh(SqlitePersistenceMemory);
+  const database = Layer.fresh(
+    options
+      ? makeSqlitePersistenceLive(options.dbPath).pipe(Layer.provide(NodeServices.layer))
+      : SqlitePersistenceMemory,
+  );
   const work = workLayer;
   const services = peerLayer.pipe(
     Layer.provideMerge(work),
@@ -46,10 +64,10 @@ const startPeer = Effect.fn("startPeer")(function* (name: string) {
     Layer.provide(secretLayer),
     Layer.provide(FetchHttpClient.layer),
   );
-  const built = yield* Layer.build(services);
+  const built = yield* Layer.build(services).pipe(Effect.provideService(Scope.Scope, runtimeScope));
   const peer = Context.get(built, PeerService);
   const store = Context.get(built, WorkStore);
-  const serverScope = yield* Scope.fork(yield* Scope.Scope);
+  const serverScope = yield* Scope.fork(runtimeScope);
   const http = NodeHttpServer.layer(NodeHttp.createServer, { host: "127.0.0.1", port: 0 });
   const serving = HttpRouter.serve(routes.pipe(Layer.provide(Layer.succeed(PeerService, peer))), {
     disableListenLog: true,
@@ -65,6 +83,7 @@ const startPeer = Effect.fn("startPeer")(function* (name: string) {
     store,
     url: `http://127.0.0.1:${address.port}`,
     stop: Scope.close(serverScope, Exit.succeed(undefined)),
+    shutdown: Scope.close(runtimeScope, Exit.succeed(undefined)),
   };
 });
 
@@ -206,10 +225,127 @@ it.effect(
         expect((yield* a.store.read()).sourceAuthorities?.[0]?.coordinator).toBe("env-a");
         const rejected = yield* a.peer.receive("Bearer incorrect", stale).pipe(Effect.flip);
         expect(rejected.code).toBe("forbidden");
+        const firstAttempt = (yield* a.store.read()).tasks[0]!.attempts[0]!;
+        yield* taskA.command({
+          type: "rework",
+          taskId: taskA.taskId,
+          note: "Resolve before handoff",
+        });
+        yield* a.store.updateAttempt(
+          taskA.taskId,
+          firstAttempt.id,
+          "stopped",
+          "Stopped at provider boundary",
+        );
+        yield* taskA.command({ type: "reopen", taskId: taskA.taskId });
+        const successor = {
+          ...proposal,
+          id: "proposal-two",
+          coordinator: EnvironmentId.make("env-b"),
+          homeEnvironmentId: EnvironmentId.make("env-a"),
+        };
+        yield* a.peer.execute({ type: "propose", peerId: "b", proposal: successor });
+        yield* a.peer.execute({ type: "sync", peerId: "b" });
+        yield* a.peer.execute({ type: "approve", peerId: "b", proposalId: successor.id });
+        yield* a.peer.execute({ type: "sync", peerId: "b" });
+        yield* b.peer.execute({ type: "approve", peerId: "a", proposalId: successor.id });
+        yield* b.peer.execute({ type: "sync", peerId: "a" });
+        expect((yield* b.store.read()).sourceAuthorities?.[0]?.homeEnvironmentId).toBe("env-a");
+        const beforeForward = yield* b.store.read();
+        yield* b.store.command(
+          {
+            commandId: CommandId.make("forward-assignment"),
+            expectedRevision: beforeForward.revision,
+            action: { type: "assign", taskId: taskB.taskId },
+          },
+          { type: "user" },
+        );
+        expect((yield* b.store.read()).tasks[0]?.pendingOperationId).toBe("forward-assignment");
+        const intent = (yield* b.store.effects()).find((effect) => effect.kind === "forward")!;
+        const forwarded = decodeForward(intent.payload_json).message;
+        if (forwarded.operation?.type !== "command")
+          return yield* Effect.die("Expected a task command intent");
+        yield* b.peer.send("a", forwarded);
+        yield* b.peer.send("a", forwarded);
+        yield* b.peer.execute({ type: "sync", peerId: "a" });
+        yield* b.peer.execute({ type: "sync", peerId: "a" });
+        expect((yield* a.store.read()).tasks[0]?.attempts).toHaveLength(2);
+        expect((yield* b.store.read()).tasks[0]?.pendingOperationId).toBeUndefined();
+        yield* a.peer.execute({ type: "sync", peerId: "b" });
+        expect((yield* b.store.read()).tasks[0]?.homeEnvironmentId).toBe("env-a");
+        expect((yield* b.store.read()).tasks[0]?.attempts).toHaveLength(2);
+        yield* b.peer.send("a", {
+          ...forwarded,
+          id: "stale-control",
+          operation: {
+            ...forwarded.operation,
+            proposalId: proposal.id,
+            taskRevision: (yield* a.store.read()).tasks[0]!.revision,
+            action: { type: "cancel", taskId: taskA.taskId, note: "Old coordinator request" },
+          },
+        });
+        yield* b.peer.execute({ type: "sync", peerId: "a" });
+        expect((yield* a.store.read()).tasks[0]?.status).toBe("active");
+        expect(
+          (yield* b.store.read()).messages.some((message) =>
+            message.text.includes("authority is stale"),
+          ),
+        ).toBe(true);
+        expect((yield* b.store.effects()).some((effect) => effect.kind === "assign")).toBe(false);
+        const candidateTask = (yield* a.store.read()).tasks[0]!;
+        const candidateAttempt = candidateTask.attempts.at(-1)!;
+        yield* a.store.command(
+          {
+            commandId: CommandId.make("remote-worker-proof"),
+            expectedRevision: (yield* a.store.read()).revision,
+            action: {
+              type: "submit",
+              taskId: candidateTask.id,
+              attemptId: candidateAttempt.id,
+              candidate: "fixture:candidate-2",
+              criteriaVersion: candidateTask.criteriaVersion,
+              verdict: "pass",
+              summary: "One executor confirmed",
+              command: "test ownership",
+              artifactUrls: [],
+            },
+          },
+          { type: "agent", threadId: candidateAttempt.threadId },
+        );
+        yield* a.store.updateAttempt(
+          candidateTask.id,
+          candidateAttempt.id,
+          "stopped",
+          "Worker exited after submission",
+        );
+        yield* a.peer.execute({ type: "sync", peerId: "b" });
+        const observed = (yield* b.store.read()).tasks[0]!;
+        expect(observed.evidence.at(-1)?.candidate).toBe("fixture:candidate-2");
+        yield* b.peer.send("a", {
+          ...forwarded,
+          id: "accept-proof",
+          operation: {
+            ...forwarded.operation,
+            taskRevision: observed.revision,
+            action: {
+              type: "accept",
+              taskId: observed.id,
+              evidenceId: observed.evidence.at(-1)!.id,
+              note: "Reviewed the home evidence",
+            },
+          },
+        });
+        yield* b.peer.execute({ type: "sync", peerId: "a" });
+        yield* a.peer.execute({ type: "sync", peerId: "b" });
+        expect((yield* b.store.read()).tasks[0]?.status).toBe("done");
+        expect((yield* b.store.read()).tasks[0]?.acceptedEvidenceId).toBe(
+          observed.evidence.at(-1)!.id,
+        );
+        expect(yield* b.store.rebuild()).toEqual(yield* b.store.read());
         yield* a.stop;
         yield* b.peer.execute({ type: "sync", peerId: "a" }).pipe(Effect.flip);
-        expect((yield* b.store.read()).sourceAuthorities?.[0]?.coordinator).toBe("env-a");
-        yield* taskB.command({ type: "assign", taskId: taskB.taskId }).pipe(Effect.flip);
+        expect((yield* b.store.read()).sourceAuthorities?.[0]?.coordinator).toBe("env-b");
+        expect((yield* b.store.read()).sourceAuthorities?.[0]?.homeEnvironmentId).toBe("env-a");
       }),
     ),
 );
@@ -280,4 +416,72 @@ it.effect(
         expect((yield* a.peer.list()).peers[0]?.pendingMessages).toBe(1);
       }),
     ),
+);
+
+it.effect("reopens the on-disk outbox after restart and retains operation identities", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const directory = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pitboss-restart-")),
+        ),
+        (path) => Effect.sync(() => NodeFS.rmSync(path, { recursive: true, force: true })),
+      );
+      const options = {
+        dbPath: NodePath.join(directory, "state.sqlite"),
+        secrets: new Map<string, Uint8Array>(),
+      };
+      const a = yield* startPeer("restart-a", options);
+      const b = yield* startPeer("restart-b");
+      const secret = "restart-only-shared-peer-credential-123456789";
+      yield* a.peer.execute({
+        type: "configure",
+        config: {
+          id: "b",
+          environmentId: EnvironmentId.make("restart-b"),
+          url: b.url,
+          scope: "shared",
+          enabled: true,
+        },
+        secret,
+      });
+      yield* b.peer.execute({
+        type: "configure",
+        config: {
+          id: "a",
+          environmentId: EnvironmentId.make("restart-a"),
+          url: a.url,
+          scope: "shared",
+          enabled: true,
+        },
+        secret,
+      });
+      const message = {
+        id: "before-restart",
+        text: "Retain this obligation across a server restart",
+        originThreadId: ThreadId.make("boss-a"),
+        createdAt: "2026-09-10T00:00:00Z",
+      };
+      yield* a.peer.send("b", message);
+      // The receipt is lost, then the sender shuts down including its database connection.
+      yield* b.peer.receive(`Bearer ${secret}`, {
+        environmentId: EnvironmentId.make("restart-a"),
+        scope: "shared",
+        view: (yield* a.peer.list()).peers[0]!.view,
+        messages: [message],
+      });
+      yield* a.shutdown;
+      const restarted = yield* startPeer("restart-a", options);
+      yield* restarted.peer.execute({ type: "sync", peerId: "b" });
+      expect((yield* restarted.peer.list()).peers[0]?.pendingMessages).toBe(0);
+      expect(
+        (yield* b.store.read()).messages.filter((entry) => entry.text.includes(message.text)),
+      ).toHaveLength(1);
+      const collision = yield* restarted.peer
+        .send("b", { ...message, text: "Different operation" })
+        .pipe(Effect.flip);
+      expect(collision.code).toBe("conflict");
+      yield* restarted.shutdown;
+    }),
+  ),
 );

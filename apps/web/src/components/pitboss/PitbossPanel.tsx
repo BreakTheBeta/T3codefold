@@ -1,7 +1,9 @@
+import { useServerConfigs } from "../../state/entities";
+import { onOpenPitbossPanel } from "./panelEvents";
 import { PitbossPeers } from "./PitbossPeers";
 import { PitbossSources } from "./PitbossSources";
 import { randomUUID } from "../../lib/utils";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   CrownIcon,
@@ -104,6 +106,7 @@ export function PitbossPanel(props: {
     serverEnvironment.pitbossLive({ environmentId: props.environmentId, input: {} }),
   );
   const mutate = useAtomCommand(serverEnvironment.pitbossCommand, { label: "pitboss work" });
+  const serverConfigs = useServerConfigs();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [editingBrief, setEditingBrief] = useState(false);
@@ -115,6 +118,16 @@ export function PitbossPanel(props: {
   const state = query.data;
   const role = state?.role;
   const isBoss = role?.threadId === props.threadId;
+  useEffect(
+    () =>
+      onOpenPitbossPanel((target) => {
+        if (target.environmentId !== props.environmentId || target.threadId !== props.threadId)
+          return;
+        setOpen(true);
+        setEditingBrief(true);
+      }),
+    [props.environmentId, props.threadId],
+  );
   const defaultBrief: PitbossBrief = {
     priorities: "",
     quality:
@@ -157,10 +170,10 @@ export function PitbossPanel(props: {
   const outcomes = state.tasks.filter((task) =>
     ["done", "blocked", "cancelled"].includes(task.status),
   );
-  const openThread = (threadId: ThreadId) =>
+  const openThread = (threadId: ThreadId, environmentId = props.environmentId) =>
     void navigate({
       to: "/$environmentId/$threadId",
-      params: { environmentId: props.environmentId, threadId },
+      params: { environmentId, threadId },
     });
   return (
     <section
@@ -390,6 +403,11 @@ export function PitbossPanel(props: {
                       {selected.source.status} · T3 work: {selected.status}
                     </p>
                   )}
+                  {selected.pendingOperationId && (
+                    <p role="status" className="my-2 text-sm text-muted-foreground">
+                      Waiting for the task home to acknowledge this request.
+                    </p>
+                  )}
                   <h4 className="text-xs font-semibold text-muted-foreground">ACCEPTANCE</h4>
                   <p className="mt-1 whitespace-pre-wrap text-sm">{selected.criteria}</p>
                   {selected.verifyCommand && (
@@ -408,9 +426,19 @@ export function PitbossPanel(props: {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => openThread(attempt.threadId)}
+                        disabled={
+                          !serverConfigs.has(selected.homeEnvironmentId ?? props.environmentId)
+                        }
+                        onClick={() =>
+                          openThread(
+                            attempt.threadId,
+                            selected.homeEnvironmentId ?? props.environmentId,
+                          )
+                        }
                       >
-                        Open worker
+                        {serverConfigs.has(selected.homeEnvironmentId ?? props.environmentId)
+                          ? "Open worker"
+                          : "Connect task home first"}
                         <ArrowUpRightIcon className="size-3" />
                       </Button>
                     </div>
@@ -446,7 +474,7 @@ export function PitbossPanel(props: {
                           className="mt-3"
                           size="sm"
                           variant="outline"
-                          disabled={busy}
+                          disabled={busy || !!selected.pendingOperationId}
                           onClick={() =>
                             void command({
                               type: "accept",
@@ -465,7 +493,7 @@ export function PitbossPanel(props: {
                     <TaskForm
                       key={selected.id}
                       initial={selected}
-                      busy={busy}
+                      busy={busy || !!selected.pendingOperationId}
                       onCancel={() => setEditingTask(false)}
                       onSave={async (values) => {
                         if (
@@ -487,7 +515,7 @@ export function PitbossPanel(props: {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={busy}
+                      disabled={busy || !!selected.pendingOperationId}
                       onClick={() => setEditingTask(!editingTask)}
                     >
                       Edit task and criteria
@@ -496,7 +524,7 @@ export function PitbossPanel(props: {
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={busy}
+                        disabled={busy || !!selected.pendingOperationId}
                         onClick={() =>
                           void command({
                             type: "assign",
@@ -512,7 +540,7 @@ export function PitbossPanel(props: {
                     {selected.status === "queued" && (
                       <Button
                         size="sm"
-                        disabled={busy}
+                        disabled={busy || !!selected.pendingOperationId}
                         onClick={() => void command({ type: "assign", taskId: selected.id })}
                       >
                         Assign worker
@@ -522,7 +550,7 @@ export function PitbossPanel(props: {
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={busy}
+                        disabled={busy || !!selected.pendingOperationId}
                         onClick={() =>
                           void command({
                             type: "rework",
@@ -538,7 +566,7 @@ export function PitbossPanel(props: {
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={busy}
+                        disabled={busy || !!selected.pendingOperationId}
                         onClick={() => void command({ type: "reopen", taskId: selected.id })}
                       >
                         Reopen
@@ -548,7 +576,7 @@ export function PitbossPanel(props: {
                       <Button
                         size="sm"
                         variant="ghost"
-                        disabled={busy}
+                        disabled={busy || !!selected.pendingOperationId}
                         onClick={() =>
                           void command({
                             type: "cancel",

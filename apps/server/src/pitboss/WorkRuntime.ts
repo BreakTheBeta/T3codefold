@@ -4,6 +4,7 @@ import {
   CommandId,
   MessageId,
   PitbossAction,
+  PitbossForwardIntent,
   PitbossError,
   type PitbossSnapshot,
 } from "@t3tools/contracts";
@@ -11,14 +12,16 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Semaphore from "effect/Semaphore";
 import { WorkStore } from "./WorkStore.ts";
-import { readyTasks, workContext } from "./Work.ts";
+import { managerView, readyTasks, workContext } from "./Work.ts";
 import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
 import {
   ThreadManagementService,
   latestActiveRun,
 } from "../orchestration-v2/ThreadManagementService.ts";
 
+const decodeForward = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossForwardIntent));
 const decodeAction = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossAction));
 const isMissingThread = Schema.is(ProjectionStoreThreadNotFoundError);
 export const layer = Layer.effectDiscard(
@@ -27,11 +30,17 @@ export const layer = Layer.effectDiscard(
     const peers = yield* PeerService;
     const threads = yield* ThreadManagementService;
     const launch = yield* ThreadLaunchService;
+    const drainLock = yield* Semaphore.make(1);
     const drain = Effect.fn("WorkRuntime.drain")(function* () {
       const pending = yield* store.effects();
       for (const effect of pending) {
         const result = yield* Effect.result(
           Effect.gen(function* () {
+            if (effect.kind === "forward") {
+              const forward = yield* decodeForward(effect.payload_json);
+              yield* peers.send(forward.peerId, forward.message);
+              return;
+            }
             const action = yield* decodeAction(effect.payload_json);
             const state = yield* store.read();
             if (action.type === "send-peer") {
@@ -148,6 +157,11 @@ export const layer = Layer.effectDiscard(
       }
       let state: PitbossSnapshot = yield* store.read();
       for (const task of state.tasks) {
+        const authority = state.sourceAuthorities?.find(
+          (entry) => entry.scope === task.source?.scope,
+        );
+        if (task.homeEnvironmentId && authority && task.homeEnvironmentId !== authority.self)
+          continue;
         const attempt = task.attempts.at(-1);
         if (!attempt || !["running", "submitted", "stop_requested"].includes(attempt.state))
           continue;
@@ -192,7 +206,8 @@ export const layer = Layer.effectDiscard(
       const role = state.role;
       if (!role || role.paused) return;
       const needsAttention =
-        state.messages.some((message) => !message.acknowledged) || readyTasks(state).length > 0;
+        managerView(state).messages.some((message) => !message.acknowledged) ||
+        readyTasks(state).length > 0;
       if (!needsAttention) return;
       const boss = yield* threads.getProjectThread({
         projectId: role.projectId,
@@ -211,7 +226,7 @@ export const layer = Layer.effectDiscard(
         createdBy: "agent",
         creationSource: "mcp",
       });
-    });
+    }, drainLock.withPermits(1));
     // Subscribe first, then perform recovery. Event receipts, not model polling, drive subsequent work.
     const wakes = Stream.merge(
       store.changes,
@@ -221,6 +236,7 @@ export const layer = Layer.effectDiscard(
       ),
     );
     yield* wakes.pipe(
+      Stream.buffer({ capacity: 1, strategy: "sliding" }),
       Stream.runForEach(() => drain().pipe(Effect.catchCause(Effect.logWarning))),
       Effect.forkScoped,
     );

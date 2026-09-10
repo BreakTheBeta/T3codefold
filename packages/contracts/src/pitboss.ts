@@ -76,6 +76,9 @@ export const PitbossSource = Schema.Struct({
 });
 export type PitbossSource = typeof PitbossSource.Type;
 export const PitbossTask = Schema.Struct({
+  pendingOperationId: Schema.optional(Id),
+  homeEnvironmentId: Schema.optional(EnvironmentId),
+  homeRevision: Schema.optional(Version),
   id: Id,
   revision: Version,
   projectId: ProjectId,
@@ -98,6 +101,9 @@ export const PitbossTask = Schema.Struct({
 });
 export type PitbossTask = typeof PitbossTask.Type;
 export const PitbossMessage = Schema.Struct({
+  sourcePeerId: Schema.optional(Id),
+  sourceMessageId: Schema.optional(Id),
+  replyTo: Schema.optional(Id),
   id: Id,
   taskId: Schema.NullOr(Id),
   threadId: Schema.NullOr(ThreadId),

@@ -1,3 +1,4 @@
+import { PitbossAction, PitbossTask } from "./pitboss.ts";
 import * as Schema from "effect/Schema";
 import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 const Id = TrimmedNonEmptyString.check(Schema.isMaxLength(200));
@@ -5,6 +6,7 @@ export const PitbossCoordinationProposal = Schema.Struct({
   id: Id,
   scope: Id,
   coordinator: EnvironmentId,
+  homeEnvironmentId: Schema.optional(EnvironmentId),
   participants: Schema.Tuple([EnvironmentId, EnvironmentId]),
 });
 export const PitbossCoordinationView = Schema.Struct({
@@ -27,13 +29,32 @@ export const PitbossPeerMessage = Schema.Struct({
   id: Id,
   text: TrimmedNonEmptyString.check(Schema.isMaxLength(12000)),
   originThreadId: ThreadId,
+  operation: Schema.optional(
+    Schema.Union([
+      Schema.Struct({
+        type: Schema.Literal("command"),
+        proposalId: Id,
+        taskRevision: Schema.Int,
+        action: PitbossAction,
+      }),
+      Schema.Struct({ type: Schema.Literal("task"), task: PitbossTask }),
+      Schema.Struct({
+        type: Schema.Literal("receipt"),
+        applied: Schema.Boolean,
+        detail: Schema.String,
+        task: Schema.optional(PitbossTask),
+      }),
+    ]),
+  ),
   replyTo: Schema.optional(Id),
   createdAt: Schema.String,
 });
 export type PitbossPeerMessage = typeof PitbossPeerMessage.Type;
+export const PitbossForwardIntent = Schema.Struct({ peerId: Id, message: PitbossPeerMessage });
 export const PitbossPeerState = Schema.Struct({
   config: PitbossPeerConfig,
   view: PitbossCoordinationView,
+  homeEnvironmentId: Schema.optional(EnvironmentId),
   pendingMessages: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   lastSeenAt: Schema.NullOr(Schema.String),
   error: Schema.NullOr(Schema.String),

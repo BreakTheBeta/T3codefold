@@ -145,3 +145,62 @@ it.effect(
       expect(error.code).toBe("conflict");
     }).pipe(Effect.provide(services)),
 );
+
+it.effect("keeps a failed dispatch visible as an unresolved obligation after recovery", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    yield* store.command(election, { type: "user" });
+    yield* store.finishEffect("elect", "Thread is unavailable; choose another pitboss.");
+    yield* store.finishEffect("elect", "Thread is unavailable; choose another pitboss.");
+    const state = yield* store.read();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.kind).toBe("question");
+    expect(state.messages[0]?.acknowledged).toBe(false);
+    expect(state.messages[0]?.text).toContain("Thread is unavailable");
+    expect(yield* store.rebuild()).toEqual(state);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("keeps projects outside the elected brief out of agent reads and injected context", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    yield* store.importSources(
+      {
+        id: "old-scope",
+        kind: "vikunja",
+        baseUrl: "http://tracker.test",
+        tenantId: "old-company",
+        remoteProjectId: "1",
+        projectId: ProjectId.make("other-project"),
+        enabled: true,
+      },
+      [
+        {
+          title: "Outside portfolio",
+          outcome: "Private outside-scope details",
+          source: {
+            kind: "vikunja",
+            tenantId: "old-company",
+            itemId: "1",
+            key: "#1",
+            url: "http://tracker.test/tasks/1",
+            status: "Open",
+            priority: "1",
+            observedAt: "2026-09-10T00:00:00Z",
+          },
+        },
+      ],
+    );
+    yield* store.command(
+      { ...election, expectedRevision: (yield* store.read()).revision },
+      { type: "user" },
+    );
+    expect((yield* store.read()).tasks).toHaveLength(1);
+    expect(
+      (yield* store.read({ type: "agent", threadId: ThreadId.make("boss") })).tasks,
+    ).toHaveLength(0);
+    expect(yield* store.context(ThreadId.make("boss"), "scoped-packet")).not.toContain(
+      "Outside portfolio",
+    );
+  }).pipe(Effect.provide(services)),
+);

@@ -4,6 +4,7 @@ export interface CoordinationProposal {
   readonly id: string;
   readonly scope: string;
   readonly coordinator: string;
+  readonly homeEnvironmentId?: string | undefined;
   readonly participants: readonly [string, string];
 }
 export interface CoordinationView {
@@ -25,7 +26,9 @@ export function reconcileCoordination(
   for (const proposal of peer.proposals) {
     if (
       !proposal.participants.includes(sender) ||
-      !proposal.participants.includes(proposal.coordinator)
+      !proposal.participants.includes(proposal.coordinator) ||
+      (proposal.homeEnvironmentId !== undefined &&
+        !proposal.participants.includes(proposal.homeEnvironmentId))
     ) {
       throw new PitbossError({
         code: "forbidden",
@@ -37,6 +40,7 @@ export function reconcileCoordination(
       previous &&
       (previous.scope !== proposal.scope ||
         previous.coordinator !== proposal.coordinator ||
+        previous.homeEnvironmentId !== proposal.homeEnvironmentId ||
         previous.participants.some((entry, index) => entry !== proposal.participants[index]))
     ) {
       throw new PitbossError({

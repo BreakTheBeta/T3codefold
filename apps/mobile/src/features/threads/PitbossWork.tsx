@@ -1,3 +1,4 @@
+import { useServerConfigs } from "../../state/entities";
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -26,6 +27,7 @@ export function PitbossWork(props: {
   );
   const mutate = useAtomCommand(serverEnvironment.pitbossCommand, "pitboss work");
   const navigation = useNavigation();
+  const serverConfigs = useServerConfigs();
   const [visible, setVisible] = useState(false);
   const [priorities, setPriorities] = useState("");
   const [title, setTitle] = useState("");
@@ -50,10 +52,10 @@ export function PitbossWork(props: {
         "The action could not be applied. Refresh work and inspect the current state before retrying.",
       );
   };
-  const button = (label: string, action: () => void) => (
+  const button = (label: string, action: () => void, disabled = false) => (
     <Pressable
       accessibilityRole="button"
-      disabled={busy}
+      disabled={busy || disabled}
       onPress={action}
       className="rounded-lg bg-primary/10 px-3 py-2"
     >
@@ -221,13 +223,19 @@ export function PitbossWork(props: {
                     <Text className="text-xs text-muted-foreground">{task.note}</Text>
                     {task.attempts.map((attempt) => (
                       <View key={attempt.id}>
-                        {button(`Worker ${attempt.generation} · ${attempt.state}`, () => {
-                          setVisible(false);
-                          navigation.navigate("Thread", {
-                            environmentId: props.environmentId,
-                            threadId: attempt.threadId,
-                          });
-                        })}
+                        {button(
+                          serverConfigs.has(task.homeEnvironmentId ?? props.environmentId)
+                            ? `Worker ${attempt.generation} · ${attempt.state}`
+                            : "Connect task home first",
+                          () => {
+                            setVisible(false);
+                            navigation.navigate("Thread", {
+                              environmentId: task.homeEnvironmentId ?? props.environmentId,
+                              threadId: attempt.threadId,
+                            });
+                          },
+                          !serverConfigs.has(task.homeEnvironmentId ?? props.environmentId),
+                        )}
                       </View>
                     ))}
                     {task.evidence.map((evidence) => (
@@ -356,6 +364,9 @@ function MobilePitbossPeers({ environmentId }: { environmentId: EnvironmentId })
                 {proposal.coordinator === query.data?.environmentId
                   ? "this environment"
                   : peer.config.id}
+              </Text>
+              <Text className="text-xs">
+                Task home: {proposal.homeEnvironmentId ?? proposal.coordinator}
               </Text>
               <Text className="text-xs">
                 {proposal.participants.every((id) => peer.view.approvals[id] === proposal.id)
