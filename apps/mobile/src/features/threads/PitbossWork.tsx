@@ -25,7 +25,7 @@ export function PitbossWork(props: {
   const query = useEnvironmentQuery(
     serverEnvironment.pitbossLive({ environmentId: props.environmentId, input: {} }),
   );
-  const mutate = useAtomCommand(serverEnvironment.pitbossCommand, "pitboss work");
+  const mutate = useAtomCommand(serverEnvironment.pitbossCommand, "Merasmus work");
   const navigation = useNavigation();
   const serverConfigs = useServerConfigs();
   const [visible, setVisible] = useState(false);
@@ -72,7 +72,9 @@ export function PitbossWork(props: {
         }}
         className="flex-row items-center justify-between border-b border-primary/20 bg-primary/5 px-4 py-2"
       >
-        <Text className="font-semibold text-primary">♛ {isBoss ? "Pitboss" : "Pitboss work"}</Text>
+        <Text className="font-semibold text-primary">
+          ♛ {isBoss ? "Merasmus" : "Merasmus work"}
+        </Text>
         <Text className="text-xs text-muted-foreground">
           {isBoss
             ? role.paused
@@ -89,7 +91,7 @@ export function PitbossWork(props: {
       >
         <View className="flex-1 bg-background pt-6">
           <View className="flex-row items-center justify-between px-4 pb-3">
-            <Text className="text-xl font-semibold">Pitboss work</Text>
+            <Text className="text-xl font-semibold">Merasmus work</Text>
             {button("Back to chat", () => setVisible(false))}
           </View>
           <ScrollView
@@ -103,12 +105,12 @@ export function PitbossWork(props: {
             )}
             <Text className="text-sm text-muted-foreground">Your priorities</Text>
             <TextInput
-              accessibilityLabel="Pitboss priorities"
+              accessibilityLabel="Merasmus priorities"
               multiline
               value={priorities}
               onChangeText={setPriorities}
               className="rounded-xl border border-border p-3 text-foreground"
-              placeholder="What should the pitboss work on?"
+              placeholder="What should Merasmus work on?"
             />
             {isBoss ? (
               <View className="flex-row flex-wrap gap-2">
@@ -124,7 +126,7 @@ export function PitbossWork(props: {
               </View>
             ) : (
               button(
-                role ? "Replace pitboss with this thread" : "Elect this thread",
+                role ? "Move Merasmus to this thread" : "Summon Merasmus",
                 () =>
                   void command({
                     type: "elect",
@@ -143,7 +145,7 @@ export function PitbossWork(props: {
             )}
             {role &&
               !isBoss &&
-              button("Open elected pitboss", () => {
+              button("Open elected Merasmus", () => {
                 setVisible(false);
                 navigation.navigate("Thread", {
                   environmentId: props.environmentId,
@@ -318,12 +320,12 @@ function PitbossPin({ environmentId, label }: { environmentId: EnvironmentId; la
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open pitboss in ${label}`}
+      accessibilityLabel={`Open Merasmus in ${label}`}
       onPress={() => navigation.navigate("Thread", { environmentId, threadId: role.threadId })}
       className="mx-3 my-2 flex-row items-center justify-between rounded-2xl border border-primary/30 bg-primary/5 p-4"
     >
       <View>
-        <Text className="font-semibold text-primary">♛ Pitboss</Text>
+        <Text className="font-semibold text-primary">♛ Merasmus</Text>
         <Text className="text-xs text-muted-foreground">{label}</Text>
       </View>
       <Text className="text-xs text-muted-foreground">
@@ -343,12 +345,12 @@ function MobilePitbossPeers({ environmentId }: { environmentId: EnvironmentId })
   const [busy, setBusy] = useState(false);
   return (
     <View className="gap-3">
-      <Text className="font-semibold">Connected pitbosses</Text>
+      <Text className="font-semibold">Connected Merasmus peers</Text>
       {(error || query.error) && <Text accessibilityRole="alert">{error ?? query.error}</Text>}
       {query.data?.peers.length === 0 && (
         <Text className="text-xs text-muted-foreground">
           Connect shared tracker scopes from the web or desktop work panel. Each environment retains
-          its own pitboss.
+          its own Merasmus.
         </Text>
       )}
       {query.data?.peers.map((peer) => (

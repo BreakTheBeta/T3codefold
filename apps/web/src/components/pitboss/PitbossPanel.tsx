@@ -76,7 +76,7 @@ export function PitbossPin({
         <CrownIcon className="size-4" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold">Pitboss</span>
+        <span className="block text-sm font-semibold">Merasmus</span>
         <span className="block truncate text-xs text-muted-foreground">{label}</span>
       </span>
       <span className="text-xs text-muted-foreground">
@@ -105,7 +105,7 @@ export function PitbossPanel(props: {
   const query = useEnvironmentQuery(
     serverEnvironment.pitbossLive({ environmentId: props.environmentId, input: {} }),
   );
-  const mutate = useAtomCommand(serverEnvironment.pitbossCommand, { label: "pitboss work" });
+  const mutate = useAtomCommand(serverEnvironment.pitbossCommand, { label: "Merasmus work" });
   const serverConfigs = useServerConfigs();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -177,7 +177,7 @@ export function PitbossPanel(props: {
     });
   return (
     <section
-      aria-label="Pitboss workspace"
+      aria-label="Merasmus workspace"
       className="shrink-0 border-b border-border bg-amber-500/[0.025]"
     >
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
@@ -190,7 +190,7 @@ export function PitbossPanel(props: {
               onClick={() => setOpen(!open)}
               aria-expanded={open}
             >
-              Pitboss{" "}
+              Merasmus{" "}
               <span className="text-xs font-normal text-muted-foreground">
                 {role.paused ? "Paused" : `${active.length} working · ${next.length} up next`}
               </span>
@@ -237,7 +237,7 @@ export function PitbossPanel(props: {
             <span className="flex-1" />
             {role && (
               <Button size="sm" variant="ghost" onClick={() => openThread(role.threadId)}>
-                Open pitboss
+                Open Merasmus
               </Button>
             )}
             <Button
@@ -248,7 +248,7 @@ export function PitbossPanel(props: {
                 setOpen(true);
               }}
             >
-              {role ? "Replace pitboss with this thread" : "Make pitboss"}
+              {role ? "Move Merasmus to this thread" : "Summon Merasmus"}
             </Button>
           </>
         )}
@@ -375,7 +375,7 @@ export function PitbossPanel(props: {
                           {label === "Up next"
                             ? "Describe an outcome in chat or add your first task."
                             : label === "Working"
-                              ? "Workers appear here when the pitboss assigns work."
+                              ? "Workers appear here when Merasmus assigns work."
                               : "Accepted results and blockers stay visible here."}
                         </p>
                       )}
@@ -604,7 +604,7 @@ export function PitbossPanel(props: {
                   disabled={busy}
                   onClick={() => void command({ type: "dismiss" })}
                 >
-                  Dismiss pitboss role
+                  Dismiss Merasmus
                 </Button>
               </div>
             </>
@@ -650,7 +650,7 @@ function BriefForm({
         });
       }}
     >
-      <h3 className="font-semibold">Give your pitboss a brief</h3>
+      <h3 className="font-semibold">Give Merasmus a brief</h3>
       <p className="text-xs text-muted-foreground">
         This project · {brief.maxWorkers} worker at a time · {brief.maxAttempts} attempts ·{" "}
         {brief.workerModel.model}. Work begins proactively within this scope.

@@ -22,7 +22,7 @@ export function PitbossSources({
     serverEnvironment.pitbossSources({ environmentId, input: {} }),
   );
   const mutate = useAtomCommand(serverEnvironment.pitbossSourceCommand, {
-    label: "pitboss task sources",
+    label: "Merasmus task sources",
   });
   const refreshSources = sources.refresh;
   const [open, setOpen] = useState(false);
