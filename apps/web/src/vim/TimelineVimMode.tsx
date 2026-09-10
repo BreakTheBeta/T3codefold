@@ -40,6 +40,19 @@ type VisualState = {
   focus: number;
 };
 type Mark = { rowId: string | null; rowOffset: number; scrollTop: number };
+export type VimFocusDirection = "h" | "j" | "k" | "l";
+export type VimFocusRegionId = "sidebar" | "conversation" | "composer";
+export type VimFocusRect = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+type VimFocusRegion = {
+  id: VimFocusRegionId;
+  rect: VimFocusRect;
+};
 
 export function buildVimHintLabels(length: number): string[] {
   if (length <= HINT_ALPHABET.length) return HINT_ALPHABET.slice(0, length).split("");
@@ -64,6 +77,42 @@ export function nextVimListIndex(
   if (length <= 0) return -1;
   if (current < 0) return direction > 0 ? 0 : length - 1;
   return Math.max(0, Math.min(length - 1, current + direction * Math.max(1, count)));
+}
+
+export function nextDirectionalVimRegion(
+  regions: ReadonlyArray<VimFocusRegion>,
+  currentId: VimFocusRegionId,
+  direction: VimFocusDirection,
+  sourceRect?: VimFocusRect,
+): VimFocusRegionId | null {
+  const current = regions.find((region) => region.id === currentId);
+  const source = sourceRect ?? current?.rect;
+  if (!source) return null;
+
+  const sourceX = (source.left + source.right) / 2;
+  const sourceY = (source.top + source.bottom) / 2;
+  const horizontal = direction === "h" || direction === "l";
+  const sign = direction === "h" || direction === "k" ? -1 : 1;
+
+  return (
+    regions
+      .filter((region) => region.id !== currentId)
+      .map((region) => {
+        const candidateX = (region.rect.left + region.rect.right) / 2;
+        const candidateY = (region.rect.top + region.rect.bottom) / 2;
+        const primaryDelta = sign * (horizontal ? candidateX - sourceX : candidateY - sourceY);
+        const perpendicularOverlap = horizontal
+          ? Math.min(region.rect.bottom, source.bottom) - Math.max(region.rect.top, source.top)
+          : Math.min(region.rect.right, source.right) - Math.max(region.rect.left, source.left);
+        if (primaryDelta <= 1 || perpendicularOverlap <= 1) return null;
+        const perpendicularDelta = Math.abs(
+          horizontal ? candidateY - sourceY : candidateX - sourceX,
+        );
+        return { id: region.id, score: primaryDelta + perpendicularDelta / 4 };
+      })
+      .filter((candidate) => candidate !== null)
+      .sort((left, right) => left.score - right.score)[0]?.id ?? null
+  );
 }
 
 function visible(element: HTMLElement): boolean {
@@ -183,6 +232,54 @@ function focusSidebar(): void {
     return;
   }
   focusTarget();
+}
+
+function focusConversation(scrollNode: HTMLElement | null): void {
+  if (!scrollNode) return;
+  scrollNode.tabIndex = -1;
+  scrollNode.focus({ preventScroll: true });
+}
+
+function focusComposerRegion(focusComposer: () => void): void {
+  const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+  if (editor && visible(editor)) editor.focus({ preventScroll: true });
+  else focusComposer();
+}
+
+function vimFocusRegions(scrollNode: HTMLElement | null): VimFocusRegion[] {
+  const regions: VimFocusRegion[] = [];
+  const sidebar = document.querySelector<HTMLElement>("[data-app-sidebar]");
+  const composer = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+  const composerRect = composer && visible(composer) ? composer.getBoundingClientRect() : null;
+
+  if (sidebar && visible(sidebar))
+    regions.push({ id: "sidebar", rect: sidebar.getBoundingClientRect() });
+  if (scrollNode && visible(scrollNode)) {
+    const rect = scrollNode.getBoundingClientRect();
+    const bottom = composerRect ? Math.min(rect.bottom, composerRect.top) : rect.bottom;
+    regions.push({
+      id: "conversation",
+      rect:
+        bottom > rect.top ? { left: rect.left, right: rect.right, top: rect.top, bottom } : rect,
+    });
+  }
+  if (composerRect) regions.push({ id: "composer", rect: composerRect });
+  return regions;
+}
+
+function activeVimFocusRegion(
+  active: Element | null,
+  scrollNode: HTMLElement | null,
+): VimFocusRegionId {
+  if (active instanceof HTMLElement && active.closest("[data-app-sidebar]")) return "sidebar";
+  if (
+    active instanceof HTMLElement &&
+    active.closest('[data-chat-composer-form="true"], [data-testid="composer-editor"]')
+  ) {
+    return "composer";
+  }
+  if (scrollNode?.contains(active)) return "conversation";
+  return "conversation";
 }
 
 function focusSidebarSearch(): void {
@@ -340,6 +437,35 @@ export function TimelineVimMode({
       stateRef.current.hintFocusOnly = focusOnly;
       update();
     };
+    const focusRegion = (region: VimFocusRegionId) => {
+      if (region === "sidebar") focusSidebar();
+      else if (region === "composer") focusComposerRegion(focusComposer);
+      else focusConversation(getScrollNode());
+    };
+    const moveWindowFocus = (direction: VimFocusDirection, active: Element | null) => {
+      const scrollNode = getScrollNode();
+      const current = activeVimFocusRegion(active, scrollNode);
+      if (direction === "h" && current !== "sidebar") {
+        const sidebar = document.querySelector<HTMLElement>("[data-app-sidebar]");
+        if (!sidebar || !visible(sidebar)) {
+          focusSidebar();
+          return;
+        }
+      }
+      const regions = vimFocusRegions(scrollNode);
+      const currentRect = regions.find((region) => region.id === current)?.rect;
+      const activeRect =
+        active instanceof HTMLElement && current !== "conversation" && rendered(active)
+          ? active.getBoundingClientRect()
+          : currentRect;
+      const next = nextDirectionalVimRegion(regions, current, direction, activeRect);
+      if (next) focusRegion(next);
+    };
+    const cycleWindowFocus = (active: Element | null) => {
+      const order: VimFocusRegionId[] = ["sidebar", "conversation", "composer"];
+      const current = activeVimFocusRegion(active, getScrollNode());
+      focusRegion(order[(order.indexOf(current) + 1) % order.length]!);
+    };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
       const state = stateRef.current;
@@ -373,22 +499,9 @@ export function TimelineVimMode({
       if (state.pending === "CTRL-W") {
         consume();
         state.pending = "";
-        if (event.key === "h") focusSidebar();
-        else if (event.key === "l") {
-          const scrollNode = getScrollNode();
-          if (scrollNode) {
-            scrollNode.tabIndex = -1;
-            scrollNode.focus({ preventScroll: true });
-          }
-        } else if (event.key === "w") {
-          if (active instanceof HTMLElement && active.closest("[data-app-sidebar]")) {
-            const scrollNode = getScrollNode();
-            if (scrollNode) {
-              scrollNode.tabIndex = -1;
-              scrollNode.focus({ preventScroll: true });
-            }
-          } else focusSidebar();
-        }
+        if (["h", "j", "k", "l"].includes(event.key))
+          moveWindowFocus(event.key as VimFocusDirection, active);
+        else if (event.key === "w") cycleWindowFocus(active);
         update();
         return;
       }
@@ -678,8 +791,10 @@ export function TimelineVimMode({
               <span>set mark / jump / jump back</span>
               <kbd>f / F</kbd>
               <span>activate / focus a visible control</span>
-              <kbd>Ctrl-w h / l</kbd>
-              <span>thread sidebar / conversation</span>
+              <kbd>Ctrl-w h / j / k / l</kbd>
+              <span>focus left / down / up / right</span>
+              <kbd>Ctrl-w w</kbd>
+              <span>cycle threads / conversation / composer</span>
               <kbd>Sidebar j / k</kbd>
               <span>previous / next project or thread</span>
               <kbd>Sidebar / · Enter</kbd>

@@ -14,11 +14,12 @@ for the sidebar → response → composer workflow and a progressive practice pl
 
 In a conversation, use `j`/`k` to scroll, `Ctrl+d`/`Ctrl+u` for half pages,
 `gg`/`G` for the start or end, and `{`/`}` for the previous or next message.
-Use `Ctrl+w h` to focus the thread sidebar and `Ctrl+w l` to return to the
-conversation (`Ctrl+w w` toggles between them). In the sidebar, `j`/`k` moves
-between projects and threads, `h`/`l` collapses or expands projects, `/` focuses
-the thread filter, and `Enter` or `o` opens the focused item. While filtering,
-`Ctrl+n`/`Ctrl+p` moves through results using the search field's native selection.
+Use `Ctrl+w` followed by `h`, `j`, `k`, or `l` to move focus left, down, up, or
+right between the thread sidebar, conversation, and composer. `Ctrl+w w` cycles
+through those three regions. In the sidebar, `j`/`k` moves between projects and
+threads, `h`/`l` collapses or expands projects, `/` focuses the thread filter,
+and `Enter` or `o` opens the focused item. While filtering, `Ctrl+n`/`Ctrl+p`
+moves through results using the search field's native selection.
 Use `m` plus a letter to set a thread-local mark, backtick plus that letter to
 jump to it, and two backticks to jump back. `f` labels visible controls for
 activation; `F` labels them for focus. `i` focuses the composer in Insert mode,
