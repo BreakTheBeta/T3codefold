@@ -931,6 +931,7 @@ interface ComposerPromptEditorProps {
   skills: ReadonlyArray<ServerProviderSkill>;
   disabled: boolean;
   vimModeEnabled?: boolean;
+  onVimModeDisplayChange?: (display: ComposerVimModeDisplay) => void;
   placeholder: string;
   containerClassName?: string;
   className?: string;
@@ -957,13 +958,19 @@ interface ComposerPromptEditorProps {
 }
 
 type ComposerVimMode = "NORMAL" | "INSERT" | "VISUAL" | "VISUAL LINE";
+export type ComposerVimModeDisplay = { mode: ComposerVimMode; pending: string };
 type ComposerVimOperator = "c" | "d" | "y";
 
 const COMPOSER_VIM_MOTIONS = new Set(["h", "j", "k", "l", "w", "b", "e", "0", "^", "$", "{", "}"]);
 
-function ComposerVimPlugin({ enabled }: { enabled: boolean }) {
+function ComposerVimPlugin({
+  enabled,
+  onDisplayChange,
+}: {
+  enabled: boolean;
+  onDisplayChange?: (display: ComposerVimModeDisplay) => void;
+}) {
   const [editor] = useLexicalComposerContext();
-  const [display, setDisplay] = useState({ mode: "NORMAL" as ComposerVimMode, pending: "" });
   const stateRef = useRef({
     mode: "NORMAL" as ComposerVimMode,
     count: "",
@@ -978,8 +985,8 @@ function ComposerVimPlugin({ enabled }: { enabled: boolean }) {
     const state = stateRef.current;
     const root = editor.getRootElement();
     if (root) root.dataset.vimMode = state.mode.toLowerCase().replace(" ", "-");
-    setDisplay({ mode: state.mode, pending: `${state.count}${state.pending}` });
-  }, [editor]);
+    onDisplayChange?.({ mode: state.mode, pending: `${state.count}${state.pending}` });
+  }, [editor, onDisplayChange]);
   const clearPending = useCallback(() => {
     stateRef.current.count = "";
     stateRef.current.pending = "";
@@ -1340,6 +1347,7 @@ function ComposerVimPlugin({ enabled }: { enabled: boolean }) {
     const handleEnterInsert = () => enterMode("INSERT");
 
     root.dataset.vimMode = stateRef.current.mode.toLowerCase().replace(" ", "-");
+    publish();
     root.addEventListener("keydown", handleKeyDown, true);
     root.addEventListener("t3-vim-insert", handleEnterInsert);
     return () => {
@@ -1356,17 +1364,7 @@ function ComposerVimPlugin({ enabled }: { enabled: boolean }) {
     stateRef.current.pending = "";
   }, [enabled]);
 
-  if (!enabled) return null;
-  return (
-    <div
-      aria-live="polite"
-      className="pointer-events-none absolute right-2 top-2 z-10 rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary"
-      data-testid="composer-vim-mode"
-    >
-      {display.mode}
-      {display.pending ? ` ${display.pending}` : ""}
-    </div>
-  );
+  return null;
 }
 
 /**
@@ -2071,6 +2069,7 @@ function ComposerPromptEditorInner({
   skills,
   disabled,
   vimModeEnabled = false,
+  onVimModeDisplayChange,
   placeholder,
   containerClassName,
   className,
@@ -2480,7 +2479,10 @@ function ComposerPromptEditorInner({
             ErrorBoundary={LexicalErrorBoundary}
           />
           <OnChangePlugin onChange={handleEditorChange} />
-          <ComposerVimPlugin enabled={Boolean(vimModeEnabled)} />
+          <ComposerVimPlugin
+            enabled={Boolean(vimModeEnabled)}
+            {...(onVimModeDisplayChange ? { onDisplayChange: onVimModeDisplayChange } : {})}
+          />
           <ComposerCommandKeyPlugin {...(onCommandKeyDown ? { onCommandKeyDown } : {})} />
           <ComposerSurroundSelectionPlugin terminalContexts={terminalContexts} skills={skills} />
           <ComposerHomeEndKeyPlugin />
@@ -2503,6 +2505,7 @@ export function ComposerPromptEditor({
   skills,
   disabled,
   vimModeEnabled = false,
+  onVimModeDisplayChange,
   placeholder,
   containerClassName,
   className,
@@ -2554,6 +2557,7 @@ export function ComposerPromptEditor({
         skills={skills}
         disabled={disabled}
         vimModeEnabled={vimModeEnabled}
+        {...(onVimModeDisplayChange ? { onVimModeDisplayChange } : {})}
         placeholder={placeholder}
         {...(containerClassName ? { containerClassName } : {})}
         onRemoveTerminalContext={onRemoveTerminalContext}

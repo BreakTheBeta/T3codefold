@@ -75,7 +75,7 @@ function LinkRow({
   const snapshot = link.snapshot;
   return (
     <div
-      className="group/pr-row flex items-center gap-2 rounded-md py-1 pr-1 hover:bg-accent/60"
+      className="group/pr-row flex items-center gap-2 rounded-md py-1 pr-1 hover:bg-accent/60 has-[a:focus-visible]:bg-accent/80"
       // Each layer steps in under the one it targets. The step is capped: beyond a few layers
       // the indent only says "still in the stack", which the connector line already does, and
       // a sixteen-layer stack would otherwise stair-step off the right edge.
@@ -92,8 +92,9 @@ function LinkRow({
       )}
       <a
         href={link.url}
+        data-vim-list-item
         onClick={(event) => openPrLink(event, link.url, threadRef)}
-        className="min-w-0 flex-1"
+        className="min-w-0 flex-1 rounded-sm outline-none"
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <Tooltip>
