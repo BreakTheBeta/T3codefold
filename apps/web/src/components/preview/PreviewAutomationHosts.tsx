@@ -651,11 +651,13 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             return await ready.bridge.automation.snapshot(ready.runtimeTabId);
           }
           case "click": {
-            const ready = await requireReadyTab();
-            return await ready.bridge.automation.click(
-              ready.runtimeTabId,
-              request.input as Parameters<typeof ready.bridge.automation.click>[1],
-            );
+            return await withPreviewAutomationFocus(async () => {
+              const ready = await requireReadyTab();
+              return await ready.bridge.automation.click(
+                ready.runtimeTabId,
+                request.input as Parameters<typeof ready.bridge.automation.click>[1],
+              );
+            });
           }
           case "type": {
             const ready = await requireReadyTab();
