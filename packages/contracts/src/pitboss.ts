@@ -1,4 +1,4 @@
-import { PitbossSourceAuthority } from "./pitbossPeer.ts";
+import { PitbossSourceAuthority } from "./pitbossAuthority.ts";
 import * as Schema from "effect/Schema";
 import {
   EnvironmentId,
@@ -126,6 +126,12 @@ const TaskFields = {
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
 };
 export const PitbossAction = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("send-peer"),
+    peerId: Id,
+    text: TrimmedNonEmptyString.check(Schema.isMaxLength(12000)),
+    replyTo: Schema.optional(Id),
+  }),
   Schema.Struct({
     type: Schema.Literal("propose-coordination"),
     peerId: Id,

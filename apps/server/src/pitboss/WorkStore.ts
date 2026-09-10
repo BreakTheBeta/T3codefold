@@ -3,6 +3,7 @@ import * as NodeCrypto from "node:crypto";
 import type { PitbossSourceAuthority, PitbossSourceConfig } from "@t3tools/contracts";
 import type { SourceObservation } from "./TaskSources.ts";
 import {
+  PitbossMessage,
   PitbossCommand,
   PitbossError,
   PitbossSnapshot,
@@ -17,14 +18,7 @@ import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import {
-  decide,
-  emptyWork,
-  importedCriteria,
-  observeAttempt,
-  workContext,
-  type WorkActor,
-} from "./Work.ts";
+import { decide, importedCriteria, observeAttempt, workContext, type WorkActor } from "./Work.ts";
 
 export interface WorkEffect {
   readonly operation_id: string;
@@ -49,6 +43,7 @@ const unavailable = (cause: unknown) =>
 export class WorkStore extends Context.Service<
   WorkStore,
   {
+    receiveMessage: (message: typeof PitbossMessage.Type) => Effect.Effect<void, PitbossError>;
     rebuild: () => Effect.Effect<PitbossSnapshot, PitbossError>;
     read: (actor?: WorkActor) => Effect.Effect<PitbossSnapshot, PitbossError>;
     command: (
@@ -80,16 +75,36 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const notifications = yield* PubSub.unbounded<void>();
-    const readAll = Effect.fn("WorkStore.read")(function* () {
-      const rows = yield* sql<{
-        payload_json: string;
-      }>`SELECT payload_json FROM pitboss_state WHERE id = 1`;
-      return rows[0] ? yield* decodeSnapshot(rows[0].payload_json) : emptyWork;
-    }, Effect.mapError(unavailable));
     const persist = Effect.fn("WorkStore.persist")(function* (state: PitbossSnapshot) {
       const json = yield* encodeSnapshot(state);
       yield* sql`INSERT INTO pitboss_state (id, payload_json) VALUES (1, ${json}) ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json`;
     });
+    const rebuild = Effect.fn("WorkStore.rebuild")(
+      function* () {
+        const rows = yield* sql<{
+          payload_json: string;
+        }>`SELECT payload_json FROM pitboss_events ORDER BY sequence`;
+        const state = yield* Effect.try({
+          try: () => replayJournal(rows.map((row) => row.payload_json)),
+          catch: unavailable,
+        });
+        yield* persist(state);
+        return state;
+      },
+      sql.withTransaction,
+      Effect.mapError(unavailable),
+    );
+    const readAll = Effect.fn("WorkStore.read")(
+      function* () {
+        const rows = yield* sql<{
+          payload_json: string;
+        }>`SELECT payload_json FROM pitboss_state WHERE id = 1`;
+        // Missing projections are recoverable; replay never re-enqueues provider effects.
+        return rows[0] ? yield* decodeSnapshot(rows[0].payload_json) : yield* rebuild();
+      },
+      sql.withTransaction,
+      Effect.mapError(unavailable),
+    );
     const read = Effect.fn("WorkStore.readScoped")(function* (actor?: WorkActor) {
       const state = yield* readAll();
       if (!actor || actor.type === "user" || state.role?.threadId === actor.threadId) return state;
@@ -137,7 +152,9 @@ export const layer = Layer.effect(
           yield* persist(after);
           const action = input.action;
           if (
-            ["elect", "assign", "rework", "cancel", "propose-coordination"].includes(action.type)
+            ["elect", "assign", "rework", "cancel", "propose-coordination", "send-peer"].includes(
+              action.type,
+            )
           ) {
             yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, ${action.type}, ${encodeJson(action)})`;
           }
@@ -152,22 +169,26 @@ export const layer = Layer.effect(
     return WorkStore.of({
       read,
       command,
-      rebuild: () =>
+      rebuild,
+      receiveMessage: (message) =>
         sql
           .withTransaction(
             Effect.gen(function* () {
-              const rows = yield* sql<{
-                payload_json: string;
-              }>`SELECT payload_json FROM pitboss_events ORDER BY sequence`;
-              const state = yield* Effect.try({
-                try: () => replayJournal(rows.map((row) => row.payload_json)),
-                catch: unavailable,
+              const state = yield* readAll();
+              const previous = state.messages.find((entry) => entry.id === message.id);
+              if (previous) return;
+              yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${message.id}, ${message.id}, ${encodeJson({ type: "message", message })}, ${message.createdAt})`;
+              yield* persist({
+                ...state,
+                revision: state.revision + 1,
+                messages: [...state.messages, message],
               });
-              yield* persist(state);
-              return state;
             }),
           )
-          .pipe(Effect.mapError(unavailable)),
+          .pipe(
+            Effect.tap(() => PubSub.publish(notifications, undefined)),
+            Effect.mapError(unavailable),
+          ),
       changes: Stream.fromPubSub(notifications),
       subscribe: () =>
         Stream.unwrap(

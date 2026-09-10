@@ -2,10 +2,11 @@ import { expect, it } from "@effect/vitest";
 import { CommandId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer } from "./WorkStore.ts";
 const database = SqlitePersistenceMemory;
-const services = layer.pipe(Layer.provide(database));
+const services = layer.pipe(Layer.provideMerge(database));
 const election = {
   commandId: CommandId.make("elect"),
   expectedRevision: 0,
@@ -115,6 +116,9 @@ it.effect("rebuilds the disposable projection from the durable journal", () =>
   Effect.gen(function* () {
     const store = yield* WorkStore;
     const expected = yield* store.command(election, { type: "user" });
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`DELETE FROM pitboss_state`;
+    expect(yield* store.read()).toEqual(expected);
     expect(yield* store.rebuild()).toEqual(expected);
     expect((yield* store.effects()).map((effect) => effect.operation_id)).toEqual(["elect"]);
   }).pipe(Effect.provide(services)),

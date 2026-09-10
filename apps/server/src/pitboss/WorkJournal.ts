@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import { decide, emptyWork, observeAttempt } from "./Work.ts";
 
 const Entry = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("message"), message: PitbossMessage }),
   Schema.Struct({ type: Schema.Literal("authority"), authority: PitbossSourceAuthority }),
   Schema.Struct({
     type: Schema.Literal("command"),
@@ -42,6 +43,12 @@ export function replayJournal(entries: ReadonlyArray<string>): PitbossSnapshot {
   for (const raw of entries) {
     const entry = decode(raw);
     if (entry.type === "command") state = decide(state, entry.input, entry.actor, entry.now);
+    else if (entry.type === "message")
+      state = {
+        ...state,
+        revision: state.revision + 1,
+        messages: [...state.messages, entry.message],
+      };
     else if (entry.type === "attempt")
       state = observeAttempt(
         state,

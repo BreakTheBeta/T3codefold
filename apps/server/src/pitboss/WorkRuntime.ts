@@ -1,6 +1,12 @@
 import { ProjectionStoreThreadNotFoundError } from "../orchestration-v2/ProjectionStore.ts";
 import { PeerService } from "./PeerService.ts";
-import { CommandId, MessageId, PitbossAction, type PitbossSnapshot } from "@t3tools/contracts";
+import {
+  CommandId,
+  MessageId,
+  PitbossAction,
+  PitbossError,
+  type PitbossSnapshot,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -28,20 +34,40 @@ export const layer = Layer.effectDiscard(
           Effect.gen(function* () {
             const action = yield* decodeAction(effect.payload_json);
             const state = yield* store.read();
+            if (action.type === "send-peer") {
+              const message = state.messages.find((entry) => entry.id === effect.operation_id);
+              if (!message?.threadId)
+                return yield* new PitbossError({
+                  code: "invalid",
+                  message: "The originating thread is unavailable.",
+                });
+              yield* peers.send(action.peerId, {
+                id: effect.operation_id,
+                text: action.text,
+                replyTo: action.replyTo,
+                originThreadId: message.threadId,
+                createdAt: message.createdAt,
+              });
+            }
             if (action.type === "propose-coordination") {
               const known = yield* peers.list();
               const peer = known.peers.find((entry) => entry.config.id === action.peerId);
-              if (peer)
-                yield* peers.execute({
-                  type: "propose",
-                  peerId: action.peerId,
-                  proposal: {
-                    id: effect.operation_id,
-                    scope: peer.config.scope,
-                    coordinator: action.coordinator,
-                    participants: [known.environmentId, peer.config.environmentId],
-                  },
+              if (!peer)
+                return yield* new PitbossError({
+                  code: "invalid",
+                  message:
+                    "The proposed peer is no longer configured. Configure it before proposing again.",
                 });
+              yield* peers.execute({
+                type: "propose",
+                peerId: action.peerId,
+                proposal: {
+                  id: effect.operation_id,
+                  scope: peer.config.scope,
+                  coordinator: action.coordinator,
+                  participants: [known.environmentId, peer.config.environmentId],
+                },
+              });
             }
             if (action.type === "elect") {
               if (state.role?.threadId !== action.threadId) return;

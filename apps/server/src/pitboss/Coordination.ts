@@ -10,6 +10,7 @@ export interface CoordinationView {
   readonly proposals: ReadonlyArray<CoordinationProposal>;
   readonly versions: Readonly<Record<string, number>>;
   readonly approvals: Readonly<Record<string, string>>;
+  readonly rejections?: Readonly<Record<string, ReadonlyArray<string>>> | undefined;
 }
 export const emptyCoordination: CoordinationView = { proposals: [], approvals: {}, versions: {} };
 
@@ -61,8 +62,22 @@ export function reconcileCoordination(
     }
     approvals[sender] = selected;
   }
+  const rejected = peer.rejections?.[sender] ?? [];
+  if (
+    rejected.some(
+      (id) =>
+        !proposals.some((proposal) => proposal.id === id && proposal.participants.includes(sender)),
+    ) ||
+    (selected !== undefined && rejected.includes(selected))
+  ) {
+    throw new PitbossError({
+      code: "invalid",
+      message: "Peer decisions must refer to known proposals and cannot both approve and decline.",
+    });
+  }
   return {
     proposals,
+    rejections: { ...local.rejections, [sender]: rejected },
     approvals,
     versions: { ...local.versions, [sender]: peer.versions[sender] ?? 0 },
   };
@@ -97,6 +112,32 @@ export function approveCoordination(
   return {
     ...view,
     approvals: { ...view.approvals, [self]: proposalId },
+    rejections: {
+      ...view.rejections,
+      [self]: (view.rejections?.[self] ?? []).filter((id) => id !== proposalId),
+    },
+    versions: { ...view.versions, [self]: (view.versions[self] ?? 0) + 1 },
+  };
+}
+
+/** Declining revokes only this proposal; another approved agreement remains intact. */
+export function declineCoordination(
+  view: CoordinationView,
+  proposalId: string,
+  self: string,
+  hasWriters: boolean,
+): CoordinationView {
+  // Apply the same membership and live-writer checks as approval.
+  approveCoordination(view, proposalId, self, hasWriters);
+  const approvals = { ...view.approvals };
+  if (approvals[self] === proposalId) delete approvals[self];
+  return {
+    ...view,
+    approvals,
+    rejections: {
+      ...view.rejections,
+      [self]: [...new Set([...(view.rejections?.[self] ?? []), proposalId])],
+    },
     versions: { ...view.versions, [self]: (view.versions[self] ?? 0) + 1 },
   };
 }

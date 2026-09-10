@@ -2,6 +2,7 @@ import { expect, it } from "@effect/vitest";
 import {
   agreedCoordinator,
   approveCoordination,
+  declineCoordination,
   emptyCoordination,
   reconcileCoordination,
   type CoordinationView,
@@ -48,4 +49,27 @@ it("does not pick a winner for competing proposals or rewrite an existing propos
       "b",
     ),
   ).toThrow(/reused/);
+});
+
+it("reconciles a declined proposal without allowing stale approval to restore authority", () => {
+  const proposal = {
+    id: "p1",
+    scope: "tracker/project",
+    coordinator: "a",
+    participants: ["a", "b"] as const,
+  };
+  const agreed: CoordinationView = {
+    proposals: [proposal],
+    approvals: { a: "p1", b: "p1" },
+    versions: { a: 1, b: 1 },
+  };
+  const declined = declineCoordination(agreed, "p1", "b", false);
+  const reconciled = reconcileCoordination(agreed, declined, "b");
+  expect(agreedCoordinator(reconciled, proposal.scope)).toBeNull();
+  expect(reconciled.rejections?.b).toEqual(["p1"]);
+  expect(reconcileCoordination(reconciled, agreed, "b")).toEqual(reconciled);
+  const reconsidered = approveCoordination(declined, "p1", "b", false);
+  expect(agreedCoordinator(reconsidered, proposal.scope)).toBe("a");
+  expect(reconsidered.rejections?.b).toEqual([]);
+  expect(() => declineCoordination(agreed, "p1", "b", true)).toThrow(/writers/);
 });

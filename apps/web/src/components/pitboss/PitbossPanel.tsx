@@ -55,8 +55,10 @@ export function PitbossPin({
   const role = query.data?.role;
   if (!role) return null;
   const questions =
-    query.data?.messages.filter((message) => !message.acknowledged && message.kind === "question")
-      .length ?? 0;
+    query.data?.messages.filter(
+      (message) =>
+        !message.acknowledged && ["question", "decision", "result"].includes(message.kind),
+    ).length ?? 0;
   return (
     <button
       type="button"
@@ -144,7 +146,7 @@ export function PitbossPanel(props: {
   if (!state) return null;
   const selected = state.tasks.find((task) => task.id === selectedId);
   const questions = state.messages.filter(
-    (message) => !message.acknowledged && message.kind === "question",
+    (message) => !message.acknowledged && ["question", "decision", "result"].includes(message.kind),
   );
   const active = state.tasks.filter(
     (task) => task.status === "active" || task.status === "verifying",
@@ -562,7 +564,11 @@ export function PitbossPanel(props: {
                 </div>
               )}
               <PitbossSources environmentId={props.environmentId} projectId={props.projectId} />
-              <PitbossPeers environmentId={props.environmentId} tasks={state.tasks} />
+              <PitbossPeers
+                environmentId={props.environmentId}
+                tasks={state.tasks}
+                onCommand={command}
+              />
               <div className="mt-3 flex justify-end">
                 <Button
                   size="sm"

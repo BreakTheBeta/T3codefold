@@ -213,3 +213,71 @@ it.effect(
       }),
     ),
 );
+
+it.effect(
+  "replays durable peer mail after a lost reply without duplicating the pitboss inbox",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const a = yield* startPeer("mail-a");
+        const b = yield* startPeer("mail-b");
+        const secret = "test-only-mail-shared-credential-123456789";
+        for (const [local, remote, id, environmentId] of [
+          [a, b, "b", "mail-b"],
+          [b, a, "a", "mail-a"],
+        ] as const) {
+          yield* local.peer.execute({
+            type: "configure",
+            config: {
+              id,
+              environmentId: EnvironmentId.make(environmentId),
+              url: remote.url,
+              scope: "shared",
+              enabled: true,
+            },
+            secret,
+          });
+        }
+        const message = {
+          id: "request-1",
+          text: "Please inspect the shared backlog.",
+          originThreadId: ThreadId.make("boss-a"),
+          createdAt: "2026-09-10T00:00:00Z",
+        };
+        yield* a.peer.send("b", message);
+        yield* a.peer.send("b", message);
+        // Simulate the destination committing while the sender loses its HTTP response.
+        yield* b.peer.receive(`Bearer ${secret}`, {
+          environmentId: EnvironmentId.make("mail-a"),
+          scope: "shared",
+          view: (yield* a.peer.list()).peers[0]!.view,
+          messages: [message],
+        });
+        expect((yield* a.peer.list()).peers[0]?.pendingMessages).toBe(1);
+        yield* a.peer.execute({ type: "sync", peerId: "b" });
+        yield* a.peer.execute({ type: "sync", peerId: "b" });
+        const inbox = (yield* b.store.read()).messages;
+        expect(
+          inbox.filter((entry) => entry.text.includes("inspect the shared backlog")),
+        ).toHaveLength(1);
+        expect((yield* a.peer.list()).peers[0]?.pendingMessages).toBe(0);
+        const changed = yield* a.peer
+          .send("b", { ...message, text: "Changed request" })
+          .pipe(Effect.flip);
+        expect(changed.code).toBe("conflict");
+        yield* b.peer.send("a", {
+          id: "reply-1",
+          text: "The backlog has been inspected.",
+          replyTo: "request-1",
+          originThreadId: ThreadId.make("boss-b"),
+          createdAt: message.createdAt,
+        });
+        yield* b.peer.execute({ type: "sync", peerId: "a" });
+        expect((yield* a.store.read()).messages.at(-1)?.threadId).toBe("boss-a");
+        yield* b.stop;
+        yield* a.peer.send("b", { ...message, id: "request-offline" });
+        yield* a.peer.execute({ type: "sync", peerId: "b" }).pipe(Effect.flip);
+        expect((yield* a.peer.list()).peers[0]?.pendingMessages).toBe(1);
+      }),
+    ),
+);

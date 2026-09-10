@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 const Id = TrimmedNonEmptyString.check(Schema.isMaxLength(200));
 export const PitbossCoordinationProposal = Schema.Struct({
   id: Id,
@@ -10,6 +10,9 @@ export const PitbossCoordinationProposal = Schema.Struct({
 export const PitbossCoordinationView = Schema.Struct({
   proposals: Schema.Array(PitbossCoordinationProposal).check(Schema.isMaxLength(100)),
   approvals: Schema.Record(Schema.String, Schema.String),
+  rejections: Schema.optional(
+    Schema.Record(Schema.String, Schema.Array(Id).check(Schema.isMaxLength(100))),
+  ),
   versions: Schema.Record(Schema.String, Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export const PitbossPeerConfig = Schema.Struct({
@@ -20,9 +23,18 @@ export const PitbossPeerConfig = Schema.Struct({
   enabled: Schema.Boolean,
 });
 export type PitbossPeerConfig = typeof PitbossPeerConfig.Type;
+export const PitbossPeerMessage = Schema.Struct({
+  id: Id,
+  text: TrimmedNonEmptyString.check(Schema.isMaxLength(12000)),
+  originThreadId: ThreadId,
+  replyTo: Schema.optional(Id),
+  createdAt: Schema.String,
+});
+export type PitbossPeerMessage = typeof PitbossPeerMessage.Type;
 export const PitbossPeerState = Schema.Struct({
   config: PitbossPeerConfig,
   view: PitbossCoordinationView,
+  pendingMessages: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   lastSeenAt: Schema.NullOr(Schema.String),
   error: Schema.NullOr(Schema.String),
 });
@@ -43,6 +55,7 @@ export const PitbossPeerCommand = Schema.Union([
     proposal: PitbossCoordinationProposal,
   }),
   Schema.Struct({ type: Schema.Literal("approve"), peerId: Id, proposalId: Id }),
+  Schema.Struct({ type: Schema.Literal("decline"), peerId: Id, proposalId: Id }),
   Schema.Struct({ type: Schema.Literal("sync"), peerId: Id }),
 ]);
 export type PitbossPeerCommand = typeof PitbossPeerCommand.Type;
@@ -50,13 +63,8 @@ export const PitbossPeerEnvelope = Schema.Struct({
   environmentId: EnvironmentId,
   scope: Id,
   view: PitbossCoordinationView,
+  messages: Schema.optional(Schema.Array(PitbossPeerMessage).check(Schema.isMaxLength(20))),
+  receipts: Schema.optional(Schema.Array(Id).check(Schema.isMaxLength(100))),
 });
 export type PitbossPeerEnvelope = typeof PitbossPeerEnvelope.Type;
-export const PitbossSourceAuthority = Schema.Struct({
-  scope: Id,
-  self: EnvironmentId,
-  peerId: Schema.optional(Id),
-  peerEnvironmentId: Schema.optional(EnvironmentId),
-  coordinator: Schema.NullOr(EnvironmentId),
-});
-export type PitbossSourceAuthority = typeof PitbossSourceAuthority.Type;
+export { PitbossSourceAuthority } from "./pitbossAuthority.ts";

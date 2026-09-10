@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   PitbossError,
   PitbossPeerConfig,
+  PitbossPeerMessage,
   PitbossPeerEnvelope,
   PitbossCoordinationView,
   type PitbossPeerCommand,
@@ -24,6 +25,7 @@ import { hasUnresolvedWriter } from "./Work.ts";
 import {
   agreedCoordinator,
   approveCoordination,
+  declineCoordination,
   emptyCoordination,
   reconcileCoordination,
 } from "./Coordination.ts";
@@ -31,6 +33,8 @@ import {
 const isPitbossError = Schema.is(PitbossError);
 const json = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeViewValue = Schema.decodeUnknownEffect(PitbossCoordinationView);
+const decodeMessage = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossPeerMessage));
+const decodeMessageValue = Schema.decodeUnknownEffect(PitbossPeerMessage);
 const decodeEnvelope = Schema.decodeUnknownEffect(PitbossPeerEnvelope);
 const decodeConfig = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossPeerConfig));
 const decodeView = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossCoordinationView));
@@ -44,6 +48,7 @@ const failure = (cause: unknown) =>
 export class PeerService extends Context.Service<
   PeerService,
   {
+    send: (peerId: string, message: PitbossPeerMessage) => Effect.Effect<void, PitbossError>;
     list: () => Effect.Effect<PitbossPeerList, PitbossError>;
     execute: (input: PitbossPeerCommand) => Effect.Effect<PitbossPeerList, PitbossError>;
     receive: (
@@ -73,6 +78,11 @@ export const layer = Layer.effect(
           Effect.gen(function* () {
             return {
               config: yield* decodeConfig(row.config_json),
+              pendingMessages:
+                (yield* sql<{
+                  total: number;
+                }>`SELECT count(*) AS total FROM pitboss_mail WHERE peer_id = ${(yield* decodeConfig(row.config_json)).id} AND direction = 'out' AND delivered = 0`)[0]
+                  ?.total ?? 0,
               view: yield* decodeView(row.view_json),
               lastSeenAt: row.last_seen_at,
               error: row.error,
@@ -134,6 +144,104 @@ export const layer = Layer.effect(
       const now = DateTime.formatIso(yield* DateTime.now);
       yield* sql`UPDATE pitboss_peers SET last_seen_at = ${now}, error = NULL WHERE id = ${id}`;
     }, sql.withTransaction);
+    const send = Effect.fn("PeerService.send")(
+      function* (id: string, raw: PitbossPeerMessage) {
+        const peer = yield* find(id);
+        if (!peer.config.enabled)
+          return yield* new PitbossError({
+            code: "forbidden",
+            message: "Enable the peer before sending new requests.",
+          });
+        const message = yield* decodeMessageValue(raw);
+        const payload = json(message);
+        const existing = yield* sql<{
+          payload_json: string;
+        }>`SELECT payload_json FROM pitboss_mail WHERE peer_id = ${id} AND direction = 'out' AND message_id = ${message.id}`;
+        if (existing[0]) {
+          if (existing[0].payload_json !== payload)
+            return yield* new PitbossError({
+              code: "conflict",
+              message: "Message ID already belongs to another payload.",
+            });
+          return;
+        }
+        if (message.replyTo) {
+          const request =
+            yield* sql`SELECT message_id FROM pitboss_mail WHERE peer_id = ${id} AND direction = 'in' AND message_id = ${message.replyTo}`;
+          if (!request.length)
+            return yield* new PitbossError({
+              code: "invalid",
+              message: "Reply to a request received from this peer.",
+            });
+        }
+        yield* sql`INSERT INTO pitboss_mail (peer_id, direction, message_id, payload_json) VALUES (${id}, 'out', ${message.id}, ${payload})`;
+      },
+      sql.withTransaction,
+      Effect.mapError(failure),
+    );
+    const envelope = Effect.fn("PeerService.envelope")(function* (id: string) {
+      const peer = yield* find(id);
+      const pending = yield* sql<{
+        payload_json: string;
+      }>`SELECT payload_json FROM pitboss_mail WHERE peer_id = ${id} AND direction = 'out' AND delivered = 0 ORDER BY rowid LIMIT 20`;
+      return {
+        environmentId: self,
+        scope: peer.config.scope,
+        view: peer.view,
+        messages: yield* Effect.forEach(pending, (row) => decodeMessage(row.payload_json)),
+        receipts: (yield* sql<{
+          message_id: string;
+        }>`SELECT message_id FROM pitboss_mail WHERE peer_id = ${id} AND direction = 'in' AND delivered = 0 ORDER BY rowid LIMIT 80`).map(
+          (row) => row.message_id,
+        ),
+      };
+    });
+    const receiveMail = Effect.fn("PeerService.receiveMail")(function* (
+      id: string,
+      input: PitbossPeerEnvelope,
+    ) {
+      for (const receipt of input.receipts ?? []) {
+        yield* sql`UPDATE pitboss_mail SET delivered = 1 WHERE peer_id = ${id} AND direction = 'out' AND message_id = ${receipt}`;
+      }
+      for (const message of input.messages ?? []) {
+        const payload = json(message);
+        const previous = yield* sql<{
+          payload_json: string;
+        }>`SELECT payload_json FROM pitboss_mail WHERE peer_id = ${id} AND direction = 'in' AND message_id = ${message.id}`;
+        if (previous[0]) {
+          if (previous[0].payload_json !== payload)
+            return yield* new PitbossError({
+              code: "conflict",
+              message: "Peer reused a message ID with a different payload.",
+            });
+          continue;
+        }
+        let target = (yield* store.read()).role?.threadId ?? null;
+        if (message.replyTo) {
+          const original = yield* sql<{
+            payload_json: string;
+          }>`SELECT payload_json FROM pitboss_mail WHERE peer_id = ${id} AND direction = 'out' AND message_id = ${message.replyTo}`;
+          if (!original[0])
+            return yield* new PitbossError({
+              code: "invalid",
+              message: "Peer reply does not match a local request.",
+            });
+          target = (yield* decodeMessage(original[0].payload_json)).originThreadId;
+        }
+        yield* sql`INSERT INTO pitboss_mail (peer_id, direction, message_id, payload_json, delivered) VALUES (${id}, 'in', ${message.id}, ${payload}, 1)`;
+        yield* store.receiveMessage({
+          id: `peer:${NodeCrypto.createHash("sha256")
+            .update(json([id, message.id]))
+            .digest("hex")}`,
+          taskId: null,
+          threadId: target,
+          kind: message.replyTo ? "result" : "question",
+          text: `External peer ${id}; scope ${input.scope}; message ${message.id}${message.replyTo ? `; reply to ${message.replyTo}` : ""}:\n${message.text}`,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+          acknowledged: false,
+        });
+      }
+    }, sql.withTransaction);
     const sync = Effect.fn("PeerService.sync")(function* (id: string) {
       const peer = yield* find(id);
       if (!peer.config.enabled) return;
@@ -143,6 +251,7 @@ export const layer = Layer.effect(
           code: "invalid",
           message: "Configure a shared peer credential.",
         });
+      const outgoing = yield* envelope(id);
       const response = yield* httpClient
         .execute(
           HttpClientRequest.post(new URL("/api/pitboss/peer", peer.config.url).href).pipe(
@@ -150,11 +259,7 @@ export const layer = Layer.effect(
               "Authorization",
               `Bearer ${new TextDecoder().decode(secret.value)}`,
             ),
-            HttpClientRequest.bodyJsonUnsafe({
-              environmentId: self,
-              scope: peer.config.scope,
-              view: peer.view,
-            }),
+            HttpClientRequest.bodyJsonUnsafe(outgoing),
           ),
         )
         .pipe(
@@ -166,7 +271,18 @@ export const layer = Layer.effect(
           code: "unavailable",
           message: `Peer returned HTTP ${response.status}. Existing authority is retained; no failover occurred.`,
         });
-      yield* merge(id, yield* decodeEnvelope(yield* response.json));
+      const input = yield* decodeEnvelope(yield* response.json);
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* merge(id, input);
+          yield* receiveMail(id, input);
+        }),
+      );
+      for (const receipt of outgoing.receipts)
+        yield* sql`UPDATE pitboss_mail SET delivered = 1 WHERE peer_id = ${id} AND direction = 'in' AND message_id = ${receipt}`;
+      // Returned messages are acknowledged on the next request, independently of our own outbox.
+      for (const message of input.messages ?? [])
+        yield* sql`UPDATE pitboss_mail SET delivered = 0 WHERE peer_id = ${id} AND direction = 'in' AND message_id = ${message.id}`;
     }, Effect.mapError(failure));
     const execute = Effect.fn("PeerService.execute")(function* (input: PitbossPeerCommand) {
       if (input.type === "sync") {
@@ -274,7 +390,7 @@ export const layer = Layer.effect(
               const state = yield* store.read();
               const view = yield* Effect.try({
                 try: () =>
-                  approveCoordination(
+                  (input.type === "decline" ? declineCoordination : approveCoordination)(
                     peer.view,
                     input.proposalId,
                     self,
@@ -316,8 +432,22 @@ export const layer = Layer.effect(
           code: "forbidden",
           message: "Peer credential is invalid.",
         });
-      yield* merge(peer.config.id, input);
-      return { environmentId: self, scope: input.scope, view: (yield* find(peer.config.id)).view };
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* merge(peer.config.id, input);
+          yield* receiveMail(peer.config.id, input);
+          const outgoing = yield* envelope(peer.config.id);
+          return {
+            ...outgoing,
+            receipts: [
+              ...new Set([
+                ...outgoing.receipts,
+                ...(input.messages ?? []).map((message) => message.id),
+              ]),
+            ],
+          };
+        }),
+      );
     }, Effect.mapError(failure));
     yield* Effect.gen(function* () {
       for (const peer of (yield* list()).peers.filter((entry) => entry.config.enabled)) {
@@ -330,6 +460,6 @@ export const layer = Layer.effect(
         );
       }
     }).pipe(Effect.repeat(Schedule.spaced("15 seconds")), Effect.forkScoped);
-    return PeerService.of({ list, execute, receive });
+    return PeerService.of({ list, execute, receive, send });
   }),
 );

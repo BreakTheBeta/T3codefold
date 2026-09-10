@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { EnvironmentId, type PitbossPeerCommand, type PitbossTask } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type PitbossAction,
+  type PitbossPeerCommand,
+  type PitbossTask,
+} from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -11,14 +16,18 @@ const inputClass = "rounded border border-border bg-background p-2";
 export function PitbossPeers({
   environmentId,
   tasks,
+  onCommand,
 }: {
   environmentId: EnvironmentId;
   tasks: readonly PitbossTask[];
+  onCommand: (action: PitbossAction) => Promise<boolean>;
 }) {
   const query = useEnvironmentQuery(serverEnvironment.pitbossPeers({ environmentId, input: {} }));
   const mutate = useAtomCommand(serverEnvironment.pitbossPeerCommand, {
     label: "pitboss shared coordination",
   });
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [replyIds, setReplyIds] = useState<Record<string, string>>({});
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +95,57 @@ export function PitbossPeers({
               Reconcile now
             </Button>
           </div>
+          <p className="mt-2 text-muted-foreground">
+            {peer.pendingMessages ?? 0} messages awaiting durable receipt
+          </p>
+          <form
+            className="mt-2 grid gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onCommand({
+                type: "send-peer",
+                peerId: peer.config.id,
+                text: drafts[peer.config.id] ?? "",
+                ...(replyIds[peer.config.id] ? { replyTo: replyIds[peer.config.id] } : {}),
+              }).then((sent) => {
+                if (sent) {
+                  setDrafts((values) => ({ ...values, [peer.config.id]: "" }));
+                  query.refresh();
+                }
+              });
+            }}
+          >
+            <label className="grid gap-1">
+              Message to {peer.config.id}
+              <textarea
+                required
+                maxLength={12000}
+                className={inputClass}
+                value={drafts[peer.config.id] ?? ""}
+                onChange={(event) =>
+                  setDrafts((values) => ({ ...values, [peer.config.id]: event.target.value }))
+                }
+              />
+            </label>
+            <label className="grid gap-1">
+              Reply to message ID (optional)
+              <input
+                className={inputClass}
+                value={replyIds[peer.config.id] ?? ""}
+                onChange={(event) =>
+                  setReplyIds((values) => ({ ...values, [peer.config.id]: event.target.value }))
+                }
+              />
+            </label>
+            <Button
+              type="submit"
+              size="sm"
+              variant="outline"
+              disabled={busy || !peer.config.enabled}
+            >
+              Queue message
+            </Button>
+          </form>
           {peer.view.proposals.map((proposal) => {
             const approved = proposal.participants.every(
               (participant) => peer.view.approvals[participant] === proposal.id,
@@ -98,12 +158,35 @@ export function PitbossPeers({
                 </p>
                 <p className="mt-1 text-muted-foreground">
                   Local:{" "}
-                  {self && peer.view.approvals[self] === proposal.id ? "approved" : "pending"} ·
-                  Peer:{" "}
+                  {self && peer.view.approvals[self] === proposal.id
+                    ? "approved"
+                    : self && peer.view.rejections?.[self]?.includes(proposal.id)
+                      ? "declined"
+                      : "pending"}{" "}
+                  · Peer:{" "}
                   {peer.view.approvals[peer.config.environmentId] === proposal.id
                     ? "approved"
-                    : "pending"}
+                    : peer.view.rejections?.[peer.config.environmentId]?.includes(proposal.id)
+                      ? "declined"
+                      : "pending"}
                 </p>
+                {self && !peer.view.rejections?.[self]?.includes(proposal.id) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="mt-2"
+                    disabled={busy || !peer.config.enabled}
+                    onClick={() =>
+                      void execute({
+                        type: "decline",
+                        peerId: peer.config.id,
+                        proposalId: proposal.id,
+                      })
+                    }
+                  >
+                    {peer.view.approvals[self] === proposal.id ? "Withdraw approval" : "Decline"}
+                  </Button>
+                )}
                 {self && peer.view.approvals[self] !== proposal.id && (
                   <Button
                     size="sm"

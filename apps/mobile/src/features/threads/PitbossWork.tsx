@@ -346,7 +346,8 @@ function MobilePitbossPeers({ environmentId }: { environmentId: EnvironmentId })
       {query.data?.peers.map((peer) => (
         <View key={peer.config.id} className="gap-2 rounded-xl border border-border p-3">
           <Text>
-            {peer.config.id} · {peer.error ?? "Paired"}
+            {peer.config.id} · {peer.error ?? "Paired"} · {peer.pendingMessages ?? 0} messages
+            pending
           </Text>
           {peer.view.proposals.map((proposal) => (
             <View key={proposal.id} className="gap-2">
@@ -361,6 +362,38 @@ function MobilePitbossPeers({ environmentId }: { environmentId: EnvironmentId })
                   ? "Approved by both environments"
                   : "Awaiting approvals"}
               </Text>
+              {query.data &&
+                peer.view.rejections?.[query.data.environmentId]?.includes(proposal.id) && (
+                  <Text className="text-xs text-muted-foreground">Declined locally</Text>
+                )}
+              {query.data &&
+                !peer.view.rejections?.[query.data.environmentId]?.includes(proposal.id) && (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy || !peer.config.enabled}
+                    className="rounded-lg bg-primary/10 p-3"
+                    onPress={() => {
+                      setBusy(true);
+                      void mutate({
+                        environmentId,
+                        input: { type: "decline", peerId: peer.config.id, proposalId: proposal.id },
+                      }).then((result) => {
+                        setBusy(false);
+                        if (result._tag === "Failure")
+                          setError(
+                            "Decision could not be applied. Resolve active workers and refresh.",
+                          );
+                        query.refresh();
+                      });
+                    }}
+                  >
+                    <Text>
+                      {peer.view.approvals[query.data.environmentId] === proposal.id
+                        ? "Withdraw approval"
+                        : "Decline"}
+                    </Text>
+                  </Pressable>
+                )}
               {query.data && peer.view.approvals[query.data.environmentId] !== proposal.id && (
                 <Pressable
                   accessibilityRole="button"
