@@ -3,8 +3,21 @@ import {
   buildVimHintLabels,
   nextDirectionalVimRegion,
   nextVimListIndex,
+  nextVimScrollTop,
   type VimFocusRect,
 } from "./TimelineVimMode";
+
+describe("Vim smooth scrolling", () => {
+  it("accumulates repeated motions against the pending destination", () => {
+    expect(nextVimScrollTop(100, undefined, 80, 500)).toBe(180);
+    expect(nextVimScrollTop(104, 180, 80, 500)).toBe(260);
+  });
+
+  it("stops at either scroll boundary", () => {
+    expect(nextVimScrollTop(40, undefined, -80, 500)).toBe(0);
+    expect(nextVimScrollTop(460, undefined, 80, 500)).toBe(500);
+  });
+});
 
 describe("Vim hint labels", () => {
   it("uses one key for small target sets", () => {
