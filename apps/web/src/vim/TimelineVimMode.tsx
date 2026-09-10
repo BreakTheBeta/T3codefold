@@ -3,6 +3,7 @@ import { openCommandPalette } from "~/commandPaletteBus";
 import { redirectDropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { isPreviewFocused } from "~/lib/previewFocus";
 import { isTerminalFocused } from "~/lib/terminalFocus";
+import { createVimScrollController } from "./vimScroll";
 import { currentLineRange, moveTextCursor, type VimMotion } from "./vimText";
 
 const HINT_ALPHABET = "asdfghjklqwertyuiopzxcvbnm";
@@ -31,6 +32,9 @@ const SIDEBAR_ITEM_SELECTOR = [
   "[data-app-sidebar] [data-sidebar='menu-button']",
   "[data-app-sidebar] [data-sidebar='menu-sub-button']",
 ].join(",");
+// User-navigation state can remount the timeline. Keep the animator alive long enough to
+// finish a tap while the next timeline instance takes over its keyup and blur listeners.
+const timelineVimScroller = createVimScrollController();
 
 type HintPosition = { label: string; left: number; top: number };
 type ControlHint = HintPosition & { kind: "control"; element: HTMLElement };
@@ -144,35 +148,6 @@ function rendered(element: HTMLElement): boolean {
 
 function vimScrollBehavior(): ScrollBehavior {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
-}
-
-const vimScrollTargets = new WeakMap<HTMLElement, { top: number; timer: number }>();
-
-export function nextVimScrollTop(
-  scrollTop: number,
-  pendingTop: number | undefined,
-  distance: number,
-  maxScrollTop: number,
-): number {
-  return Math.max(0, Math.min(maxScrollTop, (pendingTop ?? scrollTop) + distance));
-}
-
-function vimScrollBy(element: HTMLElement, distance: number): void {
-  if (vimScrollBehavior() === "auto") {
-    element.scrollBy({ top: distance });
-    return;
-  }
-  const pending = vimScrollTargets.get(element);
-  if (pending) window.clearTimeout(pending.timer);
-  const top = nextVimScrollTop(
-    element.scrollTop,
-    pending?.top,
-    distance,
-    element.scrollHeight - element.clientHeight,
-  );
-  element.scrollTo({ top, behavior: "smooth" });
-  const timer = window.setTimeout(() => vimScrollTargets.delete(element), 350);
-  vimScrollTargets.set(element, { top, timer });
 }
 
 function collectHints(): Hint[] {
@@ -466,6 +441,7 @@ export function TimelineVimMode({
   }, [update]);
 
   useEffect(() => {
+    const vimScroller = timelineVimScroller;
     const currentMark = (): Mark | null => {
       const scrollNode = getScrollNode();
       if (!scrollNode) return null;
@@ -508,7 +484,11 @@ export function TimelineVimMode({
             : rows.toReversed().find((row) => row.getBoundingClientRect().top < viewport.top - 12);
         if (target) target.scrollIntoView({ block: "start", behavior: vimScrollBehavior() });
         else {
-          vimScrollBy(scrollNode, direction * scrollNode.clientHeight * 0.8);
+          vimScroller.press(scrollNode, direction * scrollNode.clientHeight * 0.8, {
+            code: "message-jump",
+            continuous: false,
+            repeat: false,
+          });
         }
       }
     };
@@ -862,12 +842,17 @@ export function TimelineVimMode({
       ) {
         consume();
         if (!scrollNode) return;
+        const hadCount = state.count.length > 0;
         const direction = event.key === "j" || event.key === "d" ? 1 : -1;
-        onUserNavigation();
         const distance = event.ctrlKey ? scrollNode.clientHeight / 2 : 64;
-        vimScrollBy(scrollNode, direction * distance * repetitions);
+        const started = vimScroller.press(scrollNode, direction * distance * repetitions, {
+          code: event.code,
+          continuous: repetitions === 1,
+          repeat: event.repeat,
+        });
+        if (started) onUserNavigation();
         state.count = "";
-        update();
+        if (hadCount) update();
         return;
       }
       if (event.key === "{") {
@@ -925,17 +910,21 @@ export function TimelineVimMode({
       state.count = "";
       update();
     };
+    const handleKeyUp = (event: KeyboardEvent) => vimScroller.release(event.code);
+    const handleBlur = () => vimScroller.cancel();
     window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("blur", handleBlur);
+    };
   }, [clear, focusComposer, getScrollNode, onScrollToEnd, onUserNavigation, routeKey, update]);
 
   const matchingHints = view.hints.filter((hint) => hint.label.startsWith(view.hintInput));
   return (
     <div className="contents" data-timeline-vim-mode="" data-vim-hint-ignore="true">
-      <div className="pointer-events-none absolute bottom-3 left-3 z-40 rounded bg-background/90 px-2 py-1 font-mono text-[10px] font-semibold text-primary shadow-sm ring-1 ring-border">
-        {view.mode}
-        {view.count || view.pending ? ` ${view.count}${view.pending}` : ""}
-      </div>
       {view.caretRect && (view.mode === "CARET" || view.mode === "VISUAL") ? (
         <span
           aria-hidden="true"
