@@ -7,14 +7,19 @@ import {
   useCallback,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import * as SecureStore from "expo-secure-store";
-import { Platform, View, Pressable, ScrollView, Switch } from "react-native";
+import { Platform, View, Pressable, ScrollView } from "react-native";
 import { AppText as Text } from "../../components/AppText";
+import { SymbolView } from "../../components/AppSymbol";
+import { ComposerToolbarButton } from "../../components/ComposerToolbar";
+import { ThemedSwitch } from "../../components/ThemedSwitch";
+import { cn } from "../../lib/cn";
 import {
   VoiceWorkspace,
   voiceStartInput,
@@ -253,20 +258,134 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
     </VoiceContext>
   );
 }
-function Action({ label, onPress }: { label: string; onPress(): void }) {
+type VoiceIcon = ComponentProps<typeof SymbolView>["name"];
+
+function VoiceChoiceChip({
+  label,
+  selected = false,
+  onPress,
+}: {
+  label: string;
+  selected?: boolean;
+  onPress(): void;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ selected }}
       onPress={onPress}
-      style={{ paddingVertical: 10, paddingHorizontal: 8 }}
+      className={cn(
+        "min-h-10 justify-center rounded-full border px-4 active:opacity-70",
+        selected ? "border-primary bg-primary" : "border-border-subtle bg-subtle",
+      )}
     >
-      <Text className="text-foreground" style={{ fontWeight: "600" }} numberOfLines={2}>
+      <Text
+        className={cn(
+          "text-sm font-t3-medium",
+          selected ? "text-primary-foreground" : "text-foreground",
+        )}
+        numberOfLines={1}
+      >
         {label}
       </Text>
     </Pressable>
   );
 }
+
+function VoiceSettingsRow({
+  icon,
+  label,
+  value,
+  disabled,
+  onPress,
+}: {
+  icon: VoiceIcon;
+  label: string;
+  value?: string;
+  disabled?: boolean;
+  onPress(): void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      className={cn(
+        "min-h-14 flex-row items-center gap-3 px-4 py-3 active:bg-subtle",
+        disabled && "opacity-45",
+      )}
+      disabled={disabled}
+      onPress={onPress}
+    >
+      <View className="size-9 items-center justify-center rounded-full bg-subtle">
+        <SymbolView name={icon} size={18} tintColorClassName="accent-icon" type="monochrome" />
+      </View>
+      <View className="min-w-0 flex-1">
+        <Text className="text-base font-t3-medium text-foreground">{label}</Text>
+        {value ? (
+          <Text className="text-sm text-foreground-muted" numberOfLines={1}>
+            {value}
+          </Text>
+        ) : null}
+      </View>
+      <SymbolView
+        name="chevron.right"
+        size={15}
+        tintColorClassName="accent-icon-muted"
+        type="monochrome"
+      />
+    </Pressable>
+  );
+}
+
+function VoiceSwitchRow({
+  icon,
+  label,
+  subtitle,
+  disabled,
+  value,
+  onValueChange,
+}: {
+  icon: VoiceIcon;
+  label: string;
+  subtitle?: string;
+  disabled?: boolean;
+  value: boolean;
+  onValueChange(value: boolean): void;
+}) {
+  return (
+    <View
+      className={cn("min-h-14 flex-row items-center gap-3 px-4 py-3", disabled && "opacity-45")}
+    >
+      <View className="size-9 items-center justify-center rounded-full bg-subtle">
+        <SymbolView name={icon} size={18} tintColorClassName="accent-icon" type="monochrome" />
+      </View>
+      <View className="min-w-0 flex-1">
+        <Text className="text-base font-t3-medium text-foreground">{label}</Text>
+        {subtitle ? <Text className="text-sm text-foreground-muted">{subtitle}</Text> : null}
+      </View>
+      <ThemedSwitch
+        accessibilityLabel={label}
+        disabled={disabled}
+        value={value}
+        onValueChange={onValueChange}
+      />
+    </View>
+  );
+}
+
+function VoiceSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View className="gap-2">
+      <Text className="px-2 text-sm font-t3-medium text-foreground-muted">{title}</Text>
+      <View className="overflow-hidden rounded-[22px] border border-border bg-card">
+        {children}
+      </View>
+    </View>
+  );
+}
+
 export function VoiceSettings() {
   const { workspace, state, audio } = useVoiceWorkspace();
   const enhanced = workspace.supportsVoiceControls();
@@ -291,75 +410,112 @@ export function VoiceSettings() {
     }
   };
   return (
-    <View style={{ gap: 8, padding: 12 }}>
-      <Text style={{ fontWeight: "600" }}>Live voice</Text>
-      <Action
-        label={enhanced ? "Load voices and microphones" : "Load microphones"}
-        onPress={() => void refresh()}
-      />
-      {deviceError && <Text>{deviceError}</Text>}
-      {!enhanced && <Text>{BASIC_VOICE_NOTICE}</Text>}
-      {enhanced && (
-        <>
-          <Text>Speaking voice: {state.preferences.voice || "Provider default"}</Text>
-          <ScrollView horizontal>
-            <Action
-              label="Provider default"
-              onPress={() => void workspace.setPreferences({ voice: "" })}
-            />
-            {state.voices.map((voice) => (
-              <Action
-                key={voice}
-                label={voice}
-                onPress={() => void workspace.setPreferences({ voice })}
+    <View className="gap-4 py-3">
+      {deviceError ? (
+        <View className="rounded-2xl border border-danger-border bg-danger px-4 py-3">
+          <Text className="text-sm text-danger-foreground">{deviceError}</Text>
+        </View>
+      ) : null}
+      {!enhanced ? (
+        <Text className="px-2 text-sm leading-normal text-foreground-muted">
+          {BASIC_VOICE_NOTICE}
+        </Text>
+      ) : null}
+
+      <VoiceSection title="Voice and microphone">
+        <VoiceSettingsRow
+          icon="waveform"
+          label="Refresh voice devices"
+          value={enhanced ? "Voices and microphones" : "Microphones"}
+          onPress={() => void refresh()}
+        />
+        {enhanced ? (
+          <View className="gap-2 border-t border-border px-4 py-3">
+            <Text className="text-sm font-t3-medium text-foreground">Speaking voice</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerClassName="gap-2"
+            >
+              <VoiceChoiceChip
+                label="Provider default"
+                selected={!state.preferences.voice}
+                onPress={() => void workspace.setPreferences({ voice: "" })}
               />
-            ))}
-          </ScrollView>
-          <Text>Voice changes apply to the next call.</Text>
-        </>
-      )}
-      <Text>Microphone</Text>
-      <ScrollView horizontal>
-        <Action
-          label="System default"
-          onPress={() => void workspace.setPreferences({ microphoneId: "" })}
-        />
-        {microphones
-          .filter((device) => device.deviceId)
-          .map((device) => (
-            <Action
-              key={device.deviceId}
-              label={device.label}
-              onPress={() => void workspace.setPreferences({ microphoneId: device.deviceId })}
+              {state.voices.map((voice) => (
+                <VoiceChoiceChip
+                  key={voice}
+                  label={voice}
+                  selected={state.preferences.voice === voice}
+                  onPress={() => void workspace.setPreferences({ voice })}
+                />
+              ))}
+            </ScrollView>
+            <Text className="text-xs text-foreground-muted">Changes apply to the next call.</Text>
+          </View>
+        ) : null}
+        <View className="gap-2 border-t border-border px-4 py-3">
+          <Text className="text-sm font-t3-medium text-foreground">Microphone</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerClassName="gap-2"
+          >
+            <VoiceChoiceChip
+              label="System default"
+              selected={!state.preferences.microphoneId}
+              onPress={() => void workspace.setPreferences({ microphoneId: "" })}
             />
-          ))}
-      </ScrollView>
-      <Action label="Increase call volume" onPress={() => audio.volumeUp()} />
-      <Action
-        label={`Audio route: ${audio.audioRoute}`}
-        onPress={() => void audio.chooseAudioOutput()}
-      />
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Text>Mute speaker</Text>
-        <Switch
-          accessibilityLabel="Mute speaker"
-          value={state.preferences.outputMuted}
-          onValueChange={(outputMuted) => void workspace.setPreferences({ outputMuted })}
+            {microphones
+              .filter((device) => device.deviceId)
+              .map((device) => (
+                <VoiceChoiceChip
+                  key={device.deviceId}
+                  label={device.label}
+                  selected={state.preferences.microphoneId === device.deviceId}
+                  onPress={() => void workspace.setPreferences({ microphoneId: device.deviceId })}
+                />
+              ))}
+          </ScrollView>
+        </View>
+      </VoiceSection>
+
+      <VoiceSection title="Call audio">
+        <VoiceSettingsRow
+          icon={audio.speaker ? "speaker.wave.2.fill" : "iphone"}
+          label="Audio output"
+          value={audio.audioRoute}
+          onPress={() => void audio.chooseAudioOutput()}
         />
-      </View>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Text>Share what I’m viewing</Text>
-        <Switch
-          accessibilityLabel="Share what I’m viewing"
+        {Platform.OS === "android" ? (
+          <View className="border-t border-border">
+            <VoiceSettingsRow
+              icon="plus"
+              label="Increase call volume"
+              onPress={() => audio.volumeUp()}
+            />
+          </View>
+        ) : null}
+        <View className="border-t border-border">
+          <VoiceSwitchRow
+            icon="speaker.wave.2.fill"
+            label="Mute speaker"
+            value={state.preferences.outputMuted}
+            onValueChange={(outputMuted) => void workspace.setPreferences({ outputMuted })}
+          />
+        </View>
+      </VoiceSection>
+
+      <VoiceSection title="Context">
+        <VoiceSwitchRow
+          icon="eye"
+          label="Share what I’m viewing"
+          subtitle="Files, diffs and questions only"
           disabled={!enhanced}
           value={enhanced && state.preferences.shareContext}
           onValueChange={(shareContext) => void workspace.setPreferences({ shareContext })}
         />
-      </View>
-      <Text>
-        Shares bounded file, diff and question context. Previously shared content remains in the
-        call.
-      </Text>
+      </VoiceSection>
     </View>
   );
 }
@@ -378,74 +534,154 @@ function VoicePanel() {
   return (
     <View
       accessibilityLabel="Live voice"
-      className="bg-screen border-t border-border"
+      className="mx-3 mb-3 overflow-hidden rounded-[24px] border border-border bg-card shadow-xl shadow-adaptive-black-a10-a25"
       style={{
-        paddingHorizontal: Math.max(insets.left, 12),
-        paddingBottom: insets.bottom,
-        maxHeight: "50%",
+        marginLeft: Math.max(insets.left, 12),
+        marginRight: Math.max(insets.right, 12),
+        marginBottom: Math.max(insets.bottom, 12),
+        maxHeight: "55%",
       }}
     >
-      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <View style={{ flex: 1 }}>
-          <Action
-            label={`${state.target?.title ?? "Live voice"} · ${state.voice.status}`}
-            onPress={() => setExpanded(!expanded)}
-          />
-        </View>
-        {!active && <Action label="Close voice panel" onPress={() => workspace.dismiss()} />}
-        {active && <Action label="End call" onPress={() => void workspace.stop()} />}
-      </View>
-      <Text className="text-foreground">
-        Agent: {target?.runtime?.status ?? "idle"}
-        {target?.hasPendingUserInput ? " · needs input" : ""}
-      </Text>
-      {state.notice || state.voice.error ? (
-        <Text className="text-foreground">{state.notice ?? state.voice.error}</Text>
-      ) : null}
-      {active && (
-        <View style={{ flexDirection: "row" }}>
-          <Action
-            label={state.voice.muted ? "Unmute mic" : "Mute mic"}
-            onPress={() => workspace.toggleMuted()}
-          />
-          <Action
-            label={state.preferences.outputMuted ? "Unmute speaker" : "Mute speaker"}
-            onPress={() =>
-              void workspace.setPreferences({ outputMuted: !state.preferences.outputMuted })
-            }
-          />
-        </View>
-      )}
-      {expanded && (
-        <ScrollView>
-          <VoiceSettings />
-          <Text>Voice task (reconnects)</Text>
-          <ScrollView horizontal>
-            {state.targets.map((target) => (
-              <Action
-                key={`${target.environmentId}:${target.threadId}`}
-                label={`${target.title} · ${target.environmentId.slice(0, 8)}`}
-                onPress={() => void workspace.start(target)}
-              />
-            ))}
-          </ScrollView>
-          {state.view && (
-            <Action
-              label="Switch voice to viewed task"
-              onPress={() => void workspace.start(state.view)}
+      <View className="min-h-[76px] flex-row items-center gap-3 px-3 py-2.5">
+        <Pressable
+          accessibilityLabel={`${expanded ? "Collapse" : "Expand"} live voice controls`}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          className="min-w-0 flex-1 flex-row items-center gap-3 rounded-2xl px-1 py-1 active:bg-subtle"
+          onPress={() => setExpanded(!expanded)}
+        >
+          <View className="size-10 items-center justify-center rounded-full bg-primary">
+            <SymbolView
+              name="waveform"
+              size={20}
+              tintColorClassName="accent-primary-foreground"
+              type="monochrome"
             />
-          )}
-          <Text>
+          </View>
+          <View className="min-w-0 flex-1">
+            <View className="flex-row items-center gap-2">
+              <View className="size-2 rounded-full bg-success" />
+              <Text className="text-xs font-t3-medium uppercase tracking-wide text-foreground-muted">
+                {state.voice.status === "live" ? "Live with Codex" : state.voice.status}
+              </Text>
+            </View>
+            <Text className="text-base font-t3-bold text-foreground" numberOfLines={1}>
+              {state.target?.title ?? "Live voice"}
+            </Text>
+            <Text className="text-xs text-foreground-muted" numberOfLines={1}>
+              Agent {target?.runtime?.status ?? "idle"}
+              {target?.hasPendingUserInput ? " · needs input" : ""}
+            </Text>
+          </View>
+          <SymbolView
+            name={expanded ? "chevron.down" : "chevron.up"}
+            size={16}
+            tintColorClassName="accent-icon-muted"
+            type="monochrome"
+          />
+        </Pressable>
+        {active ? (
+          <View className="flex-row items-center gap-1">
+            <ComposerToolbarButton
+              accessibilityLabel={state.voice.muted ? "Unmute microphone" : "Mute microphone"}
+              active={state.voice.muted}
+              icon={state.voice.muted ? "mic.slash" : "mic"}
+              onPress={() => workspace.toggleMuted()}
+              showChevron={false}
+            />
+            <ComposerToolbarButton
+              accessibilityLabel={state.preferences.outputMuted ? "Unmute speaker" : "Mute speaker"}
+              active={state.preferences.outputMuted}
+              icon="speaker.wave.2.fill"
+              onPress={() =>
+                void workspace.setPreferences({ outputMuted: !state.preferences.outputMuted })
+              }
+              showChevron={false}
+            />
+            <ComposerToolbarButton
+              accessibilityLabel="End voice call"
+              icon="phone.down.fill"
+              onPress={() => void workspace.stop()}
+              showChevron={false}
+              variant="danger"
+            />
+          </View>
+        ) : (
+          <ComposerToolbarButton
+            accessibilityLabel="Close voice panel"
+            icon="xmark"
+            onPress={() => workspace.dismiss()}
+            showChevron={false}
+          />
+        )}
+      </View>
+      {state.notice || state.voice.error ? (
+        <View className="border-t border-border px-4 py-3">
+          <Text className="text-sm text-foreground-muted">{state.notice ?? state.voice.error}</Text>
+        </View>
+      ) : null}
+      {expanded && (
+        <ScrollView className="border-t border-border px-3" showsVerticalScrollIndicator={false}>
+          <VoiceSettings />
+          <VoiceSection title="Voice task">
+            <View className="gap-2 px-4 py-3">
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerClassName="gap-2"
+              >
+                {state.targets.map((item) => (
+                  <VoiceChoiceChip
+                    key={`${item.environmentId}:${item.threadId}`}
+                    label={item.title}
+                    selected={
+                      item.environmentId === state.target?.environmentId &&
+                      item.threadId === state.target?.threadId
+                    }
+                    onPress={() => void workspace.start(item)}
+                  />
+                ))}
+              </ScrollView>
+              {state.view ? (
+                <VoiceSettingsRow
+                  icon="arrow.right.circle"
+                  label="Switch to viewed task"
+                  value="Reconnects this call"
+                  onPress={() => {
+                    if (state.view) void workspace.start(state.view);
+                  }}
+                />
+              ) : null}
+            </View>
+          </VoiceSection>
+          {state.feed.transcripts.length > 0 ||
+          state.feed.partial.user ||
+          state.feed.partial.assistant ? (
+            <View className="pt-4">
+              <VoiceSection title="Transcript">
+                <View className="gap-3 px-4 py-3">
+                  {state.feed.transcripts.map((entry) => (
+                    <View key={entry.id} className="gap-0.5">
+                      <Text className="text-xs font-t3-medium uppercase tracking-wide text-foreground-muted">
+                        {entry.role === "user" ? "You" : "Codex"}
+                      </Text>
+                      <Text className="text-sm leading-normal text-foreground">{entry.text}</Text>
+                    </View>
+                  ))}
+                  {state.feed.partial.user || state.feed.partial.assistant ? (
+                    <Text className="text-sm italic leading-normal text-foreground-muted">
+                      {state.feed.partial.user || state.feed.partial.assistant}
+                    </Text>
+                  ) : null}
+                </View>
+              </VoiceSection>
+            </View>
+          ) : null}
+          <Text className="px-2 pb-3 pt-4 text-xs leading-normal text-foreground-muted">
             {workspace.hasVoiceEvents
               ? "Say ‘end voice call’ or ‘switch voice to [thread title]’. Switching reconnects."
               : BASIC_VOICE_NOTICE}
           </Text>
-          {state.feed.transcripts.map((entry) => (
-            <Text key={entry.id} className="text-foreground" style={{ paddingVertical: 5 }}>
-              {entry.role === "user" ? "You" : "Codex"}: {entry.text}
-            </Text>
-          ))}
-          <Text>{state.feed.partial.user || state.feed.partial.assistant}</Text>
         </ScrollView>
       )}
     </View>
