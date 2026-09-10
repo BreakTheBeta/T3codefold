@@ -21,6 +21,7 @@ import {
   type RuntimeMode,
   type RuntimeRequestId,
   type ThreadId,
+  type ThreadPullRequestLinkSource,
   type ThreadEnvMode,
   type UploadChatAttachment,
 } from "@t3tools/contracts";
@@ -125,6 +126,20 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly regenerateTitle?: boolean;
   /** Link (object) or unlink (null) a pull request (#8160). */
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
+}
+
+export interface LinkThreadPullRequestInput extends ThreadCommandInput {
+  readonly host: string;
+  readonly repository: string;
+  readonly number: number;
+  readonly url: string;
+  readonly source: ThreadPullRequestLinkSource;
+}
+
+export interface UnlinkThreadPullRequestInput extends ThreadCommandInput {
+  readonly host: string;
+  readonly repository: string;
+  readonly number: number;
 }
 
 export interface SetThreadRuntimeModeInput extends ThreadCommandInput {
@@ -559,6 +574,28 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       });
     }
     return result ?? { sequence: 0 };
+  },
+);
+
+export const linkThreadPullRequest = Effect.fn("EnvironmentCommands.linkThreadPullRequest")(
+  function* (input: LinkThreadPullRequestInput) {
+    const commandId = yield* allocateCommandId(input);
+    return yield* dispatch({
+      ...input,
+      type: "thread.pull-request.link",
+      commandId,
+    });
+  },
+);
+
+export const unlinkThreadPullRequest = Effect.fn("EnvironmentCommands.unlinkThreadPullRequest")(
+  function* (input: UnlinkThreadPullRequestInput) {
+    const commandId = yield* allocateCommandId(input);
+    return yield* dispatch({
+      ...input,
+      type: "thread.pull-request.unlink",
+      commandId,
+    });
   },
 );
 

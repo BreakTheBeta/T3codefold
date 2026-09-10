@@ -539,3 +539,91 @@ describe("resolveViewedImageAsset", () => {
     expect(resolveViewedImageAsset("https://example.com/logo.png", { threadId })).toBeNull();
   });
 });
+
+describe("pull request tool presentation", () => {
+  const baseEntry = {
+    id: "pull-request-tool",
+    createdAt: "2026-09-01T00:00:00.000Z",
+  };
+  it.each([
+    "mcp__t3-code__link_pull_request",
+    "mcp__t3_code__link_pull_request",
+    "T3-code · link_pull_request",
+    "t3code/link_pull_request",
+    "link_pull_request",
+  ])("recognizes the native linking tool: %s", (label) => {
+    const entry = {
+      ...baseEntry,
+      label,
+      tone: "tool" as const,
+      toolLifecycleStatus: "completed" as const,
+    };
+    expect(resolveWorkEntryToolPresentation(entry)).toMatchObject({
+      displayName: "Linked a pull request",
+      icon: "pull-request",
+    });
+    expect(toolGroupAction(entry)).toBe("link-pr");
+  });
+
+  it.each([
+    ["inProgress", "Linking PR #42"],
+    ["completed", "Linked PR #42"],
+    ["failed", "Failed to link PR #42"],
+    ["declined", "Declined to link PR #42"],
+    ["stopped", "Stopped linking PR #42"],
+  ])("describes the target and %s status", (toolLifecycleStatus, displayName) => {
+    expect(
+      resolveWorkEntryToolPresentation({
+        ...baseEntry,
+        label: "MCP tool call",
+        toolTitle: "Custom title",
+        toolLifecycleStatus: toolLifecycleStatus as WorkLogToolLifecycleStatus,
+        toolData: {
+          server: "t3-code",
+          tool: "link_pull_request",
+          arguments: { url: "https://github.com/acme/web/pull/42" },
+        },
+      })?.displayName,
+    ).toBe(displayName);
+  });
+
+  it("recognizes unlink targets supplied as repository and number", () => {
+    expect(
+      resolveWorkEntryToolPresentation({
+        ...baseEntry,
+        label: "MCP tool call",
+        toolLifecycleStatus: "completed",
+        toolData: {
+          toolName: "mcp__t3-code__unlink_pull_request",
+          rawInput: { repository: "acme/web", number: 42 },
+        },
+      }),
+    ).toMatchObject({ displayName: "Unlinked PR #42", icon: "pull-request", action: "unlink-pr" });
+  });
+
+  it("summarizes native PR work separately from ordinary tools and integration metadata", () => {
+    const link: WorkLogPresentationEntry = {
+      ...baseEntry,
+      label: "T3-code · link_pull_request",
+      tone: "tool",
+      itemType: "dynamic_tool",
+      toolLifecycleStatus: "completed",
+      toolSource: { key: "t3-code", name: "T3 Code", kind: "integration" },
+    };
+    const list: WorkLogPresentationEntry = {
+      ...link,
+      label: "T3-code · list_thread_pull_requests",
+    };
+    expect(summarizeToolGroup([link, link, list]).summary).toBe(
+      "Linked 2 pull requests and checked linked pull requests",
+    );
+    expect(summarizeToolGroup([{ ...link, label: "T3-code · unlink_pull_request" }]).summary).toBe(
+      "Unlinked 1 pull request",
+    );
+    expect(toolGroupSummaryKind([link, link, list])).toBe("pull-request");
+    expect(summarizeToolGroup([list, list]).summary).toBe("Checked linked pull requests 2 times");
+    expect(
+      resolveWorkEntryToolPresentation({ label: "mcp__another-server__link_pull_request" }),
+    ).toBeNull();
+  });
+});

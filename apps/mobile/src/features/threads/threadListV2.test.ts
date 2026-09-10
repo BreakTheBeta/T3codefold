@@ -2,6 +2,8 @@ import { planPinnedMove } from "@t3tools/client-runtime/state/thread-sort";
 import {
   createPendingThreadOrder,
   createThreadMovePlanner,
+  threadOrderAfterMove,
+  threadDropLifecycle,
   reconcilePendingThreadOrder,
   type PendingThreadOrder,
 } from "./threadOrder";

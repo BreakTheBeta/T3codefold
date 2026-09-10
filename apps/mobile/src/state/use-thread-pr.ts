@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "./atom-registry";
+import { serverEnvironment } from "./server";
 import { useEnvironmentQuery } from "./query";
 import { presentThreadPr, type ThreadPrPresentation } from "./thread-pr-presentation";
 import { vcsEnvironment } from "./vcs";

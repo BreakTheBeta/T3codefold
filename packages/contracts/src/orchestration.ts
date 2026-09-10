@@ -26,6 +26,13 @@ import {
   RuntimeMode,
 } from "./providerPolicy.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import {
+  PullRequestActor,
+  PullRequestChecksState,
+  PullRequestMergeability,
+  PullRequestReviewDecision,
+  PullRequestState,
+} from "./pullRequest.ts";
 import { ProjectScript, ProjectIconOverride } from "./project.ts";
 export { ProjectIconColor, ProjectIconOverride } from "./project.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
@@ -223,6 +230,69 @@ export const ThreadLinkedPullRequest = Schema.Struct({
 });
 export type ThreadLinkedPullRequest = typeof ThreadLinkedPullRequest.Type;
 
+export const ThreadPullRequestLinkSource = Schema.Literals([
+  "manual",
+  "created",
+  "agent",
+  "stack",
+  "stack-dismissed",
+]);
+export type ThreadPullRequestLinkSource = typeof ThreadPullRequestLinkSource.Type;
+
+export const ThreadPullRequestSnapshot = Schema.Struct({
+  state: PullRequestState,
+  title: TrimmedNonEmptyString,
+  headBranch: TrimmedNonEmptyString,
+  baseBranch: TrimmedNonEmptyString,
+  isDraft: Schema.Boolean,
+  updatedAt: Schema.NullOr(IsoDateTime),
+  syncedAt: IsoDateTime,
+  closedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  mergedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  author: Schema.optional(Schema.NullOr(PullRequestActor)),
+  additions: Schema.optional(NonNegativeInt),
+  deletions: Schema.optional(NonNegativeInt),
+  changedFiles: Schema.optional(NonNegativeInt),
+  reviewDecision: Schema.optional(Schema.NullOr(PullRequestReviewDecision)),
+  checksState: Schema.optional(Schema.NullOr(PullRequestChecksState)),
+  mergeability: Schema.optional(PullRequestMergeability),
+});
+export type ThreadPullRequestSnapshot = typeof ThreadPullRequestSnapshot.Type;
+
+export const ThreadPullRequestStackLayer = Schema.Struct({
+  number: PositiveInt,
+  headBranch: TrimmedNonEmptyString,
+  state: PullRequestState,
+});
+export type ThreadPullRequestStackLayer = typeof ThreadPullRequestStackLayer.Type;
+
+export const ThreadPullRequestStack = Schema.Struct({
+  kind: Schema.Literal("native"),
+  id: TrimmedNonEmptyString,
+  number: PositiveInt,
+  url: TrimmedNonEmptyString,
+  base: TrimmedNonEmptyString,
+  layers: Schema.Array(ThreadPullRequestStackLayer),
+});
+export type ThreadPullRequestStack = typeof ThreadPullRequestStack.Type;
+
+export const ThreadPullRequestKey = Schema.Struct({
+  host: TrimmedNonEmptyString,
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+});
+export type ThreadPullRequestKey = typeof ThreadPullRequestKey.Type;
+
+export const ThreadPullRequestLink = Schema.Struct({
+  ...ThreadPullRequestKey.fields,
+  url: TrimmedNonEmptyString,
+  source: ThreadPullRequestLinkSource,
+  linkedAt: IsoDateTime,
+  snapshot: Schema.NullOr(ThreadPullRequestSnapshot),
+  stack: Schema.NullOr(ThreadPullRequestStack),
+});
+export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -235,6 +305,7 @@ export const OrchestrationThread = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  pullRequests: Schema.optionalKey(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
@@ -298,6 +369,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  pullRequests: Schema.optionalKey(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,

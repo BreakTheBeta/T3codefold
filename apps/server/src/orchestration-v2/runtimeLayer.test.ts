@@ -667,6 +667,69 @@ it.layer(TestLayer)("OrchestrationV2LayerLive", (it) => {
   );
 });
 
+it.layer(TestLayer)("OrchestrationV2 pull requests", (it) => {
+  it.effect("persists, refreshes, and unlinks multiple pull requests", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* OrchestratorV2;
+      const threadId = ThreadId.make("runtime-multi-pr-thread");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("runtime-multi-pr-create"),
+        createdBy: "user",
+        creationSource: "web",
+        threadId,
+        projectId: ProjectId.make("runtime-multi-pr-project"),
+        title: "Multiple pull requests",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.link",
+        commandId: CommandId.make("runtime-multi-pr-link"),
+        threadId,
+        host: "github.com",
+        repository: "t3tools/t3code",
+        number: 42,
+        url: "https://github.com/t3tools/t3code/pull/42",
+        source: "manual",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request-link.sync",
+        commandId: CommandId.make("runtime-multi-pr-sync"),
+        threadId,
+        host: "github.com",
+        repository: "t3tools/t3code",
+        number: 42,
+        snapshot: {
+          state: "open",
+          title: "Ship multi-PR support",
+          headBranch: "feature/multi-pr",
+          baseBranch: "main",
+          isDraft: false,
+          updatedAt: "2026-09-10T00:00:00.000Z",
+          syncedAt: "2026-09-10T00:00:01.000Z",
+        },
+        stack: null,
+      });
+      let shell = yield* orchestrator.getThreadShell(threadId);
+      assert.equal(shell?.pullRequests?.[0]?.snapshot?.title, "Ship multi-PR support");
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.unlink",
+        commandId: CommandId.make("runtime-multi-pr-unlink"),
+        threadId,
+        host: "GITHUB.COM",
+        repository: "T3TOOLS/T3CODE",
+        number: 42,
+      });
+      shell = yield* orchestrator.getThreadShell(threadId);
+      assert.deepEqual(shell?.pullRequests, []);
+    }),
+  );
+});
+
 it.layer(LegacyImportTestLayer)("OrchestrationV2 legacy import", (it) => {
   it.effect("hydrates imported transcripts before commands and propagates hydration failures", () =>
     Effect.gen(function* () {

@@ -115,6 +115,43 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
         )
       `;
       yield* sql`UPDATE projection_threads SET active_order_key = 'active-m' WHERE thread_id = ${threadId}`;
+      yield* sql`
+        CREATE TABLE projection_thread_pull_requests (
+          thread_id TEXT NOT NULL,
+          host TEXT NOT NULL,
+          repository TEXT NOT NULL,
+          number INTEGER NOT NULL,
+          url TEXT NOT NULL,
+          source TEXT NOT NULL,
+          linked_at TEXT NOT NULL,
+          snapshot_json TEXT,
+          stack_json TEXT,
+          PRIMARY KEY (thread_id, host, repository, number)
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_pull_requests (
+          thread_id,
+          host,
+          repository,
+          number,
+          url,
+          source,
+          linked_at,
+          snapshot_json,
+          stack_json
+        ) VALUES (
+          ${threadId},
+          'github.com',
+          'pingdotgg/t3code',
+          9001,
+          'https://github.com/pingdotgg/t3code/pull/9001',
+          'manual',
+          '2026-01-04T00:00:00.000Z',
+          NULL,
+          NULL
+        )
+      `;
 
       yield* sql`
         INSERT INTO projection_thread_messages (
@@ -211,6 +248,10 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
         DateTime.makeUnsafe("2026-01-03T12:00:00.000Z"),
       );
       assert.equal(shellProjection.thread.linkedPullRequest?.number, 9000);
+      assert.deepStrictEqual(
+        shellProjection.thread.pullRequests.map((pullRequest) => pullRequest.number),
+        [9001],
+      );
       const shellSnapshot = yield* projections.getShellSnapshot();
       assert.equal(
         shellSnapshot.threads.find((thread) => thread.id === threadId)?.historyOrigin,

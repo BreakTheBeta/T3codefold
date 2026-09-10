@@ -35,6 +35,8 @@ import {
 import { WorktreeToolkitHandlersLive } from "./toolkits/worktree/handlers.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
+import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handlers.ts";
+import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
   {
@@ -455,6 +457,10 @@ export const WorktreeToolkitRegistrationLive = McpServer.toolkit(WorktreeToolkit
   Layer.provide(WorktreeMcpService.layer),
 );
 
+export const PullRequestsToolkitRegistrationLive = McpServer.toolkit(PullRequestsToolkit).pipe(
+  Layer.provide(PullRequestsToolkitHandlersLive),
+);
+
 const McpTransportLive = McpServer.layerHttp({
   name: "T3 Code",
   version: packageJson.version,
@@ -466,4 +472,5 @@ export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   OrchestratorToolkitRegistrationLive,
   WorktreeToolkitRegistrationLive,
+  PullRequestsToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

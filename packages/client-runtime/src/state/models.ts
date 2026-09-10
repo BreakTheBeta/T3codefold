@@ -11,6 +11,7 @@ import type {
   ProviderInstanceId,
   RunId,
   ThreadId,
+  ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
@@ -103,6 +104,7 @@ export interface EnvironmentThreadShell {
   /** Slot in the user-arranged pinned order; null for keyless (legacy) pins. */
   readonly pinOrderKey: string | null;
   readonly activeOrderKey?: string | null;
+  readonly pullRequests: ReadonlyArray<ThreadPullRequestLink>;
   /**
    * Pull request the user linked to the thread (#8160). The v2 server does not
    * project this yet, so it stays undefined on v2 environments; UI treats
@@ -198,6 +200,7 @@ export function presentThreadShell(
     interactionMode: thread.interactionMode,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    pullRequests: thread.pullRequests ?? [],
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
     lineage: thread.lineage,
