@@ -10,6 +10,7 @@ const {
   getSwitchValueMock,
   hasSwitchMock,
   registerSchemesMock,
+  setUserDefaultMock,
   setDesktopNameMock,
   mkdirSyncMock,
   writeFileSyncMock,
@@ -18,6 +19,7 @@ const {
   getSwitchValueMock: vi.fn(),
   hasSwitchMock: vi.fn(),
   registerSchemesMock: vi.fn(),
+  setUserDefaultMock: vi.fn(),
   setDesktopNameMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
   writeFileSyncMock: vi.fn(),
@@ -36,6 +38,9 @@ vi.mock("electron", () => ({
   protocol: {
     registerSchemesAsPrivileged: registerSchemesMock,
   },
+  systemPreferences: {
+    setUserDefault: setUserDefaultMock,
+  },
 }));
 
 vi.mock("node:fs", () => ({
@@ -52,10 +57,25 @@ describe("DesktopPreReadyPlatform", () => {
     getSwitchValueMock.mockReset();
     hasSwitchMock.mockReset();
     registerSchemesMock.mockReset();
+    setUserDefaultMock.mockReset();
     setDesktopNameMock.mockReset();
     mkdirSyncMock.mockReset();
     writeFileSyncMock.mockReset();
   });
+
+  it.effect("disables the macOS accent chooser so held Vim motions repeat", () =>
+    DesktopPreReadyPlatform.make.pipe(
+      Effect.provideService(HostProcessPlatform, "darwin"),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          assert.deepEqual(setUserDefaultMock.mock.calls, [
+            ["ApplePressAndHoldEnabled", "boolean", false],
+          ]);
+        }),
+      ),
+      Effect.asVoid,
+    ),
+  );
 
   it.effect("preserves an explicit Linux password-store switch", () => {
     hasSwitchMock.mockImplementation((switchName) => switchName === "password-store");

@@ -58,6 +58,13 @@ export const make = Effect.gen(function* () {
         : null;
     const linux = platform === "linux" ? resolveEarlyLinuxElectronOptionsFromProcess() : null;
 
+    if (platform === "darwin") {
+      // macOS otherwise replaces key repeat with its accent chooser inside
+      // contenteditable controls. T3 Code uses held letters for Vim motions,
+      // so set the app-scoped preference before creating a renderer window.
+      Electron.systemPreferences.setUserDefault("ApplePressAndHoldEnabled", "boolean", false);
+    }
+
     if (linux !== null) {
       // The portal also requires a valid desktop entry. An AppImage update may
       // have removed the executable referenced by the previous launch's entry.
