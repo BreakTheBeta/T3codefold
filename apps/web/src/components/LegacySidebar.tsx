@@ -11,7 +11,14 @@ import {
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
+  GitPullRequestIcon,
 } from "lucide-react";
+import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
+import { LinkBranchPullRequestButton } from "./pullRequest/LinkBranchPullRequestButton";
+import {
+  resolveThreadCurrentPullRequestLink,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
 import {
   ChangeRequestStatusIcon,
   prStatusIndicator,
@@ -487,28 +494,18 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     },
   });
   const linkedPullRequestStatus = useLinkedThreadPullRequest(
-    leaseLiveStatus ? thread.environmentId : null,
-    leaseLiveStatus ? thread.linkedPullRequest : null,
+    thread.environmentId,
+    thread.linkedPullRequest,
+    leaseLiveStatus,
+    thread.pullRequests,
+    thread.branchPullRequest,
   );
-  const visibleGitStatus = useRetainedValue(
-    JSON.stringify([thread.environmentId, gitCwd]),
-    gitStatus.data,
-  );
-  const visibleLinkedPullRequestStatus = useRetainedValue(
-    thread.linkedPullRequest === null
-      ? null
-      : JSON.stringify([thread.environmentId, thread.linkedPullRequest]),
-    linkedPullRequestStatus,
-  );
-  const pr =
-    thread.linkedPullRequest == null
-      ? resolveThreadPr({ threadBranch: thread.branch, gitStatus: visibleGitStatus })
-      : (visibleLinkedPullRequestStatus?.pr ?? null);
-  const prStatus = prStatusIndicator(
-    pr,
-    visibleLinkedPullRequestStatus?.sourceControlProvider ??
-      visibleGitStatus?.sourceControlProvider,
-  );
+  const pr = linkedPullRequestStatus?.pr ?? null;
+  const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
+  const currentLinkedPr = supportsMultiplePullRequests
+    ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
+    : null;
+  const prStatus = prStatusIndicator(pr, linkedPullRequestStatus?.sourceControlProvider);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = confirmingArchiveThreadKey === threadKey && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive
@@ -618,17 +615,26 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   );
   const handlePrClick = useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
-      if (!prStatus) return;
+      const url = prStatus?.url ?? currentLinkedPr?.url;
+      if (!url) return;
       const openedInRightPanel = openPrLink(
         event,
-        prStatus.url,
+        url,
         openPullRequestsInRightPanel ? threadRef : undefined,
       );
       if (openedInRightPanel && openPullRequestsInRightPanel && !isActive) {
         navigateToThread(threadRef);
       }
     },
-    [isActive, navigateToThread, openPrLink, openPullRequestsInRightPanel, prStatus, threadRef],
+    [
+      isActive,
+      navigateToThread,
+      openPrLink,
+      openPullRequestsInRightPanel,
+      prStatus,
+      currentLinkedPr,
+      threadRef,
+    ],
   );
   const handleRenameInputRef = useCallback(
     (element: HTMLInputElement | null) => {
@@ -768,6 +774,25 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               </TooltipPopup>
             </Tooltip>
           )}
+          {!pr && currentLinkedPr ? (
+            <a
+              href={currentLinkedPr.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={handlePrClick}
+              className="text-muted-foreground"
+              aria-label={`PR #${currentLinkedPr.number}, status pending`}
+            >
+              <GitPullRequestIcon className="size-3" />
+            </a>
+          ) : null}
+          {pr &&
+          (supportsMultiplePullRequests
+            ? visibleThreadPullRequests(thread.pullRequests).length === 0
+            : thread.linkedPullRequest == null) ? (
+            <LinkBranchPullRequestButton threadRef={threadRef} url={pr.url} />
+          ) : null}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
           {renamingThreadKey === threadKey ? (
             <input
@@ -2351,6 +2376,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     <>
       <div className="group/project-header relative">
         <SidebarMenuButton
+          aria-expanded={projectExpanded}
           ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
           className={`pr-8 group-hover/project-header:bg-sidebar-row-hover group-hover/project-header:text-sidebar-foreground max-sm:pr-14 ${
             isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : ""

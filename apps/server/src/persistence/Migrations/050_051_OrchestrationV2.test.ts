@@ -62,6 +62,51 @@ layer("050_051_OrchestrationV2", (it) => {
       }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
   );
 
+  it.effect("repairs upstream main's conflicting migration 50 before installing V2", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 49 });
+      yield* sql`
+        CREATE TABLE projection_thread_pull_requests (
+          thread_id TEXT NOT NULL,
+          host TEXT NOT NULL,
+          repository TEXT NOT NULL,
+          number INTEGER NOT NULL,
+          url TEXT NOT NULL,
+          source TEXT NOT NULL,
+          linked_at TEXT NOT NULL,
+          snapshot_json TEXT,
+          stack_json TEXT,
+          PRIMARY KEY (thread_id, host, repository, number)
+        )
+      `;
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (50, 'ProjectionThreadPullRequests')
+      `;
+
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(
+        executed.map(([id]) => id),
+        Array.from({ length: 11 }, (_, index) => index + 51),
+      );
+      const migration = yield* sql<{ readonly name: string }>`
+        SELECT name FROM effect_sql_migrations WHERE migration_id = 50
+      `;
+      assert.deepStrictEqual(migration, [{ name: "OrchestrationV2" }]);
+      const v2Tables = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name = 'orchestration_v2_events'
+      `;
+      assert.deepStrictEqual(v2Tables, [{ name: "orchestration_v2_events" }]);
+      const upstreamTable = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name = 'projection_thread_pull_requests'
+      `;
+      assert.deepStrictEqual(upstreamTable, [{ name: "projection_thread_pull_requests" }]);
+    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  );
+
   it.effect("installs the orchestration v2 and subagent schemas", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

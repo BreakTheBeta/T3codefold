@@ -34,7 +34,7 @@ import {
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
-  searchSidebarThreadsByTitle,
+  searchSidebarThreads,
   shouldClearThreadSelectionOnMouseDown,
   shouldNavigateAfterProjectRemoval,
   shouldShowSidebarV2Duration,
@@ -886,7 +886,7 @@ describe("resolveSidebarThreadStatus", () => {
   });
 });
 
-describe("searchSidebarThreadsByTitle", () => {
+describe("searchSidebarThreads", () => {
   const threads = [
     { id: "thread-1", title: "Fix workspace search", project: "Alpha" },
     { id: "thread-2", title: "Review providers", project: "Workspace" },
@@ -894,15 +894,15 @@ describe("searchSidebarThreadsByTitle", () => {
   ];
 
   it("matches thread titles case-insensitively and preserves their order", () => {
-    expect(searchSidebarThreadsByTitle(threads, "work")).toEqual([threads[0], threads[2]]);
+    expect(searchSidebarThreads(threads, "work")).toEqual([threads[0], threads[2]]);
   });
 
   it("does not match project metadata", () => {
-    expect(searchSidebarThreadsByTitle(threads, "workspace")).toEqual([threads[0]]);
+    expect(searchSidebarThreads(threads, "workspace")).toEqual([threads[0]]);
   });
 
   it("returns no results for an empty query", () => {
-    expect(searchSidebarThreadsByTitle(threads, "   ")).toEqual([]);
+    expect(searchSidebarThreads(threads, "   ")).toEqual([]);
   });
 });
 
@@ -1305,6 +1305,13 @@ describe("resolveThreadStatusPill", () => {
 });
 
 describe("resolveThreadRowClassName", () => {
+  it("uses the native row surface instead of an outline for keyboard focus", () => {
+    const className = resolveThreadRowClassName({ isActive: false, isSelected: false });
+    expect(className).toContain("focus:bg-sidebar-row-selected");
+    expect(className).toContain("focus:text-sidebar-foreground");
+    expect(className).not.toContain("focus-visible:ring");
+  });
+
   it("uses the active sidebar surface when a thread is both selected and active", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
     expect(className).toContain("bg-sidebar-row-active");

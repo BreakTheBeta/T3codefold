@@ -1,3 +1,4 @@
+import { BlurTargetView } from "expo-blur";
 import { DEFAULT_TERMINAL_ID, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { type KnownTerminalSession } from "@t3tools/client-runtime/state/terminal";
 import type { MenuAction } from "@react-native-menu/menu";
@@ -157,6 +158,7 @@ type ThreadTerminalRouteScreenProps = StaticScreenProps<{
 
 export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps) {
   const isInspector = props.presentation === "inspector";
+  const terminalBlurTarget = useRef<View>(null);
   const navigation = useNavigation();
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const resizeTerminal = useAtomCommand(terminalEnvironment.resize, "terminal resize");
@@ -1267,7 +1269,21 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
           />
         ) : (
           <>
-            <View className="flex-1" style={{ paddingBottom: terminalBottomInset }}>
+            <BlurTargetView
+              ref={terminalBlurTarget}
+              style={{
+                flex: 1,
+                paddingBottom: terminalBottomInset,
+              }}
+            >
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundColor: terminalTheme.background,
+                }}
+              />
               <TerminalSurface
                 autoFocus={!SHOWCASE_ENABLED}
                 buffer={terminalSurfaceBuffer}
@@ -1280,7 +1296,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
                 terminalKey={terminalKey}
                 theme={terminalTheme}
               />
-            </View>
+            </BlurTargetView>
 
             {isAccessoryVisible ? (
               <KeyboardStickyView
@@ -1347,6 +1363,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
               >
                 <GlassSurface
                   chrome="none"
+                  blurTarget={terminalBlurTarget}
+                  fallbackColor={terminalTheme.background}
                   glassEffectStyle="regular"
                   tintColor="transparent"
                   style={{

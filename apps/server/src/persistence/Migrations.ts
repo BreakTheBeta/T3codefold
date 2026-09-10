@@ -12,6 +12,7 @@ import Migration0062 from "./Migrations/062_Pitboss.ts";
 
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -169,6 +170,30 @@ const makeMigrationLoader = (throughId?: number) =>
  */
 const run = Migrator.make({});
 
+const repairUpstreamMigration50Collision = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const trackingTable = yield* sql<{ readonly name: string }>`
+    SELECT name FROM sqlite_master
+    WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (trackingTable.length === 0) return;
+  const migration = yield* sql<{ readonly name: string }>`
+    SELECT name FROM effect_sql_migrations WHERE migration_id = 50
+  `;
+  if (migration[0]?.name !== "ProjectionThreadPullRequests") return;
+
+  const v2Table = yield* sql<{ readonly name: string }>`
+    SELECT name FROM sqlite_master
+    WHERE type = 'table' AND name = 'orchestration_v2_events'
+  `;
+  if (v2Table.length === 0) yield* Migration0050;
+  yield* sql`
+    UPDATE effect_sql_migrations
+    SET name = 'OrchestrationV2'
+    WHERE migration_id = 50
+  `;
+});
+
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
 }
@@ -186,6 +211,7 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  yield* repairUpstreamMigration50Collision;
   const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0

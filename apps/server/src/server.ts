@@ -4,6 +4,7 @@ import * as FleetRouter from "./mcp/FleetRouter.ts";
 import * as FleetThreadService from "./mcp/FleetThreadService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ThreadPullRequestReactor from "./orchestration/ThreadPullRequestReactor.ts";
+import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import { EnvironmentHttpApi, ProviderDriverKind } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
@@ -87,6 +88,7 @@ import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
+import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
 import * as SourceControlRateLimit from "./sourceControl/SourceControlRateLimit.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
@@ -290,6 +292,7 @@ const SourceControlProviderRegistryLayerLive = SourceControlProviderRegistry.lay
 
 const PullRequestServiceLive = PullRequestService.layer.pipe(
   Layer.provide(PullRequestProviderRegistry.layer),
+  Layer.provide(PullRequestReadCache.layer),
   Layer.provide(SourceControlProviderRegistryLayerLive),
   Layer.provide(SourceControlRateLimit.layer),
 );
@@ -425,6 +428,14 @@ const ThreadPullRequestWorkerLive = Layer.effectDiscard(
   ThreadPullRequestReactor.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(PullRequestServiceLive));
 
+const PullRequestSyncServiceLive = PullRequestSyncReactor.layer.pipe(
+  Layer.provide(PullRequestServiceLive),
+);
+
+const PullRequestSyncWorkerLive = Layer.effectDiscard(
+  PullRequestSyncReactor.PullRequestSyncReactor.pipe(Effect.flatMap((service) => service.start())),
+).pipe(Layer.provide(PullRequestSyncServiceLive));
+
 const AntigravityInstallationRefreshLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const installation = yield* AntigravityInstallation;
@@ -456,6 +467,8 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   AgentAwarenessRelay.layer,
   ThreadSettlementWorkerLive,
   ThreadPullRequestWorkerLive,
+  PullRequestSyncWorkerLive,
+  PullRequestSyncServiceLive,
   // Subscribes to `account.rate-limits.updated` so usage bars track live
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestionLive,

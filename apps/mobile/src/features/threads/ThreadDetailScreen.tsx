@@ -24,6 +24,8 @@ import {
 } from "@t3tools/client-runtime/codex-artifact-templates";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
 import * as Haptics from "expo-haptics";
+import { BlurTargetView } from "expo-blur";
+import { GlassBlurTargetContext } from "../../lib/glassBlurTarget";
 import {
   memo,
   useCallback,
@@ -821,7 +823,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   }, [freeze, scrollMessageToEnd]);
 
   const showScrollToEndButton = contentPresentationKind === "ready" && !endFollowEnabled;
-  const { themeAppearance } = useAppearancePreferences();
+  const { themeAppearance, materialYouStyleLayoutActive } = useAppearancePreferences();
   const isDarkMode = themeAppearance === "dark";
 
   const handleFeedTouchStart = useCallback((event: GestureResponderEvent) => {
@@ -853,6 +855,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const handleFeedTouchCancel = useCallback(() => {
     feedTouchStartRef.current = null;
   }, []);
+  const feedBlurTarget = useRef<View>(null);
 
   return (
     <View className="flex-1">
@@ -863,13 +866,22 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         modelSelection={props.selectedThread.modelSelection}
       />
       {showContent ? (
-        <View
-          className="flex-1"
+        <BlurTargetView
+          ref={feedBlurTarget}
+          style={{ flex: 1 }}
           onTouchStart={handleFeedTouchStart}
           onTouchMove={handleFeedTouchMove}
           onTouchEnd={handleFeedTouchEnd}
           onTouchCancel={handleFeedTouchCancel}
         >
+          <View
+            pointerEvents="none"
+            className={
+              materialYouStyleLayoutActive
+                ? "absolute inset-0 bg-thread-canvas"
+                : "absolute inset-0 bg-screen"
+            }
+          />
           <ThreadFeed
             key={selectedThreadKey}
             environmentId={props.environmentId}
@@ -908,7 +920,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             skills={selectedProviderSkills}
             onUseArtifactTemplate={handleUseArtifactTemplate}
           />
-        </View>
+        </BlurTargetView>
       ) : (
         <View className="flex-1" />
       )}

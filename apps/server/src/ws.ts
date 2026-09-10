@@ -3,6 +3,10 @@ import { SourceService } from "./pitboss/SourceService.ts";
 import { WorkStore } from "./pitboss/WorkStore.ts";
 import { PitbossError } from "@t3tools/contracts";
 import { keybindingsForVoiceClient } from "@t3tools/shared/keybindings";
+import {
+  threadPullRequestKeysEqual,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
 import { makeRealtimeVoiceSessionResolver } from "./orchestration-v2/RealtimeVoiceSession.ts";
 import { FleetBroker } from "./mcp/FleetBroker.ts";
 import { FleetRouter } from "./mcp/FleetRouter.ts";
@@ -64,6 +68,8 @@ import {
   type ProjectFileFailure,
   type ProjectFileOperation,
   type ProjectMutation,
+  type PullRequestRef,
+  PullRequestOperationError,
   ProjectListEntriesError,
   ProjectReadFileError,
   ProjectSearchContentsError,
@@ -83,6 +89,7 @@ import {
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
   ChatAttachmentId,
+  CommandId,
   PersistChatAttachmentsError,
   RpcClientId,
   EnvironmentAuthorizationError,
@@ -175,6 +182,7 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
@@ -191,6 +199,8 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
+import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
+import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
@@ -635,6 +645,23 @@ const makeWsRpcLayer = (
       const work = yield* WorkStore;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const pullRequests = yield* PullRequestService.PullRequestService;
+      const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
+      const resolvePullRequestSyncKey = (reference: PullRequestRef) =>
+        reference.host !== undefined && reference.repository.includes("/")
+          ? Effect.succeed(pullRequestSyncKey(reference))
+          : projectionSnapshotQuery.getProjectShellById(reference.projectId).pipe(
+              Effect.map((project) =>
+                pullRequestSyncKey(reference, Option.getOrUndefined(project)?.repositoryIdentity),
+              ),
+              Effect.mapError(
+                (cause) =>
+                  new PullRequestOperationError({
+                    operation: "syncKey",
+                    detail: "Could not resolve the pull request host.",
+                    cause,
+                  }),
+              ),
+            );
       const usage = yield* UsageService.UsageService;
       const projectService = yield* ProjectService.ProjectService;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
@@ -1363,7 +1390,8 @@ const makeWsRpcLayer = (
             Effect.gen(function* () {
               if (
                 command.type === "thread.history.import" ||
-                command.type === "thread.pull-request.sync"
+                command.type === "thread.pull-request.sync" ||
+                command.type === "thread.pull-request-link.sync"
               ) {
                 return yield* new OrchestratorDispatchError({
                   commandId: command.commandId,
@@ -2234,6 +2262,50 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.pullRequestsSummary, pullRequests.summary(input), {
             "rpc.aggregate": "pull-requests",
           }),
+        [WS_METHODS.pullRequestsStack]: (input) =>
+          observeRpcEffect(WS_METHODS.pullRequestsStack, pullRequests.stack(input), {
+            "rpc.aggregate": "pull-requests",
+          }),
+        [WS_METHODS.pullRequestsLinkedThreads]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.pullRequestsLinkedThreads,
+            resolvePullRequestSyncKey(input).pipe(
+              Effect.flatMap((key) =>
+                key === null
+                  ? Effect.succeed({ threads: [] })
+                  : threadManagement.getShellSnapshot().pipe(
+                      Effect.map((snapshot) => ({
+                        threads: snapshot.threads
+                          .filter(
+                            (thread) =>
+                              thread.deletedAt === null &&
+                              visibleThreadPullRequests(thread.pullRequests ?? []).some((link) =>
+                                threadPullRequestKeysEqual(link, key),
+                              ),
+                          )
+                          .map((thread) => ({
+                            id: thread.id,
+                            projectId: thread.projectId,
+                            title: thread.title,
+                            archivedAt:
+                              thread.archivedAt === null
+                                ? null
+                                : DateTime.formatIso(thread.archivedAt),
+                          })),
+                      })),
+                      Effect.mapError(
+                        (cause) =>
+                          new PullRequestOperationError({
+                            operation: "linkedThreads",
+                            detail: "Could not load linked threads.",
+                            cause,
+                          }),
+                      ),
+                    ),
+              ),
+            ),
+            { "rpc.aggregate": "pull-requests" },
+          ),
         [WS_METHODS.pullRequestsDetail]: (input) =>
           observeRpcEffect(WS_METHODS.pullRequestsDetail, pullRequests.detail(input), {
             "rpc.aggregate": "pull-requests",
@@ -2257,9 +2329,21 @@ const makeWsRpcLayer = (
             { "rpc.aggregate": "pull-requests" },
           ),
         [WS_METHODS.pullRequestsRunAction]: (input) =>
-          observeRpcEffect(WS_METHODS.pullRequestsRunAction, pullRequests.runAction(input), {
-            "rpc.aggregate": "pull-requests",
-          }),
+          observeRpcEffect(
+            WS_METHODS.pullRequestsRunAction,
+            pullRequests
+              .runAction(input)
+              .pipe(
+                Effect.tap(() =>
+                  resolvePullRequestSyncKey(input).pipe(
+                    Effect.flatMap((key) =>
+                      key === null ? Effect.void : pullRequestSync.requestSync(key),
+                    ),
+                  ),
+                ),
+              ),
+            { "rpc.aggregate": "pull-requests" },
+          ),
         [WS_METHODS.pullRequestsUpdate]: (input) =>
           observeRpcEffect(WS_METHODS.pullRequestsUpdate, pullRequests.update(input), {
             "rpc.aggregate": "pull-requests",
@@ -2297,9 +2381,23 @@ const makeWsRpcLayer = (
             "rpc.aggregate": "pull-requests",
           }),
         [WS_METHODS.pullRequestsInvalidate]: (input) =>
-          observeRpcEffect(WS_METHODS.pullRequestsInvalidate, pullRequests.invalidate(input), {
-            "rpc.aggregate": "pull-requests",
-          }),
+          observeRpcEffect(
+            WS_METHODS.pullRequestsInvalidate,
+            pullRequests
+              .invalidate(input)
+              .pipe(
+                Effect.andThen(
+                  input.reference === undefined
+                    ? Effect.void
+                    : resolvePullRequestSyncKey(input.reference).pipe(
+                        Effect.flatMap((key) =>
+                          key === null ? Effect.void : pullRequestSync.requestSync(key),
+                        ),
+                      ),
+                ),
+              ),
+            { "rpc.aggregate": "pull-requests" },
+          ),
         [WS_METHODS.pullRequestsSubscribeRefreshes]: () =>
           observeRpcStream(
             WS_METHODS.pullRequestsSubscribeRefreshes,
@@ -2622,8 +2720,29 @@ const makeWsRpcLayer = (
                 .pipe(
                   Effect.matchCauseEffect({
                     onFailure: (cause) => Queue.failCause(queue, cause),
-                    onSuccess: () =>
-                      refreshGitStatus(input.cwd).pipe(
+                    onSuccess: (result) =>
+                      (input.threadId === undefined
+                        ? Effect.void
+                        : linkCreatedPullRequest({
+                            threadId: input.threadId,
+                            result,
+                            commandId: crypto.randomUUIDv4.pipe(
+                              Effect.map((uuid) =>
+                                CommandId.make(`server:pr-created-link:${uuid}`),
+                              ),
+                            ),
+                          }).pipe(
+                            Effect.provideService(
+                              ThreadManagementService.ThreadManagementService,
+                              threadManagement,
+                            ),
+                            Effect.provideService(
+                              ProjectionSnapshotQuery.ProjectionSnapshotQuery,
+                              projectionSnapshotQuery,
+                            ),
+                          )
+                      ).pipe(
+                        Effect.andThen(refreshGitStatus(input.cwd)),
                         Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
                       ),
                   }),

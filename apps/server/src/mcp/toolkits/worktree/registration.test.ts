@@ -1,3 +1,4 @@
+import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SqlitePersistenceMemory } from "../../../persistence/Layers/Sqlite.ts";
 import { layerTest as serverConfigTestLayer } from "../../../config.ts";
 import { expect, it } from "@effect/vitest";
@@ -26,6 +27,7 @@ const StubServicesLive = Layer.mergeAll(
   SqlitePersistenceMemory,
   serverConfigTestLayer(process.cwd(), { prefix: "t3-worktree-test-" }),
   Layer.mock(ThreadManagementService)({}),
+  Layer.mock(ProjectionSnapshotQuery)({}),
   Layer.mock(ProviderRegistry)({}),
   Layer.mock(ScheduledTaskService)({}),
   Layer.mock(ProjectService.ProjectService)({}),

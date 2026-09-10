@@ -170,7 +170,11 @@ import {
 } from "../composerFooterLayout";
 import { measureRestingComposerControls } from "./restingComposerControlsMeasurement";
 import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
-import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
+import {
+  type ComposerPromptEditorHandle,
+  type ComposerVimModeDisplay,
+  ComposerPromptEditor,
+} from "../ComposerPromptEditor";
 import {
   type CodexRealtimeVoiceController,
   supportsCodexRealtimeVoiceVersion,
@@ -1488,6 +1492,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     editingQueuedAttachments,
     onRemoveEditingQueuedAttachment,
   } = props;
+  const composerVimDisplayRef = useRef<ComposerVimModeDisplay>({
+    mode: "NORMAL",
+    pending: "",
+  });
+  const composerVimModeIndicatorRef = useRef<HTMLSpanElement | null>(null);
+  const updateComposerVimDisplay = useCallback((display: ComposerVimModeDisplay) => {
+    composerVimDisplayRef.current = display;
+    const indicator = composerVimModeIndicatorRef.current;
+    if (indicator)
+      indicator.textContent = display.pending ? `${display.mode} ${display.pending}` : display.mode;
+  }, []);
+  const setComposerVimModeIndicator = useCallback((indicator: HTMLSpanElement | null) => {
+    composerVimModeIndicatorRef.current = indicator;
+    if (!indicator) return;
+    const display = composerVimDisplayRef.current;
+    indicator.textContent = display.pending ? `${display.mode} ${display.pending}` : display.mode;
+  }, []);
   const activeTasksProgress = props.threadSyncPhase === null ? props.activeTasksProgress : null;
   const activeTaskSteps = props.threadSyncPhase === null ? props.activeTaskSteps : null;
   // Non-null while a queued message is loaded for editing. The primary action
@@ -4068,7 +4089,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ) : null}
       <ProviderModelPicker
         isComposerOwned
-        compact={composerControlsCompact}
         disabled={providerCatalogPending}
         activeInstanceId={
           providerCatalogPending
@@ -5710,6 +5730,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 )}
               >
                 <ComposerPromptEditor
+                  vimModeEnabled={settings.vimModeEnabled}
+                  onVimModeDisplayChange={updateComposerVimDisplay}
                   editorRef={composerEditorRef}
                   value={
                     isComposerApprovalState
@@ -5856,6 +5878,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {settings.vimModeEnabled ? (
+                    <span
+                      ref={setComposerVimModeIndicator}
+                      aria-live="polite"
+                      className="pointer-events-none rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary"
+                      data-testid="composer-vim-mode"
+                    />
+                  ) : null}
                   {showComposerAttachAction ? (
                     <>
                       <input

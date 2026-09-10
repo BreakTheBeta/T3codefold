@@ -38,7 +38,13 @@ import {
   OrchestrationGetTurnDiffResult,
 } from "./checkpointDiff.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ThreadLinkedPullRequest } from "./orchestration.ts";
+import {
+  ThreadLinkedPullRequest,
+  ThreadPullRequestLink,
+  ThreadPullRequestLinkSource,
+  ThreadPullRequestSnapshot,
+  ThreadPullRequestStack,
+} from "./orchestration.ts";
 import {
   ProviderApprovalDecision,
   ProviderApprovalOption,
@@ -313,6 +319,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   /** Pull request the user linked to this thread (#8160); optional so
       pre-linking servers still decode. */
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  pullRequests: Schema.optionalKey(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
@@ -1338,6 +1345,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   /** Pull request the user linked to this thread (#8160). */
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  pullRequests: Schema.optionalKey(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
   forkedFrom: Schema.NullOr(OrchestrationV2AppThread.fields.forkedFrom),
@@ -2160,6 +2168,34 @@ export const OrchestrationV2Command = Schema.Union([
     }),
     branchPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
     linkedPullRequest: Schema.optional(ThreadLinkedPullRequest),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.pull-request.link"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    host: TrimmedNonEmptyString,
+    repository: TrimmedNonEmptyString,
+    number: PositiveInt,
+    url: TrimmedNonEmptyString,
+    source: ThreadPullRequestLinkSource,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.pull-request.unlink"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    host: TrimmedNonEmptyString,
+    repository: TrimmedNonEmptyString,
+    number: PositiveInt,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.pull-request-link.sync"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    host: TrimmedNonEmptyString,
+    repository: TrimmedNonEmptyString,
+    number: PositiveInt,
+    snapshot: ThreadPullRequestSnapshot,
+    stack: Schema.NullOr(ThreadPullRequestStack),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.active.reorder"),

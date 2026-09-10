@@ -260,6 +260,9 @@ function commandThreadId(command: OrchestrationV2Command): ThreadId {
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
+    case "thread.pull-request.link":
+    case "thread.pull-request.unlink":
+    case "thread.pull-request-link.sync":
     case "thread.pull-request.sync":
     case "thread.active.reorder":
     case "thread.visit":
@@ -1458,6 +1461,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.unpin"
           | "thread.pin.reorder"
           | "thread.active.reorder"
+          | "thread.pull-request.link"
+          | "thread.pull-request.unlink"
+          | "thread.pull-request-link.sync"
           | "thread.pull-request.sync"
           | "thread.mark-unread"
           | "thread.metadata.update"
@@ -1523,6 +1529,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.unpin" ||
         command.type === "thread.pin.reorder" ||
         command.type === "thread.active.reorder" ||
+        command.type === "thread.pull-request.link" ||
+        command.type === "thread.pull-request.unlink" ||
+        command.type === "thread.pull-request-link.sync" ||
         command.type === "thread.pull-request.sync") &&
       thread.archivedAt !== null
     ) {
@@ -1769,6 +1778,52 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: alreadyUnpinned ? thread.updatedAt : now,
           };
         }
+        case "thread.pull-request.link": {
+          const previous = thread.pullRequests ?? [];
+          const matches = (link: (typeof previous)[number]) =>
+            link.host.toLowerCase() === command.host.toLowerCase() &&
+            link.repository.toLowerCase() === command.repository.toLowerCase() &&
+            link.number === command.number;
+          return {
+            ...thread,
+            pullRequests: [
+              ...previous.filter((link) => !matches(link)),
+              {
+                host: command.host,
+                repository: command.repository,
+                number: command.number,
+                url: command.url,
+                source: command.source,
+                linkedAt: DateTime.formatIso(now),
+                snapshot: null,
+                stack: null,
+              },
+            ],
+            updatedAt: now,
+          };
+        }
+        case "thread.pull-request.unlink":
+          return {
+            ...thread,
+            pullRequests: (thread.pullRequests ?? []).filter(
+              (link) =>
+                link.host.toLowerCase() !== command.host.toLowerCase() ||
+                link.repository.toLowerCase() !== command.repository.toLowerCase() ||
+                link.number !== command.number,
+            ),
+            updatedAt: now,
+          };
+        case "thread.pull-request-link.sync":
+          return {
+            ...thread,
+            pullRequests: (thread.pullRequests ?? []).map((link) =>
+              link.host.toLowerCase() === command.host.toLowerCase() &&
+              link.repository.toLowerCase() === command.repository.toLowerCase() &&
+              link.number === command.number
+                ? { ...link, snapshot: command.snapshot, stack: command.stack }
+                : link,
+            ),
+          };
         case "thread.pull-request.sync":
           return {
             ...thread,
@@ -1858,6 +1913,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.marked-unread" as const;
         case "thread.pull-request.sync":
           return "thread.pull-request-synced" as const;
+        case "thread.pull-request.link":
+        case "thread.pull-request.unlink":
+        case "thread.pull-request-link.sync":
+          return "thread.metadata-updated" as const;
         case "thread.active.reorder":
         case "thread.metadata.update":
         case "thread.title.regeneration.complete":
@@ -7150,7 +7209,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.unpin":
       case "thread.pin.reorder":
       case "thread.active.reorder":
+      case "thread.pull-request.link":
+      case "thread.pull-request.unlink":
       case "thread.pull-request.sync":
+      case "thread.pull-request-link.sync":
       case "thread.mark-unread":
       case "thread.metadata.update":
       case "thread.title.regeneration.complete":

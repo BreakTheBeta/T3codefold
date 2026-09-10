@@ -175,7 +175,7 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
-  version: "1.0.12",
+  version: "1.0.14",
 
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
@@ -238,9 +238,12 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    versionCode: 12,
+    versionCode: 14,
     icon: variant.assets.appIcon,
     package: variant.androidPackage,
+    ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
+      ? { googleServicesFile: repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE }
+      : {}),
     adaptiveIcon: {
       backgroundColor: variant.assets.androidAdaptiveBackgroundColor,
       ...(variant.assets.androidAdaptiveBackgroundImage
@@ -361,6 +364,10 @@ const config: ExpoConfig = {
     [
       "expo-build-properties",
       {
+        android: {
+          // Keep the supported floor explicit and covered by native notification tests.
+          minSdkVersion: 24,
+        },
         ios: {
           deploymentTarget: "18.0",
           // AppCheckCore 11.3+ includes Swift and needs module maps for these Objective-C dependencies.

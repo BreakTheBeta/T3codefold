@@ -547,6 +547,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.citeSelectionEnabled !== DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled
         ? ["Show Cite on text selection"]
         : []),
+      ...(settings.vimModeEnabled !== DEFAULT_UNIFIED_SETTINGS.vimModeEnabled
+        ? ["Vim keyboard mode"]
+        : []),
       ...(settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
         ? ["Collapse composer on scroll"]
         : []),
@@ -636,6 +639,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarThreadPreviewCount,
       settings.showSkillsInSlashMenu,
       settings.citeSelectionEnabled,
+      settings.vimModeEnabled,
       settings.timestampFormat,
       settings.wordWrap,
       followSystem,
@@ -716,6 +720,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       citeSelectionEnabled: DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled,
+      vimModeEnabled: DEFAULT_UNIFIED_SETTINGS.vimModeEnabled,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
@@ -2401,6 +2406,30 @@ export function GeneralSettingsPanel() {
                 updateSettings({ citeSelectionEnabled: Boolean(checked) })
               }
               aria-label="Show Cite on text selection"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("vim-keyboard-mode")}
+          description="Use Vim-style navigation in conversations and modal editing in the composer. Press ? in conversation Normal mode for help."
+          resetAction={
+            settings.vimModeEnabled !== DEFAULT_UNIFIED_SETTINGS.vimModeEnabled ? (
+              <SettingResetButton
+                label="Vim keyboard mode"
+                onClick={() =>
+                  updateSettings({
+                    vimModeEnabled: DEFAULT_UNIFIED_SETTINGS.vimModeEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.vimModeEnabled}
+              onCheckedChange={(checked) => updateSettings({ vimModeEnabled: Boolean(checked) })}
+              aria-label="Vim keyboard mode"
             />
           }
         />

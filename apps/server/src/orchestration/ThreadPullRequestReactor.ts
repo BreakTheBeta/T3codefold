@@ -8,6 +8,7 @@ import {
   type ThreadLinkedPullRequest,
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -146,7 +147,7 @@ export const make = Effect.gen(function* () {
             ...projectShell,
             repositoryIdentity: yield* repositoryIdentities.resolve(projectShell.workspaceRoot),
           };
-          const repository = PullRequestService.repositoryIdentityOf(project);
+          const repository = sourceControlRepositorySelector(project.repositoryIdentity);
           if (first.branch !== null && repository === null) return finishBackfill(group);
           const worktreeExists =
             first.worktreePath !== null && (yield* fileSystem.exists(first.worktreePath));

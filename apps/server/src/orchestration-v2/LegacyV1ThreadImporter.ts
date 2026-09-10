@@ -13,6 +13,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   ThreadLinkedPullRequest,
+  ThreadPullRequestLink,
   TurnItemId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -76,6 +77,17 @@ interface LegacyImportRow {
   readonly transcript_imported_at: string | null;
 }
 
+interface LegacyPullRequestRow {
+  readonly host: string;
+  readonly repository: string;
+  readonly number: number;
+  readonly url: string;
+  readonly source: string;
+  readonly linked_at: string;
+  readonly snapshot_json: string | null;
+  readonly stack_json: string | null;
+}
+
 export interface LegacyV1ImportSummary {
   readonly importedThreadCount: number;
   readonly importedMessageCount: number;
@@ -113,6 +125,7 @@ export class LegacyV1ThreadImporter extends Context.Service<
 const decodeModelSelection = Schema.decodeUnknownOption(ModelSelection);
 const decodeAttachments = Schema.decodeUnknownOption(Schema.Array(ChatAttachment));
 const decodeLinkedPullRequest = Schema.decodeUnknownOption(ThreadLinkedPullRequest);
+const decodePullRequestLink = Schema.decodeUnknownOption(ThreadPullRequestLink);
 const decodeStoredThread = Schema.decodeUnknownOption(
   Schema.fromJsonString(OrchestrationV2AppThreadJson),
 );
@@ -303,6 +316,36 @@ const make = Effect.gen(function* () {
   const eventStore = yield* EventStoreV2;
   const eventSink = yield* EventSinkV2;
   const transcriptImports = yield* makeKeyedSerialExecutor<ThreadId>();
+  const listPullRequests = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const pullRequestTable = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name = 'projection_thread_pull_requests'
+      `;
+      if (pullRequestTable.length === 0) return [];
+      return yield* sql<LegacyPullRequestRow>`
+          SELECT host, repository, number, url, source, linked_at, snapshot_json, stack_json
+          FROM projection_thread_pull_requests
+          WHERE thread_id = ${threadId}
+          ORDER BY linked_at ASC, host ASC, repository ASC, number ASC
+        `.pipe(
+        Effect.map((rows) =>
+          rows.flatMap((row) => {
+            const decoded = decodePullRequestLink({
+              host: row.host,
+              repository: row.repository,
+              number: row.number,
+              url: row.url,
+              source: row.source,
+              linkedAt: row.linked_at,
+              snapshot: row.snapshot_json === null ? null : parseJson(row.snapshot_json),
+              stack: row.stack_json === null ? null : parseJson(row.stack_json),
+            });
+            return Option.isSome(decoded) ? [decoded.value] : [];
+          }),
+        ),
+      );
+    });
 
   const listMessages = (threadId: ThreadId) =>
     sql<LegacyMessageRow>`
@@ -432,6 +475,7 @@ const make = Effect.gen(function* () {
          OR json_type(projection.payload_json, '$.unsettledAt') IS NULL
          OR json_type(projection.payload_json, '$.linkedPullRequest') IS NULL
          OR json_type(projection.payload_json, '$.branchPullRequest') IS NULL
+         OR json_type(projection.payload_json, '$.pullRequests') IS NULL
       ORDER BY thread.created_at ASC, thread.thread_id ASC
     `;
     let repairedThreadCount = 0;
@@ -440,6 +484,7 @@ const make = Effect.gen(function* () {
       if (Option.isNone(decoded)) continue;
       const current = decoded.value;
       const legacy = importedThread(row);
+      const legacyPullRequests = yield* listPullRequests(legacy.id);
       const repaired: OrchestrationV2AppThread = {
         ...current,
         pinnedAt: current.pinnedAt === undefined ? legacy.pinnedAt : current.pinnedAt,
@@ -458,6 +503,8 @@ const make = Effect.gen(function* () {
           current.linkedPullRequest === undefined
             ? legacy.linkedPullRequest
             : current.linkedPullRequest,
+        pullRequests:
+          current.pullRequests === undefined ? legacyPullRequests : current.pullRequests,
       };
       yield* eventSink.write({
         events: [
@@ -511,7 +558,11 @@ const make = Effect.gen(function* () {
     let importedThreadCount = repairedThreadCount;
     let importedMessageCount = 0;
     for (const row of rows) {
-      const thread = importedThread(row);
+      const baseThread = importedThread(row);
+      const thread = {
+        ...baseThread,
+        pullRequests: yield* listPullRequests(baseThread.id),
+      } satisfies OrchestrationV2AppThread;
       const previews = yield* listShellMessages(thread.id);
       const events: Array<OrchestrationV2DomainEvent> = [
         {

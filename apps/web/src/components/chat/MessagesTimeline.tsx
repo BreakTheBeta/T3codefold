@@ -1,3 +1,4 @@
+import { GitPullRequestIcon } from "lucide-react";
 import {
   type AssistantCitation,
   type EnvironmentId,
@@ -1725,12 +1726,14 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         ) : null}
-        <CollapsibleUserMessageBody
-          text={elementContextState.promptText}
-          terminalContexts={terminalContexts}
-          skills={ctx.skills}
-          markdownCwd={ctx.markdownCwd}
-        />
+        <div data-vim-conversation-text="">
+          <CollapsibleUserMessageBody
+            text={elementContextState.promptText}
+            terminalContexts={terminalContexts}
+            skills={ctx.skills}
+            markdownCwd={ctx.markdownCwd}
+          />
+        </div>
       </div>
       {row.projectedItem &&
       row.projectedItem.item.status !== "completed" &&
@@ -2789,6 +2792,11 @@ function toolGroupSummaryIconName(
   kind: Extract<TimelineRow, { kind: "work-toggle" }>["summaryKind"],
 ): WorkEntryIconName {
   switch (kind) {
+    case "pull-request":
+    case "link-pr":
+    case "unlink-pr":
+    case "list-prs":
+      return "pull-request";
     case "read":
       return "eye";
     case "edit":
@@ -3378,6 +3386,7 @@ type WorkEntryIconName =
   | "search"
   | "square-pen"
   | "terminal"
+  | "pull-request"
   | "t3-code"
   | "wrench"
   | "x"
@@ -3582,6 +3591,8 @@ function ToolActivityImageIcon(props: {
 
 function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className: string }) {
   switch (name) {
+    case "pull-request":
+      return <GitPullRequestIcon className={className} aria-hidden />;
     case "bot":
       return <BotIcon className={className} aria-hidden />;
     case "brain":
@@ -3792,12 +3803,11 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           workspaceRoot,
         })
       : null;
-  const commandMatchesVisibleLabel = workEntry.command?.trim() === previewText.trim();
   const canExpand =
     (workEntry.itemType === "dynamic_tool" && workEntry.toolData !== undefined) ||
     Boolean(
-      (!commandMatchesVisibleLabel &&
-        (workEntryRawCommand(workEntry) || workEntry.command?.trim())) ||
+      workEntryRawCommand(workEntry) ||
+      workEntry.command?.trim() ||
       workEntry.detail?.trim() ||
       workEntry.changedFiles?.length ||
       viewedImage,
@@ -3882,7 +3892,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               <span
                 className={cn(
                   "min-w-0 flex-1",
-                  showWarningIndicator || expanded || (commandMatchesVisibleLabel && !canExpand)
+                  showWarningIndicator || expanded
                     ? "whitespace-pre-wrap break-words select-text"
                     : "truncate",
                   headingClass,
