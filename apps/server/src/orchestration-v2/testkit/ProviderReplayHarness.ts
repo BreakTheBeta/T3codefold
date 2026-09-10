@@ -1,3 +1,4 @@
+import { layer as workStoreLayer } from "../../pitboss/WorkStore.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ProviderDriverKind, ProviderReplayTranscript } from "@t3tools/contracts";
@@ -287,6 +288,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     Layer.provide(idAllocatorLayer),
   );
   const persistenceLayer = Layer.mergeAll(
+    workStoreLayer.pipe(Layer.provide(databaseLayer)),
     ProjectionProjectRepositoryLive.pipe(Layer.provide(databaseLayer)),
     storesLayer,
     eventSinkProvided,
@@ -322,6 +324,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     ),
   );
   const providerTurnStartServiceProvided = providerTurnStartServiceLayer.pipe(
+    Layer.provide(workStoreLayer.pipe(Layer.provide(databaseLayer))),
     Layer.provide(
       Layer.mergeAll(
         contextHandoffServiceProvided,

@@ -56,3 +56,7 @@ export * from "./rpc.ts";
 export * from "./fleet.ts";
 
 export { UserInputAttachmentAnswerPayload } from "./orchestration.ts";
+
+export * from "./pitboss.ts";
+
+export * from "./pitbossPeer.ts";

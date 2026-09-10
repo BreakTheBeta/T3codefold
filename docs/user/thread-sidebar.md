@@ -85,3 +85,15 @@ On web and desktop, use **Agents** to follow work delegated to subagents.
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
+
+## Pitboss
+
+Open an existing thread and choose **Make pitboss** to give its environment a persistent coordinator. Set its priorities, quality expectations, worker model, permissions, and concurrency and retry limits. Its dedicated entry stays available above project filtering. Each environment can elect its own pitboss.
+
+Add tasks with acceptance criteria and a verification command or recipe. The pitboss can start eligible work proactively, receive worker questions, and inspect evidence before accepting a result. Pause stops new assignments; existing workers keep running until stopped. Use **Stop for rework**, then reopen the task after its worker stops. **Resume candidate** retains that worker's worktree while using the model selected in the pitboss thread. Dismiss the role before archiving, settling, snoozing, or unpinning its thread.
+
+The work panel can read a selected Vikunja project, Jira project, or Linear team. Use a read credential; it stays on the environment. Imports start as candidates: review their criteria and verification recipe before reopening them. A tracker's “Done” status does not accept work in T3, and T3 does not write status changes back to trackers.
+
+For a shared tracker scope, configure both environments under **Connected pitbosses** with their environment IDs, reachable server URLs, and the same dedicated random peer key. Propose a coordinator and approve the proposal on both environments. The pilot supports two participants per shared scope. Only the approved home can dispatch that scope's tasks. An offline home keeps its authority; changing it requires approval and resolution of existing writers. Disconnecting a peer does not release its shared work for automatic takeover.
+
+Mobile provides pitboss navigation, task controls, evidence, and coordination approval. Configure tracker and peer connections from web or desktop. Models use the ordinary T3 provider tools. Codex and Claude shell sessions can use `t3 work read` and `t3 work command --file command.json` with the same scoped authority; other providers use MCP where supported. The CLI's `--dry-run` checks the command's format without sending it or validating current server state.

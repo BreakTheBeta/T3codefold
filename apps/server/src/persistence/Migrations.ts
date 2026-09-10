@@ -1,3 +1,5 @@
+import Migration0063 from "./Migrations/063_PitbossPeers.ts";
+import Migration0062 from "./Migrations/062_Pitboss.ts";
 /**
  * Migration runner with an inline loader.
  *
@@ -146,6 +148,8 @@ export const migrationEntries = [
   [59, "ApplicationEventSequenceIndexes", Migration0059],
   [60, "OrchestrationV2RecoveryIndexes", Migration0060],
   [61, "OrchestrationV2ShellIndexes", Migration0061],
+  [62, "Pitboss", Migration0062],
+  [63, "PitbossPeers", Migration0063],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

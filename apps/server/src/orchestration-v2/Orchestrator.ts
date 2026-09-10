@@ -1,3 +1,4 @@
+import { WorkStore } from "../pitboss/WorkStore.ts";
 import { ThreadLinkedPullRequest } from "@t3tools/contracts";
 import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
 import {
@@ -545,6 +546,7 @@ function rootProviderThreadsForProvider(
 }
 
 const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(function* () {
+  const workStore = yield* WorkStore;
   const checkpointService = yield* CheckpointServiceV2;
   const commandPolicy = yield* CommandPolicyV2;
   const contextHandoffService = yield* ContextHandoffServiceV2;
@@ -7013,6 +7015,32 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       "orchestration_v2.thread_id": commandThreadId(command),
     });
 
+    if (
+      command.type === "thread.archive" ||
+      command.type === "thread.delete" ||
+      command.type === "thread.unpin" ||
+      command.type === "thread.settle" ||
+      command.type === "thread.snooze"
+    ) {
+      const work = yield* workStore.read().pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestratorDispatchError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause,
+            }),
+        ),
+      );
+      if (work.role?.threadId === command.threadId) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            "Dismiss or replace the elected pitboss before hiding, unpinning or deleting its thread.",
+        });
+      }
+    }
     const events = yield* Ref.make<Array<OrchestrationV2DomainEvent>>([]);
     const effects = yield* Ref.make<Array<PendingOrchestrationEffectV2>>([]);
     let cancelUnsettledEffects:
@@ -7586,6 +7614,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 export const layer: Layer.Layer<
   OrchestratorV2,
   never,
+  | WorkStore
   | CheckpointServiceV2
   | CommandPolicyV2
   | CommandReceiptStoreV2

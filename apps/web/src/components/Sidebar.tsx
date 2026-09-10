@@ -1,3 +1,4 @@
+import { PitbossPin } from "./pitboss/PitbossPanel";
 import { filterSidebarV2VisibleThreads } from "./Sidebar.logic";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
@@ -4284,6 +4285,13 @@ export default function Sidebar() {
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
+      {environments.map((environment) => (
+        <PitbossPin
+          key={environment.environmentId}
+          environmentId={environment.environmentId}
+          label={environment.label}
+        />
+      ))}
       <SidebarContent
         className="gap-0"
         fixedHeader={
