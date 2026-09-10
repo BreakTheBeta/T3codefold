@@ -4,8 +4,8 @@ Vim keyboard mode turns the web and desktop conversation workspace into a modal,
 keyboard-first interface. It combines Vim editing in the composer with Zed-style
 focus movement between the thread sidebar and conversation.
 
-Enable it in **Settings → General → Vim keyboard mode**. A mode badge appears in
-the conversation and composer. Press `?` from the conversation for the compact
+Enable it in **Settings → General → Vim keyboard mode**. The composer shows its
+editing mode beside the prompt. Press `?` from the conversation for the compact
 in-app reference.
 
 ## Learn the main loop first
@@ -43,9 +43,11 @@ T3 Code has three keyboard contexts:
 - **Composer focus** uses Vim modes to edit the prompt. Insert mode accepts text;
   Normal and Visual modes interpret keys as commands.
 
-The mode badge shows which context owns unmodified keys. Existing Command and
-Control shortcuts continue to work. Terminals, browser previews, dialogs, and
-open menus keep their native keyboard behavior.
+The composer mode badge shows how prompt keys will be interpreted. Outside the
+composer, focus determines whether unmodified keys control the sidebar or the
+conversation. Existing Command and Control shortcuts continue to work.
+Terminals, browser previews, dialogs, and open menus keep their native keyboard
+behavior.
 
 If you need to type into a control that Vim mode would otherwise intercept, press
 `z` in the conversation. T3 passes keys through until you press `Esc`.
@@ -63,6 +65,7 @@ If you need to type into a control that Vim mode would otherwise intercept, pres
 | `j` / `k`           | Focus the next or previous project or thread               |
 | `h` / `l`           | Collapse or expand a focused project                       |
 | `Enter` / `o`       | Open the focused project or thread                         |
+| `s` / `u`           | Settle or un-settle the focused thread                     |
 | `/`                 | Focus the thread filter                                    |
 | `Ctrl+n` / `Ctrl+p` | Move down or up through filtered results                   |
 

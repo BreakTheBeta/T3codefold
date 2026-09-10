@@ -380,6 +380,16 @@ function moveSidebarFocus(direction: -1 | 1, repetitions: number): void {
   items[next]?.focus({ preventScroll: false });
 }
 
+export function activateSidebarThreadLifecycleAction(active: HTMLElement, key: "s" | "u"): boolean {
+  const actionLabel = key === "s" ? "Settle thread" : "Un-settle thread";
+  const action = active
+    .closest("[data-thread-item]")
+    ?.querySelector<HTMLButtonElement>(`button[aria-label="${actionLabel}"]`);
+  if (!action) return false;
+  action.click();
+  return true;
+}
+
 export function TimelineVimMode({
   routeKey,
   getScrollNode,
@@ -828,6 +838,11 @@ export function TimelineVimMode({
         } else if (event.key === "h") {
           consume();
           if (active instanceof HTMLElement && active.ariaExpanded === "true") active.click();
+        } else if (event.key === "s" || event.key === "u") {
+          consume();
+          if (active instanceof HTMLElement) {
+            activateSidebarThreadLifecycleAction(active, event.key);
+          }
         } else {
           return;
         }
@@ -971,6 +986,8 @@ export function TimelineVimMode({
               <span>previous / next project or thread</span>
               <kbd>Sidebar / · Enter</kbd>
               <span>filter threads · open selection</span>
+              <kbd>Sidebar s / u</kbd>
+              <span>settle / un-settle focused thread</span>
               <kbd>i / gi</kbd>
               <span>composer Insert / Normal mode</span>
               <kbd>v · motions · v / V</kbd>

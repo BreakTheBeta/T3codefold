@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
+  activateSidebarThreadLifecycleAction,
   buildVimHintLabels,
   nextDirectionalVimRegion,
   nextVimListIndex,
@@ -57,6 +58,28 @@ describe("Vim smooth scrolling", () => {
     frames.flush();
 
     expect(surface.scrollTop).toBe(416);
+  });
+});
+
+describe("Vim sidebar thread actions", () => {
+  it.each([
+    ["s", "Settle thread"],
+    ["u", "Un-settle thread"],
+  ] as const)("maps %s to %s", (key, expectedLabel) => {
+    const click = vi.fn();
+    const querySelector = vi.fn(() => ({ click }));
+    const active = {
+      closest: vi.fn(() => ({ querySelector })),
+    } as unknown as HTMLElement;
+
+    expect(activateSidebarThreadLifecycleAction(active, key)).toBe(true);
+    expect(querySelector).toHaveBeenCalledWith(`button[aria-label="${expectedLabel}"]`);
+    expect(click).toHaveBeenCalledOnce();
+  });
+
+  it("does nothing when the focused item is not a thread", () => {
+    const active = { closest: vi.fn(() => null) } as unknown as HTMLElement;
+    expect(activateSidebarThreadLifecycleAction(active, "s")).toBe(false);
   });
 });
 
