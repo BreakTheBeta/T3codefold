@@ -104,7 +104,7 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
       { type: "accept", taskId: "task", evidenceId, note: "Looks good" },
       { type: "agent", threadId: attempt.threadId },
     ),
-  ).toThrow(/Merasmus/);
+  ).toThrow(/GLaDOS/);
   expect(() => run({ type: "accept", taskId: "task", evidenceId, note: "Too early" })).toThrow(
     /writer to stop/,
   );

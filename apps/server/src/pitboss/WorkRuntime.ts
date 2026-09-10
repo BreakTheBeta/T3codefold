@@ -220,7 +220,7 @@ export const layer = Layer.effectDiscard(
         threadId: role.threadId,
         commandId: CommandId.make(`pitboss:wake:${role.generation}:${state.revision}`),
         messageId: MessageId.make(`pitboss:wake:${role.generation}:${state.revision}`),
-        text: "Review current Merasmus work and unresolved messages. Select eligible work within the brief, or explain what blocks progress. Use work_read and work_command; do not poll.",
+        text: "Review current GLaDOS work and unresolved messages. Select eligible work within the brief, or explain what blocks progress. Use work_read and work_command; do not poll.",
         attachments: [],
         mode: "queue",
         createdBy: "agent",

@@ -24,7 +24,7 @@ export function PitbossPeers({
 }) {
   const query = useEnvironmentQuery(serverEnvironment.pitbossPeers({ environmentId, input: {} }));
   const mutate = useAtomCommand(serverEnvironment.pitbossPeerCommand, {
-    label: "Merasmus shared coordination",
+    label: "GLaDOS shared coordination",
   });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [replyIds, setReplyIds] = useState<Record<string, string>>({});
@@ -65,9 +65,9 @@ export function PitbossPeers({
       className="mt-3 rounded-xl border border-border bg-background p-3"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary className="cursor-pointer text-sm font-semibold">Connected Merasmus peers</summary>
+      <summary className="cursor-pointer text-sm font-semibold">Connected GLaDOS peers</summary>
       <p className="my-2 text-xs text-muted-foreground">
-        Each environment keeps its own Merasmus. Sharing a tracker scope requires approval on both
+        Each environment keeps its own GLaDOS. Sharing a tracker scope requires approval on both
         environments. Offline peers keep their existing authority; there is no automatic takeover.
       </p>
       <p className="my-2 break-all text-xs">

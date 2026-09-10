@@ -1697,8 +1697,8 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "action:pitboss",
-      searchTerms: ["merasmus", "pitboss", "agents", "coordinator", "brief", "summon"],
-      title: "Set up or edit Merasmus",
+      searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
+      title: "Set up or edit GLaDOS",
       icon: <CrownIcon className={ITEM_ICON_CLASS} />,
       run: async () =>
         openPitbossPanel({ environmentId: activeThread.environmentId, threadId: activeThread.id }),

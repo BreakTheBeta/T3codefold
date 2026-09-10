@@ -123,9 +123,9 @@ export function decide(
       command.authorityGeneration === state.role.generation);
   const userActions = ["elect", "dismiss", "brief", "pause"];
   if (userActions.includes(action.type) && !user)
-    fail("Only the user can change Merasmus authority or limits.", "forbidden");
+    fail("Only the user can change GLaDOS authority or limits.", "forbidden");
   if (!["report", "submit"].includes(action.type) && !manager)
-    fail("Only the current Merasmus or user can manage work.", "forbidden");
+    fail("Only the current GLaDOS or user can manage work.", "forbidden");
   const next = { ...state, revision: state.revision + 1 };
   if (action.type === "elect")
     return {
@@ -140,7 +140,7 @@ export function decide(
     };
   if (action.type === "dismiss") return { ...next, role: null };
   if (action.type === "pause" || action.type === "brief") {
-    if (!state.role) return fail("Summon Merasmus first.");
+    if (!state.role) return fail("Activate GLaDOS first.");
     return {
       ...next,
       role:
@@ -156,7 +156,7 @@ export function decide(
   )
     fail("Peer scope is outside the current brief.", "forbidden");
   if (action.type === "send-peer") {
-    if (!state.role) return fail("Summon Merasmus before messaging a peer.");
+    if (!state.role) return fail("Activate GLaDOS before messaging a peer.");
     return {
       ...next,
       messages: [
@@ -245,7 +245,7 @@ export function decide(
   }
   if (action.type === "create" || action.type === "edit") {
     if (!state.role?.brief.projectIds.includes(action.projectId))
-      fail("Project is outside the Merasmus brief.", "forbidden");
+      fail("Project is outside the GLaDOS brief.", "forbidden");
     if (action.type === "create" && existing) fail("Task ID already exists.", "conflict");
     if (action.type === "edit" && !existing) fail("Task not found.");
     if (
@@ -313,7 +313,7 @@ export function decide(
   }
   if (!existing) return fail("Task not found.");
   if (!user && manager && !state.role?.brief.projectIds.includes(existing.projectId))
-    fail("Project is outside the current Merasmus brief.", "forbidden");
+    fail("Project is outside the current GLaDOS brief.", "forbidden");
   const latest = existing.attempts.at(-1);
   const worker =
     actor.type === "agent" &&
@@ -499,7 +499,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
   if (state.role?.threadId === threadId) {
     return [
       "<t3-pitboss-context>",
-      `You are this environment's elected Merasmus (generation ${state.role.generation}). ${state.role.paused ? "Autonomous dispatch is paused." : "Select eligible work within the brief using the work tools."}`,
+      `You are this environment's elected GLaDOS (generation ${state.role.generation}). ${state.role.paused ? "Autonomous dispatch is paused." : "Select eligible work within the brief using the work tools."}`,
       "Use work_read and work_command. Read current revision before mutations. Finished turns are not accepted outcomes. Inspect evidence before accepting. Answer worker questions, preserve useful partial work, and escalate within limits. Use propose-coordination to propose a shared source coordinator. Use send-peer with peerId and text to send a durable scoped request; include replyTo with the original peer message ID for replies. Acknowledge an inbox item only after handling its obligation. Leadership and permission changes require the user.",
       `Brief: ${JSON.stringify(state.role.brief)}`,
       `Shared source authority: ${JSON.stringify(state.sourceAuthorities ?? [])}. Environments remain independent outside these scopes; unavailable peers do not authorize takeover.`,
@@ -541,7 +541,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
     `Attempt ${task.attempts.length} of ${state.role?.brief.maxAttempts ?? task.attempts.length}. Ask for help or report a blocker when the prescribed verification cannot run.`,
     `Source observation (context only): ${JSON.stringify(task.source)}`,
     `Verification: ${task.verifyCommand || "Report what can and cannot be demonstrated; do not invent a pass."}`,
-    "Use work_read for current assignment. Use work_command report to ask Merasmus for help, and submit to return candidate identity plus honest evidence. You cannot accept your own work or expand scope.",
+    "Use work_read for current assignment. Use work_command report to ask GLaDOS for help, and submit to return candidate identity plus honest evidence. You cannot accept your own work or expand scope.",
     `Retained attempts: ${JSON.stringify(task.attempts.map((attempt) => ({ id: attempt.id, threadId: attempt.threadId, state: attempt.state, workspacePath: attempt.workspacePath })))}`,
     `Previous observations: ${task.note}`,
     "</t3-work-assignment>",

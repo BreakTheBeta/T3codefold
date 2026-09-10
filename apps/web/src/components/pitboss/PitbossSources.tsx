@@ -22,7 +22,7 @@ export function PitbossSources({
     serverEnvironment.pitbossSources({ environmentId, input: {} }),
   );
   const mutate = useAtomCommand(serverEnvironment.pitbossSourceCommand, {
-    label: "Merasmus task sources",
+    label: "GLaDOS task sources",
   });
   const refreshSources = sources.refresh;
   const [open, setOpen] = useState(false);
