@@ -1305,6 +1305,13 @@ describe("resolveThreadStatusPill", () => {
 });
 
 describe("resolveThreadRowClassName", () => {
+  it("uses the native row surface instead of an outline for keyboard focus", () => {
+    const className = resolveThreadRowClassName({ isActive: false, isSelected: false });
+    expect(className).toContain("focus:bg-sidebar-row-selected");
+    expect(className).toContain("focus:text-sidebar-foreground");
+    expect(className).not.toContain("focus-visible:ring");
+  });
+
   it("uses the active sidebar surface when a thread is both selected and active", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
     expect(className).toContain("bg-sidebar-row-active");

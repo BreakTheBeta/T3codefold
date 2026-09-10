@@ -3,21 +3,92 @@ import {
   buildVimHintLabels,
   nextDirectionalVimRegion,
   nextVimListIndex,
-  nextVimScrollTop,
   type VimFocusRect,
 } from "./TimelineVimMode";
+import { createVimScrollController } from "./vimScroll";
 
 describe("Vim smooth scrolling", () => {
-  it("accumulates repeated motions against the pending destination", () => {
-    expect(nextVimScrollTop(100, undefined, 80, 500)).toBe(180);
-    expect(nextVimScrollTop(104, 180, 80, 500)).toBe(260);
+  it("ignores repeat events instead of building a destination backlog", () => {
+    const frames = testFrames();
+    const scroller = createVimScrollController({
+      scheduler: frames.scheduler,
+      prefersReducedMotion: () => false,
+    });
+    const surface = testScrollSurface();
+
+    scroller.press(surface, 64, { code: "KeyJ", continuous: true, repeat: false });
+    frames.step(16);
+    frames.step(16);
+    scroller.press(surface, 64, { code: "KeyJ", continuous: true, repeat: true });
+    scroller.release("KeyJ");
+    frames.flush();
+
+    expect(surface.scrollTop).toBe(64);
   });
 
-  it("stops at either scroll boundary", () => {
-    expect(nextVimScrollTop(40, undefined, -80, 500)).toBe(0);
-    expect(nextVimScrollTop(460, undefined, 80, 500)).toBe(500);
+  it("stops on release without a catch-up boost after continuous scrolling", () => {
+    const frames = testFrames();
+    const scroller = createVimScrollController({
+      scheduler: frames.scheduler,
+      prefersReducedMotion: () => false,
+    });
+    const surface = testScrollSurface();
+
+    scroller.press(surface, 64, { code: "KeyJ", continuous: true, repeat: false });
+    for (let index = 0; index < 14; index += 1) frames.step(16);
+    const releasedAt = surface.scrollTop;
+    expect(releasedAt).toBeGreaterThan(64);
+
+    scroller.release("KeyJ");
+    frames.flush();
+    expect(surface.scrollTop).toBe(releasedAt);
+  });
+
+  it("completes one bounded motion for a quick tap", () => {
+    const frames = testFrames();
+    const scroller = createVimScrollController({
+      scheduler: frames.scheduler,
+      prefersReducedMotion: () => false,
+    });
+    const surface = testScrollSurface(480);
+
+    scroller.press(surface, -64, { code: "KeyK", continuous: true, repeat: false });
+    scroller.release("KeyK");
+    frames.flush();
+
+    expect(surface.scrollTop).toBe(416);
   });
 });
+
+function testScrollSurface(scrollTop = 0) {
+  return { clientHeight: 500, scrollHeight: 2_000, scrollTop };
+}
+
+function testFrames() {
+  let id = 0;
+  let now = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const scheduler = {
+    request(callback: FrameRequestCallback) {
+      callbacks.set(++id, callback);
+      return id;
+    },
+    cancel(frameId: number) {
+      callbacks.delete(frameId);
+    },
+  };
+  const step = (elapsed: number) => {
+    now += elapsed;
+    const queued = [...callbacks.values()];
+    callbacks.clear();
+    for (const callback of queued) callback(now);
+  };
+  const flush = () => {
+    for (let count = 0; callbacks.size > 0 && count < 100; count += 1) step(16);
+    if (callbacks.size > 0) throw new Error("Vim scroll animation did not settle");
+  };
+  return { flush, scheduler, step };
+}
 
 describe("Vim hint labels", () => {
   it("uses one key for small target sets", () => {
