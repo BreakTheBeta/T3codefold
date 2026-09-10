@@ -149,7 +149,8 @@ describe("Vim directional focus", () => {
   const sidebar = { id: "sidebar" as const, rect: rect(0, 0, 240, 800) };
   const conversation = { id: "conversation" as const, rect: rect(240, 0, 760, 620) };
   const composer = { id: "composer" as const, rect: rect(280, 640, 700, 140) };
-  const regions = [sidebar, conversation, composer];
+  const rightPanel = { id: "right-panel" as const, rect: rect(1_000, 0, 400, 800) };
+  const regions = [sidebar, conversation, composer, rightPanel];
 
   it("moves between the conversation and composer by their relative position", () => {
     expect(nextDirectionalVimRegion(regions, "conversation", "j")).toBe("composer");
@@ -159,6 +160,8 @@ describe("Vim directional focus", () => {
 
   it("moves left and right only to regions on the same visual row", () => {
     expect(nextDirectionalVimRegion(regions, "conversation", "h")).toBe("sidebar");
+    expect(nextDirectionalVimRegion(regions, "conversation", "l")).toBe("right-panel");
+    expect(nextDirectionalVimRegion(regions, "right-panel", "h")).toBe("conversation");
     expect(nextDirectionalVimRegion(regions, "sidebar", "l", rect(20, 120, 180, 32))).toBe(
       "conversation",
     );

@@ -2,11 +2,12 @@
 
 Vim keyboard mode turns the web and desktop conversation workspace into a modal,
 keyboard-first interface. It combines Vim editing in the composer with Zed-style
-focus movement between the thread sidebar and conversation.
+focus movement between the thread sidebar, conversation, composer, and right
+panel.
 
-Enable it in **Settings → General → Vim keyboard mode**. The composer shows its
-editing mode beside the prompt. Press `?` from the conversation for the compact
-in-app reference.
+Enable it in **Settings → General → Vim keyboard mode**. The composer's mode
+badge appears beside the attachment control. Press `?` from the conversation for
+the compact in-app reference.
 
 ## Learn the main loop first
 
@@ -29,12 +30,12 @@ Start with this sequence. It covers the interaction you will repeat most often:
 
 `Ctrl+w h` and similar commands are sequences: hold Control while pressing `w`,
 release it, then press the direction. The layout is spatial: threads are left of
-the conversation, and the composer is below it. `Ctrl+w w` cycles through all
-three regions.
+the conversation, the composer is below it, and the right panel is to its right.
+`Ctrl+w w` cycles through all four regions.
 
 ## Understand the focus zones
 
-T3 Code has three keyboard contexts:
+T3 Code has four keyboard contexts:
 
 - **Conversation Normal mode** controls scrolling, message jumps, assistant-text
   selection, marks, panels, and application actions.
@@ -42,6 +43,8 @@ T3 Code has three keyboard contexts:
   scrolling the conversation.
 - **Composer focus** uses Vim modes to edit the prompt. Insert mode accepts text;
   Normal and Visual modes interpret keys as commands.
+- **Right-panel focus** navigates files, linked pull requests, diffs, agents, and
+  other panel controls with a consistent set of motions.
 
 The composer mode badge shows how prompt keys will be interpreted. Outside the
 composer, focus determines whether unmodified keys control the sidebar or the
@@ -61,7 +64,7 @@ If you need to type into a control that Vim mode would otherwise intercept, pres
 | `Ctrl+w j`          | From the conversation, focus the composer below it         |
 | `Ctrl+w k`          | From the composer, return to the conversation above it     |
 | `Ctrl+w l`          | From the sidebar, focus the region directly to its right   |
-| `Ctrl+w w`          | Cycle through sidebar, conversation, and composer          |
+| `Ctrl+w w`          | Cycle through sidebar, conversation, composer, and panel   |
 | `j` / `k`           | Focus the next or previous project or thread               |
 | `h` / `l`           | Collapse or expand a focused project                       |
 | `Enter` / `o`       | Open the focused project or thread                         |
@@ -74,6 +77,31 @@ After typing a filter, press `Enter` to open the highlighted result. You can use
 
 The same `Ctrl+n` and `Ctrl+p` movement works in open dropdowns, command pickers,
 and composer completion menus throughout the workspace.
+
+## Navigate the right panel
+
+Press `Ctrl+w l` from the conversation or composer to open the right panel when
+needed and focus its active surface. T3 prefers the file tree or the main rows in
+a list, so focus lands on useful content instead of a toolbar control.
+
+| Keys              | Result                                                      |
+| ----------------- | ----------------------------------------------------------- |
+| `j` / `k`         | Focus the next or previous item or control                  |
+| `Enter` / `o`     | Open or activate the focused item                           |
+| `/`               | Focus the active panel's search field, when it has one      |
+| `H` / `L`         | Activate the previous or next right-panel tab               |
+| `gg` / `G`        | Move to the first or last file, or scroll to the panel edge |
+| `Ctrl+d`/`Ctrl+u` | Scroll the active panel down or up by half a page           |
+| `f` / `F`         | Label controls in the active panel for activation or focus  |
+
+In the file tree, `h` collapses a folder or moves to its parent, `l` expands a
+folder, and `j`/`k`, `gg`/`G`, and `Enter` use the tree's native keyboard model.
+Linked pull requests are treated as the primary list items in the GitHub panel.
+
+Terminal and browser-preview tabs keep their native keyboard input after you
+enter them. Their web content and shells need unmodified keys, so T3 does not
+intercept those keystrokes as panel motions. `Ctrl+w` pane movement remains
+available when the host can observe the keystroke.
 
 ## Read and move through a conversation
 

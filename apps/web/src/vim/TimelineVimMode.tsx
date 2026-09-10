@@ -51,7 +51,7 @@ type TimelineVimModeName = "NORMAL" | "PASS" | "CARET" | "VISUAL" | "HINT" | "TE
 type CaretRect = { left: number; top: number; height: number };
 type Mark = { rowId: string | null; rowOffset: number; scrollTop: number };
 export type VimFocusDirection = "h" | "j" | "k" | "l";
-export type VimFocusRegionId = "sidebar" | "conversation" | "composer";
+export type VimFocusRegionId = "sidebar" | "conversation" | "composer" | "right-panel";
 export type VimFocusRect = {
   left: number;
   right: number;
@@ -150,8 +150,8 @@ function vimScrollBehavior(): ScrollBehavior {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
 }
 
-function collectHints(): Hint[] {
-  const elements = [...document.querySelectorAll<HTMLElement>(HINT_SELECTOR)].filter(
+function collectHints(scope: ParentNode = document): Hint[] {
+  const elements = [...scope.querySelectorAll<HTMLElement>(HINT_SELECTOR)].filter(
     (element) =>
       visible(element) && !element.closest("[data-vim-hint-ignore], [data-terminal-root], webview"),
   );
@@ -323,6 +323,103 @@ function focusComposerRegion(focusComposer: () => void): void {
   else focusComposer();
 }
 
+const RIGHT_PANEL_ITEM_SELECTOR = [
+  "[data-vim-list-item]",
+  "[role=tab]",
+  "a[href]",
+  "button:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function rightPanelRoot(): HTMLElement | null {
+  const root = document.querySelector<HTMLElement>("[data-right-panel-surface-content]");
+  return root && visible(root) ? root : null;
+}
+
+function fileTreeKeyboardTarget(root: HTMLElement): HTMLElement | null {
+  const host = root.querySelector<HTMLElement>("[data-file-browser-panel] pierre-file-tree");
+  const shadow = host?.shadowRoot;
+  if (!shadow) return null;
+  const active = shadow.activeElement;
+  if (active instanceof HTMLElement) return active;
+  return shadow.querySelector<HTMLElement>(
+    "button[data-item-focused='true']:not([data-item-parked='true']), button[data-item-selected='true']:not([data-item-parked='true']), [role=tree]",
+  );
+}
+
+function rightPanelItems(root: HTMLElement): HTMLElement[] {
+  const items = [...root.querySelectorAll<HTMLElement>(RIGHT_PANEL_ITEM_SELECTOR)].filter(
+    (element) => rendered(element) && !element.matches(":disabled, [aria-disabled=true]"),
+  );
+  const primary = items.filter((element) => element.hasAttribute("data-vim-list-item"));
+  return primary.length > 0
+    ? [...primary, ...items.filter((element) => !primary.includes(element))]
+    : items;
+}
+
+function focusRightPanel(): void {
+  const root = rightPanelRoot();
+  if (!root) {
+    const toggle = document.querySelector<HTMLButtonElement>('[aria-label^="Toggle right panel"]');
+    if (!toggle || toggle.disabled) return;
+    toggle.click();
+    requestAnimationFrame(() => requestAnimationFrame(focusRightPanel));
+    return;
+  }
+  const treeTarget = fileTreeKeyboardTarget(root);
+  if (treeTarget) {
+    treeTarget.focus({ preventScroll: true });
+    return;
+  }
+  const items = rightPanelItems(root);
+  const target =
+    items.find((item) =>
+      item.matches(
+        "[aria-selected=true], [aria-current], [data-active=true], [data-vim-active=true]",
+      ),
+    ) ?? items[0];
+  (target ?? root).focus({ preventScroll: true });
+}
+
+function moveRightPanelFocus(root: HTMLElement, direction: -1 | 1, repetitions: number): boolean {
+  const items = rightPanelItems(root);
+  if (items.length === 0) return false;
+  const active = document.activeElement;
+  const current = active instanceof HTMLElement ? items.indexOf(active) : -1;
+  const next = nextVimListIndex(items.length, current, direction, repetitions);
+  items[next]?.focus({ preventScroll: false });
+  return true;
+}
+
+function dispatchFileTreeKey(root: HTMLElement, key: string, repetitions = 1): boolean {
+  for (let count = 0; count < repetitions; count += 1) {
+    const target = fileTreeKeyboardTarget(root);
+    if (!target) return count > 0;
+    target.focus({ preventScroll: true });
+    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
+  }
+  return true;
+}
+
+function rightPanelScrollNode(root: HTMLElement): HTMLElement {
+  return (
+    [...root.querySelectorAll<HTMLElement>("[data-slot='scroll-area-viewport']")].find(
+      (element) => element.scrollHeight > element.clientHeight,
+    ) ?? root
+  );
+}
+
+function activateAdjacentRightPanelTab(direction: -1 | 1): void {
+  const tabs = [
+    ...document.querySelectorAll<HTMLButtonElement>("[data-right-panel-tab-activate]"),
+  ].filter(rendered);
+  const active = tabs.findIndex(
+    (tab) => tab.closest<HTMLElement>("[data-active-tab]")?.dataset.activeTab === "true",
+  );
+  if (tabs.length === 0) return;
+  tabs[Math.max(0, Math.min(tabs.length - 1, (active < 0 ? 0 : active) + direction))]?.click();
+}
+
 function vimFocusRegions(scrollNode: HTMLElement | null): VimFocusRegion[] {
   const regions: VimFocusRegion[] = [];
   const sidebar = document.querySelector<HTMLElement>("[data-app-sidebar]");
@@ -341,6 +438,8 @@ function vimFocusRegions(scrollNode: HTMLElement | null): VimFocusRegion[] {
     });
   }
   if (composerRect) regions.push({ id: "composer", rect: composerRect });
+  const rightPanel = rightPanelRoot();
+  if (rightPanel) regions.push({ id: "right-panel", rect: rightPanel.getBoundingClientRect() });
   return regions;
 }
 
@@ -355,6 +454,8 @@ function activeVimFocusRegion(
   ) {
     return "composer";
   }
+  if (active instanceof HTMLElement && active.closest("[data-right-panel-surface-content]"))
+    return "right-panel";
   if (scrollNode?.contains(active)) return "conversation";
   return "conversation";
 }
@@ -560,8 +661,8 @@ export function TimelineVimMode({
       stateRef.current.mode = "NORMAL";
       clear();
     };
-    const openHints = (focusOnly: boolean) => {
-      const hints = collectHints();
+    const openHints = (focusOnly: boolean, scope?: ParentNode) => {
+      const hints = collectHints(scope);
       stateRef.current.mode = "HINT";
       stateRef.current.hints = hints;
       stateRef.current.hintInput = "";
@@ -581,6 +682,7 @@ export function TimelineVimMode({
     const focusRegion = (region: VimFocusRegionId) => {
       if (region === "sidebar") focusSidebar();
       else if (region === "composer") focusComposerRegion(focusComposer);
+      else if (region === "right-panel") focusRightPanel();
       else focusConversation(getScrollNode());
     };
     const moveWindowFocus = (direction: VimFocusDirection, active: Element | null) => {
@@ -593,6 +695,14 @@ export function TimelineVimMode({
           return;
         }
       }
+      if (
+        direction === "l" &&
+        (current === "conversation" || current === "composer") &&
+        !rightPanelRoot()
+      ) {
+        focusRightPanel();
+        return;
+      }
       const regions = vimFocusRegions(scrollNode);
       const currentRect = regions.find((region) => region.id === current)?.rect;
       const activeRect =
@@ -603,7 +713,7 @@ export function TimelineVimMode({
       if (next) focusRegion(next);
     };
     const cycleWindowFocus = (active: Element | null) => {
-      const order: VimFocusRegionId[] = ["sidebar", "conversation", "composer"];
+      const order: VimFocusRegionId[] = ["sidebar", "conversation", "composer", "right-panel"];
       const current = activeVimFocusRegion(active, getScrollNode());
       focusRegion(order[(order.indexOf(current) + 1) % order.length]!);
     };
@@ -623,7 +733,10 @@ export function TimelineVimMode({
         return;
       }
       const active = document.activeElement;
-      if (isTerminalFocused() || isPreviewFocused()) return;
+      const activeRightPanel =
+        active instanceof HTMLElement
+          ? active.closest<HTMLElement>("[data-right-panel-surface-content]")
+          : null;
       if ([...document.querySelectorAll<HTMLElement>(FLOATING_SELECTOR)].some(visible)) {
         return;
       }
@@ -646,6 +759,7 @@ export function TimelineVimMode({
         update();
         return;
       }
+      if (isTerminalFocused() || isPreviewFocused()) return;
       if (sidebarSearch && redirectDropdownNavigationKey(event, sidebarSearch)) return;
       if (active?.closest(EDITABLE_SELECTOR)) return;
       if (
@@ -775,6 +889,10 @@ export function TimelineVimMode({
             state.selection.focus = 0;
             if (state.mode === "CARET") state.selection.anchor = 0;
             state.caretRect = renderConversationSelection(state.selection, state.mode === "VISUAL");
+          } else if (activeRightPanel) {
+            if (!dispatchFileTreeKey(activeRightPanel, "Home")) {
+              rightPanelScrollNode(activeRightPanel).scrollTop = 0;
+            }
           } else {
             const scrollNode = getScrollNode();
             if (scrollNode) {
@@ -843,6 +961,71 @@ export function TimelineVimMode({
           if (active instanceof HTMLElement) {
             activateSidebarThreadLifecycleAction(active, event.key);
           }
+        } else {
+          return;
+        }
+        state.count = "";
+        update();
+        return;
+      }
+      if (activeRightPanel) {
+        const fileTreeKeys: Record<string, string> = {
+          h: "ArrowLeft",
+          j: "ArrowDown",
+          k: "ArrowUp",
+          l: "ArrowRight",
+        };
+        const fileTreeKey = fileTreeKeys[event.key];
+        if (fileTreeKey && dispatchFileTreeKey(activeRightPanel, fileTreeKey, repetitions)) {
+          consume();
+        } else if (event.key === "j" || event.key === "k") {
+          consume();
+          const direction = event.key === "j" ? 1 : -1;
+          if (!moveRightPanelFocus(activeRightPanel, direction, repetitions)) {
+            vimScroller.press(
+              rightPanelScrollNode(activeRightPanel),
+              direction * 64 * repetitions,
+              {
+                code: event.code,
+                continuous: repetitions === 1,
+                repeat: event.repeat,
+              },
+            );
+          }
+        } else if (event.key === "H" || event.key === "L") {
+          consume();
+          activateAdjacentRightPanelTab(event.key === "H" ? -1 : 1);
+        } else if (event.key === "/") {
+          const search = activeRightPanel.querySelector<HTMLElement>(
+            'input[type="search"]:not([disabled]), [role="searchbox"]:not([aria-disabled=true])',
+          );
+          if (!search) return;
+          consume();
+          search.focus({ preventScroll: true });
+        } else if (event.key === "Enter" || event.key === "o") {
+          if (!(active instanceof HTMLElement) || active === activeRightPanel) return;
+          consume();
+          active.click();
+        } else if (event.key === "G") {
+          consume();
+          if (!dispatchFileTreeKey(activeRightPanel, "End")) {
+            const panelScrollNode = rightPanelScrollNode(activeRightPanel);
+            panelScrollNode.scrollTop = panelScrollNode.scrollHeight;
+          }
+        } else if (event.ctrlKey && (event.key === "d" || event.key === "u")) {
+          consume();
+          const panelScrollNode = rightPanelScrollNode(activeRightPanel);
+          panelScrollNode.scrollBy({
+            top: (event.key === "d" ? 1 : -1) * panelScrollNode.clientHeight * 0.5,
+            behavior: vimScrollBehavior(),
+          });
+        } else if (event.key === "f" || event.key === "F") {
+          consume();
+          openHints(event.key === "F", activeRightPanel);
+          return;
+        } else if (event.key === "g") {
+          consume();
+          state.pending = "g";
         } else {
           return;
         }
@@ -981,13 +1164,21 @@ export function TimelineVimMode({
               <kbd>Ctrl-w h / j / k / l</kbd>
               <span>focus left / down / up / right</span>
               <kbd>Ctrl-w w</kbd>
-              <span>cycle threads / conversation / composer</span>
+              <span>cycle threads / conversation / composer / right panel</span>
               <kbd>Sidebar j / k</kbd>
               <span>previous / next project or thread</span>
               <kbd>Sidebar / · Enter</kbd>
               <span>filter threads · open selection</span>
               <kbd>Sidebar s / u</kbd>
               <span>settle / un-settle focused thread</span>
+              <kbd>Right panel j / k · Enter</kbd>
+              <span>previous / next control · open selection</span>
+              <kbd>File tree h / l · gg / G</kbd>
+              <span>collapse / expand · first / last file</span>
+              <kbd>Right panel H / L · /</kbd>
+              <span>previous / next tab · focus search</span>
+              <kbd>Right panel f / F</kbd>
+              <span>activate / focus a visible panel control</span>
               <kbd>i / gi</kbd>
               <span>composer Insert / Normal mode</span>
               <kbd>v · motions · v / V</kbd>

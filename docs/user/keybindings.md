@@ -16,7 +16,7 @@ In a conversation, use smooth `j`/`k` scrolling, `Ctrl+d`/`Ctrl+u` for half page
 `gg`/`G` for the start or end, and `{`/`}` for the previous or next message.
 Use `Ctrl+w` followed by `h`, `j`, `k`, or `l` to move focus left, down, up, or
 right between the thread sidebar, conversation, and composer. `Ctrl+w w` cycles
-through those three regions. In the sidebar, `j`/`k` moves between projects and
+through those regions and the right panel. In the sidebar, `j`/`k` moves between
 threads, `h`/`l` collapses or expands projects, `/` focuses the thread filter,
 `Enter` or `o` opens the focused item, and `s`/`u` settles or un-settles the
 focused thread. While filtering, `Ctrl+n`/`Ctrl+p` moves through results using
@@ -27,6 +27,12 @@ activation; `F` labels them for focus. `i` focuses the composer in Insert mode,
 `gi` focuses it in Normal mode, and `z` passes keys through until `Esc`.
 In open dropdowns, completion menus, and filtered pickers, `Ctrl+n` and `Ctrl+p`
 move to the next or previous choice.
+
+In the right panel, `j`/`k` moves between items, `Enter` or `o` activates one,
+`H`/`L` changes panel tabs, `/` focuses a panel search field, and `f`/`F` labels
+the current panel's controls. File trees additionally use native `h`/`l` folder
+navigation and `gg`/`G` first/last-item movement. Terminals and browser previews
+retain their native input behavior except for observable `Ctrl+w` pane movement.
 
 Press `v` to place a conversation caret, move it with Vim motions, or press `f`
 for labels that jump to visible text. Press `v` again for character selection or
@@ -43,6 +49,7 @@ common character/word/line/document motions, `f`/`t` searches, `d`/`c`/`y`
 operators, `iw`/`aw` text objects, paste, undo, and redo. `Esc` moves from Insert
 to Normal; pressing it again returns keyboard ownership to the conversation.
 Existing `Cmd`/`Ctrl` shortcuts continue to work in every mode.
+The current composer mode is shown beside the attachment control.
 
 ## Edit the configuration file
 
