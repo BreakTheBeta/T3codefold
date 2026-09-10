@@ -12,7 +12,7 @@ preview, dialogs, and menus keep their native keyboard behavior.
 New to the feature? Follow the [Vim keyboard mode learning guide](./vim-keyboard-mode.md)
 for the sidebar → response → composer workflow and a progressive practice plan.
 
-In a conversation, use `j`/`k` to scroll, `Ctrl+d`/`Ctrl+u` for half pages,
+In a conversation, use smooth `j`/`k` scrolling, `Ctrl+d`/`Ctrl+u` for half pages,
 `gg`/`G` for the start or end, and `{`/`}` for the previous or next message.
 Use `Ctrl+w` followed by `h`, `j`, `k`, or `l` to move focus left, down, up, or
 right between the thread sidebar, conversation, and composer. `Ctrl+w w` cycles
@@ -25,9 +25,11 @@ jump to it, and two backticks to jump back. `f` labels visible controls for
 activation; `F` labels them for focus. `i` focuses the composer in Insert mode,
 `gi` focuses it in Normal mode, and `z` passes keys through until `Esc`.
 
-Press `v` to select text in the visible assistant response, then use Vim motions.
-`y` copies the selection and `c` cites it in the composer. `V` selects the whole
-visible response. Press `?` for the in-app reference.
+Press `v` to place a conversation caret, move it with Vim motions, or press `f`
+for labels that jump to visible text. Press `v` again for character selection or
+`V` for line selection. Selections can cross rendered turns and messages; `y`
+copies the whole selection and `c` cites each selected assistant-message segment
+in the composer. Press `?` for the in-app reference.
 
 Use `:` for T3 Code's command palette. The Zed-style leader bindings `Space f`,
 `Space /`, `Space b`, and `Space s` open files, search conversation content,

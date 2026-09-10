@@ -16,9 +16,12 @@ Start with this sequence. It covers the interaction you will repeat most often:
 2. Move through projects and threads with `j` and `k`.
 3. Press `Enter` or `o` to open the focused thread.
 4. Press `Ctrl+w`, then `l` to return to the conversation.
-5. Read with `j`/`k`, jump between messages with `{`/`}`, or use `gg`/`G`.
-6. Press `v` to begin selecting an assistant response. Extend the selection with
-   motions, then press `y` to copy or `c` to cite it.
+5. Read with smooth `j`/`k` scrolling, jump between messages with `{`/`}`, or use
+   `gg`/`G`.
+6. Press `v` to place a caret in the conversation. Move it with motions or use
+   `f` and a displayed label to jump to visible text. Press `v` again to begin a
+   character selection, extend it with motions, then press `y` to copy or `c` to
+   cite it.
 7. Press `Ctrl+w`, then `j` to move down to the composer, or press `i` to focus
    it directly in Insert mode and write your response.
 8. Press `Esc` for composer Normal mode. Press `Esc` again to return keyboard
@@ -84,24 +87,32 @@ jumped from. Marks belong to the current thread.
 
 For example, `ma` records mark `a`, and `` `a `` returns to it.
 
-## Select and reuse an assistant response
+## Select and reuse conversation text
 
-Press `v` in the conversation to begin a character selection in the visible
-assistant response. Press `V` to select the whole visible response.
+Press `v` in the conversation to enter Caret mode near the middle of the visible
+messages. Move the caret without selecting, or press `f` and type one of the
+labels drawn over visible words to jump directly to that position.
+
+When the caret is where you want it, press `v` again to begin a character
+selection or `V` to select its current line. The selection can cross any rendered
+turns and messages, including user and assistant messages.
 
 Move the active end with `h`, `j`, `k`, `l`, `w`, `b`, `e`, `0`, `^`, `$`, `G`,
 `{`, or `}`. Counts work here too. Press `o` to swap the active and fixed ends.
 
 When the selection is ready:
 
-| Keys          | Result                                          |
-| ------------- | ----------------------------------------------- |
-| `y` / `Enter` | Copy the selected response text                 |
-| `c`           | Add the selection to the composer as a citation |
-| `Esc`         | Cancel the selection                            |
+| Keys          | Result                                           |
+| ------------- | ------------------------------------------------ |
+| `y` / `Enter` | Copy the selected response text                  |
+| `c`           | Cite every assistant-message segment it crosses  |
+| `Esc`         | Return to Caret mode without losing the position |
 
-After citing, press `i` to enter the composer and write the instruction that uses
-the quoted context.
+Cross-message copy includes the complete selected conversation text. Citations
+remain source-aware: user text is not cited, and each assistant response becomes
+its own citation. Press `Esc` again from Caret mode to return to conversation
+Normal mode. After citing, press `i` to enter the composer and write the
+instruction that uses the quoted context.
 
 ## Edit the composer
 
@@ -172,8 +183,8 @@ Learn one layer at a time rather than memorizing every command.
 1. **Threads:** spend five minutes using only `Ctrl+w h`, `j`/`k`, `Enter`, `/`,
    and `Ctrl+w l`.
 2. **Reading:** add `gg`, `G`, `{`, `}`, `Ctrl+d`, and `Ctrl+u`.
-3. **Responding:** use `v`, motions, `c`, and `i` to cite part of a response and
-   answer it without touching the pointer.
+3. **Responding:** use `v`, motions or `f` text hints, a second `v`, `c`, and `i`
+   to cite part of one or more responses and answer without touching the pointer.
 4. **Editing:** begin with `i`, `Esc`, `w`, `b`, `0`, `$`, `ciw`, `dd`, `p`, and
    `u`. Add character finds, counts, and the remaining operators later.
 
