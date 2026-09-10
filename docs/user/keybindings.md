@@ -24,6 +24,8 @@ Use `m` plus a letter to set a thread-local mark, backtick plus that letter to
 jump to it, and two backticks to jump back. `f` labels visible controls for
 activation; `F` labels them for focus. `i` focuses the composer in Insert mode,
 `gi` focuses it in Normal mode, and `z` passes keys through until `Esc`.
+In open dropdowns, completion menus, and filtered pickers, `Ctrl+n` and `Ctrl+p`
+move to the next or previous choice.
 
 Press `v` to place a conversation caret, move it with Vim motions, or press `f`
 for labels that jump to visible text. Press `v` again for character selection or

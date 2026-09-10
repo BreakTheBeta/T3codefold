@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openCommandPalette } from "~/commandPaletteBus";
+import { redirectDropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { isPreviewFocused } from "~/lib/previewFocus";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import { currentLineRange, moveTextCursor, type VimMotion } from "./vimText";
@@ -655,17 +656,7 @@ export function TimelineVimMode({
         update();
         return;
       }
-      if (sidebarSearch && event.ctrlKey && (event.key === "n" || event.key === "p")) {
-        consume();
-        sidebarSearch.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: event.key === "n" ? "ArrowDown" : "ArrowUp",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-        return;
-      }
+      if (sidebarSearch && redirectDropdownNavigationKey(event, sidebarSearch)) return;
       if (active?.closest(EDITABLE_SELECTOR)) return;
       if (
         event.metaKey ||

@@ -4,6 +4,7 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
 
+import { redirectDropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { cn } from "~/lib/utils";
 
 const MenuCreateHandle = MenuPrimitive.createHandle;
@@ -28,6 +29,7 @@ function MenuPopup({
   alignOffset,
   side = "bottom",
   anchor,
+  onKeyDown,
   ...props
 }: MenuPrimitive.Popup.Props & {
   align?: MenuPrimitive.Positioner.Props["align"];
@@ -61,6 +63,10 @@ function MenuPopup({
             className,
           )}
           data-slot="menu-popup"
+          onKeyDown={(event) => {
+            onKeyDown?.(event);
+            if (!event.defaultPrevented) redirectDropdownNavigationKey(event);
+          }}
           {...props}
         >
           <div className="max-h-(--available-height) w-full overflow-y-auto p-1">{children}</div>
