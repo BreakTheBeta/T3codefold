@@ -219,6 +219,9 @@ export const layer = Layer.effect(
           ) {
             yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, ${action.type}, ${encodeJson(action)})`;
           }
+          if (action.type === "lead-status" && action.status === "active") {
+            yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, 'lead-status', ${encodeJson(action)})`;
+          }
           return after;
         }),
       );

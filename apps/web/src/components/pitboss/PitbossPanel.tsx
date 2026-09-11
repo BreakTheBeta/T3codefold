@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   CommandId,
+  isPitbossLeadActive,
   type EnvironmentId,
   type ModelSelection,
   type PitbossAction,
@@ -275,10 +276,7 @@ export function PitbossPanel(props: {
                 <span>{role.brief.maxWorkers} shared workers · 1 lead turn at a time</span>
               </div>
               {(state.leads ?? []).map((lead) => {
-                const active =
-                  lead.status === "active" &&
-                  lead.parentGeneration === role.generation &&
-                  role.brief.projectIds.includes(lead.projectId);
+                const active = isPitbossLeadActive(role, lead);
                 const tasks = state.tasks.filter((task) => task.leadId === lead.id);
                 return (
                   <div key={lead.id} className="rounded-xl border border-border bg-background p-3">
@@ -295,7 +293,7 @@ export function PitbossPanel(props: {
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={busy}
+                        disabled={busy || !role.brief.projectIds.includes(lead.projectId)}
                         onClick={() =>
                           void command({
                             type: "lead-status",
@@ -445,8 +443,8 @@ export function PitbossPanel(props: {
                               {state.leads?.find(
                                 (lead) =>
                                   lead.id === task.leadId &&
-                                  lead.status === "active" &&
-                                  lead.parentGeneration === role?.generation,
+                                  isPitbossLeadActive(role, lead) &&
+                                  lead.projectId === task.projectId,
                               )?.id ?? "GLaDOS"}
                             </span>
                             <span className={`text-xs ${statusClass[task.status]}`}>

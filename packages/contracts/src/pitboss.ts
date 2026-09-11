@@ -98,6 +98,16 @@ export const PitbossLead = Schema.Struct({
   updatedAt: Schema.String,
 });
 export type PitbossLead = typeof PitbossLead.Type;
+
+/** Effective project authority, shared by the server and every client. */
+export function isPitbossLeadActive(role: PitbossRole | null | undefined, lead: PitbossLead) {
+  return (
+    lead.status === "active" &&
+    lead.parentGeneration === role?.generation &&
+    role.brief.projectIds.includes(lead.projectId)
+  );
+}
+
 export const PitbossTask = Schema.Struct({
   leadId: Schema.optional(Id),
   pendingOperationId: Schema.optional(Id),

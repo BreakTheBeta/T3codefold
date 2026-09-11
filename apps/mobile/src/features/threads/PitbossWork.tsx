@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import {
   CommandId,
+  isPitbossLeadActive,
   type EnvironmentId,
   type ModelSelection,
   type PitbossAction,
@@ -102,7 +103,7 @@ export function PitbossWork(props: {
               </Text>
             )}
             {(state.leads ?? []).map((lead) => {
-              const active = lead.status === "active" && lead.parentGeneration === role?.generation;
+              const active = isPitbossLeadActive(role, lead);
               return (
                 <View key={lead.id} className="gap-2 rounded-xl border border-border p-3">
                   <Text className="font-semibold">
@@ -115,15 +116,16 @@ export function PitbossWork(props: {
                   <Text className="text-sm">
                     Context v{lead.contextRevision}: {lead.context || "Not recorded yet"}
                   </Text>
-                  {button(
-                    active ? "Return to GLaDOS" : "Reactivate lead",
-                    () =>
-                      void command({
-                        type: "lead-status",
-                        leadId: lead.id,
-                        status: active ? "dormant" : "active",
-                      }),
-                  )}
+                  {role?.brief.projectIds.includes(lead.projectId) &&
+                    button(
+                      active ? "Return to GLaDOS" : "Reactivate lead",
+                      () =>
+                        void command({
+                          type: "lead-status",
+                          leadId: lead.id,
+                          status: active ? "dormant" : "active",
+                        }),
+                    )}
                 </View>
               );
             })}

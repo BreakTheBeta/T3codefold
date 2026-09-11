@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import { expect, it } from "@effect/vitest";
 import {
   CommandId,
+  isPitbossLeadActive,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -317,4 +318,37 @@ it("routes GLaDOS instructions durably to the lead and rejects a worker imperson
   expect(() =>
     f.run(action, { type: "agent", threadId: f.state.tasks[0]!.attempts[0]!.threadId }),
   ).toThrow(/current GLaDOS/);
+});
+
+it("moving a task to another project revokes the previous lead's reads and writes", () => {
+  const f = fixture();
+  const other = ProjectId.make("other");
+  f.run({ type: "brief", brief: { ...f.state.role!.brief, projectIds: [projectId, other] } });
+  f.run({ type: "lead-status", leadId: f.lead.id, status: "active" });
+  f.task("move");
+  f.run({
+    type: "edit",
+    taskId: "move",
+    projectId: other,
+    title: "Moved",
+    outcome: "Working app",
+    criteria: "Runs correctly",
+    verifyCommand: "node --test",
+    priority: 10,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  expect(f.state.tasks[0]!.leadId).toBeUndefined();
+  expect(leadView(f.state, f.actor.threadId)?.tasks).toEqual([]);
+  expect(() => f.run({ type: "assign", taskId: "move" }, f.actor)).toThrow(
+    "outside this lead's scope",
+  );
+});
+
+it("effective lead status includes current project scope on all clients", () => {
+  const f = fixture();
+  expect(isPitbossLeadActive(f.state.role, f.lead)).toBe(true);
+  const role = { ...f.state.role!, brief: { ...f.state.role!.brief, projectIds: [] } };
+  expect(isPitbossLeadActive(role, f.lead)).toBe(false);
+  expect(activeLeads({ ...f.state, role })).toEqual([]);
 });

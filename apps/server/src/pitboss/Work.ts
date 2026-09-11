@@ -431,7 +431,11 @@ export function decide(
   const existing = state.tasks.find((task) => task.id === action.taskId);
   if (
     lead &&
-    ((existing && (existing.leadId !== lead.id || existing.source || existing.homeEnvironmentId)) ||
+    ((existing &&
+      (existing.leadId !== lead.id ||
+        existing.projectId !== lead.projectId ||
+        existing.source ||
+        existing.homeEnvironmentId)) ||
       ((action.type === "create" || action.type === "edit") &&
         (action.projectId !== lead.projectId ||
           action.dependencies.some(
@@ -535,7 +539,7 @@ export function decide(
         existing.outcome !== action.outcome ||
         existing.verifyCommand !== action.verifyCommand);
     const task: PitbossTask = {
-      leadId: existing?.leadId ?? lead?.id,
+      leadId: existing && existing.projectId === action.projectId ? existing.leadId : lead?.id,
       id: action.taskId,
       revision: (existing?.revision ?? 0) + 1,
       projectId: action.projectId,

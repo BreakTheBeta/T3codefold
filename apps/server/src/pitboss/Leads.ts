@@ -1,16 +1,18 @@
-import { type PitbossSnapshot, type PitbossTask, type ThreadId } from "@t3tools/contracts";
+import {
+  isPitbossLeadActive,
+  type PitbossSnapshot,
+  type PitbossTask,
+  type ThreadId,
+} from "@t3tools/contracts";
 
 export function activeLeads(state: PitbossSnapshot) {
-  return (state.leads ?? []).filter(
-    (lead) =>
-      lead.status === "active" &&
-      lead.parentGeneration === state.role?.generation &&
-      state.role.brief.projectIds.includes(lead.projectId),
-  );
+  return (state.leads ?? []).filter((lead) => isPitbossLeadActive(state.role, lead));
 }
 
 export function taskLead(state: PitbossSnapshot, task: PitbossTask) {
-  return activeLeads(state).find((lead) => lead.id === task.leadId);
+  return activeLeads(state).find(
+    (lead) => lead.id === task.leadId && lead.projectId === task.projectId,
+  );
 }
 
 /** Route old messages through current ownership so a handoff cannot strand an obligation. */
@@ -49,7 +51,9 @@ export function leadView(state: PitbossSnapshot, threadId: ThreadId): PitbossSna
         }
       : null,
     leads: [lead],
-    tasks: state.tasks.filter((task) => task.leadId === lead.id),
+    tasks: state.tasks.filter(
+      (task) => task.leadId === lead.id && task.projectId === lead.projectId,
+    ),
     messages: inboxFor(state, lead.id),
     sourceAuthorities: [],
   };

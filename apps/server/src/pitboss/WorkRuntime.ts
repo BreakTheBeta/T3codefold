@@ -1,4 +1,5 @@
 import { activeLeads, inboxFor, taskLead } from "./Leads.ts";
+import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectionStoreThreadNotFoundError } from "../orchestration-v2/ProjectionStore.ts";
 import { PeerService } from "./PeerService.ts";
 import {
@@ -18,6 +19,8 @@ import { WorkStore } from "./WorkStore.ts";
 import { readyTasks, workContext } from "./Work.ts";
 import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
 import {
+  ThreadManagementProjectionLoadError,
+  ThreadManagementThreadNotFoundError,
   ThreadManagementService,
   latestActiveRun,
 } from "../orchestration-v2/ThreadManagementService.ts";
@@ -25,7 +28,14 @@ import {
 const encodeWake = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeForward = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossForwardIntent));
 const decodeAction = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossAction));
-const isMissingThread = Schema.is(ProjectionStoreThreadNotFoundError);
+const isProjectionMissing = Schema.is(ProjectionStoreThreadNotFoundError);
+const isManagementMissing = Schema.is(ThreadManagementThreadNotFoundError);
+const isProjectionError = Schema.is(OrchestratorProjectionError);
+const isManagementError = Schema.is(ThreadManagementProjectionLoadError);
+function isMissingThread(error: unknown): boolean {
+  if (isProjectionMissing(error) || isManagementMissing(error)) return true;
+  return (isProjectionError(error) || isManagementError(error)) && isMissingThread(error.cause);
+}
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const store = yield* WorkStore;
@@ -38,13 +48,24 @@ export const layer = Layer.effectDiscard(
     const drain = Effect.fn("WorkRuntime.drain")(function* () {
       const pending = yield* store.effects();
       for (const effect of pending) {
-        if (effect.kind === "create-lead") {
-          const current = yield* store.read();
-          const busy = yield* Effect.forEach(activeLeads(current), (lead) =>
-            threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }).pipe(
-              Effect.map((thread) => !!latestActiveRun(thread)),
-              Effect.catch(() => Effect.succeed(false)),
-            ),
+        const current = yield* store.read();
+        if (["create-lead", "lead-status", "assign"].includes(effect.kind) && current.role?.paused)
+          continue;
+        if (effect.kind === "create-lead" || effect.kind === "lead-status") {
+          const action = yield* decodeAction(effect.payload_json);
+          const target =
+            action.type === "create-lead" || action.type === "lead-status"
+              ? action.leadId
+              : undefined;
+          const busy = yield* Effect.forEach(
+            activeLeads(current).filter((lead) => lead.id !== target),
+            (lead) =>
+              threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }).pipe(
+                Effect.map((thread) => !!latestActiveRun(thread)),
+                Effect.catch((error) =>
+                  isMissingThread(error) ? Effect.succeed(false) : Effect.fail(error),
+                ),
+              ),
           );
           if (busy.some(Boolean)) continue;
         }
@@ -110,9 +131,21 @@ export const layer = Layer.effectDiscard(
                 threadId: action.threadId,
               });
             }
-            if (action.type === "create-lead") {
+            if (action.type === "create-lead" || action.type === "lead-status") {
               const lead = activeLeads(state).find((entry) => entry.id === action.leadId);
               if (!lead) return;
+              const existing =
+                action.type === "lead-status"
+                  ? yield* threads
+                      .getProjectThread({ projectId: lead.projectId, threadId: lead.threadId })
+                      .pipe(
+                        Effect.map(() => true),
+                        Effect.catch((error) =>
+                          isMissingThread(error) ? Effect.succeed(false) : Effect.fail(error),
+                        ),
+                      )
+                  : false;
+              if (existing) return;
               yield* launch.launch({
                 commandId: CommandId.make(effect.operation_id),
                 threadId: lead.threadId,
@@ -174,7 +207,7 @@ export const layer = Layer.effectDiscard(
           }),
         );
         if (result._tag === "Failure") {
-          const detail = String(result.failure);
+          const detail = `${effect.kind} (${effect.operation_id}): ${String(result.failure)}`;
           const state = yield* store.read();
           for (const task of state.tasks) {
             const attempt = task.attempts.find((attempt) => attempt.id === effect.operation_id);
@@ -243,8 +276,12 @@ export const layer = Layer.effectDiscard(
       const leads = activeLeads(state);
       const leadRuns = yield* Effect.forEach(leads, (lead) =>
         threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }).pipe(
-          Effect.map((thread) => ({ lead, active: !!latestActiveRun(thread) })),
-          Effect.catch(() => Effect.succeed({ lead, active: true })),
+          Effect.map((thread) => ({ lead, active: !!latestActiveRun(thread), available: true })),
+          Effect.catch((error) =>
+            isMissingThread(error)
+              ? Effect.succeed({ lead, active: false, available: false })
+              : Effect.fail(error),
+          ),
         ),
       );
       const available =
@@ -262,7 +299,9 @@ export const layer = Layer.effectDiscard(
           leadId: undefined as string | undefined,
         },
         ...(!leadRuns.some((entry) => entry.active)
-          ? leads
+          ? leadRuns
+              .filter((entry) => entry.available)
+              .map((entry) => entry.lead)
               .toSorted((a, b) => Number(a.id === lastLeadId) - Number(b.id === lastLeadId))
               .map((lead) => ({
                 id: lead.id,
