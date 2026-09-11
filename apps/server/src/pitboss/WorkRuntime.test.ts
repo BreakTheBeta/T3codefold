@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import {
   CommandId,
+  PitbossAction,
   EventId,
   MessageId,
   NodeId,
@@ -10,8 +11,8 @@ import {
   ThreadId,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2Run,
-  type PitbossAction,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -31,6 +32,7 @@ import { PeerService } from "./PeerService.ts";
 import { WorkStore, layer as storeLayer } from "./WorkStore.ts";
 import { layer as runtime } from "./WorkRuntime.ts";
 
+const decodeAction = Schema.decodeUnknownSync(Schema.fromJsonString(PitbossAction));
 const time = DateTime.makeUnsafe("2026-09-11T00:00:00Z");
 const model = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-luna" };
 const a = ProjectId.make("A"),
@@ -210,7 +212,8 @@ it.effect(
       const broken = yield* h.lead("broken", a);
       const healthy = yield* h.lead("healthy", b);
       for (const effect of yield* h.store.effects()) {
-        if (JSON.parse(effect.payload_json).leadId === healthy.id)
+        const action = decodeAction(effect.payload_json);
+        if (action.type === "create-lead" && action.leadId === healthy.id)
           yield* h.store.finishEffect(effect.operation_id);
       }
       h.failLaunch.add(broken.threadId);
