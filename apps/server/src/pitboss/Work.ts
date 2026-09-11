@@ -28,13 +28,28 @@ export const hasUnresolvedWriter = (task: PitbossTask) =>
   task.attempts.some((attempt) =>
     ["pending", "running", "submitted", "stop_requested"].includes(attempt.state),
   );
+/** Existing briefs include all peers; an explicit list limits outgoing agent coordination. */
+function peerInBrief(state: PitbossSnapshot, peerId: string | undefined): boolean {
+  return (
+    !peerId ||
+    state.role?.brief.managedPeerIds === undefined ||
+    state.role.brief.managedPeerIds.includes(peerId)
+  );
+}
 /** User views retain the portfolio; agent context follows the current brief. */
 export function managerView(state: PitbossSnapshot): PitbossSnapshot {
-  const tasks = state.tasks.filter((task) => state.role?.brief.projectIds.includes(task.projectId));
+  const tasks = state.tasks.filter(
+    (task) =>
+      state.role?.brief.projectIds.includes(task.projectId) &&
+      !(state.sourceAuthorities ?? []).some(
+        (authority) =>
+          authority.scope === task.source?.scope && !peerInBrief(state, authority.peerId),
+      ),
+  );
   const taskIds = new Set(tasks.map((task) => task.id));
   const scopes = new Set(tasks.flatMap((task) => (task.source?.scope ? [task.source.scope] : [])));
-  const sourceAuthorities = state.sourceAuthorities?.filter((authority) =>
-    scopes.has(authority.scope),
+  const sourceAuthorities = state.sourceAuthorities?.filter(
+    (authority) => scopes.has(authority.scope) && peerInBrief(state, authority.peerId),
   );
   const peerIds = new Set(
     sourceAuthorities?.flatMap((authority) => (authority.peerId ? [authority.peerId] : [])),
@@ -63,8 +78,11 @@ export function readyTasks(state: PitbossSnapshot, peerScope?: string): Readonly
         !(state.sourceAuthorities ?? []).some(
           (authority) =>
             authority.scope === task.source?.scope &&
-            authority.coordinator !== authority.self &&
-            !(peerScope === authority.scope && authority.homeEnvironmentId === authority.self),
+            ((!peerScope && !peerInBrief(state, authority.peerId)) ||
+              (authority.coordinator !== authority.self &&
+                !(
+                  peerScope === authority.scope && authority.homeEnvironmentId === authority.self
+                ))),
         ) &&
         task.dependencies.every((id) =>
           state.tasks.some((other) => other.id === id && other.status === "done"),
@@ -207,6 +225,11 @@ export function decide(
     fail("Task is outside the peer authority scope.", "forbidden");
   if (actor.type === "agent" && manager && authority && authority.coordinator !== authority.self)
     fail("The approved peer coordinator manages this source scope.", "forbidden");
+  if (actor.type === "agent" && manager && authority && !peerInBrief(state, authority.peerId))
+    fail(
+      "Peer is outside the GLaDOS brief. Ask the user to update its environment scope.",
+      "forbidden",
+    );
   const remote = remoteTaskAuthority(state, action);
   if (remote && manager) {
     if (existing?.pendingOperationId)
@@ -333,6 +356,21 @@ export function decide(
       )
         fail("Task is not ready; check scope, pause, dependencies and attempts.");
       const role = state.role!;
+      if (
+        !user &&
+        action.model &&
+        ![
+          role.brief.workerModel,
+          ...(role.brief.alternateWorkerModel ? [role.brief.alternateWorkerModel] : []),
+        ].some(
+          (model) =>
+            model.instanceId === action.model!.instanceId && model.model === action.model!.model,
+        )
+      )
+        fail(
+          "Worker model is outside the task home's brief. Ask the user to update its model choices.",
+          "forbidden",
+        );
       if (state.tasks.filter(hasUnresolvedWriter).length >= role.brief.maxWorkers)
         fail("Worker capacity is full.");
       if (action.resumeAttemptId) {
@@ -502,6 +540,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
       `You are this environment's elected GLaDOS (generation ${state.role.generation}). ${state.role.paused ? "Autonomous dispatch is paused." : "Select eligible work within the brief using the work tools."}`,
       "Use work_read and work_command. Read current revision before mutations. Finished turns are not accepted outcomes. Inspect evidence before accepting. Answer worker questions, preserve useful partial work, and escalate within limits. Use propose-coordination to propose a shared source coordinator. Use send-peer with peerId and text to send a durable scoped request; include replyTo with the original peer message ID for replies. Acknowledge an inbox item only after handling its obligation. Leadership and permission changes require the user.",
       `Brief: ${JSON.stringify(state.role.brief)}`,
+      "Worker selection: workerModel is the default and alternateWorkerModel is an optional alternative, each with provider-specific options including thinking level. Choose per task using modelGuidance, complexity, evidence and availability; do not switch models solely because an attempt failed. Use assign.model with the chosen configuration; omission uses the default. Explain non-default choices or escalation with work_command report. Discover model options with orchestrator_capabilities for the destination when reachable. For remote work ask the task-home GLaDOS for its worker configurations through send-peer, or omit assign.model to use its default. Never assume this environment's provider instance IDs or catalogs exist elsewhere. A different model does not raise limits or permit concurrent writers on a retained candidate.",
       `Shared source authority: ${JSON.stringify(state.sourceAuthorities ?? [])}. Environments remain independent outside these scopes; unavailable peers do not authorize takeover.`,
       `Snapshot revision: ${state.revision}. Ready tasks: ${
         readyTasks(state)

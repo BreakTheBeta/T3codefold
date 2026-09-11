@@ -17,9 +17,12 @@ export const PitbossBrief = Schema.Struct({
   priorities: Text,
   quality: Text,
   projectIds: Schema.Array(ProjectId).check(Schema.isMaxLength(50)),
-  maxWorkers: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 8 })),
+  maxWorkers: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 })),
   maxAttempts: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 5 })),
   workerModel: ModelSelection,
+  alternateWorkerModel: Schema.optional(ModelSelection),
+  modelGuidance: Schema.optional(Text),
+  managedPeerIds: Schema.optional(Schema.Array(Id).check(Schema.isMaxLength(50))),
   workerRuntimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
 });
 export type PitbossBrief = typeof PitbossBrief.Type;
