@@ -7,7 +7,7 @@ import {
   ThreadId,
   type PitbossBrief,
 } from "@t3tools/contracts";
-import { decide, emptyWork, observeAttempt, readyTasks } from "./Work.ts";
+import { decide, emptyWork, observeAttempt, readyTasks, managerView } from "./Work.ts";
 
 const projectId = ProjectId.make("project");
 const threadId = ThreadId.make("boss");
@@ -232,6 +232,23 @@ it("forwards shared control to its fixed home and fences the previous coordinato
     authorityGeneration: elected.role?.generation,
     action: { type: "assign" as const, taskId: "shared" },
   };
+  const excluded = {
+    ...shared,
+    role: { ...shared.role!, brief: { ...shared.role!.brief, managedPeerIds: [] } },
+  };
+  expect(managerView(excluded).tasks).toEqual([]);
+  expect(managerView(excluded).sourceAuthorities).toEqual([]);
+  expect(() =>
+    decide(excluded, command, { type: "agent", threadId }, "2026-09-10T00:00:00Z"),
+  ).toThrow(/outside the GLaDOS brief/);
+  expect(() =>
+    decide(
+      excluded,
+      { ...command, action: { type: "send-peer", peerId: "home", text: "Start work" } },
+      { type: "agent", threadId },
+      "2026-09-10T00:00:00Z",
+    ),
+  ).toThrow(/outside the current brief/);
   const queued = decide(shared, command, { type: "agent", threadId }, "2026-09-10T00:00:00Z");
   expect(queued.tasks[0]?.attempts).toHaveLength(0);
   expect(queued.tasks[0]?.pendingOperationId).toBe("remote-assign");
@@ -259,4 +276,117 @@ it("forwards shared control to its fixed home and fences the previous coordinato
   expect(() =>
     decide(atHome, command, { type: "agent", threadId }, "2026-09-10T00:00:00Z"),
   ).toThrow(/coordinator/);
+});
+
+it("lets GLaDOS choose a configured worker and thinking level without automatic retry escalation", () => {
+  let state = elect();
+  const fallback = {
+    instanceId: ProviderInstanceId.make("claude-work"),
+    model: "stronger-model",
+    options: [{ id: "effort", value: "high" }],
+  };
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`fallback-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-11T00:00:00Z",
+    );
+  };
+  run({ type: "brief", brief: { ...brief, alternateWorkerModel: fallback } });
+  run({
+    type: "create",
+    taskId: "retry",
+    projectId,
+    title: "Retry",
+    outcome: "Verified behavior",
+    criteria: "Check passes",
+    verifyCommand: "test",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  expect(() =>
+    decide(
+      state,
+      {
+        commandId: CommandId.make("unapproved-model"),
+        expectedRevision: state.revision,
+        authorityGeneration: state.role!.generation,
+        action: {
+          type: "assign",
+          taskId: "retry",
+          model: { instanceId: ProviderInstanceId.make("other-provider"), model: "not-selected" },
+        },
+      },
+      { type: "agent", threadId },
+      "2026-09-11T00:00:00Z",
+    ),
+  ).toThrow(/outside the task home's brief/);
+  run({ type: "assign", taskId: "retry" });
+  expect(state.tasks[0]!.attempts[0]!.model).toEqual(brief.workerModel);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const previous = state.tasks[0]!.attempts.at(-1)!;
+    run({ type: "rework", taskId: "retry", note: "Verification failed" });
+    expect(() => run({ type: "assign", taskId: "retry" })).toThrow();
+    state = observeAttempt(state, "retry", previous.id, "stopped", "Stopped for retry");
+    run({ type: "reopen", taskId: "retry" });
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`choice-${state.revision}`),
+        expectedRevision: state.revision,
+        authorityGeneration: state.role!.generation,
+        action: { type: "assign", taskId: "retry", ...(attempt === 1 ? { model: fallback } : {}) },
+      },
+      { type: "agent", threadId },
+      "2026-09-11T00:00:00Z",
+    );
+    expect(state.tasks[0]!.attempts.at(-1)!.model).toEqual(
+      attempt === 1 ? fallback : brief.workerModel,
+    );
+  }
+  const last = state.tasks[0]!.attempts.at(-1)!;
+  run({ type: "rework", taskId: "retry", note: "Still failing" });
+  state = observeAttempt(state, "retry", last.id, "stopped", "Stopped");
+  run({ type: "reopen", taskId: "retry" });
+  expect(() => run({ type: "assign", taskId: "retry" })).toThrow(/not ready/);
+});
+
+it("admits ten workers while enforcing the saved concurrent worker limit", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`capacity-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-11T00:00:00Z",
+    );
+  };
+  run({ type: "brief", brief: { ...brief, maxWorkers: 10 } });
+  for (let i = 0; i < 11; i++) {
+    run({
+      type: "create",
+      taskId: `capacity-${i}`,
+      projectId,
+      title: "Bounded work",
+      outcome: "Result",
+      criteria: "Check passes",
+      verifyCommand: "test",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    if (i < 10) run({ type: "assign", taskId: `capacity-${i}` });
+  }
+  expect(state.tasks.filter((task) => task.status === "active")).toHaveLength(10);
+  expect(() => run({ type: "assign", taskId: "capacity-10" })).toThrow(/capacity/);
 });

@@ -1,3 +1,5 @@
+import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialog";
+import { BriefForm } from "./BriefForm";
 import { useServerConfigs } from "../../state/entities";
 import { onOpenPitbossPanel } from "./panelEvents";
 import { PitbossPeers } from "./PitbossPeers";
@@ -133,9 +135,10 @@ export function PitbossPanel(props: {
     quality:
       "Show evidence that the requested behavior works. Preserve existing behavior outside scope.",
     projectIds: [props.projectId],
-    maxWorkers: 1,
+    maxWorkers: 10,
     maxAttempts: 3,
     workerModel: props.modelSelection,
+    managedPeerIds: [],
   };
   const command = async (action: PitbossAction) => {
     if (!state || busy) return false;
@@ -266,27 +269,45 @@ export function PitbossPanel(props: {
             </p>
           )}
           {editingBrief && (
-            <BriefForm
-              key={role?.generation ?? "new"}
-              brief={isBoss ? role.brief : defaultBrief}
-              busy={busy}
-              onCancel={() => setEditingBrief(false)}
-              onSave={async (brief) => {
-                if (
-                  await command(
-                    isBoss
-                      ? { type: "brief", brief }
-                      : {
-                          type: "elect",
-                          threadId: props.threadId,
-                          projectId: props.projectId,
-                          brief,
-                        },
-                  )
-                )
-                  setEditingBrief(false);
+            <Dialog
+              open
+              onOpenChange={(value) => {
+                if (!busy) setEditingBrief(value);
               }}
-            />
+            >
+              <DialogPopup
+                className="max-w-4xl max-h-[90dvh] overflow-y-auto"
+                showCloseButton={false}
+              >
+                <DialogTitle className="sr-only">Configure GLaDOS</DialogTitle>
+                <DialogDescription className="sr-only">
+                  Worker configurations, decision guidance, project scope and concurrency.
+                </DialogDescription>
+                <BriefForm
+                  environmentId={props.environmentId}
+                  key={role?.generation ?? "new"}
+                  brief={isBoss ? role.brief : defaultBrief}
+                  busy={busy}
+                  error={error}
+                  onCancel={() => setEditingBrief(false)}
+                  onSave={async (brief) => {
+                    if (
+                      await command(
+                        isBoss
+                          ? { type: "brief", brief }
+                          : {
+                              type: "elect",
+                              threadId: props.threadId,
+                              projectId: props.projectId,
+                              brief,
+                            },
+                      )
+                    )
+                      setEditingBrief(false);
+                  }}
+                />
+              </DialogPopup>
+            </Dialog>
           )}
           {isBoss && adding && (
             <TaskForm
@@ -615,126 +636,6 @@ export function PitbossPanel(props: {
   );
 }
 
-function BriefForm({
-  brief,
-  busy,
-  onSave,
-  onCancel,
-}: {
-  brief: PitbossBrief;
-  busy: boolean;
-  onSave: (brief: PitbossBrief) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [priorities, setPriorities] = useState(brief.priorities);
-  const [quality, setQuality] = useState(brief.quality);
-  const [maxWorkers, setMaxWorkers] = useState(brief.maxWorkers);
-  const [maxAttempts, setMaxAttempts] = useState(brief.maxAttempts);
-  const [workerModel, setWorkerModel] = useState(brief.workerModel.model);
-  const [workerRuntimeMode, setWorkerRuntimeMode] = useState(
-    brief.workerRuntimeMode ?? "approval-required",
-  );
-  return (
-    <form
-      className="grid gap-3 rounded-xl border border-border bg-background p-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void onSave({
-          ...brief,
-          priorities,
-          quality,
-          maxWorkers,
-          maxAttempts,
-          workerRuntimeMode,
-          workerModel: { ...brief.workerModel, model: workerModel },
-        });
-      }}
-    >
-      <h3 className="font-semibold">Give GLaDOS a brief</h3>
-      <p className="text-xs text-muted-foreground">
-        This project · {brief.maxWorkers} worker at a time · {brief.maxAttempts} attempts ·{" "}
-        {brief.workerModel.model}. Work begins proactively within this scope.
-      </p>
-      <label className="grid gap-1 text-xs">
-        Priorities
-        <textarea
-          required
-          value={priorities}
-          onChange={(event) => setPriorities(event.target.value)}
-          className={fieldClass}
-          placeholder="What matters most? What should wait?"
-        />
-      </label>
-      <label className="grid gap-1 text-xs">
-        Quality expectations
-        <textarea
-          required
-          value={quality}
-          onChange={(event) => setQuality(event.target.value)}
-          className={fieldClass}
-        />
-      </label>
-      <div className="grid gap-2 md:grid-cols-2">
-        <label className="grid gap-1 text-xs">
-          Concurrent workers
-          <input
-            type="number"
-            min={1}
-            max={8}
-            required
-            className={fieldClass}
-            value={maxWorkers}
-            onChange={(event) => setMaxWorkers(event.target.valueAsNumber)}
-          />
-        </label>
-        <label className="grid gap-1 text-xs">
-          Attempts per task
-          <input
-            type="number"
-            min={1}
-            max={5}
-            required
-            className={fieldClass}
-            value={maxAttempts}
-            onChange={(event) => setMaxAttempts(event.target.valueAsNumber)}
-          />
-        </label>
-        <label className="grid gap-1 text-xs">
-          Worker model ({brief.workerModel.instanceId})
-          <input
-            required
-            className={fieldClass}
-            value={workerModel}
-            onChange={(event) => setWorkerModel(event.target.value)}
-          />
-        </label>
-        <label className="grid gap-1 text-xs">
-          Worker permissions
-          <select
-            className={fieldClass}
-            value={workerRuntimeMode}
-            onChange={(event) =>
-              setWorkerRuntimeMode(
-                event.target.value === "full-access" ? "full-access" : "approval-required",
-              )
-            }
-          >
-            <option value="approval-required">Ask for approvals</option>
-            <option value="full-access">Full access within the brief</option>
-          </select>
-        </label>
-      </div>
-      <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={busy}>
-          Save brief
-        </Button>
-        <Button size="sm" type="button" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
-}
 function TaskForm({
   busy,
   onSave,

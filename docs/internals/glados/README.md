@@ -2,6 +2,8 @@
 
 This is the reference library to consult while designing and iterating on T3's GLaDOS. It preserves source mechanisms and useful alternatives independently of the implementation. Start with [current scope and iteration constraints](scope.md).
 
+See [worker model choices and routing](worker-model-policy.md) for the native editor and per-task selection policy.
+
 ## Catalogs
 
 - [Gas City concepts](gas-city.md): durable work, roles, routing, mail/nudge, claims, waits, workflows, lifecycle/recovery, configuration, runtime placement, accounting and observability.

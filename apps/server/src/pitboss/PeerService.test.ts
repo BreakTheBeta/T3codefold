@@ -145,7 +145,15 @@ it.effect(
               projectIds: [projectId],
               maxWorkers: 1,
               maxAttempts: 3,
-              workerModel: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+              workerModel: {
+                instanceId: ProviderInstanceId.make("codex"),
+                model: `${owner}-primary`,
+              },
+              alternateWorkerModel: {
+                instanceId: ProviderInstanceId.make(`${owner}-custom`),
+                model: `${owner}-alternative`,
+                options: [{ id: "reasoningEffort", value: "high" }],
+              },
             },
           });
           yield* store.importSources(
@@ -270,6 +278,10 @@ it.effect(
         yield* b.peer.execute({ type: "sync", peerId: "a" });
         yield* b.peer.execute({ type: "sync", peerId: "a" });
         expect((yield* a.store.read()).tasks[0]?.attempts).toHaveLength(2);
+        expect((yield* a.store.read()).tasks[0]?.attempts.at(-1)?.model).toEqual({
+          instanceId: "codex",
+          model: "a-primary",
+        });
         expect((yield* b.store.read()).tasks[0]?.pendingOperationId).toBeUndefined();
         yield* a.peer.execute({ type: "sync", peerId: "b" });
         expect((yield* b.store.read()).tasks[0]?.homeEnvironmentId).toBe("env-a");

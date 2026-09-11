@@ -110,6 +110,33 @@ export function PitbossWork(props: {
               className="rounded-xl border border-border p-3 text-foreground"
               placeholder="What should GLaDOS work on?"
             />
+            {role && (
+              <View className="gap-1 rounded-xl border border-border p-3">
+                <Text className="text-sm font-semibold">Worker configurations</Text>
+                {[
+                  role.brief.workerModel,
+                  ...(role.brief.alternateWorkerModel ? [role.brief.alternateWorkerModel] : []),
+                ].map((model, index) => (
+                  <Text
+                    key={index === 0 ? "default" : "alternative"}
+                    className="text-sm text-muted-foreground"
+                  >
+                    {index === 0 ? "Default" : "Alternative"}: {model.instanceId} · {model.model}
+                    {model.options?.map((option) => ` · ${option.id}: ${option.value}`).join("")}
+                  </Text>
+                ))}
+                {role.brief.modelGuidance && (
+                  <Text className="text-sm text-muted-foreground">{role.brief.modelGuidance}</Text>
+                )}
+                <Text className="text-xs text-muted-foreground">
+                  {role.brief.projectIds.length} projects ·{" "}
+                  {role.brief.managedPeerIds === undefined
+                    ? "All configured peers"
+                    : `${role.brief.managedPeerIds.length} permitted peers`}
+                  . Edit models, thinking levels, guidance and scope on web or desktop.
+                </Text>
+              </View>
+            )}
             {isBoss ? (
               <View className="flex-row flex-wrap gap-2">
                 {button(
@@ -134,9 +161,10 @@ export function PitbossWork(props: {
                       priorities,
                       quality: "Prove the requested behavior and preserve unrelated work.",
                       projectIds: [props.projectId],
-                      maxWorkers: 1,
+                      maxWorkers: 10,
                       maxAttempts: 3,
                       workerModel: props.modelSelection,
+                      managedPeerIds: [],
                     },
                   }),
               )
