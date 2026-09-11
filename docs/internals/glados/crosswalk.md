@@ -1,6 +1,6 @@
 # From source concepts to the T3 GLaDOS
 
-This is the decision index for the [Gas City](gas-city.md) and [pstack](pstack.md) catalogs. IDs refer to stable entries there. The [current scope](scope.md) chooses a small implementation of these lessons; this library retains the rest for later iteration.
+This is the decision index for the [Gas City](gas-city.md), [pstack](pstack.md), [Cursor](cursor-projects.md), and [Hermes media-team](hermes-media-team.md) catalogs. IDs refer to stable entries there. The [current scope](scope.md) chooses a small implementation of these lessons; this library retains the rest for later iteration.
 
 ## Find a concept by the problem you are solving
 
@@ -65,3 +65,25 @@ This is the decision index for the [Gas City](gas-city.md) and [pstack](pstack.m
 - **Independent emergency spool, richer exports and retention tiers:** add when observed substrate faults or long-running evidence volume justify them; keep initial health failures visible and artifacts durable (GC-060–065; PS-016, PS-039).
 
 These are preserved options, not an automatically activated backlog. Start each iteration with a concrete failure or user outcome, choose the matching concept, and specify the proof before expanding the system.
+
+## Cursor additions and changed lessons
+
+The [Cursor catalog](cursor-projects.md) separates public Projects behavior from experimental swarm architectures. Its CU IDs add choices to this library; they do not declare those mechanisms implemented in GLaDOS.
+
+| Constraint                                   | Cursor concepts                | Relationship to existing ideas | T3 decision to evaluate                                                            |
+| -------------------------------------------- | ------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------- |
+| Coordinator loses responsiveness             | CU-004–005, CU-016             | GC-001, GC-029; PS-021–022     | Keep takeover in a separate execution attempt; measure acknowledgement latency     |
+| Repeated discovery is forgotten              | CU-006, CU-015, CU-017, CU-027 | GC-047–050; PS-006, PS-008–009 | Curate scoped, versioned knowledge with provenance and supersession                |
+| Recurring work produces churn                | CU-018–020                     | GC-045–046; PS-065–066         | Deduplicate event-created candidates and budget gardening separately               |
+| Workers choose incompatible designs          | CU-010–013                     | GC-010, GC-068; PS-049–055     | Track interface decision ownership; reconcile conflicts selectively                |
+| Cheap model savings disappear in rework      | CU-002, CU-009, CU-029         | GC-013, GC-052; PS-022–023     | Measure whole verified-outcome cost per environment and recipe                     |
+| Claimed verification gives false confidence  | CU-014, CU-030                 | GC-021–023; PS-010–020         | Independent checks and server-captured candidate evidence before stronger autonomy |
+| Process recovery becomes accidental takeover | CU-021–022, CU-024–026         | GC-032–038, GC-056–057         | Separate placement claims, execution identity and approved leadership              |
+
+Two distinctions matter. Cursor's January/February research found a central integration bottleneck; July describes targeted neutral conflict resolution. These placements are not equivalent, so neither “always add an integrator” nor “never add an integrator” follows. Similarly, hierarchical planning inside one initiative does not contradict independent environment authority: it does not grant a planner permission to elect itself fleet leader.
+
+## Editorial workflows and non-code outcomes
+
+The [Hermes media-team catalog](hermes-media-team.md) extends the same architecture to work with subjective quality and several destinations. HM-001–005 sharpen decision ownership, candidate rejection and explicit handoff repair. HM-006–008 add combined-output review and self-contained approval packets. HM-009–011 turn feedback into proposed knowledge before it becomes shared policy. HM-012 separates acceptance from publication, HM-013–014 keep staffing proportional, and HM-015–016 distinguish enforced completion contracts from infrastructure retries and editorial revisions.
+
+For GLaDOS, the useful addition is not a fixed six-bot roster or a mandatory Obsidian dependency. It is a versioned result packet, a review of the combined outcome, and an inspectable route for lessons to become approved rules. The author-supplied growth figures are not validation of these mechanisms. Official Hermes sources and narrow implementation inspection are recorded separately in that catalog.
