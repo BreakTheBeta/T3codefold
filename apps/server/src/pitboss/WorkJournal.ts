@@ -16,6 +16,7 @@ const Entry = Schema.Union([
   Schema.Struct({ type: Schema.Literal("authority"), authority: PitbossSourceAuthority }),
   Schema.Struct({
     type: Schema.Literal("command"),
+    version: Schema.optional(Schema.Literal(2)),
     input: PitbossCommand,
     actor: Schema.Union([
       Schema.Struct({ type: Schema.Literal("user") }),
@@ -49,7 +50,8 @@ export function replayJournal(entries: ReadonlyArray<string>): PitbossSnapshot {
   let state = emptyWork;
   for (const raw of entries) {
     const entry = decode(raw);
-    if (entry.type === "command") state = decide(state, entry.input, entry.actor, entry.now);
+    if (entry.type === "command")
+      state = decide(state, entry.input, entry.actor, entry.now, entry.version === undefined);
     else if (entry.type === "message")
       state = {
         ...state,

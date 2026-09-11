@@ -204,3 +204,52 @@ it.effect("keeps projects outside the elected brief out of agent reads and injec
     );
   }).pipe(Effect.provide(services)),
 );
+
+it.effect(
+  "recovers one lead launch intent and scopes its durable project context after replay",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* WorkStore;
+      yield* store.command(election, { type: "user" });
+      const input = {
+        commandId: CommandId.make("create-terra"),
+        expectedRevision: 1,
+        authorityGeneration: 1,
+        action: {
+          type: "create-lead" as const,
+          leadId: "terra",
+          projectId: election.action.projectId,
+          charter: "Build a small app with two bounded workers and inspect the combined result",
+          model: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-terra" },
+          maxWorkers: 1,
+        },
+      };
+      const boss = { type: "agent" as const, threadId: election.action.threadId };
+      const first = yield* store.command(input, boss);
+      const retry = yield* store.command(input, boss);
+      expect(retry.revision).toBe(first.revision);
+      expect((yield* store.effects()).filter((e) => e.kind === "create-lead")).toHaveLength(1);
+      const lead = first.leads![0]!;
+      const actor = { type: "agent" as const, threadId: lead.threadId };
+      yield* store.command(
+        {
+          commandId: CommandId.make("project-context"),
+          expectedRevision: first.revision,
+          authorityGeneration: lead.generation,
+          action: {
+            type: "lead-context",
+            leadId: lead.id,
+            context: "Decision: keep data in localStorage. Evidence: fixture test.",
+          },
+        },
+        actor,
+      );
+      yield* store.rebuild();
+      const scoped = yield* store.read(actor);
+      expect(scoped.leads?.[0]?.context).toContain("localStorage");
+      expect(scoped.sourceAuthorities).toEqual([]);
+      expect(scoped.role?.brief.priorities).toBe(lead.charter);
+      expect(yield* store.context(lead.threadId, "fresh-session")).toContain("localStorage");
+      expect((yield* store.effects()).filter((e) => e.kind === "create-lead")).toHaveLength(1);
+    }).pipe(Effect.provide(services)),
+);

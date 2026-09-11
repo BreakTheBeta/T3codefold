@@ -4,6 +4,8 @@ This is the reference library to consult while designing and iterating on T3's G
 
 See [worker model choices and routing](worker-model-policy.md) for the native editor and per-task selection policy.
 
+See [project leadership and context ownership](project-leadership.md) for adaptive delegation and its current implementation boundaries.
+
 ## Catalogs
 
 - [Gas City concepts](gas-city.md): durable work, roles, routing, mail/nudge, claims, waits, workflows, lifecycle/recovery, configuration, runtime placement, accounting and observability.

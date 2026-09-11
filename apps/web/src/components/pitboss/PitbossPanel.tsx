@@ -268,6 +268,63 @@ export function PitbossPanel(props: {
               New autonomous work is paused. Existing workers continue until you stop them.
             </p>
           )}
+          {role && (state.leads ?? []).length > 0 && (
+            <div className="mb-4 space-y-2" aria-label="Project leads">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Project leads · report to GLaDOS</span>
+                <span>{role.brief.maxWorkers} shared workers · 1 lead turn at a time</span>
+              </div>
+              {(state.leads ?? []).map((lead) => {
+                const active =
+                  lead.status === "active" &&
+                  lead.parentGeneration === role.generation &&
+                  role.brief.projectIds.includes(lead.projectId);
+                const tasks = state.tasks.filter((task) => task.leadId === lead.id);
+                return (
+                  <div key={lead.id} className="rounded-xl border border-border bg-background p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => openThread(lead.threadId)}>
+                        {lead.id}
+                        <ArrowUpRightIcon className="size-3" />
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        {active ? "Managing" : "Dormant"} · {lead.model.model} · up to{" "}
+                        {lead.maxWorkers} workers
+                      </span>
+                      <span className="flex-1" />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          void command({
+                            type: "lead-status",
+                            leadId: lead.id,
+                            status: active ? "dormant" : "active",
+                          })
+                        }
+                      >
+                        {active ? "Return to GLaDOS" : "Reactivate"}
+                      </Button>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-sm">{lead.charter}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {tasks.filter((task) => task.status === "done").length} / {tasks.length}{" "}
+                      outcomes accepted · Context revision {lead.contextRevision}
+                    </p>
+                    <details className="mt-2 text-sm">
+                      <summary className="cursor-pointer text-muted-foreground">
+                        Project context and decisions
+                      </summary>
+                      <p className="mt-2 whitespace-pre-wrap">
+                        {lead.context || "The lead has not recorded project context yet."}
+                      </p>
+                    </details>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {editingBrief && (
             <Dialog
               open
@@ -383,6 +440,15 @@ export function PitbossPanel(props: {
                             className="mb-2 block w-full rounded-lg border border-border/70 px-3 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-amber-500"
                           >
                             <span className="block text-sm font-medium">{task.title}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              Managed by{" "}
+                              {state.leads?.find(
+                                (lead) =>
+                                  lead.id === task.leadId &&
+                                  lead.status === "active" &&
+                                  lead.parentGeneration === role?.generation,
+                              )?.id ?? "GLaDOS"}
+                            </span>
                             <span className={`text-xs ${statusClass[task.status]}`}>
                               {task.status}
                             </span>

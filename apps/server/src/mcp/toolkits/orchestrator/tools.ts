@@ -296,7 +296,7 @@ export const WorkReadTool = Tool.make("work_read", {
 }).annotate(Tool.Readonly, true);
 export const WorkCommandTool = Tool.make("work_command", {
   description:
-    "Manage durable T3 work using a typed action. Pitbosses create/assign tasks, inspect and accept evidence, request rework, and acknowledge messages. Workers report questions/progress and submit candidate evidence. Retry an uncertain call with exactly the same commandId and payload. New decisions require the current snapshot revision. Role and limit changes require the user.",
+    "Manage durable T3 work using a typed action. GLaDOS can create-lead and lead-message; project leads manage only their own local tasks and use lead-context/lead-report. Create action requires type=create, taskId, projectId, title, outcome, criteria, verifyCommand, priority, dependencies, workspaceStrategy. Include authorityGeneration from your role or lead record on management commands. Managers create/assign tasks, inspect and accept evidence, request rework, and acknowledge messages. Workers report questions/progress and submit candidate evidence. Retry an uncertain call with exactly the same commandId and payload. New decisions require the current snapshot revision. Role and limit changes require the user.",
   parameters: PitbossCommand,
   success: PitbossSnapshot,
   failure: PitbossError,
