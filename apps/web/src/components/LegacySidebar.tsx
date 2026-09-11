@@ -14,11 +14,13 @@ import {
   GitPullRequestIcon,
 } from "lucide-react";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
-import { LinkBranchPullRequestButton } from "./pullRequest/LinkBranchPullRequestButton";
 import {
   resolveThreadCurrentPullRequestLink,
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
+
+import { Spinner } from "~/components/ui/spinner";
+
 import {
   ChangeRequestStatusIcon,
   prStatusIndicator,
@@ -786,12 +788,6 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             >
               <GitPullRequestIcon className="size-3" />
             </a>
-          ) : null}
-          {pr &&
-          (supportsMultiplePullRequests
-            ? visibleThreadPullRequests(thread.pullRequests).length === 0
-            : thread.linkedPullRequest == null) ? (
-            <LinkBranchPullRequestButton threadRef={threadRef} url={pr.url} />
           ) : null}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
           {renamingThreadKey === threadKey ? (

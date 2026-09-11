@@ -6,11 +6,11 @@ import {
   MarkdownFileContextMenuContext,
   NativeMarkdownSelectableText,
   type MarkdownFileContextMenuHandlers,
-} from "./NativeMarkdownSelectableText.ios";
+} from "./NativeMarkdownSelectableText";
 import {
   SelectableMarkdownText as RichSelectableMarkdownText,
   hasNativeSelectableMarkdownText,
-} from "./SelectableMarkdownText.ios";
+} from "./SelectableMarkdownText";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";
 
 export type {

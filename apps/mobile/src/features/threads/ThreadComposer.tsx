@@ -43,6 +43,7 @@ import Animated, {
   FadeOut,
   FadeOutDown,
   LinearTransition,
+  type LayoutAnimationFunction,
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
@@ -165,10 +166,32 @@ export interface ThreadComposerProps {
 // running alongside that translate reads as jitter. Snapping the layout and
 // letting the keyboard-synced slide be the only motion looks native there.
 export const COMPOSER_TRANSITION_DURATION_MS = 220;
+// Side panes already animate the dock's width. Nested horizontal layout
+// transitions would leave the surface trailing its toolbar's new position.
+// Keep the vertical pill/card morph while horizontal layout follows the dock.
+const composerHeightTransition: LayoutAnimationFunction = (values) => {
+  "worklet";
+  const timing = {
+    duration: COMPOSER_TRANSITION_DURATION_MS,
+    reduceMotion: ReduceMotion.System,
+  };
+  return {
+    initialValues: {
+      originX: values.targetOriginX,
+      originY: values.currentOriginY,
+      width: values.targetWidth,
+      height: values.currentHeight,
+    },
+    animations: {
+      originX: values.targetOriginX,
+      originY: withTiming(values.targetOriginY, timing),
+      width: values.targetWidth,
+      height: withTiming(values.targetHeight, timing),
+    },
+  };
+};
 export const COMPOSER_LAYOUT_TRANSITION =
-  Platform.OS === "android"
-    ? undefined
-    : LinearTransition.duration(COMPOSER_TRANSITION_DURATION_MS).reduceMotion(ReduceMotion.System);
+  Platform.OS === "android" ? undefined : composerHeightTransition;
 
 const COMPOSER_ATTACHMENT_ENTERING =
   Platform.OS === "android"
@@ -447,7 +470,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   );
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
   // An open draft stays visible; only a collapsed composer becomes a voice strip.
-  const isExpanded = isFocused || settingsSheetPresentation.isActive;
+  const isExpanded = isFocused || settingsSheetPresentation.keepsComposerExpanded;
   const showsCompactDictation = isVoiceInputPresented && !isExpanded;
   const isToolbarVisible = isExpanded || isVoiceInputPresented;
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
@@ -506,12 +529,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   const handleBlur = useCallback(() => {
     setIsFocused(false);
-    if (!settingsSheetPresentation.isActive) {
+    if (!settingsSheetPresentation.keepsComposerExpanded) {
       onExpandedChange?.(false);
     }
     onEditorFocusChange?.(false);
-  }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.isActive]);
-
+  }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.keepsComposerExpanded]);
   const handleSend = useCallback(async () => {
     if (
       usageLimitsOffered &&

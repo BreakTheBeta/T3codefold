@@ -266,6 +266,7 @@ describe("CursorAdapterV2", () => {
       providerInstanceId: ProviderInstanceId.make("cursor"),
       endpoint: "http://127.0.0.1:43123/mcp",
       authorizationHeader: "Bearer secret-cursor-mcp-token",
+      capabilities: new Set(["preview", "orchestration", "worktree", "pull-requests"]),
       browserToolsAvailable: true,
     });
 

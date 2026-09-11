@@ -230,6 +230,7 @@ function unimplemented(detail: string) {
 function makeProviderAdapter(
   state: Ref.Ref<TestProviderRuntimeState>,
   options: {
+    readonly driver?: ProviderDriverKind;
     readonly failEventStream?: boolean;
     readonly capabilities?: OrchestrationV2ProviderCapabilities;
     readonly mcpConfigs?: Ref.Ref<
@@ -244,7 +245,7 @@ function makeProviderAdapter(
 ): ProviderAdapterV2Shape {
   return {
     instanceId: ProviderInstanceId.make("codex"),
-    driver: CODEX_DRIVER,
+    driver: options.driver ?? CODEX_DRIVER,
     getCapabilities: () => Effect.succeed(options.capabilities ?? CodexCapabilities),
     planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
     openSession: (input) =>
@@ -289,13 +290,13 @@ function makeProviderAdapter(
 
         return {
           instanceId: ProviderInstanceId.make("codex"),
-          driver: CODEX_DRIVER,
+          driver: options.driver ?? CODEX_DRIVER,
           providerSessionId: input.providerSessionId,
           providerSession: session,
           events: options.failEventStream
             ? Stream.fail(
                 new ProviderAdapterEventStreamError({
-                  driver: CODEX_DRIVER,
+                  driver: options.driver ?? CODEX_DRIVER,
                   providerSessionId: input.providerSessionId,
                   cause: "process exited",
                 }),
@@ -327,6 +328,7 @@ function makeProviderAdapter(
 }
 
 function makeTestLayer(input: {
+  readonly driver?: ProviderDriverKind;
   readonly state: Ref.Ref<TestProviderRuntimeState>;
   readonly idleTimeoutMs: number;
   readonly maxIdlePinMs?: number;
@@ -348,6 +350,7 @@ function makeTestLayer(input: {
     : TestEventSinkLayer;
   const registryLayer = makeProviderAdapterRegistryLayer(
     makeProviderAdapter(input.state, {
+      ...(input.driver === undefined ? {} : { driver: input.driver }),
       failEventStream: input.failEventStream ?? false,
       ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
       ...(input.mcpConfigs === undefined ? {} : { mcpConfigs: input.mcpConfigs }),
@@ -2451,4 +2454,123 @@ it.effect(
         );
       }).pipe(Effect.provide(makeTestLayer({ state, idleTimeoutMs: 60_000 })));
     }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "ProviderSessionManagerV2 keeps device access independent from browser access in issued sessions",
+  () =>
+    Effect.gen(function* () {
+      const state = yield* Ref.make(emptyState);
+      const mcpConfigs = yield* Ref.make<
+        ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
+      >([]);
+      const effect = Effect.gen(function* () {
+        const eventSink = yield* EventSinkV2;
+        const idAllocator = yield* IdAllocatorV2;
+        const manager = yield* ProviderSessionManagerV2;
+        const registry = yield* McpSessionRegistry.McpSessionRegistry;
+        const now = yield* DateTime.now;
+        const threadId = ThreadId.make("thread-provider-session-manager-device-only");
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId,
+        });
+
+        yield* eventSink.write({
+          events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+        });
+        yield* manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy,
+        });
+
+        const captured = (yield* Ref.get(mcpConfigs))[0];
+        assert.isDefined(captured);
+        assert.equal(captured?.browserToolsAvailable, false);
+        const token = captured?.authorizationHeader.replace(/^Bearer\s+/, "");
+        const resolved = yield* registry.resolve(token!);
+        assert.deepEqual(
+          resolved?.capabilities,
+          new Set(["orchestration", "worktree", "pull-requests", "device"]),
+        );
+
+        yield* manager.close(providerSessionId);
+      });
+
+      yield* effect.pipe(
+        Effect.provide(
+          makeTestLayer({
+            state,
+            idleTimeoutMs: 1_000,
+            mcpConfigs,
+            serverSettingsLayer: ServerSettings.layerTest({
+              enableAgentBrowserAccess: false,
+              enableAgentDeviceAccess: true,
+            }),
+          }),
+        ),
+      );
+    }),
+);
+
+it.effect(
+  "ProviderSessionManagerV2 withholds CLI-dependent device tools from Cursor SDK sessions",
+  () =>
+    Effect.gen(function* () {
+      const state = yield* Ref.make(emptyState);
+      const mcpConfigs = yield* Ref.make<
+        ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
+      >([]);
+      const effect = Effect.gen(function* () {
+        const eventSink = yield* EventSinkV2;
+        const idAllocator = yield* IdAllocatorV2;
+        const manager = yield* ProviderSessionManagerV2;
+        const registry = yield* McpSessionRegistry.McpSessionRegistry;
+        const now = yield* DateTime.now;
+        const threadId = ThreadId.make("thread-provider-session-manager-device-only");
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId,
+        });
+
+        yield* eventSink.write({
+          events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+        });
+        yield* manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy,
+        });
+
+        const captured = (yield* Ref.get(mcpConfigs))[0];
+        assert.isDefined(captured);
+        assert.equal(captured?.browserToolsAvailable, false);
+        const token = captured?.authorizationHeader.replace(/^Bearer\s+/, "");
+        const resolved = yield* registry.resolve(token!);
+        assert.deepEqual(
+          resolved?.capabilities,
+          new Set(["orchestration", "worktree", "pull-requests"]),
+        );
+
+        yield* manager.close(providerSessionId);
+      });
+
+      yield* effect.pipe(
+        Effect.provide(
+          makeTestLayer({
+            state,
+            driver: ProviderDriverKind.make("cursor"),
+            idleTimeoutMs: 1_000,
+            mcpConfigs,
+            serverSettingsLayer: ServerSettings.layerTest({
+              enableAgentBrowserAccess: false,
+              enableAgentDeviceAccess: true,
+            }),
+          }),
+        ),
+      );
+    }),
 );
