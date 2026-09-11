@@ -630,6 +630,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       providerInstanceId: ProviderInstanceId.make("codex"),
       endpoint: "http://127.0.0.1:43123/mcp",
       authorizationHeader: "Bearer secret-codex-token",
+      capabilities: new Set(["preview", "orchestration", "worktree", "pull-requests"]),
       browserToolsAvailable: true,
     });
 

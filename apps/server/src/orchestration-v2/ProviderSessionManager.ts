@@ -1,3 +1,9 @@
+import { ensureAgentDeviceShim } from "../device/AgentDeviceShim.ts";
+import { DeviceService } from "../device/DeviceService.ts";
+import { ServerConfig } from "../config.ts";
+import * as Path from "effect/Path";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import type { McpCapability } from "../mcp/McpInvocationContext.ts";
 import {
   ModelSelection,
   OrchestrationV2DomainEvent,
@@ -279,6 +285,46 @@ export const layerWithOptions = (
        * reverse costs an agent one toolset and is visible immediately (#7083).
        */
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+      const deviceEnvironment = Effect.gen(function* () {
+        const devices = yield* Effect.serviceOption(DeviceService);
+        const config = yield* Effect.serviceOption(ServerConfig);
+        const path = yield* Effect.serviceOption(Path.Path);
+        const platform = yield* Effect.serviceOption(HostProcessPlatform);
+        if (
+          Option.isNone(devices) ||
+          Option.isNone(config) ||
+          Option.isNone(path) ||
+          Option.isNone(platform)
+        )
+          return undefined;
+        const entryPath = yield* devices.value.agentCli;
+        if (!entryPath) return undefined;
+        const directory = yield* ensureAgentDeviceShim({
+          entryPath,
+          stateDir: config.value.stateDir,
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path.value),
+          Effect.provideService(HostProcessPlatform, platform.value),
+        );
+        return {
+          PATH: directory,
+          PATH_SEPARATOR: platform.value === "win32" ? ";" : ":",
+          AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1",
+        };
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Agent device CLI unavailable", { cause }).pipe(Effect.as(undefined)),
+        ),
+      );
+      const deviceAccessEnabled = Option.match(serverSettings, {
+        onNone: () => Effect.succeed(false),
+        onSome: (settings) =>
+          settings.getSettings.pipe(
+            Effect.map((s) => s.enableAgentDeviceAccess),
+            Effect.orElseSucceed(() => false),
+          ),
+      });
       const agentBrowserAccessEnabled = Option.match(serverSettings, {
         onNone: () => Effect.succeed(true),
         onSome: (settings) =>
@@ -343,6 +389,7 @@ export const layerWithOptions = (
       const prepareMcpSession = (
         threadId: ThreadId,
         providerInstanceId: ProviderInstanceId,
+        supportsDeviceEnvironment: boolean,
       ): Effect.Effect<PreparedMcpCredential> =>
         options.configureMcp === false
           ? Effect.sync((): PreparedMcpCredential => {
@@ -359,6 +406,17 @@ export const layerWithOptions = (
                 // re-attaches across a workspace handoff must come back to the
                 // same token or the process's tool calls fail auth.
                 const browserToolsAvailable = yield* agentBrowserAccessEnabled;
+                // Cursor SDK local agents expose no per-session environment option.
+                // Withhold CLI-dependent tools until the SDK can receive the pinned shim.
+                const deviceToolsAvailable =
+                  supportsDeviceEnvironment && (yield* deviceAccessEnabled);
+                const capabilities = new Set<McpCapability>([
+                  "orchestration",
+                  "worktree",
+                  "pull-requests",
+                ]);
+                if (browserToolsAvailable) capabilities.add("preview");
+                if (deviceToolsAvailable) capabilities.add("device");
                 const existing = McpProviderSession.readMcpProviderSession(threadId);
                 if (existing !== undefined) {
                   // Reserve before the async resolve so a release cannot
@@ -372,7 +430,8 @@ export const layerWithOptions = (
                     resolved.providerInstanceId === providerInstanceId &&
                     // A flipped browser-access setting must not survive through
                     // credential reuse: rotate so the new scope reflects it.
-                    resolved.capabilities.has("preview") === browserToolsAvailable
+                    resolved.capabilities.has("preview") === browserToolsAvailable &&
+                    resolved.capabilities.has("device") === deviceToolsAvailable
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -383,8 +442,15 @@ export const layerWithOptions = (
                   threadId,
                   providerInstanceId,
                   browserToolsAvailable,
+                  capabilities,
                 });
-                McpProviderSession.setMcpProviderSession(credential.config);
+                const agentDeviceEnvironment = deviceToolsAvailable
+                  ? yield* deviceEnvironment
+                  : undefined;
+                McpProviderSession.setMcpProviderSession({
+                  ...credential.config,
+                  ...(agentDeviceEnvironment ? { agentDeviceEnvironment } : {}),
+                });
                 reserveMcpCredential(threadId, credential.config.providerSessionId);
                 return { mcpCredentialId: credential.config.providerSessionId, issued: true };
               }),
@@ -994,6 +1060,7 @@ export const layerWithOptions = (
         readonly providerSessionId: ProviderSessionId;
         readonly threadId: ThreadId;
         readonly providerInstanceId: ProviderInstanceId;
+        readonly supportsDeviceEnvironment: boolean;
       }) =>
         Effect.suspend(() => {
           let preparedForCleanup: PreparedMcpCredential | undefined;
@@ -1007,7 +1074,11 @@ export const layerWithOptions = (
           return Effect.gen(function* () {
             const attached = yield* attachThread(input);
             if (attached) {
-              const prepared = yield* prepareMcpSession(input.threadId, input.providerInstanceId);
+              const prepared = yield* prepareMcpSession(
+                input.threadId,
+                input.providerInstanceId,
+                input.supportsDeviceEnvironment,
+              );
               preparedForCleanup = prepared;
               if (prepared.mcpCredentialId !== undefined) {
                 const mcpCredentialId = prepared.mcpCredentialId;
@@ -1200,6 +1271,7 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.threadId,
                 providerInstanceId: runtime.instanceId,
+                supportsDeviceEnvironment: runtime.driver !== "cursor",
               }),
             ).pipe(
               Effect.andThen(runtime.ensureThread(input)),
@@ -1233,6 +1305,7 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId,
                 providerInstanceId: runtime.instanceId,
+                supportsDeviceEnvironment: runtime.driver !== "cursor",
               }),
             ).pipe(
               Effect.andThen(
@@ -1265,6 +1338,7 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.targetThreadId,
                 providerInstanceId: runtime.instanceId,
+                supportsDeviceEnvironment: runtime.driver !== "cursor",
               }),
             ).pipe(
               Effect.andThen(runtime.forkThread(input)),
@@ -1291,6 +1365,7 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.threadId,
                 providerInstanceId: runtime.instanceId,
+                supportsDeviceEnvironment: runtime.driver !== "cursor",
               }),
             ).pipe(
               Effect.andThen(observeActivity(providerSessionId, markBusy(providerSessionId))),
@@ -1451,6 +1526,7 @@ export const layerWithOptions = (
                   providerSessionId: input.providerSessionId,
                   threadId: input.threadId,
                   providerInstanceId: existing.runtime.instanceId,
+                  supportsDeviceEnvironment: existing.runtime.driver !== "cursor",
                 });
                 yield* touchActivity(input.providerSessionId);
                 return existing.exposedRuntime;
@@ -1469,6 +1545,7 @@ export const layerWithOptions = (
               const prepared = yield* prepareMcpSession(
                 input.threadId,
                 input.modelSelection.instanceId,
+                adapter.driver !== "cursor",
               );
               const mcpCredentialId = prepared.mcpCredentialId;
               // The reservation from prepare protects the credential (which

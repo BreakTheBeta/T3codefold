@@ -102,6 +102,7 @@ import {
 export const ACP_PROTOCOL = "acp.ndjson-jsonrpc" as const;
 
 export interface AcpAdapterV2RuntimeInput {
+  readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
   readonly cwd: string;
   readonly mcpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly interruptPromptOnCancel?: boolean;
@@ -1801,6 +1802,12 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
         const makeRuntimeInput = (runtimeGeneration: number): AcpAdapterV2RuntimeInput => ({
           cwd: input.runtimePolicy.cwd ?? process.cwd(),
           mcpServers: acpMcpServers(input.threadId),
+          ...(McpProviderSession.readMcpProviderSession(input.threadId)?.agentDeviceEnvironment
+            ? {
+                agentDeviceEnvironment: McpProviderSession.readMcpProviderSession(input.threadId)!
+                  .agentDeviceEnvironment!,
+              }
+            : {}),
           interruptPromptOnCancel: flavor.interruptPromptOnCancel ?? false,
           clientCapabilities: {
             fs: { readTextFile: false, writeTextFile: false },

@@ -1,3 +1,4 @@
+import { DeviceService } from "../../../device/DeviceService.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SqlitePersistenceMemory } from "../../../persistence/Layers/Sqlite.ts";
 import { layerTest as serverConfigTestLayer } from "../../../config.ts";
@@ -24,6 +25,7 @@ import * as McpSessionRegistry from "../../McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 
 const StubServicesLive = Layer.mergeAll(
+  Layer.mock(DeviceService)({}),
   SqlitePersistenceMemory,
   serverConfigTestLayer(process.cwd(), { prefix: "t3-worktree-test-" }),
   Layer.mock(ThreadManagementService)({}),

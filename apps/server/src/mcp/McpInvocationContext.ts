@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 
 export const ALL_MCP_CAPABILITIES = [
   "preview",
+  "device",
   "orchestration",
   "worktree",
   "pull-requests",

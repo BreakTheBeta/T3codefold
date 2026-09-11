@@ -1,3 +1,4 @@
+import { withAgentDeviceEnvironment } from "../../mcp/McpProviderSession.ts";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   defaultInstanceIdForDriver,
@@ -232,7 +233,7 @@ export function makeGrokAcpAdapterFlavor(options: GrokAdapterV2Options): AcpAdap
           ...input,
           interruptPromptOnCancel: input.interruptPromptOnCancel ?? false,
           grokSettings: options.settings,
-          environment: options.environment,
+          environment: withAgentDeviceEnvironment(options.environment, input),
           childProcessSpawner: options.childProcessSpawner,
         })),
     registerExtensions: registerGrokAcpExtensions,
