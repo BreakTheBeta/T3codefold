@@ -130,6 +130,8 @@ We are (mostly) not accepting contributions yet. Small fixes may be considered. 
 
 ## Documentation
 
+- [GLaDOS orchestration idea library](docs/internals/glados/README.md): Gas City, pstack, Cursor, Hermes, model routing and project leadership.
+
 Full docs live in [docs/](./docs). There's no docs site yet.
 
 - [T3 Pebble integration notes](./docs/integrations/t3pebble.md)
