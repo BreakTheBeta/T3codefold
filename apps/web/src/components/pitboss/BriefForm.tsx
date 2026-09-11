@@ -40,7 +40,7 @@ function Choice({
         }}
         items={options}
       >
-        <SelectTrigger aria-label={label} className="w-full">
+        <SelectTrigger aria-label={label} className="h-9 w-full sm:h-9">
           <SelectValue />
         </SelectTrigger>
         <SelectPopup>
@@ -181,6 +181,7 @@ export function BriefForm({
         <label className="grid gap-2 text-sm font-medium">
           Priorities
           <Textarea
+            className="[&>textarea]:h-24 [&>textarea]:min-h-24 [&>textarea]:field-sizing-fixed"
             required
             value={priorities}
             onChange={(event) => setPriorities(event.target.value)}
@@ -189,7 +190,12 @@ export function BriefForm({
         </label>
         <label className="grid gap-2 text-sm font-medium">
           Quality expectations
-          <Textarea required value={quality} onChange={(event) => setQuality(event.target.value)} />
+          <Textarea
+            className="[&>textarea]:h-24 [&>textarea]:min-h-24 [&>textarea]:field-sizing-fixed"
+            required
+            value={quality}
+            onChange={(event) => setQuality(event.target.value)}
+          />
         </label>
       </fieldset>
       <fieldset disabled={busy} className="grid gap-3 md:grid-cols-2">
@@ -204,7 +210,7 @@ export function BriefForm({
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {projects.map((project) => (
-              <label key={project.id} className="flex min-w-0 items-center gap-2 text-sm">
+              <label key={project.id} className="flex min-h-9 min-w-0 items-center gap-2 text-sm">
                 <Checkbox
                   checked={projectIds.includes(project.id)}
                   onCheckedChange={(checked) =>
@@ -259,7 +265,7 @@ export function BriefForm({
           )}
           <div className="space-y-2">
             {peers.data?.peers.map((peer) => (
-              <label key={peer.config.id} className="flex items-center gap-2 text-sm">
+              <label key={peer.config.id} className="flex min-h-9 items-center gap-2 text-sm">
                 <Checkbox
                   checked={selectedPeerIds.includes(peer.config.id)}
                   onCheckedChange={(checked) =>
@@ -297,9 +303,9 @@ export function BriefForm({
           {models.map((model, index) => (
             <div
               key={index === 0 ? "default" : "alternative"}
-              className="flex flex-wrap items-center gap-2 p-3"
+              className="grid grid-cols-[minmax(0,1fr)_9rem_2.25rem] items-center gap-3 p-3 sm:grid-cols-[5rem_minmax(0,1fr)_10rem_2.25rem]"
             >
-              <span className="w-20 text-xs font-medium text-muted-foreground">
+              <span className="col-span-3 text-sm font-medium sm:col-span-1">
                 {index === 0 ? "Default" : "Alternative"}
               </span>
               <ProviderModelPicker
@@ -310,7 +316,7 @@ export function BriefForm({
                 modelOptionsByInstance={modelOptions}
                 disabled={busy || !config}
                 triggerVariant="outline"
-                triggerClassName="max-w-none! flex-1"
+                triggerClassName="col-span-3 h-9 min-h-9 w-full max-w-none! text-left sm:col-span-1 sm:h-9"
                 triggerAriaLabel={index === 0 ? "Default worker model" : "Alternative worker model"}
                 onInstanceModelChange={(instanceId, value) =>
                   setModels((current) =>
@@ -341,12 +347,13 @@ export function BriefForm({
                       key={entry.instanceId}
                       aria-label={`${index === 0 ? "Default" : "Alternative"} thinking and model options`}
                       disabled={busy}
-                      className="shrink-0"
+                      className="col-span-2 min-w-0 sm:col-span-1"
                     >
                       {shouldRenderTraitsControls(input) ? (
                         <TraitsPicker
                           {...input}
                           triggerVariant="outline"
+                          triggerClassName="h-9 min-h-9 w-full max-w-none! sm:h-9"
                           onModelOptionsChange={(options) =>
                             setModels((current) =>
                               current.map((selection, i) => {
@@ -358,7 +365,9 @@ export function BriefForm({
                           }
                         />
                       ) : (
-                        <span className="text-xs text-muted-foreground">No thinking options</span>
+                        <span className="flex h-9 items-center text-xs text-muted-foreground">
+                          No thinking options
+                        </span>
                       )}
                     </fieldset>
                   );
@@ -368,6 +377,7 @@ export function BriefForm({
                   <Button
                     type="button"
                     size="icon"
+                    className="col-start-3 size-9 sm:col-start-4 sm:size-9"
                     variant="ghost"
                     aria-label="Swap default and alternative"
                     disabled={busy}
@@ -379,6 +389,7 @@ export function BriefForm({
                   <Button
                     type="button"
                     size="icon"
+                    className="col-start-3 size-9 sm:col-start-4 sm:size-9"
                     variant="ghost"
                     aria-label="Remove alternative model"
                     disabled={busy}
@@ -394,6 +405,7 @@ export function BriefForm({
           type="button"
           variant="outline"
           size="sm"
+          className="h-9 sm:h-9"
           disabled={busy || models.length >= 2 || !nextModel}
           onClick={() => {
             if (nextModel) setModels((current) => [...current, nextModel]);
@@ -410,6 +422,7 @@ export function BriefForm({
         <label className="grid gap-2 text-sm font-medium">
           How GLaDOS should choose
           <Textarea
+            className="[&>textarea]:min-h-24"
             value={modelGuidance}
             onChange={(event) => setModelGuidance(event.target.value)}
             placeholder="Which work suits each model? When should GLaDOS choose differently?"
@@ -448,10 +461,22 @@ export function BriefForm({
         />
       </fieldset>
       <div className="flex items-center gap-2 border-t border-border pt-4">
-        <Button size="sm" type="submit" disabled={busy || projectIds.length === 0}>
+        <Button
+          size="sm"
+          className="h-9 min-w-24 sm:h-9"
+          type="submit"
+          disabled={busy || projectIds.length === 0}
+        >
           Save brief
         </Button>
-        <Button size="sm" type="button" variant="ghost" onClick={onCancel}>
+        <Button
+          size="sm"
+          className="h-9 min-w-24 sm:h-9"
+          type="button"
+          variant="ghost"
+          disabled={busy}
+          onClick={onCancel}
+        >
           Cancel
         </Button>
         <span className="ml-auto text-xs text-muted-foreground">
