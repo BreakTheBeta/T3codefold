@@ -7,6 +7,7 @@ import {
   CommandId,
   isPitbossLeadActive,
   hasCurrentVerification,
+  verificationRecipeForTask,
   type EnvironmentId,
   type ModelSelection,
   type PitbossAction,
@@ -345,9 +346,8 @@ export function PitbossWork(props: {
                         ))}
                       </View>
                     )}
-                    {state.verificationRecipes?.some(
-                      (recipe) => recipe.projectId === task.projectId,
-                    ) &&
+                    {verificationRecipeForTask(state, task) &&
+                      verificationRecipeForTask(state, task)?.enabled !== false &&
                       button(
                         "Run captured verification",
                         () => {
@@ -371,6 +371,42 @@ export function PitbossWork(props: {
                           ),
                       )}
                     <Text className="text-xs">
+                      Evidence profile:{" "}
+                      {verificationRecipeForTask(state, task)?.name ?? "Reported evidence"}
+                    </Text>
+                    {(state.verificationRecipes ?? [])
+                      .filter(
+                        (recipe) => recipe.projectId === task.projectId && recipe.enabled !== false,
+                      )
+                      .map((recipe) => (
+                        <View key={recipe.profileId ?? "default"}>
+                          {button(
+                            `Use ${recipe.name}`,
+                            () => {
+                              void command({
+                                type: "verification-profile",
+                                taskId: task.id,
+                                profileId: recipe.profileId ?? "default",
+                              });
+                            },
+                            busy ||
+                              task.verification?.state === "running" ||
+                              task.verification?.state === "pending",
+                          )}
+                        </View>
+                      ))}
+                    {button(
+                      "Use reported evidence",
+                      () => {
+                        void command({
+                          type: "verification-profile",
+                          taskId: task.id,
+                          profileId: null,
+                        });
+                      },
+                      busy,
+                    )}
+                    <Text className="text-xs">
                       Verification recipes are configured in the web or desktop GLaDOS work board.
                     </Text>
                     {task.evidence.map((evidence) => (
@@ -389,14 +425,11 @@ export function PitbossWork(props: {
                         ))}
                         {task.status === "verifying" &&
                           evidence.verdict === "pass" &&
-                          (!state.verificationRecipes?.some(
-                            (recipe) => recipe.projectId === task.projectId,
-                          ) ||
+                          (!verificationRecipeForTask(state, task) ||
+                            verificationRecipeForTask(state, task)?.enabled === false ||
                             hasCurrentVerification(
                               task,
-                              state.verificationRecipes?.find(
-                                (recipe) => recipe.projectId === task.projectId,
-                              ),
+                              verificationRecipeForTask(state, task),
                               evidence.candidate,
                             )) &&
                           button(

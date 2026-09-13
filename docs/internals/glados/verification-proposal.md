@@ -8,4 +8,4 @@ T3codefold needs regression and client evidence. Muster needs gameplay and multi
 
 GLaDOS receives the outcome, evidence, limitations, and decisions requiring you. Environment capabilities constrain placement; unavailable hardware or services mean blocked or inconclusive work. Connected coordinators retain ownership; shared leadership changes require your approval.
 
-This PR implements the first runner: approved commands against committed candidates in disposable checkouts, with durable receipts and separate lead review. Artifact, research, and operational runners remain proposed. Completion never silently grants deployment authority. Future extensions preserve provider neutrality and Fold’s narrow integration with upstream T3.
+This PR implements commit, artifact, and observation runners with task selection, receipts and review. Commands remain approved host operations; readiness checks establish capabilities. GLaDOS cannot silently change attempted tasks’ proof requirements. Cross-environment dispatch remains manual. Extensions preserve provider neutrality and Fold’s narrow integration with upstream T3.

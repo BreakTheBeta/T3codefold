@@ -1,6 +1,6 @@
 # Verify the outcome, choose the right environment
 
-**Design proposal, grounded in the registered projects inspected on 2026-09-13.** PR #19 implements only the committed-candidate runner described below. This page explains why later runners must support different evidence and execution requirements; it does not assert that those runners exist.
+**Design and implementation boundary for PR #19, grounded in the registered projects inspected on 2026-09-13.** The implementation supports task-selected profiles for code commits, files and host observations. Project-specific commands and qualitative reviews still determine whether those mechanisms adequately prove an outcome.
 
 ## What the current portfolio tells us
 
@@ -20,11 +20,13 @@ These examples come from project README descriptions and the user's requested sc
 
 ## A task chooses an evidence profile
 
-An **evidence profile** is the proposed versioned agreement about what establishes completion for a kind of task. A project offers defaults and may offer several profiles; software work, research and operations can coexist in one project. Profile selection and changes must be recorded on the assignment rather than inferred later from its title.
+An **evidence profile** is the versioned agreement about what establishes completion for a kind of task. A project offers defaults and may offer several profiles; software work, research and operations can coexist in one project. Profile selection and changes must be recorded on the assignment rather than inferred later from its title.
 
 The agreement identifies the outcome and acceptance criteria; the subject being checked; required environment capabilities; readiness and cleanup; reproducible checks and artifacts; qualitative review; evidence freshness; and authorized effects. A lead may choose among approved profiles within the existing brief. It cannot downgrade required proof after failure. Changing the agreement invalidates affected acceptance, while preserving the original evidence.
 
-Subject identity depends on the work: a code commit, a content-hashed artifact with its input manifest, a dated research packet with source references, or a host/service observation with configuration identity and observation interval. These are proposed variants, not strings to smuggle through today's `commit:` field. Dynamic observations can expire; an old passing service check cannot certify current health.
+Subject identity depends on the work: `commit:<full SHA>`, `sha256:<file digest>`, or `observation:<approved target>`. An artifact is one file, such as an audio render or a JSON research packet containing dated sources, inputs and unknowns. The runner copies and hashes that file, rejects mismatches and detects changes to both the source and checked copy during execution. A profile can retain the file as an attachment. It does not automatically crawl sources or prove their truth.
+
+Observation receipts identify the target, environment, start/end times and optional configuration-file digest. A mandatory lifetime starts at execution start; acceptance checks expiry. Checks must observe any required before/after state or health interval themselves. An old service pass cannot certify current health. Profile changes invalidate the relevant acceptance; changing the task's selection advances its criteria version.
 
 For ad hoc filesystem work, first name the bounded workspace or target and expected result. Being able to access the machine does not make the whole filesystem the task's scope.
 
@@ -36,12 +38,16 @@ Use a direct worker for bounded work. Add a project lead when sustained context,
 
 Select execution placement from connected environment capabilities: available providers and models, tools, hardware and accessible targets. A capable model cannot compensate for missing target hardware. Do not transfer credentials or private project context merely because another environment is connected. If the target goes offline, preserve local ownership and the pending evidence requirement; report blocked or inconclusive work. Peer environments remain independent, and changes to shared coordinating leadership require user approval. The existing PR does not implement cross-environment verification dispatch or capability negotiation.
 
-## Current boundary and next extension
+## Implemented boundary and remaining limits
 
-PR #19 stores one optional recipe per project and captures commands against a full commit SHA in a disposable clone on the task's environment. It retains receipts, logs and bounded file attachments, separately from lead review. It is useful for suitable software checks, but not a universal proof mechanism for this portfolio.
+PR #19 stores multiple versioned profiles per project and a durable profile selection per task. The selected profile is snapshotted when verification is requested. Old recipes without an ID remain the project default, preserving compatibility. If a project has approved profiles but no applicable default, assignment requires profile selection. Users can explicitly select reported evidence for a task; the UI labels it accordingly, and it is not a captured pass.
 
-In particular, enabling that recipe gates every task in the project. **Do not enable a blanket code recipe in a mixed research/operations project expecting per-task selection.** Per-task profiles, non-Git subjects, freshness expiry and operational effect scopes are not implemented. Existing reported evidence remains available where captured verification is not enabled; that is reported evidence, not a server-attested alternative runner.
+Web and desktop support creating, editing, selecting and disabling profiles. Mobile supports selecting approved profiles, requesting checks and inspecting results; profile editing remains in web/desktop. Commands remain provider-neutral through the existing work API. Leads can select before assigning, but only users can change a task's proof requirements after an attempt or choose reported evidence.
 
-The next implementation should select and snapshot an approved profile on each task, first retaining the existing commit runner. Add another runner only with a real portfolio example and a failure-capable test. An artifact/research receipt needs content and source identity; a service receipt needs an explicit observation boundary and effect policy. Keep these behind the Fold work service, reusing T3's provider-neutral tools and durable state instead of extending each provider adapter.
+Code checks use a detached commit checkout. Artifact checks copy a single file up to 100 MiB from the retained worker workspace (or project root) into a temporary workspace; approve self-contained commands or tools available on the host. A research packet or render can carry reproducibility metadata, but a multi-file dataset is not automatically snapshotted. Required output files are retained, up to five files of 100 MiB each. Binary files are downloadable; the UI does not provide a listening evaluator.
 
-Acceptance examples for those extensions: mixed code and research tasks in one project select different proof; missing audio hardware cannot produce a listening pass; changed research inputs invalidate their result; stale service observations cannot accept a current repair; host interruption does not blindly repeat a mutation; a useful negative experiment can complete. These are proposed gates, not tests claimed by PR #19.
+Observations execute in the project workspace. Their profiles require an environment, target, effect policy and freshness. A mismatched host returns inconclusive before any recipe command runs. The effect policy is passed to approved commands and retained in the profile; it is not a sandbox or a shell-command analyzer. Approval of commands with host effects is explicit, and a successful verification does not grant deployment authority. Readiness is the capability check: missing tools, hardware or services must fail it. There is no automatic capability negotiation or remote verification dispatch.
+
+The runtime serializes checks, preserves receipts and logs, and does not repeat a started command after restart. Pause prevents new checks, not effects of a command already running. Expired evidence cannot be accepted again, but an accepted task is a historical result; its status is not a live health monitor. Live configuration or source changes after the captured interval require another check when the task calls for current state.
+
+The focused tests exercise independent profiles in one project, user-only proof changes after attempts, digest mismatch and mutation, a supported negative research fixture, binary artifact retention, wrong-environment blocking, missing readiness, healthy/unhealthy observation fixtures and expiry at acceptance. These use isolated fixtures, not deployment or musical-quality claims about the user's live projects. Further work should add portfolio-specific commands and human-calibrated review, then capability-aware placement or richer input bundles only when needed.

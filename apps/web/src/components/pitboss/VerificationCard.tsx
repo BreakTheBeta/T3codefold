@@ -52,6 +52,7 @@ export function VerificationArtifact({
 export function VerificationCard({
   task,
   recipe,
+  recipes,
   busy,
   paused,
   environmentId,
@@ -59,6 +60,7 @@ export function VerificationCard({
 }: {
   task: PitbossTask;
   recipe: PitbossVerificationRecipe | undefined;
+  recipes: readonly PitbossVerificationRecipe[];
   busy: boolean;
   paused: boolean;
   environmentId: EnvironmentId;
@@ -66,6 +68,7 @@ export function VerificationCard({
 }) {
   const run = task.verification;
   const [editing, setEditing] = useState(false);
+  const [creating, setCreating] = useState(false);
   const latest = task.evidence.at(-1);
   const pending = run?.state === "pending" || run?.state === "running";
   const writers = task.attempts.some((attempt) =>
@@ -85,21 +88,76 @@ export function VerificationCard({
               : "Approve a recipe to enable server-captured checks."}
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => setEditing(!editing)}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setCreating(false);
+            setEditing(!editing);
+          }}
+        >
           {editing ? "Close recipe" : recipe ? "Edit recipe" : "Configure recipe"}
         </Button>
       </div>
+      <label className="block space-y-1 text-xs">
+        Evidence profile for this task
+        <select
+          aria-label="Evidence profile for this task"
+          className="block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+          value={
+            task.verificationProfileId === null
+              ? "reported"
+              : (task.verificationProfileId ?? "default")
+          }
+          disabled={busy || pending || writers}
+          onChange={(event) =>
+            void command({
+              type: "verification-profile",
+              taskId: task.id,
+              profileId: event.target.value === "reported" ? null : event.target.value,
+            })
+          }
+        >
+          <option value="reported">Reported evidence — user review</option>
+          {!recipes.some((entry) => (entry.profileId ?? "default") === "default") && (
+            <option value="default">Project default — not configured</option>
+          )}
+          {recipes.map((entry) => (
+            <option
+              key={entry.profileId ?? "default"}
+              value={entry.profileId ?? "default"}
+              disabled={entry.enabled === false}
+            >
+              {entry.name} · {entry.mode ?? "commit"}
+              {entry.enabled === false ? " (disabled)" : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        onClick={() => {
+          setCreating(true);
+          setEditing(true);
+        }}
+      >
+        New evidence profile
+      </Button>
       <Dialog open={editing} onOpenChange={setEditing}>
         <DialogPopup className="max-w-2xl max-h-[90dvh] overflow-y-auto p-5">
-          <DialogTitle>Project verification recipe</DialogTitle>
+          <DialogTitle>{creating ? "New evidence profile" : "Edit evidence profile"}</DialogTitle>
           <DialogDescription>
-            Approve how GLaDOS checks committed work in this project.
+            Approve how GLaDOS checks this kind of work. Select the profile separately for each
+            task.
           </DialogDescription>
           {editing && (
             <RecipeEditor
               key={recipe?.version ?? 0}
               task={task}
-              recipe={recipe}
+              recipe={creating ? undefined : recipe}
+              environmentId={environmentId}
               busy={busy}
               onSave={async (action) => {
                 const saved = await command(action);
@@ -144,6 +202,11 @@ export function VerificationCard({
           </p>
           <p className="break-all font-mono text-xs text-muted-foreground">{run.candidate}</p>
           <p className="text-sm">{run.receipt?.summary}</p>
+          <p className="text-xs text-muted-foreground">
+            {run.recipe.mode ?? "commit"} · {run.receipt?.environmentId ?? "task home"}
+            {run.receipt?.target ? ` · ${run.receipt.target}` : ""}
+            {run.receipt?.expiresAt ? ` · expires ${run.receipt.expiresAt}` : ""}
+          </p>
           {run.receipt?.checks.map((check) => (
             <details key={check.name} className="rounded-lg border border-border p-2">
               <summary className="cursor-pointer text-xs">
@@ -185,7 +248,7 @@ export function VerificationCard({
       )}
       {writers && (
         <p className="text-xs text-muted-foreground">
-          Wait for the worker to stop before checking its committed candidate.
+          Wait for the worker to stop before checking its candidate.
         </p>
       )}
     </section>
@@ -194,17 +257,25 @@ export function VerificationCard({
 function RecipeEditor({
   task,
   recipe,
+  environmentId,
   busy,
   onSave,
 }: {
   task: PitbossTask;
   recipe: PitbossVerificationRecipe | undefined;
+  environmentId: EnvironmentId;
   busy: boolean;
   onSave: (action: PitbossAction) => Promise<boolean>;
 }) {
   const formId = useId();
+  const [profileId, setProfileId] = useState(recipe?.profileId ?? (recipe ? "default" : ""));
+  const [mode, setMode] = useState<"commit" | "artifact" | "observation">(recipe?.mode ?? "commit");
+  const [inputPath, setInputPath] = useState(recipe?.inputPath ?? "");
+  const [target, setTarget] = useState(recipe?.target ?? "");
+  const [maxAge, setMaxAge] = useState(recipe?.maxAgeSeconds ?? 0);
+  const [effects, setEffects] = useState<"observe" | "host-commands">(recipe?.effects ?? "observe");
   const [name, setName] = useState(recipe?.name ?? "Project acceptance");
-  const [doctor, setDoctor] = useState(recipe?.doctor ?? "node --version");
+  const [doctor, setDoctor] = useState(recipe?.doctor ?? "");
   const [verify, setVerify] = useState(recipe?.verify ?? task.verifyCommand);
   const [cleanup, setCleanup] = useState(recipe?.cleanup ?? "");
   const [artifacts, setArtifacts] = useState(recipe?.artifacts.join("\n") ?? "");
@@ -225,6 +296,13 @@ function RecipeEditor({
           type: "verification-recipe",
           recipe: {
             projectId: task.projectId,
+            profileId: profileId.trim(),
+            mode,
+            environmentId,
+            effects,
+            ...(inputPath.trim() ? { inputPath: inputPath.trim() } : {}),
+            ...(mode === "observation" ? { target: target.trim() } : {}),
+            ...(maxAge ? { maxAgeSeconds: maxAge } : {}),
             version: (recipe?.version ?? 0) + 1,
             name,
             enabled: true,
@@ -241,9 +319,102 @@ function RecipeEditor({
       }}
     >
       <p className="text-xs text-muted-foreground">
-        Approving this recipe allows leads to run these host commands against project commits in
-        disposable checkouts. This isolates files; it is not a security sandbox. Include setup and
-        readiness checks, meaningful user journeys, and cleanup for any processes you start.
+        Approve commands for this environment. Code runs in a disposable clone; artifact checks
+        receive only the input file in a temporary directory; observations run in the project
+        workspace. Commands have host permissions. The effect policy is an instruction, not a
+        sandbox. Readiness must check required services, tools and hardware; include cleanup for
+        processes you start.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="space-y-1 text-xs">
+          Profile ID
+          <input
+            className="block h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+            value={profileId}
+            disabled={!!recipe}
+            required
+            onChange={(event) => setProfileId(event.target.value)}
+            placeholder="gameplay, listening, research, health"
+          />
+        </label>
+        <label className="space-y-1 text-xs">
+          Subject
+          <select
+            className="block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            aria-label="Subject"
+            value={mode}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === "commit" || value === "artifact" || value === "observation") {
+                setMode(value);
+                if (value === "observation" && !maxAge) setMaxAge(300);
+              }
+            }}
+          >
+            <option value="commit">Code commit</option>
+            <option value="artifact">File / audio / research packet</option>
+            <option value="observation">Host / service observation</option>
+          </select>
+        </label>
+        {mode !== "commit" && (
+          <label className="space-y-1 text-xs">
+            {mode === "artifact" ? "Input file (relative path)" : "Configuration file (optional)"}
+            <input
+              className="block h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+              value={inputPath}
+              required={mode === "artifact"}
+              onChange={(event) => setInputPath(event.target.value)}
+            />
+          </label>
+        )}
+        {mode === "observation" && (
+          <label className="space-y-1 text-xs">
+            Target service or resource
+            <input
+              className="block h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+              value={target}
+              required
+              onChange={(event) => setTarget(event.target.value)}
+            />
+          </label>
+        )}
+        <label className="space-y-1 text-xs">
+          Evidence lifetime
+          <select
+            className="block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            aria-label="Evidence lifetime"
+            value={maxAge}
+            onChange={(event) => setMaxAge(Number(event.target.value))}
+          >
+            {[0, 60, 300, 3600, 86400, 604800].map((seconds) => (
+              <option
+                key={seconds}
+                value={seconds}
+                disabled={mode === "observation" && seconds === 0}
+              >
+                {seconds === 0 ? "Until candidate changes" : `${seconds / 60} minutes`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-xs">
+          Permitted effects
+          <select
+            className="block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            aria-label="Permitted effects"
+            value={effects}
+            onChange={(event) =>
+              setEffects(event.target.value === "observe" ? "observe" : "host-commands")
+            }
+          >
+            <option value="observe">Observe only</option>
+            <option value="host-commands">Approved commands may change host state</option>
+          </select>
+        </label>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Bound to environment {environmentId}. Missing capability is inconclusive; this does not move
+        tasks to another host.
       </p>
       {fields.map(([label, value, setValue], index) => (
         <div key={label} className="block space-y-1 text-xs">

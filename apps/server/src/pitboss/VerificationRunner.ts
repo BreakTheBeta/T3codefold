@@ -1,3 +1,5 @@
+import * as NodeCrypto from "node:crypto";
+import { EnvironmentId } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as FileSystem from "effect/FileSystem";
 import * as DateTime from "effect/DateTime";
@@ -22,7 +24,7 @@ export class VerificationRunner extends Context.Service<
   }
 >()("t3/pitboss/VerificationRunner") {}
 
-/** One detached clone per receipt. Recipes are user-authorized host commands, not a security sandbox. */
+/** Isolate code and artifact candidates; observations run on the explicitly approved host target. */
 export const layer = Layer.effect(
   VerificationRunner,
   Effect.gen(function* () {
@@ -35,10 +37,43 @@ export const layer = Layer.effect(
       run: Effect.fn("VerificationRunner.run")(
         function* (input) {
           const { recipe, candidate } = input.verification;
+          const mode = recipe.mode ?? "commit";
+          const started = yield* DateTime.now;
+          const startedAt = DateTime.formatIso(started);
+          const environmentText = yield* Fs.readFileString(config.environmentIdPath).pipe(
+            Effect.orElseSucceed(() => ""),
+          );
+          const environmentId = environmentText.trim()
+            ? EnvironmentId.make(environmentText.trim())
+            : undefined;
+          if (recipe.environmentId && recipe.environmentId !== environmentId)
+            return interruptedReceipt(
+              "Blocked: this profile requires another environment. Run it at the approved task home; no host commands were executed.",
+            );
+          let subjectDigest: string | undefined;
           const checks: Array<PitbossVerificationReceipt["checks"][number]> = [];
           const artifacts: Array<PitbossVerificationReceipt["artifacts"][number]> = [];
           const temporary = yield* Fs.makeTempDirectory({ prefix: "t3-verification-" });
-          const checkout = Path.join(temporary, "checkout");
+          const checkout =
+            mode === "observation"
+              ? yield* Fs.realPath(input.root)
+              : Path.join(temporary, "checkout");
+          const sourceRoot = yield* Fs.realPath(input.root);
+          const digest = (bytes: Uint8Array) =>
+            NodeCrypto.createHash("sha256").update(bytes).digest("hex");
+          const inputFile = Effect.fn("VerificationRunner.input")(function* (
+            root: string,
+            name: string,
+          ) {
+            const real = yield* Fs.realPath(Path.resolve(root, name));
+            const relative = Path.relative(root, real);
+            if (!relative || relative.startsWith("..") || Path.isAbsolute(relative))
+              throw new Error("Input must stay inside the approved workspace");
+            const stat = yield* Fs.stat(real);
+            if (stat.type !== "File" || stat.size > BigInt(100 * 1024 * 1024))
+              throw new Error("Input must be a file no larger than 100 MiB");
+            return yield* Fs.readFile(real);
+          });
           let verdict: PitbossVerificationReceipt["verdict"] = "inconclusive";
           let summary = "Verification could not start.";
           const git = (args: string[], cwd = input.root) =>
@@ -67,6 +102,10 @@ export const layer = Layer.effect(
                 ...process.env,
                 T3_VERIFICATION_ID: input.verification.id,
                 T3_VERIFICATION_CANDIDATE: candidate,
+                T3_VERIFICATION_MODE: mode,
+                T3_VERIFICATION_TARGET: recipe.target ?? "",
+                T3_VERIFICATION_INPUT: recipe.inputPath ?? "",
+                T3_VERIFICATION_EFFECTS: recipe.effects ?? "host-commands",
               },
             });
             checks.push({
@@ -80,27 +119,52 @@ export const layer = Layer.effect(
             return result;
           });
           const execute = Effect.gen(function* () {
-            if (!/^commit:[0-9a-f]{40}$/.test(candidate)) return;
-            const cloned = yield* git([
-              "clone",
-              "--quiet",
-              "--shared",
-              "--no-checkout",
-              "--",
-              input.root,
-              checkout,
-            ]);
-            if (cloned.code !== 0) {
-              summary = "Blocked: isolated checkout could not be created.";
-              return;
-            }
-            const checked = yield* git(
-              ["checkout", "--quiet", "--detach", candidate.slice(7)],
-              checkout,
-            );
-            if (checked.code !== 0) {
-              summary = "Blocked: candidate commit is unavailable in the project repository.";
-              return;
+            if (mode === "commit") {
+              if (!/^commit:[0-9a-f]{40}$/.test(candidate)) return;
+              const cloned = yield* git([
+                "clone",
+                "--quiet",
+                "--shared",
+                "--no-checkout",
+                "--",
+                input.root,
+                checkout,
+              ]);
+              if (cloned.code !== 0) {
+                summary = "Blocked: isolated checkout could not be created.";
+                return;
+              }
+              const checked = yield* git(
+                ["checkout", "--quiet", "--detach", candidate.slice(7)],
+                checkout,
+              );
+              if (checked.code !== 0) {
+                summary = "Blocked: candidate commit is unavailable in the project repository.";
+                return;
+              }
+            } else if (mode === "artifact") {
+              if (!recipe.inputPath) throw new Error("Artifact profile has no input file");
+              const bytes = yield* inputFile(sourceRoot, recipe.inputPath);
+              subjectDigest = digest(bytes);
+              if (candidate !== `sha256:${subjectDigest}`)
+                throw new Error("Input changed: submit its current SHA-256 before verification");
+              yield* Fs.makeDirectory(Path.dirname(Path.join(checkout, recipe.inputPath)), {
+                recursive: true,
+              });
+              yield* Fs.writeFile(Path.join(checkout, recipe.inputPath), bytes);
+            } else {
+              if (
+                !recipe.environmentId ||
+                !recipe.target ||
+                !recipe.maxAgeSeconds ||
+                !recipe.effects ||
+                candidate !== `observation:${recipe.target}`
+              )
+                throw new Error(
+                  "Observation requires an approved environment, target, freshness and effect policy",
+                );
+              if (recipe.inputPath)
+                subjectDigest = digest(yield* inputFile(sourceRoot, recipe.inputPath));
             }
             const doctor = yield* shell("Readiness", recipe.doctor);
             if (doctor.code !== 0 || doctor.timedOut) {
@@ -115,12 +179,23 @@ export const layer = Layer.effect(
               : test.code === 0
                 ? "The approved recipe passed. Lead review and coverage assessment are still required."
                 : "The candidate failed the approved verification recipe.";
-            const head = yield* git(["rev-parse", "HEAD"], checkout);
-            const diff = yield* git(["diff", "--quiet", "HEAD", "--"], checkout);
-            if (head.stdout.trim() !== candidate.slice(7) || diff.code !== 0) {
-              verdict = "inconclusive";
-              summary =
-                "Verification changed the candidate's tracked files or commit; commit the changes and verify again.";
+            if (mode === "commit") {
+              const head = yield* git(["rev-parse", "HEAD"], checkout);
+              const diff = yield* git(["diff", "--quiet", "HEAD", "--"], checkout);
+              if (head.stdout.trim() !== candidate.slice(7) || diff.code !== 0) {
+                verdict = "inconclusive";
+                summary =
+                  "Verification changed the candidate's tracked files or commit; commit the changes and verify again.";
+              }
+            }
+            if (recipe.inputPath && mode !== "commit") {
+              const after = digest(yield* inputFile(sourceRoot, recipe.inputPath));
+              const checked =
+                mode === "artifact" ? digest(yield* inputFile(checkout, recipe.inputPath)) : after;
+              if (after !== subjectDigest || checked !== subjectDigest) {
+                verdict = "inconclusive";
+                summary = "Input changed during verification; submit a fresh candidate.";
+              }
             }
             for (const name of recipe.artifacts) {
               const source = Path.resolve(checkout, name);
@@ -132,8 +207,8 @@ export const layer = Layer.effect(
               if (realRelative.startsWith("..") || Path.isAbsolute(realRelative))
                 throw new Error("Artifact symlink escapes checkout");
               const stat = yield* Fs.stat(real);
-              if (stat.type !== "File" || stat.size > BigInt(2 * 1024 * 1024))
-                throw new Error("Artifact must be a file no larger than 2 MiB");
+              if (stat.type !== "File" || stat.size > BigInt(100 * 1024 * 1024))
+                throw new Error("Artifact must be a file no larger than 100 MiB");
               const attachmentId = createAttachmentId(input.threadId, Path.extname(name).slice(1));
               if (!attachmentId) throw new Error("Invalid attachment owner");
               yield* Fs.makeDirectory(config.attachmentsDir, { recursive: true });
@@ -178,6 +253,25 @@ export const layer = Layer.effect(
                     ),
                   );
                 }
+                if (subjectDigest && recipe.inputPath && mode !== "commit") {
+                  yield* inputFile(sourceRoot, recipe.inputPath).pipe(
+                    Effect.tap((bytes) =>
+                      Effect.sync(() => {
+                        if (digest(bytes) !== subjectDigest) {
+                          verdict = "inconclusive";
+                          summary =
+                            "Input changed before verification finished; capture a new candidate.";
+                        }
+                      }),
+                    ),
+                    Effect.catchCause(() =>
+                      Effect.sync(() => {
+                        verdict = "inconclusive";
+                        summary = "Input is unavailable after cleanup; capture a new candidate.";
+                      }),
+                    ),
+                  );
+                }
                 yield* Fs.remove(temporary, { recursive: true, force: true }).pipe(
                   Effect.catchCause(Effect.logWarning),
                 );
@@ -189,6 +283,17 @@ export const layer = Layer.effect(
             summary,
             checks,
             artifacts,
+            ...(environmentId ? { environmentId } : {}),
+            ...(subjectDigest ? { subjectDigest } : {}),
+            ...(recipe.target ? { target: recipe.target } : {}),
+            startedAt,
+            ...(recipe.maxAgeSeconds
+              ? {
+                  expiresAt: DateTime.formatIso(
+                    DateTime.add(started, { seconds: recipe.maxAgeSeconds }),
+                  ),
+                }
+              : {}),
             finishedAt: DateTime.formatIso(yield* DateTime.now),
           };
         },

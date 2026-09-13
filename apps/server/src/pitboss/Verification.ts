@@ -21,7 +21,7 @@ export function recordVerification(
         taskId,
         threadId: null,
         kind: "result" as const,
-        text: `${task.title}: ${receipt.summary} Candidate ${run.candidate}; recipe ${run.recipe.name} v${run.recipe.version}. Review the captured receipt and remaining coverage before acceptance.`,
+        text: `${task.title}: ${receipt.summary} Candidate ${run.candidate}; recipe ${run.recipe.name} v${run.recipe.version}. ${receipt.expiresAt ? `Evidence expires ${receipt.expiresAt}. ` : ""}Review the captured receipt and remaining coverage before acceptance.`,
         createdAt: receipt.finishedAt,
         acknowledged: false,
       }
@@ -51,6 +51,7 @@ export function recordVerification(
                     command: run.recipe.verify,
                     artifactUrls: [],
                     capture: {
+                      ...(run.recipe.profileId ? { profileId: run.recipe.profileId } : {}),
                       recipeVersion: run.recipe.version,
                       recipeName: run.recipe.name,
                       receipt,

@@ -1,3 +1,4 @@
+import { verificationRecipeForTask } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -45,10 +46,16 @@ export const layer = Layer.effectDiscard(
           });
           continue;
         }
-        const recipe = fresh.verificationRecipes?.find(
-          (entry) => entry.projectId === task.projectId,
+        const recipe = verificationRecipeForTask(
+          fresh,
+          fresh.tasks.find((entry) => entry.id === task.id) ?? task,
         );
-        if (!recipe || recipe.enabled === false || recipe.version !== run.recipe.version) {
+        if (
+          !recipe ||
+          recipe.enabled === false ||
+          recipe.version !== run.recipe.version ||
+          (recipe.profileId ?? "default") !== (run.recipe.profileId ?? "default")
+        ) {
           yield* store.recordVerification(task.id, {
             ...run,
             state: "completed",
@@ -61,11 +68,15 @@ export const layer = Layer.effectDiscard(
         yield* store.recordVerification(task.id, { ...run, state: "running" });
         const receipt = yield* Effect.gen(function* () {
           const project = yield* projects.getById({ projectId: task.projectId });
-          const threadId = task.attempts.find((attempt) => attempt.id === run.attemptId)?.threadId;
+          const attempt = task.attempts.find((entry) => entry.id === run.attemptId);
+          const threadId = attempt?.threadId;
           if (Option.isNone(project) || project.value.deletedAt || !threadId)
             return interruptedReceipt("Blocked: project or retained attempt is unavailable.");
           return yield* runner.run({
-            root: project.value.workspaceRoot,
+            root:
+              run.recipe.mode === "artifact"
+                ? (attempt?.workspacePath ?? project.value.workspaceRoot)
+                : project.value.workspaceRoot,
             threadId,
             verification: run,
           });

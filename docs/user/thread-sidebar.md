@@ -104,8 +104,16 @@ Mobile provides GLaDOS navigation, task controls, evidence, and coordination app
 
 ### Captured verification
 
-Captured verification currently requires a committed code candidate and uses one recipe for every task in the project. Leave it disabled for projects mixing code with research or home-server work unless every task can meet that same requirement. Per-task recipes and verification without Git are not available yet.
+Select a task in the GLaDOS work board and choose **New evidence profile**. Approve the checks for that kind of work, then select the profile under **Evidence profile for this task**. A project can have different profiles for code, research, audio and operations. Existing project recipes remain defaults. Only you can edit profiles or change an attempted task's proof requirements; leads can select an approved profile before assigning workers.
 
-In the GLaDOS work board, select a task and choose **Configure recipe**. Approve readiness, verification and optional cleanup commands, a time limit, and required artifact paths. These commands run on the environment host in a disposable checkout; they have normal host permissions. Only you can change or disable the recipe. Configure recipes from web or desktop; mobile can request checks and inspect their results.
+Choose the subject appropriate to the outcome:
 
-After workers stop and submit a full commit SHA, ask the lead to run captured verification. A recipe pass is recorded separately from the lead's review. Failed readiness, timeouts or missing artifacts are inconclusive and need attention. Changed candidates, criteria or recipes require fresh verification before acceptance. Downloaded artifacts survive checkout cleanup. An interrupted check is not automatically rerun after a restart; inspect any leftover processes before requesting it again.
+- **Code commit:** workers report `commit:<full SHA>`. Checks run in a disposable checkout.
+- **File / audio / research packet:** approve a relative input path. Workers report `sha256:<SHA-256 digest of that file's bytes>`. Checks receive a temporary copy of that file, with no Git requirement. A research packet should contain dated sources, findings and unknowns; a render should carry or reference its reproducibility information. Input changes during verification invalidate the check.
+- **Host / service observation:** approve a target and commands on this environment, permitted effects and an evidence lifetime. Workers report `observation:<target>`. Checks run in the project workspace. A required configuration file can be hashed with the observation. Expired results cannot be accepted as fresh proof.
+
+Readiness should check required tools, hardware and services. Missing capabilities, wrong environments, timeouts and missing artifacts are inconclusive. Commands have normal host permissions: selecting “Observe only” expresses what you approve the commands to do, rather than installing a security sandbox. Configure cleanup for any processes the commands start. Checks do not automatically move to another host.
+
+After workers stop and report a candidate, ask the lead to run captured verification and inspect its receipt. A passing recipe is separate from the lead's qualitative review; an observation review must follow the captured result. Downloaded artifacts survive cleanup. Files are limited to 100 MiB each, with at most five retained outputs. An interrupted check is not automatically repeated after restart.
+
+Use **Reported evidence — user review** explicitly for work without an approved captured check. It does not produce a server-attested pass. Mobile can select approved profiles, request verification and inspect evidence; create or edit profiles on web or desktop. Acceptance records a completed result, not ongoing service health or permission to deploy.

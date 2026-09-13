@@ -22,6 +22,7 @@ import {
   CommandId,
   isPitbossLeadActive,
   hasCurrentVerification,
+  verificationRecipeForTask,
   type EnvironmentId,
   type ModelSelection,
   type PitbossAction,
@@ -504,9 +505,12 @@ export function PitbossPanel(props: {
                   )}
                   <VerificationCard
                     task={selected}
-                    recipe={state?.verificationRecipes?.find(
-                      (recipe) => recipe.projectId === selected.projectId,
-                    )}
+                    recipe={state ? verificationRecipeForTask(state, selected) : undefined}
+                    recipes={
+                      state?.verificationRecipes?.filter(
+                        (recipe) => recipe.projectId === selected.projectId,
+                      ) ?? []
+                    }
                     busy={busy}
                     paused={!!role?.paused}
                     environmentId={selected.homeEnvironmentId ?? props.environmentId}
@@ -601,14 +605,12 @@ export function PitbossPanel(props: {
                           disabled={
                             busy ||
                             !!selected.pendingOperationId ||
-                            (!!state?.verificationRecipes?.some(
-                              (recipe) => recipe.projectId === selected.projectId,
-                            ) &&
+                            (!!state &&
+                              !!verificationRecipeForTask(state, selected) &&
+                              verificationRecipeForTask(state, selected)?.enabled !== false &&
                               !hasCurrentVerification(
                                 selected,
-                                state?.verificationRecipes?.find(
-                                  (recipe) => recipe.projectId === selected.projectId,
-                                ),
+                                state ? verificationRecipeForTask(state, selected) : undefined,
                                 evidence.candidate,
                               ))
                           }
