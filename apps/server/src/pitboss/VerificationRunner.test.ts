@@ -119,8 +119,8 @@ it.live(
         layer.pipe(
           Layer.provideMerge(processes),
           Layer.provideMerge(layerTest(process.cwd(), { prefix: "verification-config-" })),
+          Layer.provideMerge(NodeServices.layer),
         ),
       ),
-      Effect.provide(NodeServices.layer),
     ),
 );

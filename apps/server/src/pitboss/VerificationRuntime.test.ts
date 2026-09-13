@@ -106,7 +106,11 @@ for (const interrupted of [false, true])
         );
         expect(yield* store.rebuild()).toEqual(yield* store.read());
       }).pipe(
-        Effect.provide(storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory))),
-        Effect.provide(NodeServices.layer),
+        Effect.provide(
+          storeLayer.pipe(
+            Layer.provideMerge(SqlitePersistenceMemory),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
       ),
   );
