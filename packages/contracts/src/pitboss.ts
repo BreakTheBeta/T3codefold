@@ -34,7 +34,103 @@ export const PitbossRole = Schema.Struct({
   brief: PitbossBrief,
 });
 export type PitbossRole = typeof PitbossRole.Type;
+export const PitbossVerificationRecipe = Schema.Struct({
+  profileId: Schema.optional(Id),
+  mode: Schema.optional(Schema.Literals(["commit", "artifact", "observation"])),
+  environmentId: Schema.optional(EnvironmentId),
+  inputPath: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(240))),
+  target: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(240))),
+  maxAgeSeconds: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 604800 })),
+  ),
+  effects: Schema.optional(Schema.Literals(["observe", "host-commands"])),
+  enabled: Schema.optional(Schema.Boolean),
+  projectId: ProjectId,
+  version: Version,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(120)),
+  doctor: TrimmedNonEmptyString.check(Schema.isMaxLength(4000)),
+  verify: TrimmedNonEmptyString.check(Schema.isMaxLength(4000)),
+  cleanup: Text,
+  timeoutSeconds: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 300 })),
+  artifacts: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(240))).check(
+    Schema.isMaxLength(5),
+  ),
+});
+export type PitbossVerificationRecipe = typeof PitbossVerificationRecipe.Type;
+export const PitbossVerificationCheck = Schema.Struct({
+  name: Schema.String,
+  command: Schema.String,
+  code: Schema.NullOr(Schema.Int),
+  timedOut: Schema.Boolean,
+  stdout: Schema.String.check(Schema.isMaxLength(4096)),
+  stderr: Schema.String.check(Schema.isMaxLength(4096)),
+});
+export const PitbossVerificationReceipt = Schema.Struct({
+  verdict: Schema.Literals(["pass", "fail", "inconclusive"]),
+  summary: Text,
+  checks: Schema.Array(PitbossVerificationCheck).check(Schema.isMaxLength(3)),
+  artifacts: Schema.Array(
+    Schema.Struct({ name: Schema.String, attachmentId: Schema.String }),
+  ).check(Schema.isMaxLength(5)),
+  environmentId: Schema.optional(EnvironmentId),
+  subjectDigest: Schema.optional(Schema.String),
+  target: Schema.optional(Schema.String),
+  startedAt: Schema.optional(Schema.String),
+  expiresAt: Schema.optional(Schema.String),
+  finishedAt: Schema.String,
+});
+export type PitbossVerificationReceipt = typeof PitbossVerificationReceipt.Type;
+export const PitbossVerification = Schema.Struct({
+  id: Id,
+  state: Schema.Literals(["pending", "running", "completed"]),
+  candidate: Schema.String,
+  attemptId: Id,
+  criteriaVersion: Version,
+  recipe: PitbossVerificationRecipe,
+  requestedAt: Schema.String,
+  receipt: Schema.optional(PitbossVerificationReceipt),
+});
+export type PitbossVerification = typeof PitbossVerification.Type;
+/** Captured execution is distinct from review judgment and must match the current recipe. */
+export function hasCurrentVerification(
+  task: PitbossTask,
+  recipe: PitbossVerificationRecipe | undefined,
+  candidate: string,
+  now = Date.now(),
+) {
+  const run = task.verification;
+  return (
+    !!run &&
+    run.state === "completed" &&
+    run.receipt?.verdict === "pass" &&
+    run.candidate === candidate &&
+    run.criteriaVersion === task.criteriaVersion &&
+    recipe?.enabled !== false &&
+    (!run.receipt.expiresAt || Date.parse(run.receipt.expiresAt) > now) &&
+    (run.recipe.profileId ?? "default") === (recipe?.profileId ?? "default") &&
+    run.recipe.version === recipe?.version &&
+    run.recipe.projectId === task.projectId
+  );
+}
+/** Legacy project recipes remain defaults; explicit selections are durable task contracts. */
+export function verificationRecipeForTask(state: PitbossSnapshot, task: PitbossTask) {
+  if (task.verificationProfileId === null) return undefined;
+  return state.verificationRecipes?.find(
+    (recipe) =>
+      recipe.projectId === task.projectId &&
+      (recipe.profileId ?? "default") === (task.verificationProfileId ?? "default"),
+  );
+}
+
 export const PitbossEvidence = Schema.Struct({
+  capture: Schema.optional(
+    Schema.Struct({
+      profileId: Schema.optional(Id),
+      recipeVersion: Version,
+      recipeName: Schema.String,
+      receipt: PitbossVerificationReceipt,
+    }),
+  ),
   id: Id,
   attemptId: Id,
   criteriaVersion: Version,
@@ -109,6 +205,8 @@ export function isPitbossLeadActive(role: PitbossRole | null | undefined, lead: 
 }
 
 export const PitbossTask = Schema.Struct({
+  verificationProfileId: Schema.optional(Schema.NullOr(Id)),
+  verification: Schema.optional(PitbossVerification),
   leadId: Schema.optional(Id),
   pendingOperationId: Schema.optional(Id),
   homeEnvironmentId: Schema.optional(EnvironmentId),
@@ -149,6 +247,7 @@ export const PitbossMessage = Schema.Struct({
 });
 export type PitbossMessage = typeof PitbossMessage.Type;
 export const PitbossSnapshot = Schema.Struct({
+  verificationRecipes: Schema.optional(Schema.Array(PitbossVerificationRecipe)),
   leads: Schema.optional(Schema.Array(PitbossLead)),
   sourceAuthorities: Schema.optional(Schema.Array(PitbossSourceAuthority)),
   revision: Version,
@@ -168,6 +267,13 @@ const TaskFields = {
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
 };
 export const PitbossAction = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("verification-profile"),
+    taskId: Id,
+    profileId: Schema.NullOr(Id),
+  }),
+  Schema.Struct({ type: Schema.Literal("verification-recipe"), recipe: PitbossVerificationRecipe }),
+  Schema.Struct({ type: Schema.Literal("verify"), taskId: Id, evidenceId: Id }),
   Schema.Struct({
     type: Schema.Literal("lead-message"),
     leadId: Id,

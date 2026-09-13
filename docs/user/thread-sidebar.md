@@ -106,3 +106,19 @@ The work panel can read a selected Vikunja project, Jira project, or Linear team
 For a shared tracker scope, configure both environments under **Connected GLaDOS peers** with their environment IDs, reachable server URLs, and the same dedicated random peer key. Propose a coordinator and approve the proposal on both environments. The pilot supports two participants per shared scope. The first agreement chooses the task home, where workers run and evidence stays. Later proposals can change the coordinator while retaining that home; approve or decline them after resolving existing writers. The coordinator forwards task controls to the home and receives task and evidence updates automatically. Requests remain queued when a peer is offline. To open a remote worker thread, pair this client with its task-home environment. Disconnecting a peer does not release its shared work for automatic takeover.
 
 Mobile provides GLaDOS navigation, task controls, evidence, and coordination approval. Configure tracker and peer connections from web or desktop. Models use the ordinary T3 provider tools. Codex and Claude shell sessions can use `t3 work read` and `t3 work command --file command.json` with the same scoped authority; other providers use MCP where supported. The CLI's `--dry-run` checks the command's format without sending it or validating current server state.
+
+### Captured verification
+
+Select a task in the GLaDOS work board and choose **New evidence profile**. Approve the checks for that kind of work, then select the profile under **Evidence profile for this task**. A project can have different profiles for code, research, audio and operations. Existing project recipes remain defaults. Only you can edit profiles or change an attempted task's proof requirements; leads can select an approved profile before assigning workers.
+
+Choose the subject appropriate to the outcome:
+
+- **Code commit:** workers report `commit:<full SHA>`. Checks run in a disposable checkout.
+- **File / audio / research packet:** approve a relative input path. Workers report `sha256:<SHA-256 digest of that file's bytes>`. Checks receive a temporary copy of that file, with no Git requirement. A research packet should contain dated sources, findings and unknowns; a render should carry or reference its reproducibility information. Input changes during verification invalidate the check.
+- **Host / service observation:** approve a target and commands on this environment, permitted effects and an evidence lifetime. Workers report `observation:<target>`. Checks run in the project workspace. A required configuration file can be hashed with the observation. Expired results cannot be accepted as fresh proof.
+
+Readiness should check required tools, hardware and services. Missing capabilities, wrong environments, timeouts and missing artifacts are inconclusive. Commands have normal host permissions: selecting “Observe only” expresses what you approve the commands to do, rather than installing a security sandbox. Configure cleanup for any processes the commands start. Checks do not automatically move to another host.
+
+After workers stop and report a candidate, ask the lead to run captured verification and inspect its receipt. A passing recipe is separate from the lead's qualitative review; an observation review must follow the captured result. Downloaded artifacts survive cleanup. Files are limited to 100 MiB each, with at most five retained outputs. An interrupted check is not automatically repeated after restart.
+
+Use **Reported evidence — user review** explicitly for work without an approved captured check. It does not produce a server-attested pass. Mobile can select approved profiles, request verification and inspect evidence; create or edit profiles on web or desktop. Acceptance records a completed result, not ongoing service health or permission to deploy.

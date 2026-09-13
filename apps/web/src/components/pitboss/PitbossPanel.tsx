@@ -1,3 +1,4 @@
+import { VerificationCard, VerificationArtifact } from "./VerificationCard";
 import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialog";
 import { BriefForm } from "./BriefForm";
 import { useServerConfigs } from "../../state/entities";
@@ -20,6 +21,8 @@ import {
 import {
   CommandId,
   isPitbossLeadActive,
+  hasCurrentVerification,
+  verificationRecipeForTask,
   type EnvironmentId,
   type ModelSelection,
   type PitbossAction,
@@ -500,6 +503,19 @@ export function PitbossPanel(props: {
                       {selected.verifyCommand}
                     </pre>
                   )}
+                  <VerificationCard
+                    task={selected}
+                    recipe={state ? verificationRecipeForTask(state, selected) : undefined}
+                    recipes={
+                      state?.verificationRecipes?.filter(
+                        (recipe) => recipe.projectId === selected.projectId,
+                      ) ?? []
+                    }
+                    busy={busy}
+                    paused={!!role?.paused}
+                    environmentId={selected.homeEnvironmentId ?? props.environmentId}
+                    command={command}
+                  />
                   {selected.attempts.map((attempt) => (
                     <div
                       key={attempt.id}
@@ -538,6 +554,33 @@ export function PitbossPanel(props: {
                         </span>
                       </div>
                       <p className="mt-2 text-sm">{evidence.summary}</p>
+                      {evidence.capture &&
+                        evidence.id !== `verification:${selected.verification?.id}` && (
+                          <details className="mt-2 text-xs">
+                            <summary>
+                              Retained receipt · recipe v{evidence.capture.recipeVersion}
+                            </summary>
+                            {evidence.capture.receipt.checks.map((check) => (
+                              <pre
+                                key={check.name}
+                                className="my-2 max-h-40 overflow-auto whitespace-pre-wrap"
+                              >
+                                {check.name} · exit {check.code}
+                                {"\n"}
+                                {check.stdout}
+                                {check.stderr}
+                              </pre>
+                            ))}
+                            {evidence.capture.receipt.artifacts.map((artifact) => (
+                              <VerificationArtifact
+                                key={artifact.attachmentId}
+                                artifact={artifact}
+                                environmentId={selected.homeEnvironmentId ?? props.environmentId}
+                              />
+                            ))}
+                          </details>
+                        )}
+
                       <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
                         {evidence.candidate}
                       </p>
@@ -559,7 +602,18 @@ export function PitbossPanel(props: {
                           className="mt-3"
                           size="sm"
                           variant="outline"
-                          disabled={busy || !!selected.pendingOperationId}
+                          disabled={
+                            busy ||
+                            !!selected.pendingOperationId ||
+                            (!!state &&
+                              !!verificationRecipeForTask(state, selected) &&
+                              verificationRecipeForTask(state, selected)?.enabled !== false &&
+                              !hasCurrentVerification(
+                                selected,
+                                state ? verificationRecipeForTask(state, selected) : undefined,
+                                evidence.candidate,
+                              ))
+                          }
                           onClick={() =>
                             void command({
                               type: "accept",

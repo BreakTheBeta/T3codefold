@@ -1,3 +1,6 @@
+import { layer as verificationRuntimeLayer } from "../pitboss/VerificationRuntime.ts";
+import { layer as verificationRunnerLayer } from "../pitboss/VerificationRunner.ts";
+import { layer as verificationProcessLayer } from "../processRunner.ts";
 import { layer as peerServiceLayer } from "../pitboss/PeerService.ts";
 import { layer as sourceServiceLayer } from "../pitboss/SourceService.ts";
 import { layer as secretStoreLayer } from "../auth/ServerSecretStore.ts";
@@ -289,6 +292,15 @@ export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
   peerServiceLayer.pipe(Layer.provide(Layer.mergeAll(workStoreLayer, secretStoreLayer))),
   sourceServiceLayer.pipe(Layer.provide(Layer.mergeAll(workStoreLayer, secretStoreLayer))),
   workStoreLayer,
+  verificationRuntimeLayer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        workStoreLayer,
+        ProjectionProjectRepositoryLive,
+        verificationRunnerLayer.pipe(Layer.provide(verificationProcessLayer)),
+      ),
+    ),
+  ),
   workRuntimeLayer.pipe(
     Layer.provide(
       Layer.mergeAll(

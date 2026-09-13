@@ -1,5 +1,7 @@
+import { recordVerification } from "./Verification.ts";
 import {
   EnvironmentId,
+  PitbossVerification,
   PitbossMessage,
   PitbossAttempt,
   PitbossSourceAuthority,
@@ -12,6 +14,11 @@ import * as Schema from "effect/Schema";
 import { decide, emptyWork, observeAttempt } from "./Work.ts";
 
 const Entry = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("verification"),
+    taskId: Schema.String,
+    run: PitbossVerification,
+  }),
   Schema.Struct({ type: Schema.Literal("message"), message: PitbossMessage }),
   Schema.Struct({ type: Schema.Literal("authority"), authority: PitbossSourceAuthority }),
   Schema.Struct({
@@ -52,6 +59,8 @@ export function replayJournal(entries: ReadonlyArray<string>): PitbossSnapshot {
     const entry = decode(raw);
     if (entry.type === "command")
       state = decide(state, entry.input, entry.actor, entry.now, entry.version === undefined);
+    else if (entry.type === "verification")
+      state = recordVerification(state, entry.taskId, entry.run);
     else if (entry.type === "message")
       state = {
         ...state,
