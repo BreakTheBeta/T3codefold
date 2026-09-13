@@ -104,6 +104,8 @@ Mobile provides GLaDOS navigation, task controls, evidence, and coordination app
 
 ### Captured verification
 
+Captured verification currently requires a committed code candidate and uses one recipe for every task in the project. Leave it disabled for projects mixing code with research or home-server work unless every task can meet that same requirement. Per-task recipes and verification without Git are not available yet.
+
 In the GLaDOS work board, select a task and choose **Configure recipe**. Approve readiness, verification and optional cleanup commands, a time limit, and required artifact paths. These commands run on the environment host in a disposable checkout; they have normal host permissions. Only you can change or disable the recipe. Configure recipes from web or desktop; mobile can request checks and inspect their results.
 
 After workers stop and submit a full commit SHA, ask the lead to run captured verification. A recipe pass is recorded separately from the lead's review. Failed readiness, timeouts or missing artifacts are inconclusive and need attention. Changed candidates, criteria or recipes require fresh verification before acceptance. Downloaded artifacts survive checkout cleanup. An interrupted check is not automatically rerun after a restart; inspect any leftover processes before requesting it again.
