@@ -3,6 +3,9 @@ import { assert, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   type ApplicationStoredEvent,
+  ComposerContextId,
+  CheckpointId,
+  CheckpointScopeId,
   CommandId,
   ContextTransferId,
   EventId,
@@ -1608,6 +1611,18 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       const orchestrator = yield* OrchestratorV2;
       const threadId = ThreadId.make("runtime-layer-queued-edit-thread");
 
+      const context = {
+        version: 1 as const,
+        records: [
+          {
+            version: 1 as const,
+            kind: "mention" as const,
+            contextId: ComposerContextId.make("queued-path"),
+            label: "README.md",
+            path: "README.md",
+          },
+        ],
+      };
       yield* orchestrator.dispatch({
         type: "thread.create",
         createdBy: "user",
@@ -1642,6 +1657,7 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
         threadId,
         messageId: MessageId.make("runtime-layer-queued-edit-queued-message"),
         text: "Original queued text.",
+        context,
         attachments: [],
         modelSelection,
         dispatchMode: { type: "queue_after_active" },
@@ -1650,6 +1666,21 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       const before = yield* orchestrator.getThreadProjection(threadId);
       const queuedRun = before.runs.find((run) => run.status === "queued");
       assert.isDefined(queuedRun);
+      assert.deepEqual(
+        before.messages.find((message) => message.id === queuedRun.userMessageId)?.context,
+        context,
+      );
+      const busyRewind = yield* orchestrator
+        .dispatch({
+          type: "checkpoint.rollback",
+          commandId: CommandId.make("busy-rewind"),
+          threadId,
+          checkpointId: CheckpointId.make("unused"),
+          scopeId: CheckpointScopeId.make("unused"),
+          restoreFiles: false,
+        })
+        .pipe(Effect.flip);
+      assert.include(String(busyRewind.cause), "Wait for active work");
 
       yield* orchestrator.dispatch({
         type: "queued-run.edit",
@@ -1701,6 +1732,11 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
         text: "Text-only edit keeps attachments.",
       });
       const afterTextOnlyEdit = yield* orchestrator.getThreadProjection(threadId);
+      assert.deepEqual(
+        afterTextOnlyEdit.messages.find((message) => message.id === queuedRun.userMessageId)
+          ?.context,
+        context,
+      );
       assert.deepEqual(
         afterTextOnlyEdit.messages
           .find((message) => message.id === queuedRun.userMessageId)

@@ -3246,15 +3246,46 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
                   rollbackInput.target.providerTurn.id,
                 );
               }
+              let providerThread = rollbackInput.providerThread;
               if (boundaryMessageId !== undefined) {
-                yield* sdkCall(
-                  "session.revert",
-                  { sessionID: sessionId, messageID: boundaryMessageId },
-                  () =>
-                    client.session.revert({ sessionID: sessionId, messageID: boundaryMessageId }),
+                const boundaryIndex = messages.findIndex(
+                  ({ info }) => info.id === boundaryMessageId,
                 );
+                if (boundaryIndex < 0)
+                  return yield* protocolError("OpenCode rewind boundary is unavailable");
+                const forkResponse = yield* sdkCall(
+                  "session.fork",
+                  { sessionID: sessionId, messageID: boundaryMessageId },
+                  () => client.session.fork({ sessionID: sessionId, messageID: boundaryMessageId }),
+                );
+                const nativeSession = unwrapData("session.fork", forkResponse);
+                const forkMessages = unwrapData(
+                  "session.messages",
+                  yield* sdkCall("session.messages", { sessionID: nativeSession.id }, () =>
+                    client.session.messages({ sessionID: nativeSession.id }),
+                  ),
+                );
+                if (forkMessages.length !== boundaryIndex)
+                  return yield* protocolError(
+                    "OpenCode did not preserve the requested rewind boundary",
+                  );
+                providerThread = {
+                  ...providerThread,
+                  nativeThreadRef: {
+                    driver: OPENCODE_PROVIDER,
+                    nativeId: nativeSession.id,
+                    strength: "strong",
+                  },
+                  updatedAt: yield* DateTime.now,
+                };
+                const permission = openCodePermissionRules(input.runtimePolicy);
+                yield* sdkCall("session.update", { sessionID: nativeSession.id, permission }, () =>
+                  client.session.update({ sessionID: nativeSession.id, permission }),
+                );
+                registerThread(nativeSession, providerThread, state?.appThread ?? null);
+                threads.delete(sessionId);
               }
-              const snapshot = yield* readSnapshot(rollbackInput.providerThread);
+              const snapshot = yield* readSnapshot(providerThread);
               return {
                 ...snapshot,
                 providerThread: {

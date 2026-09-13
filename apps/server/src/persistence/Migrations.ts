@@ -1,3 +1,4 @@
+import Migration0065 from "./Migrations/065_ProjectionThreadMessageContext.ts";
 import Migration0064 from "./Migrations/064_PitbossMail.ts";
 import Migration0063 from "./Migrations/063_PitbossPeers.ts";
 import Migration0062 from "./Migrations/062_Pitboss.ts";
@@ -153,6 +154,8 @@ export const migrationEntries = [
   [62, "Pitboss", Migration0062],
   [63, "PitbossPeers", Migration0063],
   [64, "PitbossMail", Migration0064],
+  // Upstream migration 51 follows Fold's already-shipped 50–64; their ids must stay stable.
+  [65, "ProjectionThreadMessageContext", Migration0065],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -50,6 +50,7 @@ export type ThreadLaunchWorkspaceStrategy =
     };
 
 export interface ThreadLaunchInitialMessage {
+  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
   readonly messageId?: MessageId;
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
@@ -524,6 +525,9 @@ export const make = Effect.gen(function* () {
               threadId,
               messageId,
               text: input.initialMessage.text,
+              ...(input.initialMessage.context === undefined
+                ? {}
+                : { context: input.initialMessage.context }),
               attachments: input.initialMessage.attachments,
               ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
               modelSelection: input.modelSelection,

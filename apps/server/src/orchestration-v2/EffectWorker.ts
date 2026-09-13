@@ -268,6 +268,9 @@ export const executorLayer: Layer.Layer<
                 threadId: effect.threadId,
                 providerThreadId: effect.request.providerThreadId,
                 checkpointId: effect.request.checkpointId,
+                ...(effect.request.restoreFiles === undefined
+                  ? {}
+                  : { restoreFiles: effect.request.restoreFiles }),
                 scopeId: effect.request.scopeId,
               })
               .pipe(

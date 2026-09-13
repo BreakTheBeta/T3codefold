@@ -88,6 +88,7 @@ export interface ThreadFeedActivity {
 }
 
 export interface ThreadFeedMessage {
+  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
   readonly id: MessageId;
   readonly role: "user" | "assistant";
   readonly text: string;
@@ -194,6 +195,10 @@ export function isContextCompactionActivityGroup(entry: ThreadFeedActivityGroup)
   return (
     entry.activities.length === 1 && entry.activities[0]?.projectedItem.item.type === "compaction"
   );
+}
+
+function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return entry.activities.some((activity) => activity.workEntry.questionAnswer !== undefined);
 }
 
 function normalizeDraftAnswer(value: string | undefined): string | null {
@@ -808,7 +813,9 @@ function deriveThreadFeedRunFolds(
             entry.id !== terminalAssistantId &&
             !(
               entry.type === "activity-group" &&
-              entry.activities.some((activity) => activity.prominent)
+              entry.activities.some(
+                (activity) => activity.prominent || activity.workEntry.questionAnswer !== undefined,
+              )
             ),
         )
         .map((entry) => entry.id),
@@ -936,7 +943,7 @@ function appendPresentedFeedEntry(
     result.push(entry);
     return;
   }
-  if (isContextCompactionActivityGroup(entry)) {
+  if (isContextCompactionActivityGroup(entry) || isUserInputActivityGroup(entry)) {
     result.push(entry);
     return;
   }
@@ -1297,6 +1304,9 @@ export function buildThreadFeed(
           id: item.messageId,
           role: item.type === "user_message" ? "user" : "assistant",
           text: item.text,
+          ...(item.type === "user_message" && item.context !== undefined
+            ? { context: item.context }
+            : {}),
           attachments: item.attachments ?? [],
           runId: item.runId,
           streaming: item.type === "assistant_message" && item.streaming,

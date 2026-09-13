@@ -1,3 +1,4 @@
+import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import { WorkStore } from "../pitboss/WorkStore.ts";
 import {
   CommandId,
@@ -625,7 +626,11 @@ export const layer: Layer.Layer<
         message.text.trim() === "/compact"
           ? null
           : yield* workStore.context(projection.thread.id, `turn:${attempt.id}`);
-      const workMessage = workPacket === null ? message.text : `${workPacket}\n\n${message.text}`;
+      const messageText = serializeLegacyContextMessage({
+        text: message.text,
+        records: message.context?.records ?? [],
+      });
+      const workMessage = workPacket === null ? messageText : `${workPacket}\n\n${messageText}`;
       yield* runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,

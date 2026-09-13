@@ -1,3 +1,4 @@
+import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import {
   OrchestrationV2ContextHandoff,
   type OrchestrationV2TurnItem,
@@ -94,7 +95,7 @@ function compactText(text: string, maxLength = 240): string {
 function summarizeDeltaItem(item: OrchestrationV2TurnItem): string | null {
   switch (item.type) {
     case "user_message":
-      return `- User: ${compactText(item.text)}`;
+      return `- User: ${compactText(serializeLegacyContextMessage({ text: item.text, records: item.context?.records ?? [] }))}`;
     case "assistant_message":
       return `- Assistant: ${compactText(item.text)}`;
     case "command_execution":
@@ -165,7 +166,15 @@ function makeLegacyImportSummary(items: ReadonlyArray<OrchestrationV2TurnItem>):
   const sections = items.flatMap((item) => {
     switch (item.type) {
       case "user_message":
-        return [{ label: "User", body: item.text }];
+        return [
+          {
+            label: "User",
+            body: serializeLegacyContextMessage({
+              text: item.text,
+              records: item.context?.records ?? [],
+            }),
+          },
+        ];
       case "assistant_message":
         return [{ label: "Assistant", body: item.text }];
       default:

@@ -167,6 +167,9 @@ export interface ProjectionSnapshotQueryShape {
   /**
    * Read a single active project shell row by id.
    */
+  readonly getProjectShells: (
+    projectIds?: ReadonlyArray<ProjectId>,
+  ) => Effect.Effect<ReadonlyArray<OrchestrationProjectShell>, ProjectionRepositoryError>;
   readonly getProjectShellById: (
     projectId: ProjectId,
   ) => Effect.Effect<Option.Option<OrchestrationProjectShell>, ProjectionRepositoryError>;
@@ -211,7 +214,7 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadRuntimeContext: (
     threadId: ThreadId,
   ) => Effect.Effect<
-    Option.Option<Pick<OrchestrationThreadShell, "id" | "title" | "session">>,
+    Option.Option<Pick<OrchestrationThreadShell, "id" | "projectId" | "title" | "session">>,
     ProjectionRepositoryError
   >;
 

@@ -645,7 +645,9 @@ describe("device group summaries", () => {
   const deviceEntry = (tool: string): WorkLogPresentationEntry => ({
     label: "MCP tool call",
     toolData: { server: "t3-code", tool },
-    itemType: "mcp_tool_call",
+    id: "device",
+    createdAt: "2026-01-01T00:00:00Z",
+    itemType: "dynamic_tool",
     toolLifecycleStatus: "completed",
     tone: "tool",
   });
@@ -662,7 +664,14 @@ describe("device group summaries", () => {
   it("summarizes device calls alongside shell commands", () => {
     expect(
       summarizeToolGroup([
-        { label: "Ran command", itemType: "command_execution", command: "pwd", tone: "tool" },
+        {
+          id: "shell",
+          createdAt: "2026-01-01T00:00:00Z",
+          label: "Ran command",
+          itemType: "command_execution",
+          command: "pwd",
+          tone: "tool",
+        },
         deviceEntry("device_list"),
         deviceEntry("device_open"),
       ]).summary,

@@ -450,15 +450,14 @@ describe("EnvironmentThreads", () => {
       const applying = yield* Deferred.make<void>();
       const update = titleUpdated("Not applied", 8);
       if (update.kind !== "event") return yield* Effect.die("Expected an event");
-      let sequenceReads = 0;
-      Object.defineProperty(update, "sequence", {
+      Object.defineProperty(update, "kind", {
         get: () => {
-          if (++sequenceReads === 2) Deferred.doneUnsafe(applying, Exit.void);
-          return 8;
+          Deferred.doneUnsafe(applying, Exit.void);
+          return "event";
         },
       });
-      // Hold the projection write while the event advances its cursor. Closing
-      // the scope must resume from the last fully applied projection.
+      // Block projection publication after the event enters the replay batch.
+      // Cancellation must retain the last completely applied data and cursor.
       yield* first.threadState.semaphore.take(1);
       yield* Queue.offer(first.inputs, update);
       yield* Deferred.await(applying);

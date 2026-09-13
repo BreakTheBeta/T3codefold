@@ -26,7 +26,7 @@ import {
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
 } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -36,14 +36,8 @@ import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { formatShortcutLabel } from "../../keybindings";
 import { cn } from "../../lib/utils";
-import {
-  primaryServerAvailableEditorsAtom,
-  primaryServerConfigAtom,
-  primaryServerKeybindingsAtom,
-  primaryServerKeybindingsConfigPathAtom,
-  serverEnvironment,
-} from "../../state/server";
-import { usePrimaryEnvironment } from "../../state/environments";
+import { serverEnvironment } from "../../state/server";
+import { useSettingsScope } from "./SettingsScopeContext";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -1336,12 +1330,15 @@ function BrowserKeybindingNotice() {
 }
 
 export function KeybindingsSettingsPanel() {
+  // The representative environment supplies the displayed bindings; edits
+  // fan out to every connected environment in the selection, so one
+  // shortcut change reaches each machine the user runs T3 Code on.
+  const { environment: primaryEnvironment, connectedEnvironments } = useSettingsScope();
+  const keybindings = primaryEnvironment?.serverConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const keybindingsConfigPath = primaryEnvironment?.serverConfig?.keybindingsConfigPath ?? null;
+  const availableEditors = primaryEnvironment?.serverConfig?.availableEditors ?? [];
   const voiceControls =
-    useAtomValue(primaryServerConfigAtom)?.environment.capabilities.realtimeVoiceControls === true;
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const keybindingsConfigPath = useAtomValue(primaryServerKeybindingsConfigPathAtom);
-  const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
-  const primaryEnvironment = usePrimaryEnvironment();
+    primaryEnvironment?.serverConfig?.environment.capabilities.realtimeVoiceControls === true;
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
   });
@@ -1426,17 +1423,19 @@ export function KeybindingsSettingsPanel() {
         ...(input.replace ? { replace: input.replace } : {}),
       };
       void (async () => {
-        const result = await upsertKeybinding({
-          environmentId: primaryEnvironment.environmentId,
-          input: payload,
-        });
+        const results = await Promise.all(
+          connectedEnvironments.map((target) =>
+            upsertKeybinding({ environmentId: target.environmentId, input: payload }),
+          ),
+        );
         setSavingCommand(null);
-        if (result._tag === "Success") {
+        const failed = results.find((result) => result._tag === "Failure");
+        if (!failed) {
           setIsAddingBinding(false);
           return;
         }
-        if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
+        if (!isAtomCommandInterrupted(failed)) {
+          const error = squashAtomCommandFailure(failed);
           toastManager.add({
             title: "Unable to save keybinding",
             description: error instanceof Error ? error.message : "The keybinding was not saved.",
@@ -1445,7 +1444,7 @@ export function KeybindingsSettingsPanel() {
         }
       })();
     },
-    [primaryEnvironment, upsertKeybinding],
+    [connectedEnvironments, primaryEnvironment, upsertKeybinding],
   );
 
   const removeKeybinding = useCallback(
@@ -1453,12 +1452,17 @@ export function KeybindingsSettingsPanel() {
       if (!primaryEnvironment) return;
       setSavingCommand(row.command);
       void (async () => {
-        const result = await removeKeybindingMutation({
-          environmentId: primaryEnvironment.environmentId,
-          input: rowKeybindingTarget(row),
-        });
+        const results = await Promise.all(
+          connectedEnvironments.map((target) =>
+            removeKeybindingMutation({
+              environmentId: target.environmentId,
+              input: rowKeybindingTarget(row),
+            }),
+          ),
+        );
         setSavingCommand(null);
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const result = results.find((entry) => entry._tag === "Failure") ?? results[0];
+        if (result?._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           toastManager.add({
             title: "Unable to remove keybinding",
@@ -1468,7 +1472,7 @@ export function KeybindingsSettingsPanel() {
         }
       })();
     },
-    [primaryEnvironment, removeKeybindingMutation],
+    [connectedEnvironments, primaryEnvironment, removeKeybindingMutation],
   );
 
   const resetKeybinding = useCallback(

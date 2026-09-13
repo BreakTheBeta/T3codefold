@@ -977,6 +977,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           messageId: queuedMessage.id,
           text: queuedMessage.text,
           attachments: queuedMessage.attachments,
+          ...(queuedMessage.context === undefined ? {} : { context: queuedMessage.context }),
           createdBy: queuedMessage.createdBy,
           creationSource: queuedMessage.creationSource,
         }),
@@ -2392,6 +2393,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly attachments: ReadonlyArray<ChatAttachment>;
     readonly createdBy: OrchestrationV2ConversationMessage["createdBy"];
     readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
+    readonly context?: OrchestrationV2ConversationMessage["context"];
     readonly forceRestart: boolean;
   }) =>
     Effect.gen(function* () {
@@ -2537,6 +2539,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             role: "user",
             text: input.text,
             attachments: input.attachments,
+            ...(input.context === undefined ? {} : { context: input.context }),
             streaming: false,
             createdAt: now,
             updatedAt: now,
@@ -2566,6 +2569,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : "steer",
             text: input.text,
             attachments: input.attachments,
+            ...(input.context === undefined ? {} : { context: input.context }),
           };
           yield* emitEvent({
             type: "message.updated",
@@ -3221,6 +3225,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           messageId: command.messageId,
           text: dispatchText,
           attachments: command.attachments,
+          ...(command.context === undefined ? {} : { context: command.context }),
           createdBy: command.createdBy,
           creationSource: command.creationSource,
           forceRestart: dispatchMode.type === "restart_active",
@@ -3382,6 +3387,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           role: "user",
           text: dispatchText,
           attachments: command.attachments,
+          ...(command.context === undefined ? {} : { context: command.context }),
           streaming: false,
           createdAt: now,
           updatedAt: now,
@@ -3638,6 +3644,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           role: "user",
           text: dispatchText,
           attachments: command.attachments,
+          ...(command.context === undefined ? {} : { context: command.context }),
           streaming: false,
           createdAt: now,
           updatedAt: now,
@@ -3665,6 +3672,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           inputIntent: "turn_start",
           text: dispatchText,
           attachments: command.attachments,
+          ...(command.context === undefined ? {} : { context: command.context }),
         };
         const preparationTurnItem: OrchestrationV2TurnItem | null =
           dispatchMode.type === "defer_start"
@@ -4300,6 +4308,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         role: "user",
         text: dispatchText,
         attachments: command.attachments,
+        ...(command.context === undefined ? {} : { context: command.context }),
         streaming: false,
         createdAt: now,
         updatedAt: now,
@@ -4327,6 +4336,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         inputIntent: "turn_start",
         text: dispatchText,
         attachments: command.attachments,
+        ...(command.context === undefined ? {} : { context: command.context }),
       };
       const activeHandoff = portableForkHandoff ?? mergeBackHandoff ?? providerSwitchHandoff;
       const handoffSourceRuns =
@@ -5511,6 +5521,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         messageId: queuedMessage.id,
         text: queuedMessage.text,
         attachments: queuedMessage.attachments,
+        ...(queuedMessage.context === undefined ? {} : { context: queuedMessage.context }),
         createdBy: queuedMessage.createdBy,
         creationSource: queuedMessage.creationSource,
         forceRestart: false,
@@ -5756,6 +5767,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         payload: {
           ...queuedMessage,
           text: command.text,
+          ...(command.context === undefined ? {} : { context: command.context }),
           ...editedAttachments,
           updatedAt: now,
         },
@@ -5771,6 +5783,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           payload: {
             ...queuedTurnItem,
             text: command.text,
+            ...(command.context === undefined ? {} : { context: command.context }),
             ...editedAttachments,
             updatedAt: now,
           },
@@ -6319,6 +6332,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) =>
     Effect.gen(function* () {
       const projection = yield* loadProjectionForCommand(command);
+      if (projection.runs.some((run) => isBlockingRun(run) || run.status === "queued")) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Wait for active work to finish and clear queued messages before rewinding.",
+        });
+      }
       const providerThread = projection.providerThreads.find(
         (candidate) => candidate.id === projection.thread.activeProviderThreadId,
       );
@@ -6429,6 +6449,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           request: {
             type: "provider-thread.rollback",
+            ...(command.restoreFiles === undefined ? {} : { restoreFiles: command.restoreFiles }),
             providerThreadId: providerThread.id,
             checkpointId: targetCheckpoint.id,
             scopeId: targetScope.id,

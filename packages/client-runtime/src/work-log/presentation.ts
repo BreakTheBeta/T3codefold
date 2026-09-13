@@ -31,6 +31,9 @@ export type WorkLogToolLifecycleStatus =
   | "idle";
 
 export interface WorkLogPresentationEntry {
+  readonly runId?: string | null;
+  readonly sourceActivityKind?: string;
+  readonly toolCallId?: string;
   readonly questionAnswer?: import("@t3tools/contracts").UserInputAttachmentAnswerPayload;
   readonly id: string;
   readonly createdAt: string;
@@ -659,6 +662,42 @@ export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEnt
       ? sentenceLabels.join(" and ")
       : `${sentenceLabels.slice(0, -1).join(", ")}, and ${sentenceLabels.at(-1)}`;
   return { summary, hasFailure: summaries.some((group) => group.failedCount > 0) };
+}
+
+export function omitSupersededLifecycleMarkers<T>(
+  entries: readonly T[],
+  workEntryFor: (entry: T) => WorkLogPresentationEntry,
+): T[] {
+  const laterTerminalIdentities = new Set<string>();
+  const reversedEntries: T[] = [];
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]!;
+    const workEntry = workEntryFor(entry);
+    const normalizedLabel = normalizeCompactToolLabel(workEntry.toolTitle ?? workEntry.label);
+    const identity = [workEntry.runId ?? "no-turn", workEntry.itemType ?? "", normalizedLabel].join(
+      "\u001f",
+    );
+    const activityKind = workEntry.sourceActivityKind;
+    const isStatuslessIdlessMarker =
+      workEntry.toolCallId === undefined &&
+      workEntry.toolLifecycleStatus === undefined &&
+      (activityKind === "tool.started" || activityKind === "tool.updated");
+    if (isStatuslessIdlessMarker && laterTerminalIdentities.has(identity)) continue;
+
+    reversedEntries.push(entry);
+    if (
+      activityKind === "tool.completed" ||
+      (workEntry.toolLifecycleStatus !== undefined &&
+        workEntry.toolLifecycleStatus !== "inProgress")
+    ) {
+      laterTerminalIdentities.add(identity);
+    }
+  }
+
+  // Hermes lacks toReversed; this array is local, so reversing it cannot mutate the input.
+  // oxlint-disable-next-line unicorn/no-array-reverse
+  return reversedEntries.reverse();
 }
 
 export function toolGroupSummaryKind(

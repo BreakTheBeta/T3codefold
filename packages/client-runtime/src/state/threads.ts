@@ -386,119 +386,93 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     );
   });
 
-  const applyItemLocked = Effect.fn("EnvironmentThreadState.applyItemLocked")(function* (
-    item: OrchestrationV2ThreadStreamItem,
-  ) {
-    if (item.kind === "synchronized") {
-      yield* Ref.set(awaitingCompletion, false);
-      yield* SubscriptionRef.update(state, (current) =>
-        Option.isSome(current.data) && current.status !== "deleted"
-          ? { ...current, status: "live" as const, error: Option.none() }
-          : current,
-      );
-      return;
-    }
-
-    if (item.kind === "snapshot") {
-      yield* SubscriptionRef.set(lastSequence, item.snapshotSequence);
-      // True socket/full snapshots replace the full timeline; progressive cursor
-      // state from a prior bounded window must not stick around. Bounded HTTP
-      // installs call setThread with explicit history and never route here.
-      yield* setThread(item.projection, { resetHistory: true });
-      return;
-    }
-
-    const sequence = yield* SubscriptionRef.get(lastSequence);
-    if (item.sequence <= sequence) {
-      return;
-    }
-    yield* SubscriptionRef.set(lastSequence, item.sequence);
-
-    const waiting = yield* Ref.get(awaitingCompletion);
-    // Apply against the latest projection/history in one update so a concurrent
-    // loadEarlier merge (or history-meta patch) cannot be clobbered by a stale
-    // get-then-set rebuild.
-    type EventApplyResult =
-      | { readonly _tag: "noop" }
-      | { readonly _tag: "delete" }
-      | {
-          readonly _tag: "applied";
-          readonly projection: OrchestrationV2ThreadProjection;
-          readonly history: ThreadHistoryMeta;
-        };
-
-    const result = yield* SubscriptionRef.modify(
-      state,
-      (current): readonly [EventApplyResult, EnvironmentThreadState] => {
-        if (current.status === "deleted") {
-          return [{ _tag: "noop" }, current];
+  const applyEventBatchLocked = Effect.fn("EnvironmentThreadState.applyEventBatchLocked")(
+    function* (items: ReadonlyArray<Extract<OrchestrationV2ThreadStreamItem, { kind: "event" }>>) {
+      let sequence = yield* SubscriptionRef.get(lastSequence);
+      const waiting = yield* Ref.get(awaitingCompletion);
+      let deleted = false;
+      const applied = yield* SubscriptionRef.modify(state, (initial) => {
+        let current = initial;
+        for (const item of items) {
+          if (item.sequence <= sequence) continue;
+          sequence = item.sequence;
+          if (deleted || current.status === "deleted") continue;
+          if (item.event.type === "thread.deleted") {
+            deleted = true;
+            continue;
+          }
+          if (Option.isNone(current.data)) continue;
+          const partial =
+            current.history.hasMoreHistory || current.history.historyCursor !== null
+              ? {
+                  partialTimeline: true as const,
+                  latestLocalTurnOrdinal: current.history.latestLocalTurnOrdinal,
+                }
+              : undefined;
+          const next = applyOrchestrationV2ProjectionEvent(current.data.value, item.event, partial);
+          if (next === null || next === current.data.value) continue;
+          let history = current.history;
+          if (partial !== undefined && item.event.type === "turn-item.updated") {
+            const ordinal = item.event.payload.ordinal;
+            const watermark = history.latestLocalTurnOrdinal;
+            if (watermark === null || ordinal > watermark)
+              history = { ...history, latestLocalTurnOrdinal: ordinal };
+          }
+          current = {
+            ...current,
+            data: Option.some(next),
+            status: waiting ? "synchronizing" : "live",
+            error: Option.none(),
+            history,
+          };
         }
-        if (Option.isNone(current.data)) {
-          return [
-            item.event.type === "thread.deleted" ? { _tag: "delete" } : { _tag: "noop" },
-            current,
-          ];
-        }
-        if (item.event.type === "thread.deleted") {
-          return [{ _tag: "delete" }, current];
-        }
+        return [current === initial ? null : current, deleted ? initial : current] as const;
+      });
+      yield* SubscriptionRef.set(lastSequence, sequence);
+      if (deleted) {
+        yield* setDeleted();
+      } else if (
+        applied !== null &&
+        Option.isSome(applied.data) &&
+        shouldPersistThread(applied.data.value, applied.history)
+      ) {
+        yield* Queue.offer(
+          persistence,
+          snapshotToPersist(sequence, applied.data.value, applied.history),
+        );
+      }
+    },
+  );
 
-        // Incomplete progressive windows only (hasMore or open cursor). Do not
-        // use expanded: it remains true after the last page as a cache marker.
-        // Full/web and fully-loaded timelines keep default append-on-miss.
-        const partial =
-          current.history.hasMoreHistory || current.history.historyCursor !== null
-            ? {
-                partialTimeline: true as const,
-                latestLocalTurnOrdinal: current.history.latestLocalTurnOrdinal,
-              }
-            : undefined;
-        const next = applyOrchestrationV2ProjectionEvent(current.data.value, item.event, partial);
-        // True no-op when the reducer deliberately returns the current projection
-        // reference (e.g. dropped old partial-timeline turn-item). Do not clear
-        // stream error/status or enqueue persistence.
-        if (next === null || next === current.data.value) {
-          return [{ _tag: "noop" }, current];
-        }
-
-        let history = current.history;
-        if (partial !== undefined && item.event.type === "turn-item.updated") {
-          const ordinal = item.event.payload.ordinal;
-          const watermark = history.latestLocalTurnOrdinal;
-          if (watermark === null || ordinal > watermark) {
-            history = { ...history, latestLocalTurnOrdinal: ordinal };
+  const applyItems = (items: ReadonlyArray<OrchestrationV2ThreadStreamItem>) =>
+    applyLock.withPermits(1)(
+      Effect.gen(function* () {
+        let events: Array<Extract<OrchestrationV2ThreadStreamItem, { kind: "event" }>> = [];
+        for (const item of items) {
+          if (item.kind === "event") {
+            events.push(item);
+            continue;
+          }
+          if (events.length > 0) {
+            yield* applyEventBatchLocked(events);
+            events = [];
+          }
+          if (item.kind === "snapshot") {
+            yield* SubscriptionRef.set(lastSequence, item.snapshotSequence);
+            yield* setThread(item.projection, { resetHistory: true });
+          } else {
+            yield* Ref.set(awaitingCompletion, false);
+            yield* SubscriptionRef.update(state, (current) =>
+              Option.isSome(current.data) && current.status !== "deleted"
+                ? { ...current, status: "live" as const, error: Option.none() }
+                : current,
+            );
           }
         }
-
-        const updated: EnvironmentThreadState = {
-          ...current,
-          data: Option.some(next),
-          status: waiting ? "synchronizing" : "live",
-          error: Option.none(),
-          history,
-        };
-        return [{ _tag: "applied", projection: next, history: updated.history }, updated];
-      },
+        if (events.length > 0) yield* applyEventBatchLocked(events);
+        yield* remember;
+      }),
     );
-
-    if (result._tag === "delete") {
-      yield* setDeleted();
-      return;
-    }
-    if (result._tag === "applied" && shouldPersistThread(result.projection, result.history)) {
-      const snapshotSequence = yield* SubscriptionRef.get(lastSequence);
-      yield* Queue.offer(
-        persistence,
-        snapshotToPersist(snapshotSequence, result.projection, result.history),
-      );
-    }
-  });
-
-  const applyItem = Effect.fn("EnvironmentThreadState.applyItem")(function* (
-    item: OrchestrationV2ThreadStreamItem,
-  ) {
-    yield* applyLock.withPermits(1)(applyItemLocked(item).pipe(Effect.andThen(remember)));
-  });
 
   const loadEarlier = Effect.fn("EnvironmentThreadState.loadEarlier")(function* () {
     const current = yield* SubscriptionRef.get(state);
@@ -767,7 +741,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(Stream.runForEach(applyItem)),
+    ).pipe(Stream.runForEachArray(applyItems)),
   );
 
   yield* Effect.addFinalizer(() =>

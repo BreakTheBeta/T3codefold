@@ -1,3 +1,4 @@
+import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import {
   MessageId,
   ProviderSessionId,
@@ -265,7 +266,10 @@ export const layer: Layer.Layer<
             providerTurnId: loaded.providerTurn.id,
             message: {
               messageId: message.id,
-              text: message.text,
+              text: serializeLegacyContextMessage({
+                text: message.text,
+                records: message.context?.records ?? [],
+              }),
               attachments: message.attachments,
               createdBy: message.createdBy,
               creationSource: message.creationSource,

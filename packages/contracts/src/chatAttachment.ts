@@ -154,8 +154,12 @@ export const ChatImageAttachment = Schema.Struct({
 });
 export type ChatImageAttachment = typeof ChatImageAttachment.Type;
 
+export const PastedTextAttachmentSource = Schema.TaggedStruct("pasted-text", {});
+export type PastedTextAttachmentSource = typeof PastedTextAttachmentSource.Type;
+
 export const ChatFileAttachment = Schema.Struct({
   type: Schema.Literal("file"),
+  source: Schema.optional(PastedTextAttachmentSource),
   id: ChatAttachmentId,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
@@ -189,6 +193,7 @@ export const ChatUnknownAttachment = Schema.Struct({
 export type ChatUnknownAttachment = typeof ChatUnknownAttachment.Type;
 
 export const UploadChatImageAttachment = Schema.Struct({
+  id: Schema.optional(ChatAttachmentId),
   type: Schema.Literal("image"),
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100), Schema.isPattern(/^image\//i)),

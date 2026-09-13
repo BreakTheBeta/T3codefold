@@ -136,6 +136,7 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     remove: () => Effect.die("Unexpected environment removal"),
     removeRelayEnvironments: () => Effect.die("Unexpected environment removal"),
     retryNow: () => Effect.void,
+    setEnabled: () => Effect.die("Unexpected environment toggle"),
     state: () => SubscriptionRef.get(supervisor.state),
     stateChanges: () => SubscriptionRef.changes(supervisor.state),
     run: (_environmentId, effect) =>
@@ -274,6 +275,52 @@ describe("createEnvironmentThreadStateAtoms", () => {
       unmountStatus();
       yield* Deferred.await(first.closed);
       expect(h.counts().active).toBe(0);
+    }),
+  );
+
+  it.effect.each([1, 16, 500])("publishes each replay batch once (batch size: %i)", (batchSize) =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      const unmount = h.registry.mount(h.stateAtom);
+      const first = yield* Queue.take(h.subscriptions);
+      let updates = 0;
+      const stop = h.registry.subscribe(h.details.threadAtom(h.ref), () => updates++, {
+        immediate: true,
+      });
+      updates = 0;
+      const events: OrchestrationV2ThreadStreamItem[] = Array.from({ length: 500 }, (_, index) => ({
+        kind: "event",
+        sequence: 8 + index,
+        event: {
+          id: EventId.make(`replay-${index}`),
+          type: "thread.metadata-updated",
+          threadId: THREAD_ID,
+          occurredAt: THREAD.thread.updatedAt,
+          payload: { ...THREAD.thread, title: `Title ${index}` },
+        },
+      }));
+      for (let offset = 0; offset < events.length; offset += batchSize) {
+        yield* Queue.offerAll(first.events, events.slice(offset, offset + batchSize));
+        const last = Math.min(offset + batchSize, events.length) - 1;
+        yield* observeState(
+          h.registry,
+          h.stateAtom,
+          (state) => Option.getOrNull(state.data)?.thread.title === `Title ${last}`,
+        );
+      }
+      yield* Queue.offerAll(first.events, [events[499]!, events[0]!]);
+      yield* Queue.offer(first.events, { kind: "synchronized" });
+      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
+      expect(currentThread(h.registry, h.stateAtom).thread.title).toBe("Title 499");
+      expect(updates).toBe(Math.ceil(500 / batchSize));
+      stop();
+      unmount();
+      yield* Deferred.await(first.closed);
+      const remount = h.registry.mount(h.stateAtom);
+      const next = yield* Queue.take(h.subscriptions);
+      expect(next.afterSequence).toBe(507);
+      remount();
+      yield* Deferred.await(next.closed);
     }),
   );
 

@@ -20,6 +20,7 @@ const clientSettings: ClientSettings = {
   ...DEFAULT_CLIENT_SETTINGS,
   citeSelectionEnabled: true,
 
+  notificationMode: "notifications-and-sound",
   appearanceContrast: 100,
   browserDefaultViewport: { _tag: "preset", width: 1024, height: 600, presetId: "nest-hub" },
   browserDefaultZoomFactor: 1.25,
@@ -36,6 +37,7 @@ const clientSettings: ClientSettings = {
   contextWindowMeterEnabled: false,
   composerCollapseOnScroll: true,
   dismissedProviderUpdateNotificationKeys: [],
+  diffFilesCollapsed: true,
   diffIgnoreWhitespace: true,
   diffLayout: "stacked",
   environmentIdentificationMode: "artwork",

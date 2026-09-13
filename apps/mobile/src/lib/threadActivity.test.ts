@@ -1319,7 +1319,7 @@ it("accepts ready attachment-only answers while preserving selected options", ()
   ).toBeNull();
 });
 
-it("makes attachment-only question answers expandable in the mobile feed", () => {
+it("keeps attachment-only question answers expandable outside mobile work groups and turn folds", () => {
   const answer = {
     requestId: "question-request",
     answers: { q: "" },

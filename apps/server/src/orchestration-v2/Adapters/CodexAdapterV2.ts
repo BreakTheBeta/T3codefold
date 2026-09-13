@@ -75,6 +75,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import {
+  readCodexThread,
+  rollbackCodexThread,
   describeMcpElicitation,
   toMcpElicitationResponse,
 } from "../../provider/Layers/CodexSessionRuntime.ts";
@@ -5616,23 +5618,23 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             Effect.gen(function* () {
               const threadId = yield* getNativeThreadId(threadInput.providerThread);
               const response = yield* ensureInitialized.pipe(
-                Effect.andThen(client.request("thread/read", { threadId, includeTurns: true })),
+                Effect.andThen(readCodexThread(client, threadId)),
               );
               return {
                 providerThread: {
                   ...threadInput.providerThread,
                   nativeThreadRef: {
                     driver: CODEX_PROVIDER,
-                    nativeId: response.thread.id,
+                    nativeId: response.threadId,
                     strength: "strong" as const,
                   },
                   nativeConversationHeadRef: threadInput.providerThread.nativeConversationHeadRef,
-                  updatedAt: codexTimestamp(response.thread.updatedAt),
+                  updatedAt: yield* DateTime.now,
                 },
                 providerTurns: [],
                 messages: [],
                 runtimeRequests: [],
-                providerPayload: response.thread,
+                providerPayload: response,
               };
             }).pipe(
               Effect.mapError(
@@ -5665,7 +5667,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 };
               }
               const response = yield* ensureInitialized.pipe(
-                Effect.andThen(client.request("thread/rollback", { threadId, numTurns })),
+                Effect.andThen(rollbackCodexThread(client, threadId, numTurns)),
               );
               turnTokenUsageByThread.delete(threadId);
               return {
@@ -5673,17 +5675,17 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                   ...threadInput.providerThread,
                   nativeThreadRef: {
                     driver: CODEX_PROVIDER,
-                    nativeId: response.thread.id,
+                    nativeId: response.threadId,
                     strength: "strong" as const,
                   },
                   nativeConversationHeadRef,
                   status: "idle" as const,
-                  updatedAt: codexTimestamp(response.thread.updatedAt),
+                  updatedAt: yield* DateTime.now,
                 },
                 providerTurns: [],
                 messages: [],
                 runtimeRequests: [],
-                providerPayload: response.thread,
+                providerPayload: response,
               };
             }).pipe(
               Effect.mapError(

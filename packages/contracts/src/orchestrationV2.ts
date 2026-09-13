@@ -1,3 +1,4 @@
+import { OrchestrationMessageContext } from "./composerContext.ts";
 import { UserInputAttachmentAnswerPayload } from "./orchestration.ts";
 import { UserInputAttachments } from "./chatAttachment.ts";
 import * as Effect from "effect/Effect";
@@ -725,6 +726,7 @@ export const OrchestrationV2ConversationMessage = Schema.Struct({
   nodeId: Schema.NullOr(NodeId),
   role: Schema.Literals(["user", "assistant", "system"]),
   text: Schema.String,
+  context: Schema.optional(OrchestrationMessageContext),
   attachments: Schema.Array(ChatAttachment),
   streaming: Schema.Boolean,
   createdAt: Schema.DateTimeUtc,
@@ -938,6 +940,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     messageId: MessageId,
     inputIntent: OrchestrationV2UserMessageInputIntent,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
   }),
   Schema.Struct({
@@ -945,6 +948,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     type: Schema.Literal("assistant_message"),
     messageId: MessageId,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
     streaming: Schema.Boolean,
   }),
@@ -1628,6 +1632,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     messageId: MessageId,
     inputIntent: OrchestrationV2UserMessageInputIntent,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
   }),
   Schema.Struct({
@@ -1635,6 +1640,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     type: Schema.Literal("assistant_message"),
     messageId: MessageId,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
     streaming: Schema.Boolean,
   }),
@@ -2271,6 +2277,7 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     messageId: MessageId,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
     /** Seed the temporary title and generate a durable replacement for the first message. */
     titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -2345,6 +2352,7 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     runId: RunId,
     text: Schema.String,
+    context: Schema.optional(OrchestrationMessageContext),
     // Full replacement list. Absent = leave the message's attachments as-is,
     // so pre-attachment clients editing text keep the original attachments.
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
@@ -2366,6 +2374,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("checkpoint.rollback"),
+    restoreFiles: Schema.optional(Schema.Boolean),
     commandId: CommandId,
     threadId: ThreadId,
     scopeId: CheckpointScopeId,
@@ -2522,6 +2531,7 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
     Schema.Struct({
       messageId: Schema.optional(MessageId),
       text: Schema.String,
+      context: Schema.optional(OrchestrationMessageContext),
       attachments: Schema.Array(ChatAttachment),
     }),
   ),

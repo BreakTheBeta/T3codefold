@@ -66,6 +66,22 @@ describe("resolveSettledThreadTimestamp", () => {
 });
 
 describe("sortThreads", () => {
+  it.each(["created_at", "updated_at"] as const)(
+    "preserves references, input order and descending id ties for %s",
+    (sortOrder) => {
+      const threads = Object.freeze([
+        makeThread({ id: "a" }),
+        makeThread({ id: "z" }),
+        makeThread({ id: "invalid-a", createdAt: "invalid", updatedAt: "invalid" }),
+        makeThread({ id: "invalid-z", createdAt: "invalid", updatedAt: "invalid" }),
+      ]);
+      const sorted = sortThreads(threads, sortOrder);
+      expect(sorted).toEqual([threads[1], threads[0], threads[3], threads[2]]);
+      expect(sorted[0]).toBe(threads[1]);
+      expect(threads[0]?.id).toBe("a");
+    },
+  );
+
   it("falls back to updatedAt and createdAt when latestUserMessageAt is invalid and there are no messages", () => {
     const sorted = sortThreads(
       [

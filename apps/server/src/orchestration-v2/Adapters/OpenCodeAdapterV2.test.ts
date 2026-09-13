@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import type { ToolPart } from "@opencode-ai/sdk/v2";
 import {
+  CheckpointId,
   NodeId,
   OpenCodeSettings,
   ProjectId,
@@ -1392,3 +1393,62 @@ describe("OpenCodeAdapterV2", () => {
     assert.isUndefined(openCodeBoundaryAfterProviderTurn([first, synthetic, third], third.id));
   });
 });
+
+it.effect("rewinds OpenCode by forking without reverting workspace files", () =>
+  Effect.gen(function* () {
+    const nativeEvents = asyncEventStream();
+    const sourceId = "native-before-rewind";
+    const forkId = "native-after-rewind";
+    const calls: Array<unknown> = [];
+    const harness = yield* makeOpenCodeRuntimeHarness("rewind", sourceId, {
+      event: {
+        subscribe: async (_input: unknown, options: { signal?: AbortSignal }) => {
+          options.signal?.addEventListener("abort", () => nativeEvents.close(), { once: true });
+          return { stream: nativeEvents.stream };
+        },
+      },
+      session: {
+        create: async () => ({ data: { id: sourceId, time: { created: 1, updated: 1 } } }),
+        messages: async ({ sessionID }: { sessionID: string }) => ({
+          data:
+            sessionID === sourceId
+              ? [
+                  {
+                    info: { id: "first-user-message", role: "user", time: { created: 1 } },
+                    parts: [],
+                  },
+                ]
+              : [],
+        }),
+        fork: async (input: unknown) => {
+          calls.push(input);
+          return { data: { id: forkId, time: { created: 1, updated: 1 } } };
+        },
+        update: async (input: unknown) => {
+          calls.push(input);
+          return { data: true };
+        },
+        revert: async () => {
+          throw new Error("Native revert must never touch workspace files");
+        },
+      },
+    });
+    const snapshot = yield* harness.runtime.rollbackThread({
+      providerThread: harness.providerThread,
+      target: { type: "thread_start", checkpointId: CheckpointId.make("rewind"), appRunOrdinal: 0 },
+      providerThreadTurns: [],
+    });
+    assert.equal(snapshot.providerThread.id, harness.providerThread.id);
+    assert.equal(snapshot.providerThread.nativeThreadRef?.nativeId, forkId);
+    assert.equal(snapshot.providerThread.nativeConversationHeadRef, null);
+    assert.deepEqual(calls[0], { sessionID: sourceId, messageID: "first-user-message" });
+    assert.deepEqual(calls[1], {
+      sessionID: forkId,
+      permission: openCodePermissionRules(harness.policy),
+    });
+    const reread = yield* harness.runtime.readThreadSnapshot({
+      providerThread: snapshot.providerThread,
+    });
+    assert.equal(reread.messages?.length, 0);
+  }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+);

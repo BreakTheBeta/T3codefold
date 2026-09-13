@@ -107,6 +107,10 @@
       "types": "./src/state/attachments.ts",
       "default": "./src/state/attachments.ts"
     },
+    "./text-paste": {
+      "types": "./src/textPaste.ts",
+      "default": "./src/textPaste.ts"
+    },
     "./state/connections": {
       "types": "./src/state/connections.ts",
       "default": "./src/state/connections.ts"
@@ -294,6 +298,10 @@
     "./realtime-voice": {
       "types": "./src/realtime-voice/controller.ts",
       "default": "./src/realtime-voice/controller.ts"
+    },
+    "./file-preview": {
+      "types": "./src/filePreview.ts",
+      "default": "./src/filePreview.ts"
     }
   },
   "scripts": {
