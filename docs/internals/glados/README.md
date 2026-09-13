@@ -2,6 +2,8 @@
 
 This is the reference library to consult while designing and iterating on T3's GLaDOS. It preserves source mechanisms and useful alternatives independently of the implementation. Start with [current scope and iteration constraints](scope.md).
 
+See [captured verification proposal](verification-proposal.md) and [its architectural decision](../../adr/0001-captured-verification.md).
+
 See [project leadership and context ownership](project-leadership.md) for workload-dependent delegation and durable project decisions.
 
 See [worker model choices and routing](worker-model-policy.md) for the native editor and per-task selection policy.

@@ -39,6 +39,9 @@ export function leadView(state: PitbossSnapshot, threadId: ThreadId): PitbossSna
   if (!lead) return;
   return {
     ...state,
+    verificationRecipes: (state.verificationRecipes ?? []).filter(
+      (recipe) => recipe.projectId === lead.projectId,
+    ),
     role: state.role
       ? {
           ...state.role,

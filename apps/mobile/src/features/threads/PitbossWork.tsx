@@ -1,10 +1,12 @@
+import { useAssetUrlState } from "../../state/assets";
 import { useServerConfigs } from "../../state/entities";
 import { useState } from "react";
-import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Linking, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import {
   CommandId,
   isPitbossLeadActive,
+  hasCurrentVerification,
   type EnvironmentId,
   type ModelSelection,
   type PitbossAction,
@@ -17,6 +19,30 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { uuidv4 } from "../../lib/uuid";
 
+function VerificationArtifact({
+  environmentId,
+  artifact,
+}: {
+  environmentId: EnvironmentId;
+  artifact: { name: string; attachmentId: string };
+}) {
+  const asset = useAssetUrlState(environmentId, {
+    _tag: "attachment",
+    attachmentId: artifact.attachmentId,
+    fileName: artifact.name,
+  });
+  return (
+    <Pressable
+      accessibilityRole="link"
+      disabled={asset._tag !== "Success"}
+      onPress={() => {
+        if (asset._tag === "Success") void Linking.openURL(asset.url);
+      }}
+    >
+      <Text className="text-sm underline">Download {artifact.name}</Text>
+    </Pressable>
+  );
+}
 export function PitbossWork(props: {
   environmentId: EnvironmentId;
   threadId: ThreadId;
@@ -294,6 +320,59 @@ export function PitbossWork(props: {
                         )}
                       </View>
                     ))}
+                    {task.verification && (
+                      <View className="gap-2 rounded-lg bg-muted p-3">
+                        <Text className="font-semibold">
+                          Captured verification · {task.verification.state}
+                        </Text>
+                        <Text>
+                          {task.verification.receipt?.summary ??
+                            "Waiting for the environment runner."}
+                        </Text>
+                        <Text className="text-xs">
+                          {task.verification.candidate} · recipe v{task.verification.recipe.version}
+                        </Text>
+                        {task.verification.receipt?.checks.map((check) => (
+                          <View key={check.name}>
+                            <Text>
+                              {check.name}: {check.timedOut ? "timed out" : `exit ${check.code}`}
+                            </Text>
+                            <Text selectable className="text-xs">
+                              {check.stdout}
+                              {check.stderr}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {state.verificationRecipes?.some(
+                      (recipe) => recipe.projectId === task.projectId,
+                    ) &&
+                      button(
+                        "Run captured verification",
+                        () => {
+                          const latest = task.evidence.at(-1);
+                          if (latest)
+                            void command({
+                              type: "verify",
+                              taskId: task.id,
+                              evidenceId: latest.id,
+                            });
+                        },
+                        busy ||
+                          !!role?.paused ||
+                          !task.evidence.length ||
+                          task.verification?.state === "pending" ||
+                          task.verification?.state === "running" ||
+                          task.attempts.some((attempt) =>
+                            ["pending", "running", "submitted", "stop_requested"].includes(
+                              attempt.state,
+                            ),
+                          ),
+                      )}
+                    <Text className="text-xs">
+                      Verification recipes are configured in the web or desktop GLaDOS work board.
+                    </Text>
                     {task.evidence.map((evidence) => (
                       <View key={evidence.id} className="gap-1 rounded-lg bg-muted p-3">
                         <Text className="text-sm">
@@ -301,8 +380,25 @@ export function PitbossWork(props: {
                         </Text>
                         <Text className="text-sm">{evidence.summary}</Text>
                         <Text className="text-xs">{evidence.candidate}</Text>
+                        {evidence.capture?.receipt.artifacts.map((artifact) => (
+                          <VerificationArtifact
+                            key={artifact.attachmentId}
+                            artifact={artifact}
+                            environmentId={task.homeEnvironmentId ?? props.environmentId}
+                          />
+                        ))}
                         {task.status === "verifying" &&
                           evidence.verdict === "pass" &&
+                          (!state.verificationRecipes?.some(
+                            (recipe) => recipe.projectId === task.projectId,
+                          ) ||
+                            hasCurrentVerification(
+                              task,
+                              state.verificationRecipes?.find(
+                                (recipe) => recipe.projectId === task.projectId,
+                              ),
+                              evidence.candidate,
+                            )) &&
                           button(
                             "Accept inspected evidence",
                             () =>
