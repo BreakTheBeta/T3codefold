@@ -1151,6 +1151,7 @@ describe("AcpAdapterV2", () => {
         providerInstanceId: instanceId,
         endpoint: "http://127.0.0.1:43123/mcp",
         authorizationHeader: "Bearer target-thread-token",
+        capabilities: new Set(["preview", "orchestration", "worktree", "pull-requests"]),
         browserToolsAvailable: true,
       });
       yield* Effect.addFinalizer(() =>

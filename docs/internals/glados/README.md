@@ -8,16 +8,16 @@ See [worker model choices and routing](worker-model-policy.md) for the native ed
 
 ## Browse by question
 
-| What you want to explore | Start here |
-| --- | --- |
-| How should durable tasks, messages and recovery work? | [Gas City](gas-city.md) |
-| How can workers prove their work and improve quality? | [pstack](pstack.md) |
-| What can we learn from Cursor Projects and agent swarms? | [Cursor](cursor-projects.md) |
-| How should specialist teams hand off work and learn? | [Hermes](hermes-media-team.md) |
-| When should GLaDOS create a worker or a project lead? | [Project leadership](project-leadership.md) |
-| How should models and thinking levels be chosen? | [Worker model policy](worker-model-policy.md) |
-| Which ideas fit a particular T3 limitation? | [Crosswalk](crosswalk.md) |
-| What is implemented, proposed or deliberately deferred? | [Scope and constraints](scope.md) |
+| What you want to explore                                 | Start here                                    |
+| -------------------------------------------------------- | --------------------------------------------- |
+| How should durable tasks, messages and recovery work?    | [Gas City](gas-city.md)                       |
+| How can workers prove their work and improve quality?    | [pstack](pstack.md)                           |
+| What can we learn from Cursor Projects and agent swarms? | [Cursor](cursor-projects.md)                  |
+| How should specialist teams hand off work and learn?     | [Hermes](hermes-media-team.md)                |
+| When should GLaDOS create a worker or a project lead?    | [Project leadership](project-leadership.md)   |
+| How should models and thinking levels be chosen?         | [Worker model policy](worker-model-policy.md) |
+| Which ideas fit a particular T3 limitation?              | [Crosswalk](crosswalk.md)                     |
+| What is implemented, proposed or deliberately deferred?  | [Scope and constraints](scope.md)             |
 
 Each catalog's headings are browsable through GitHub's outline. Search within a page for stable concept IDs or a topic such as verification, messaging, memory or recovery.
 

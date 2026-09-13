@@ -895,7 +895,10 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
           binaryPath: options.settings.binaryPath,
           directory: cwd,
           serverUrl: options.settings.serverUrl,
-          environment: options.environment,
+          environment: McpProviderSession.providerSessionEnvironment(
+            options.environment,
+            input.threadId,
+          ),
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,

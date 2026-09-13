@@ -43,7 +43,12 @@ export const PitbossEvidence = Schema.Struct({
   summary: Text,
   command: Text,
   artifactUrls: Schema.Array(Text).check(Schema.isMaxLength(20)),
-  provenance: Schema.Literals(["worker_report", "user_observation", "captured_check"]),
+  provenance: Schema.Literals([
+    "worker_report",
+    "user_observation",
+    "captured_check",
+    "coordinator_review",
+  ]),
   createdAt: Schema.String,
 });
 export type PitbossEvidence = typeof PitbossEvidence.Type;
@@ -78,7 +83,33 @@ export const PitbossSource = Schema.Struct({
   observedAt: Schema.String,
 });
 export type PitbossSource = typeof PitbossSource.Type;
+export const PitbossLead = Schema.Struct({
+  id: Id,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  generation: Version,
+  parentGeneration: Version,
+  status: Schema.Literals(["active", "dormant"]),
+  charter: TrimmedNonEmptyString.check(Schema.isMaxLength(16000)),
+  model: ModelSelection,
+  maxWorkers: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 })),
+  context: Text,
+  contextRevision: Version,
+  updatedAt: Schema.String,
+});
+export type PitbossLead = typeof PitbossLead.Type;
+
+/** Effective project authority, shared by the server and every client. */
+export function isPitbossLeadActive(role: PitbossRole | null | undefined, lead: PitbossLead) {
+  return (
+    lead.status === "active" &&
+    lead.parentGeneration === role?.generation &&
+    role.brief.projectIds.includes(lead.projectId)
+  );
+}
+
 export const PitbossTask = Schema.Struct({
+  leadId: Schema.optional(Id),
   pendingOperationId: Schema.optional(Id),
   homeEnvironmentId: Schema.optional(EnvironmentId),
   homeRevision: Schema.optional(Version),
@@ -104,6 +135,7 @@ export const PitbossTask = Schema.Struct({
 });
 export type PitbossTask = typeof PitbossTask.Type;
 export const PitbossMessage = Schema.Struct({
+  recipientLeadId: Schema.optional(Id),
   sourcePeerId: Schema.optional(Id),
   sourceMessageId: Schema.optional(Id),
   replyTo: Schema.optional(Id),
@@ -117,6 +149,7 @@ export const PitbossMessage = Schema.Struct({
 });
 export type PitbossMessage = typeof PitbossMessage.Type;
 export const PitbossSnapshot = Schema.Struct({
+  leads: Schema.optional(Schema.Array(PitbossLead)),
   sourceAuthorities: Schema.optional(Schema.Array(PitbossSourceAuthority)),
   revision: Version,
   role: Schema.NullOr(PitbossRole),
@@ -135,6 +168,33 @@ const TaskFields = {
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
 };
 export const PitbossAction = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("lead-message"),
+    leadId: Id,
+    text: TrimmedNonEmptyString.check(Schema.isMaxLength(16000)),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("create-lead"),
+    leadId: Id,
+    projectId: ProjectId,
+    charter: PitbossLead.fields.charter,
+    model: ModelSelection,
+    maxWorkers: PitbossLead.fields.maxWorkers,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("lead-status"),
+    leadId: Id,
+    status: PitbossLead.fields.status,
+  }),
+  Schema.Struct({ type: Schema.Literal("lead-context"), leadId: Id, context: Text }),
+  Schema.Struct({
+    type: Schema.Literal("lead-report"),
+    leadId: Id,
+    text: TrimmedNonEmptyString.check(Schema.isMaxLength(16000)),
+    taskIds: Schema.Array(Id).check(Schema.isMaxLength(50)),
+    kind: Schema.Literals(["question", "progress", "result"]),
+  }),
+  Schema.Struct({ type: Schema.Literal("manage-task"), taskId: Id, leadId: Schema.NullOr(Id) }),
   Schema.Struct({
     type: Schema.Literal("send-peer"),
     peerId: Id,
@@ -178,6 +238,17 @@ export const PitbossAction = Schema.Union([
     verdict: PitbossEvidence.fields.verdict,
     summary: Text,
     command: Text,
+    artifactUrls: PitbossEvidence.fields.artifactUrls,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("review"),
+    taskId: Id,
+    attemptId: Id,
+    candidate: TrimmedNonEmptyString,
+    criteriaVersion: Version,
+    verdict: PitbossEvidence.fields.verdict,
+    summary: TrimmedNonEmptyString.check(Schema.isMaxLength(16000)),
+    command: TrimmedNonEmptyString,
     artifactUrls: PitbossEvidence.fields.artifactUrls,
   }),
   Schema.Struct({

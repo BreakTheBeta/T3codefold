@@ -1,3 +1,4 @@
+import { leadView } from "./Leads.ts";
 import { replayJournal } from "./WorkJournal.ts";
 import * as NodeCrypto from "node:crypto";
 import type { PitbossSourceAuthority, PitbossSourceConfig } from "@t3tools/contracts";
@@ -127,10 +128,15 @@ export const layer = Layer.effect(
       if (!actor || actor.type === "user") return state;
       if (actor.type === "agent" && state.role?.threadId === actor.threadId)
         return managerView(state);
+      if (actor.type === "agent") {
+        const view = leadView(state, actor.threadId);
+        if (view) return view;
+      }
       if (actor.type === "peer")
         return {
           ...state,
           role: null,
+          leads: [],
           tasks: state.tasks.filter((task) => task.source?.scope === actor.scope),
           messages: [],
           sourceAuthorities: state.sourceAuthorities?.filter(
@@ -146,6 +152,8 @@ export const layer = Layer.effect(
       return {
         ...state,
         role: null,
+        leads: [],
+        sourceAuthorities: [],
         tasks,
         messages: state.messages.filter((message) =>
           tasks.some((task) => task.id === message.taskId),
@@ -177,7 +185,7 @@ export const layer = Layer.effect(
             try: () => decide(before, input, actor, now),
             catch: unavailable,
           });
-          yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${input.commandId}, ${requestJson}, ${encodeJson({ type: "command", input, actor, now })}, ${now})`;
+          yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${input.commandId}, ${requestJson}, ${encodeJson({ type: "command", version: 2, input, actor, now })}, ${now})`;
           yield* persist(after);
           const action = input.action;
           const remote = remoteTaskAuthority(before, action);
@@ -199,11 +207,20 @@ export const layer = Layer.effect(
             return after;
           }
           if (
-            ["elect", "assign", "rework", "cancel", "propose-coordination", "send-peer"].includes(
-              action.type,
-            )
+            [
+              "create-lead",
+              "elect",
+              "assign",
+              "rework",
+              "cancel",
+              "propose-coordination",
+              "send-peer",
+            ].includes(action.type)
           ) {
             yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, ${action.type}, ${encodeJson(action)})`;
+          }
+          if (action.type === "lead-status" && action.status === "active") {
+            yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, 'lead-status', ${encodeJson(action)})`;
           }
           return after;
         }),

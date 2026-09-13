@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import {
   CommandId,
+  isPitbossLeadActive,
   type EnvironmentId,
   type ModelSelection,
   type PitbossAction,
@@ -101,6 +102,33 @@ export function PitbossWork(props: {
                 {error ?? query.error}
               </Text>
             )}
+            {(state.leads ?? []).map((lead) => {
+              const active = isPitbossLeadActive(role, lead);
+              return (
+                <View key={lead.id} className="gap-2 rounded-xl border border-border p-3">
+                  <Text className="font-semibold">
+                    {lead.id} · {active ? "Managing" : "Dormant"}
+                  </Text>
+                  <Text className="text-sm text-muted-foreground">
+                    {lead.model.model} · up to {lead.maxWorkers} shared workers
+                  </Text>
+                  <Text className="text-sm">{lead.charter}</Text>
+                  <Text className="text-sm">
+                    Context v{lead.contextRevision}: {lead.context || "Not recorded yet"}
+                  </Text>
+                  {role?.brief.projectIds.includes(lead.projectId) &&
+                    button(
+                      active ? "Return to GLaDOS" : "Reactivate lead",
+                      () =>
+                        void command({
+                          type: "lead-status",
+                          leadId: lead.id,
+                          status: active ? "dormant" : "active",
+                        }),
+                    )}
+                </View>
+              );
+            })}
             <Text className="text-sm text-muted-foreground">Your priorities</Text>
             <TextInput
               accessibilityLabel="GLaDOS priorities"

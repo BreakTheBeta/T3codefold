@@ -656,7 +656,9 @@ export function buildCodexTurnStartParams(input: {
   readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
   readonly modelSelection: ModelSelection;
   readonly hasT3Mcp?: boolean;
-  readonly browserToolsAvailable?: boolean;
+  readonly browserToolsAvailable?:
+    | boolean
+    | import("../../provider/CodexDeveloperInstructions.ts").T3CodeToolAvailability;
 }) {
   return Effect.gen(function* () {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
@@ -1371,8 +1373,7 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
         Effect.gen(function* () {
           const scope = yield* Scope.Scope;
           const environment = {
-            ...input.environment,
-            ...McpProviderSession.workCliEnvironment(input.threadId),
+            ...McpProviderSession.providerSessionEnvironment(input.environment, input.threadId),
             ...(input.settings.homePath
               ? { CODEX_HOME: expandHomePath(input.settings.homePath) }
               : {}),
@@ -5043,7 +5044,10 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 runtimePolicy: turnInput.runtimePolicy,
                 modelSelection: turnInput.modelSelection,
                 hasT3Mcp: mcpSession !== undefined,
-                browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
+                browserToolsAvailable: {
+                  browser: mcpSession?.capabilities.has("preview") ?? false,
+                  device: mcpSession?.capabilities.has("device") ?? false,
+                },
               });
               yield* Ref.update(pendingRootTurns, (current) => {
                 const updated = new Map(current);

@@ -20,6 +20,7 @@ export interface McpCredentialRequest {
    * token is honored (#7083). Defaults to full access.
    */
   readonly browserToolsAvailable?: boolean;
+  readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
 }
 
 export interface McpIssuedCredential {
@@ -135,13 +136,12 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         threadId: ThreadId.make(request.threadId),
         providerSessionId,
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
-        capabilities: new Set(
-          browserToolsAvailable
-            ? McpInvocationContext.ALL_MCP_CAPABILITIES
-            : McpInvocationContext.ALL_MCP_CAPABILITIES.filter(
-                (capability) => capability !== "preview",
-              ),
-        ),
+        capabilities: new Set<McpInvocationContext.McpCapability>([
+          "pull-requests",
+          "orchestration",
+          "worktree",
+          ...(request.capabilities ?? (browserToolsAvailable ? ["preview" as const] : [])),
+        ]),
         issuedAt,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
@@ -158,6 +158,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           endpoint,
           authorizationHeader: `Bearer ${rawToken}`,
           browserToolsAvailable,
+          capabilities: scope.capabilities,
         },
       };
     },

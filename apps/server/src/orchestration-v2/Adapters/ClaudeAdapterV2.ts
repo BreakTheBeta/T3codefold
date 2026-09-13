@@ -730,8 +730,11 @@ export function makeClaudeQueryOptions(input: {
   readonly allowDangerouslySkipPermissions?: boolean;
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection);
-  const extraArgs =
-    input.settings === undefined ? {} : parseCliArgs(input.settings.launchArgs).flags;
+  const {
+    "permission-mode": launchArgPermissionMode,
+    "dangerously-skip-permissions": launchArgSkipPermissions,
+    ...extraArgs
+  } = input.settings === undefined ? {} : parseCliArgs(input.settings.launchArgs).flags;
   const threadIdentity: ClaudeAgentSdkThreadIdentity = input.resume
     ? { resume: input.nativeThreadId }
     : { sessionId: input.nativeThreadId };
@@ -756,7 +759,11 @@ export function makeClaudeQueryOptions(input: {
   const options: ClaudeAgentSdkQueryOptions = {
     model: compiledSelection.apiModelId,
     tools: claudeAgentSdkQueryToolsForSdk(selectedTools),
-    permissionMode: input.permissionMode ?? "default",
+    permissionMode:
+      (launchArgPermissionMode as PermissionMode | null | undefined) ??
+      (launchArgSkipPermissions === null || launchArgSkipPermissions === "true"
+        ? "bypassPermissions"
+        : (input.permissionMode ?? "default")),
     includePartialMessages: true,
     ...(compiledSelection.effort === undefined
       ? {}
@@ -804,6 +811,7 @@ export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";
 // Must stay in sync with the Tool.Readonly annotations on OrchestratorToolkit;
 // ClaudeAdapterV2.test.ts cross-checks this list against the toolkit.
 export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
+  "mcp__t3-code__work_read",
   "mcp__t3-code__t3_environment_list",
   "mcp__t3-code__t3_project_list",
   "mcp__t3-code__orchestrator_capabilities",
@@ -5286,8 +5294,10 @@ export function makeClaudeAdapterV2(
                 attachmentsDir,
                 settings: adapterOptions.settings,
                 environment: {
-                  ...adapterOptions.environment,
-                  ...McpProviderSession.workCliEnvironment(turnInput.threadId),
+                  ...McpProviderSession.providerSessionEnvironment(
+                    adapterOptions.environment,
+                    turnInput.threadId,
+                  ),
                 },
                 tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
                 ...mcpOverrides,

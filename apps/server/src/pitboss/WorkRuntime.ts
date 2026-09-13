@@ -1,3 +1,5 @@
+import { activeLeads, inboxFor, taskLead } from "./Leads.ts";
+import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectionStoreThreadNotFoundError } from "../orchestration-v2/ProjectionStore.ts";
 import { PeerService } from "./PeerService.ts";
 import {
@@ -14,16 +16,26 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 import { WorkStore } from "./WorkStore.ts";
-import { managerView, readyTasks, workContext } from "./Work.ts";
+import { readyTasks, workContext } from "./Work.ts";
 import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
 import {
+  ThreadManagementProjectionLoadError,
+  ThreadManagementThreadNotFoundError,
   ThreadManagementService,
   latestActiveRun,
 } from "../orchestration-v2/ThreadManagementService.ts";
 
+const encodeWake = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeForward = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossForwardIntent));
 const decodeAction = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossAction));
-const isMissingThread = Schema.is(ProjectionStoreThreadNotFoundError);
+const isProjectionMissing = Schema.is(ProjectionStoreThreadNotFoundError);
+const isManagementMissing = Schema.is(ThreadManagementThreadNotFoundError);
+const isProjectionError = Schema.is(OrchestratorProjectionError);
+const isManagementError = Schema.is(ThreadManagementProjectionLoadError);
+function isMissingThread(error: unknown): boolean {
+  if (isProjectionMissing(error) || isManagementMissing(error)) return true;
+  return (isProjectionError(error) || isManagementError(error)) && isMissingThread(error.cause);
+}
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const store = yield* WorkStore;
@@ -31,9 +43,32 @@ export const layer = Layer.effectDiscard(
     const threads = yield* ThreadManagementService;
     const launch = yield* ThreadLaunchService;
     const drainLock = yield* Semaphore.make(1);
+    const handledWakes = new Map<string, string>();
+    let lastLeadId: string | undefined;
     const drain = Effect.fn("WorkRuntime.drain")(function* () {
       const pending = yield* store.effects();
       for (const effect of pending) {
+        const current = yield* store.read();
+        if (["create-lead", "lead-status", "assign"].includes(effect.kind) && current.role?.paused)
+          continue;
+        if (effect.kind === "create-lead" || effect.kind === "lead-status") {
+          const action = yield* decodeAction(effect.payload_json);
+          const target =
+            action.type === "create-lead" || action.type === "lead-status"
+              ? action.leadId
+              : undefined;
+          const busy = yield* Effect.forEach(
+            activeLeads(current).filter((lead) => lead.id !== target),
+            (lead) =>
+              threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }).pipe(
+                Effect.map((thread) => !!latestActiveRun(thread)),
+                Effect.catch((error) =>
+                  isMissingThread(error) ? Effect.succeed(false) : Effect.fail(error),
+                ),
+              ),
+          );
+          if (busy.some(Boolean)) continue;
+        }
         const result = yield* Effect.result(
           Effect.gen(function* () {
             if (effect.kind === "forward") {
@@ -80,19 +115,52 @@ export const layer = Layer.effectDiscard(
             }
             if (action.type === "elect") {
               if (state.role?.threadId !== action.threadId) return;
-              yield* threads.getProjectThread({
+              const electedThread = yield* threads.getProjectThread({
                 threadId: action.threadId,
                 projectId: action.projectId,
               });
-              yield* threads.dispatch({
-                type: "thread.unarchive",
-                commandId: CommandId.make(`${effect.operation_id}:restore`),
-                threadId: action.threadId,
-              });
+              if (electedThread.thread.archivedAt !== null)
+                yield* threads.dispatch({
+                  type: "thread.unarchive",
+                  commandId: CommandId.make(`${effect.operation_id}:restore`),
+                  threadId: action.threadId,
+                });
               yield* threads.dispatch({
                 type: "thread.pin",
                 commandId: CommandId.make(`${effect.operation_id}:pin`),
                 threadId: action.threadId,
+              });
+            }
+            if (action.type === "create-lead" || action.type === "lead-status") {
+              const lead = activeLeads(state).find((entry) => entry.id === action.leadId);
+              if (!lead) return;
+              const existing =
+                action.type === "lead-status"
+                  ? yield* threads
+                      .getProjectThread({ projectId: lead.projectId, threadId: lead.threadId })
+                      .pipe(
+                        Effect.map(() => true),
+                        Effect.catch((error) =>
+                          isMissingThread(error) ? Effect.succeed(false) : Effect.fail(error),
+                        ),
+                      )
+                  : false;
+              if (existing) return;
+              yield* launch.launch({
+                commandId: CommandId.make(effect.operation_id),
+                threadId: lead.threadId,
+                projectId: lead.projectId,
+                title: `Project lead · ${lead.id}`,
+                initialMessage: {
+                  text: workContext(state, lead.threadId) ?? lead.charter,
+                  attachments: [],
+                },
+                modelSelection: lead.model,
+                runtimeMode: state.role?.brief.workerRuntimeMode ?? "approval-required",
+                interactionMode: "default",
+                workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+                createdBy: "agent",
+                creationSource: "mcp",
               });
             }
             if (action.type === "assign") {
@@ -139,7 +207,7 @@ export const layer = Layer.effectDiscard(
           }),
         );
         if (result._tag === "Failure") {
-          const detail = String(result.failure);
+          const detail = `${effect.kind} (${effect.operation_id}): ${String(result.failure)}`;
           const state = yield* store.read();
           for (const task of state.tasks) {
             const attempt = task.attempts.find((attempt) => attempt.id === effect.operation_id);
@@ -205,27 +273,91 @@ export const layer = Layer.effectDiscard(
       state = yield* store.read();
       const role = state.role;
       if (!role || role.paused) return;
-      const needsAttention =
-        managerView(state).messages.some((message) => !message.acknowledged) ||
-        readyTasks(state).length > 0;
-      if (!needsAttention) return;
-      const boss = yield* threads.getProjectThread({
-        projectId: role.projectId,
-        threadId: role.threadId,
-      });
-      if (latestActiveRun(boss)) return;
-      // Same durable work revision produces the same dispatch command even after restart.
-      yield* threads.sendToThread({
-        projectId: role.projectId,
-        threadId: role.threadId,
-        commandId: CommandId.make(`pitboss:wake:${role.generation}:${state.revision}`),
-        messageId: MessageId.make(`pitboss:wake:${role.generation}:${state.revision}`),
-        text: "Review current GLaDOS work and unresolved messages. Select eligible work within the brief, or explain what blocks progress. Use work_read and work_command; do not poll.",
-        attachments: [],
-        mode: "queue",
-        createdBy: "agent",
-        creationSource: "mcp",
-      });
+      const leads = activeLeads(state);
+      const leadRuns = yield* Effect.forEach(leads, (lead) =>
+        threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }).pipe(
+          Effect.map((thread) => ({ lead, active: !!latestActiveRun(thread), available: true })),
+          Effect.catch((error) =>
+            isMissingThread(error)
+              ? Effect.succeed({ lead, active: false, available: false })
+              : Effect.fail(error),
+          ),
+        ),
+      );
+      const available =
+        state.tasks.filter((task) =>
+          task.attempts.some((attempt) =>
+            ["pending", "running", "submitted", "stop_requested"].includes(attempt.state),
+          ),
+        ).length < role.brief.maxWorkers;
+      const recipients = [
+        {
+          id: "glados",
+          projectId: role.projectId,
+          threadId: role.threadId,
+          generation: role.generation,
+          leadId: undefined as string | undefined,
+        },
+        ...(!leadRuns.some((entry) => entry.active)
+          ? leadRuns
+              .filter((entry) => entry.available)
+              .map((entry) => entry.lead)
+              .toSorted((a, b) => Number(a.id === lastLeadId) - Number(b.id === lastLeadId))
+              .map((lead) => ({
+                id: lead.id,
+                projectId: lead.projectId,
+                threadId: lead.threadId,
+                generation: lead.generation,
+                leadId: lead.id,
+              }))
+          : []),
+      ];
+      let wokeLead = false;
+      for (const recipient of recipients) {
+        if (recipient.leadId && wokeLead) continue;
+        const messages = inboxFor(state, recipient.leadId).filter(
+          (message) => !message.acknowledged,
+        );
+        const ready = available
+          ? readyTasks(state).filter((task) => taskLead(state, task)?.id === recipient.leadId)
+          : [];
+        if (!messages.length && !ready.length) continue;
+        // Relevant input, not unrelated portfolio chatter, determines whether another turn is useful.
+        const signature = encodeWake([
+          recipient.generation,
+          messages.map((m) => m.id),
+          ready.map((t) => [t.id, t.revision]),
+          state.tasks
+            .filter((t) => taskLead(state, t)?.id === recipient.leadId && t.status === "verifying")
+            .map((t) => [t.id, t.revision]),
+        ]);
+        if (handledWakes.get(recipient.id) === signature) continue;
+        const thread = yield* threads.getProjectThread({
+          projectId: recipient.projectId,
+          threadId: recipient.threadId,
+        });
+        if (latestActiveRun(thread)) continue;
+        yield* threads.sendToThread({
+          projectId: recipient.projectId,
+          threadId: recipient.threadId,
+          commandId: CommandId.make(
+            `pitboss:wake:${recipient.id}:${recipient.generation}:${state.revision}`,
+          ),
+          messageId: MessageId.make(
+            `pitboss:wake:${recipient.id}:${recipient.generation}:${state.revision}`,
+          ),
+          text: "Review current work and unresolved messages with work_read. Handle your obligations within the charter, then acknowledge them. When waiting, end the turn; do not poll.",
+          attachments: [],
+          mode: "queue",
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        handledWakes.set(recipient.id, signature);
+        if (recipient.leadId) {
+          wokeLead = true;
+          lastLeadId = recipient.leadId;
+        }
+      }
     }, drainLock.withPermits(1));
     // Subscribe first, then perform recovery. Event receipts, not model polling, drive subsequent work.
     const wakes = Stream.merge(

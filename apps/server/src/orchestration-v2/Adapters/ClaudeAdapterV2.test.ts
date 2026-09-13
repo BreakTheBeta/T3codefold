@@ -432,6 +432,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       providerInstanceId: ProviderInstanceId.make("claudeAgent"),
       endpoint: "http://127.0.0.1:43123/mcp",
       authorizationHeader: "Bearer secret-claude-token",
+      capabilities: new Set(["preview", "orchestration", "worktree", "pull-requests"]),
       browserToolsAvailable: true,
     });
     try {
@@ -568,6 +569,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
         providerInstanceId: ProviderInstanceId.make("claudeAgent"),
         endpoint: "http://127.0.0.1:43123/mcp",
         authorizationHeader: "Bearer rotated-claude-token",
+        capabilities: new Set(["preview", "orchestration", "worktree", "pull-requests"]),
         browserToolsAvailable: true,
       });
 
@@ -599,6 +601,7 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
       providerInstanceId: ProviderInstanceId.make("claudeAgent"),
       endpoint: "http://127.0.0.1:43123/mcp",
       authorizationHeader: "Bearer secret-claude-token",
+      capabilities: new Set(["preview", "orchestration", "worktree", "pull-requests"]),
       browserToolsAvailable: true,
     });
 
@@ -5916,4 +5919,24 @@ describe("ClaudeAdapterV2 query message stream", () => {
       assert.isTrue(closed);
     }),
   );
+});
+
+describe("explicit Claude launch permission precedence", () => {
+  it.each([
+    ["--permission-mode plan", "plan"],
+    ["--dangerously-skip-permissions", "bypassPermissions"],
+    ["--permission-mode default --dangerously-skip-permissions", "default"],
+  ])("honors %s without forwarding duplicate flags", (launchArgs, expected) => {
+    const options = makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "permission-flags",
+      resume: false,
+      cwd: "/workspace",
+      permissionMode: "acceptEdits",
+      settings: { ...DEFAULT_CLAUDE_SETTINGS, launchArgs },
+    });
+    assert.equal(options.permissionMode, expected);
+    assert.notProperty(options.extraArgs ?? {}, "permission-mode");
+    assert.notProperty(options.extraArgs ?? {}, "dangerously-skip-permissions");
+  });
 });
