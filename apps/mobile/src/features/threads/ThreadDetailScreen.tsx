@@ -809,6 +809,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     composerEditorRef.current?.blur();
   }, []);
 
+  const handleComposeWork = useCallback(() => {
+    setComposerExpanded(true);
+    requestAnimationFrame(() => composerEditorRef.current?.focus());
+  }, []);
+
   const handleUseArtifactTemplate = useCallback(
     (template: CodexArtifactTemplate) => {
       const currentDraft = draftMessageRef.current;
@@ -875,6 +880,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         threadId={props.selectedThread.id}
         projectId={props.selectedThread.projectId}
         modelSelection={props.selectedThread.modelSelection}
+        onComposeWork={handleComposeWork}
       />
       {showContent ? (
         <BlurTargetView

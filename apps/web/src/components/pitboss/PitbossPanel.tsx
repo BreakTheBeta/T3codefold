@@ -18,6 +18,7 @@ import {
   PauseIcon,
   PlayIcon,
   PlusIcon,
+  MessageSquareIcon,
   ChevronDownIcon,
   CheckCircle2Icon,
   CircleAlertIcon,
@@ -147,6 +148,7 @@ export function PitbossPanel(props: {
   projectId: ProjectId;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
+  onComposeWork: () => void;
 }) {
   const query = useEnvironmentQuery(
     serverEnvironment.pitbossLive({ environmentId: props.environmentId, input: {} }),
@@ -320,14 +322,13 @@ export function PitbossPanel(props: {
             <Button
               size="sm"
               variant="outline"
-              disabled={role.brief.projectIds.length === 0}
               onClick={() => {
-                setAdding(!adding);
-                setOpen(true);
+                setOpen(false);
+                props.onComposeWork();
               }}
             >
-              <PlusIcon className="size-3" />
-              Add work
+              <MessageSquareIcon className="size-3" />
+              Talk to GLaDOS
             </Button>
           </>
         ) : (
@@ -363,7 +364,7 @@ export function PitbossPanel(props: {
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold tracking-tight">Work</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Across your projects</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Outcomes from your conversation</p>
           </div>
           <Button
             size="icon-sm"
@@ -374,6 +375,11 @@ export function PitbossPanel(props: {
             <XIcon className="size-4" />
           </Button>
         </div>
+        {isBoss && !selected && !adding && (
+          <p className="mb-3 text-sm text-muted-foreground">
+            Describe what you want in chat. GLaDOS prepares the tasks, success criteria and checks.
+          </p>
+        )}
         {role?.paused && isBoss && (
           <p className="mb-3 text-xs text-muted-foreground">
             New autonomous work is paused. Existing workers continue until you stop them.
@@ -1067,6 +1073,16 @@ export function PitbossPanel(props: {
               <summary className="cursor-pointer text-sm font-medium">
                 Connections and administration
               </summary>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-3"
+                disabled={role.brief.projectIds.length === 0}
+                onClick={() => setAdding(true)}
+              >
+                <PlusIcon className="size-3" />
+                Add work manually
+              </Button>
               <PitbossSources environmentId={props.environmentId} projectId={props.projectId} />
               <PitbossPeers
                 environmentId={props.environmentId}

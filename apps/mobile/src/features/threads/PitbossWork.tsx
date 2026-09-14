@@ -1,6 +1,6 @@
 import { useAssetUrlState } from "../../state/assets";
 import { useProjects, useServerConfigs } from "../../state/entities";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Cause from "effect/Cause";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -76,6 +76,7 @@ export function PitbossWork(props: {
   projectId: ProjectId;
   modelSelection: ModelSelection;
   connected?: boolean;
+  onComposeWork?: () => void;
 }) {
   const query = useEnvironmentQuery(
     serverEnvironment.pitbossLive({ environmentId: props.environmentId, input: {} }),
@@ -105,6 +106,18 @@ export function PitbossWork(props: {
   const inFlight = useRef(false);
   const serverConfigs = useServerConfigs();
   const [visible, setVisible] = useState(false);
+  const composeAfterDismiss = useRef(false);
+  const finishDismiss = useCallback(() => {
+    if (!composeAfterDismiss.current) return;
+    composeAfterDismiss.current = false;
+    props.onComposeWork?.();
+  }, [props.onComposeWork]);
+  useEffect(() => {
+    // iOS reports the completed native dismissal; Android removes the modal on commit.
+    if (visible || Platform.OS === "ios") return;
+    const frame = requestAnimationFrame(finishDismiss);
+    return () => cancelAnimationFrame(frame);
+  }, [visible, finishDismiss]);
   const [priorities, setPriorities] = useState("");
   const [title, setTitle] = useState("");
   const [criteria, setCriteria] = useState("");
@@ -244,6 +257,7 @@ export function PitbossWork(props: {
         animationType="slide"
         presentationStyle="fullScreen"
         onRequestClose={goBack}
+        onDismiss={finishDismiss}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -279,7 +293,11 @@ export function PitbossWork(props: {
             <>
               <View className="flex-row flex-wrap items-center justify-between gap-2 px-4 py-2">
                 {button("Brief & team", () => setPanel("settings"))}
-                {isBoss && button("Add outcome", () => setPanel("create"))}
+                {isBoss &&
+                  button("Talk to GLaDOS", () => {
+                    composeAfterDismiss.current = true;
+                    setVisible(false);
+                  })}
                 {isBoss &&
                   button(
                     role.paused ? "Resume" : "Pause",
@@ -379,7 +397,8 @@ export function PitbossWork(props: {
                                   : "Completed outcomes will appear here"}
                           </Text>
                           <Text className="text-sm text-muted-foreground">
-                            Keep talking to GLaDOS. Leads and workers report back here.
+                            Describe the outcome in chat. GLaDOS prepares the task, success criteria
+                            and checks, then reports back here.
                           </Text>
                         </View>
                       }
@@ -875,6 +894,11 @@ export function PitbossWork(props: {
               {button("Back to outcomes", () => setPanel("inbox"))}
               {panel === "settings" && (
                 <>
+                  <Text className="text-sm text-muted-foreground">
+                    Tell GLaDOS what you want in chat. Use these controls when you want to manage
+                    the details yourself.
+                  </Text>
+                  {isBoss && button("Add outcome manually", () => setPanel("create"))}
                   {(state.leads ?? []).map((lead) => {
                     const active = isPitbossLeadActive(role, lead);
                     return (

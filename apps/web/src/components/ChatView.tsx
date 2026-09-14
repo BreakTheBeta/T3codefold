@@ -9449,6 +9449,7 @@ export default function ChatView(props: ChatViewProps) {
             projectId={activeProject.id}
             modelSelection={activeThread.modelSelection}
             runtimeMode={activeThread.runtimeMode}
+            onComposeWork={focusComposer}
           />
         )}
 
