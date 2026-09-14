@@ -14,8 +14,9 @@ const server = NodePath.join(root, "apps/server");
 foldServerPackageSpec(pkg.version);
 const output = NodePath.resolve(process.argv[2] ?? NodePath.join(root, "release-assets"));
 await NodeFSP.mkdir(output, { recursive: true });
-// The update preflight needs the launcher and the served web client, not just bin.mjs.
-for (const file of ["bin.mjs", "service-launcher.mjs", "client/index.html"]) {
+// Service launch/preflight now live in bin.mjs as hidden subcommands. The
+// npm bundle still needs the file-backed history worker and served client.
+for (const file of ["bin.mjs", "claude-history-worker.mjs", "client/index.html"]) {
   await NodeFSP.access(NodePath.join(server, "dist", file));
 }
 const staging = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "fold-server-package-"));
@@ -29,6 +30,17 @@ try {
   await NodeFSP.cp(NodePath.join(server, "dist"), NodePath.join(staging, "dist"), {
     recursive: true,
   });
+  // The npm install cannot apply workspace patches. Ship fff's patched JS,
+  // but resolve its native dependencies on the destination machine.
+  const fffRoot = await NodeFSP.realpath(NodePath.join(server, "node_modules/@ff-labs/fff-node"));
+  const fffManifest = JSON.parse(
+    await NodeFSP.readFile(NodePath.join(fffRoot, "package.json"), "utf8"),
+  );
+  await NodeFSP.cp(fffRoot, NodePath.join(staging, "node_modules/@ff-labs/fff-node"), {
+    recursive: true,
+    filter: (source) =>
+      !NodePath.relative(fffRoot, source).split(NodePath.sep).includes("node_modules"),
+  });
   await NodeFSP.writeFile(
     NodePath.join(staging, "package.json"),
     JSON.stringify(
@@ -41,7 +53,9 @@ try {
         engines: pkg.engines,
         bin: pkg.bin,
         files: ["dist"],
-        dependencies,
+        dependencies: { ...dependencies, ...fffManifest.dependencies },
+        optionalDependencies: fffManifest.optionalDependencies,
+        bundledDependencies: ["@ff-labs/fff-node"],
       },
       null,
       2,

@@ -69,6 +69,7 @@ jobs:
           runtime_dir="$(mktemp -d)"
           npm install --prefix "$runtime_dir" --no-audit --no-fund "$PWD"/release-assets/t3-*.tgz
           "$runtime_dir/node_modules/.bin/t3" --version
+          "$runtime_dir/node_modules/.bin/t3" __service-preflight --database-path "$runtime_dir/preflight.sqlite" --launcher-protocol 2
       - uses: actions/download-artifact@v8
         with:
           pattern: fold-cli-*
