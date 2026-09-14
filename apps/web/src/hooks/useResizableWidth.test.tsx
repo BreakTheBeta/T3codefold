@@ -84,6 +84,16 @@ afterEach(async () => {
 });
 
 describe("panel resize cleanup", () => {
+  it("clamps and persists keyboard or reset widths without a pointer drag", async () => {
+    await act(() => result.resizeTo(950));
+    expect(result.width).toBe(800);
+    expect(setItem).toHaveBeenLastCalledWith("test-panel-width", "800");
+    await act(() => result.resizeTo(10));
+    expect(result.width).toBe(200);
+    await act(() => result.resizeTo(400));
+    expect(result.width).toBe(400);
+    expect(setItem).toHaveBeenLastCalledWith("test-panel-width", "400");
+  });
   it.each(["unmount", "lost capture", "blur", "cancel"])(
     "clears the cursor and pending resize after %s",
     async (reason) => {

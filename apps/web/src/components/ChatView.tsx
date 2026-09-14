@@ -9395,9 +9395,10 @@ export default function ChatView(props: ChatViewProps) {
       {rightPanelControlsAtRoot ? panelLayoutControls : null}
       <div
         className={cn(
-          "flex min-h-0 min-w-0 flex-col overflow-x-hidden xl:has-[[data-glados-open=true]]:grid xl:has-[[data-glados-open=true]]:grid-cols-[minmax(0,1fr)_24rem] xl:has-[[data-glados-open=true]]:grid-rows-[auto_auto_minmax(0,1fr)]",
+          "flex min-h-0 min-w-0 flex-col overflow-x-hidden has-[[data-glados-inline=true]]:grid has-[[data-glados-inline=true]]:grid-cols-[minmax(0,1fr)_var(--glados-work-width)] has-[[data-glados-inline=true]]:grid-rows-[auto_auto_minmax(0,1fr)]",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
+        data-glados-layout
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
         {/* Top bar */}
