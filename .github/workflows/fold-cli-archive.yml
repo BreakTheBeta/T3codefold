@@ -45,6 +45,9 @@ jobs:
         with:
           node-version: 26.8.2
       - name: Build executable
+        env:
+          # Keep vp pack's child runtime on the SEA-capable Node version too.
+          VP_NODE_VERSION: 26.8.2
         run: node apps/server/scripts/cli.ts build-exe --verbose
       - name: Build and stage resource monitor
         run: |
