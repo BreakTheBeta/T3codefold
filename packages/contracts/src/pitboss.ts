@@ -23,6 +23,7 @@ export const PitbossBrief = Schema.Struct({
   alternateWorkerModel: Schema.optional(ModelSelection),
   modelGuidance: Schema.optional(Text),
   managedPeerIds: Schema.optional(Schema.Array(Id).check(Schema.isMaxLength(50))),
+  coordinatorRuntimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
   workerRuntimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
 });
 export type PitbossBrief = typeof PitbossBrief.Type;
@@ -151,6 +152,7 @@ export const PitbossEvidence = Schema.Struct({
 });
 export type PitbossEvidence = typeof PitbossEvidence.Type;
 export const PitbossAttempt = Schema.Struct({
+  runtimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
   id: Id,
   threadId: ThreadId,
   generation: Version,
@@ -220,6 +222,7 @@ export const PitbossDecision = Schema.Struct({
 export type PitbossDecision = typeof PitbossDecision.Type;
 
 export const PitbossTask = Schema.Struct({
+  proposedVerificationRecipe: Schema.optional(PitbossVerificationRecipe),
   decisions: Schema.optional(Schema.Array(PitbossDecision).check(Schema.isMaxLength(20))),
   verificationProfileId: Schema.optional(Schema.NullOr(Id)),
   verification: Schema.optional(PitbossVerification),
@@ -283,6 +286,12 @@ const TaskFields = {
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
 };
 export const PitbossAction = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("activate-home"), brief: PitbossBrief }),
+  Schema.Struct({
+    type: Schema.Literal("propose-verification"),
+    taskId: Id,
+    recipe: PitbossVerificationRecipe,
+  }),
   Schema.Struct({
     type: Schema.Literal("request-decision"),
     taskId: Id,
@@ -301,7 +310,11 @@ export const PitbossAction = Schema.Union([
     taskId: Id,
     profileId: Schema.NullOr(Id),
   }),
-  Schema.Struct({ type: Schema.Literal("verification-recipe"), recipe: PitbossVerificationRecipe }),
+  Schema.Struct({
+    type: Schema.Literal("verification-recipe"),
+    recipe: PitbossVerificationRecipe,
+    selectForTaskId: Schema.optional(Id),
+  }),
   Schema.Struct({ type: Schema.Literal("verify"), taskId: Id, evidenceId: Id }),
   Schema.Struct({
     type: Schema.Literal("lead-message"),
@@ -343,13 +356,18 @@ export const PitbossAction = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("elect"),
+    startCoordinator: Schema.optional(Schema.Boolean),
     threadId: ThreadId,
     projectId: ProjectId,
     brief: PitbossBrief,
   }),
   Schema.Struct({ type: Schema.Literal("dismiss") }),
   Schema.Struct({ type: Schema.Literal("pause"), paused: Schema.Boolean }),
-  Schema.Struct({ type: Schema.Literal("brief"), brief: PitbossBrief }),
+  Schema.Struct({
+    type: Schema.Literal("brief"),
+    brief: PitbossBrief,
+    applyCoordinatorPermissions: Schema.optional(Schema.Boolean),
+  }),
   Schema.Struct({ type: Schema.Literal("create"), taskId: Id, ...TaskFields }),
   Schema.Struct({ type: Schema.Literal("edit"), taskId: Id, ...TaskFields }),
   Schema.Struct({

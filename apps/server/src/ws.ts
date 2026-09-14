@@ -1,3 +1,4 @@
+import { makeHome } from "./pitboss/Home.ts";
 import { remoteSshDeviceHosts } from "./device/localSshDeviceHost.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextAttachments";
@@ -563,6 +564,7 @@ const makeWsRpcLayer = (
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
+  openGladosHome: Effect.Success<ReturnType<typeof makeHome>>,
 ) =>
   ServerWsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -1709,6 +1711,7 @@ const makeWsRpcLayer = (
         [WS_METHODS.pitbossSubscribe]: () => work.subscribe(),
         [WS_METHODS.pitbossCommand]: (input) =>
           Effect.gen(function* () {
+            if (input.action.type === "activate-home") return yield* openGladosHome(input);
             if (input.action.type === "elect") {
               yield* threadManagement
                 .getProjectThread({
@@ -3281,6 +3284,8 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const config = yield* ServerConfig.ServerConfig;
+    const openGladosHome = yield* makeHome(config.stateDir);
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3324,6 +3329,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               clientOrigin,
               clientAnalyticsProps,
               previewAutomationBroker,
+              openGladosHome,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(FleetBroker, fleetBroker)),

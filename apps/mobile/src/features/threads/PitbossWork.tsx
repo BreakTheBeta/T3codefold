@@ -157,6 +157,13 @@ export function PitbossWork(props: {
         );
         return false;
       }
+      if (action.type === "activate-home" && result.value.role) {
+        setVisible(false);
+        navigation.navigate("Thread", {
+          environmentId: props.environmentId,
+          threadId: result.value.role.threadId,
+        });
+      }
       return true;
     } finally {
       inFlight.current = false;
@@ -399,6 +406,16 @@ export function PitbossWork(props: {
                               {task.leadId ? `Project lead ${task.leadId}` : "Managed by GLaDOS"}
                             </Text>
                             <Text className="text-xl font-semibold">{task.title}</Text>
+                            {task.proposedVerificationRecipe && (
+                              <View className="rounded-xl border border-primary p-3">
+                                <Text className="font-semibold">Verification setup proposed</Text>
+                                <Text>
+                                  {task.proposedVerificationRecipe.name}. Review and save the
+                                  proposed commands in this environment’s web or desktop GLaDOS work
+                                  inspector. This proposal is not approved configuration.
+                                </Text>
+                              </View>
+                            )}
                             {task.status !== "cancelled" &&
                               task.decisions
                                 ?.filter((decision) => decision.answer === undefined)
@@ -817,7 +834,7 @@ export function PitbossWork(props: {
                     </View>
                   ) : (
                     button(
-                      role ? "Move GLaDOS to this thread" : "Activate GLaDOS",
+                      role ? "Move GLaDOS to this thread" : "Create GLaDOS home",
                       () =>
                         void command(gladosElection({ ...props, priorities, brief: role?.brief })),
                     )

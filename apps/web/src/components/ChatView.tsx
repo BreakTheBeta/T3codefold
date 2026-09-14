@@ -9395,7 +9395,7 @@ export default function ChatView(props: ChatViewProps) {
       {rightPanelControlsAtRoot ? panelLayoutControls : null}
       <div
         className={cn(
-          "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
+          "flex min-h-0 min-w-0 flex-col overflow-x-hidden xl:has-[[data-glados-open=true]]:grid xl:has-[[data-glados-open=true]]:grid-cols-[minmax(0,1fr)_24rem] xl:has-[[data-glados-open=true]]:grid-rows-[auto_auto_minmax(0,1fr)]",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
@@ -9405,7 +9405,7 @@ export default function ChatView(props: ChatViewProps) {
           ref={threadPanelPopoverAnchorRef}
           data-chat-header
           className={cn(
-            "relative bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
+            "col-span-2 relative bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
             isElectron
               ? cn(
                   "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
@@ -9447,12 +9447,13 @@ export default function ChatView(props: ChatViewProps) {
             threadId={activeThread.id}
             projectId={activeProject.id}
             modelSelection={activeThread.modelSelection}
+            runtimeMode={activeThread.runtimeMode}
           />
         )}
 
         {/* Main content area with optional plan sidebar */}
         <div
-          className="relative flex min-h-0 min-w-0 flex-1"
+          className="relative col-start-1 row-start-3 flex min-h-0 min-w-0 flex-1"
           data-thread-details-inline-reserved={inlineThreadPanelOpen ? "true" : undefined}
         >
           {/* Chat column */}

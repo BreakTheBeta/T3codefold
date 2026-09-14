@@ -6,12 +6,18 @@ export function TaskDecisionCard({
   task,
   busy,
   command,
+  draft,
+  onDraftChange,
 }: {
   task: PitbossTask;
+  draft?: string;
+  onDraftChange?: (value: string) => void;
   busy: boolean;
   command: (action: PitbossAction) => Promise<boolean>;
 }) {
-  const [answer, setAnswer] = useState("");
+  const [localAnswer, setLocalAnswer] = useState("");
+  const answer = draft ?? localAnswer;
+  const setAnswer = onDraftChange ?? setLocalAnswer;
   const pending =
     task.status === "cancelled"
       ? undefined
