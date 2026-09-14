@@ -9,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 import {
   gladosElection,
+  gladosFullAuto,
   gladosInboxLayout,
   gladosInboxRows,
   gladosNewTask,
@@ -113,25 +114,34 @@ describe("GLaDOS mobile decisions", () => {
     expect(gladosInboxRows(state, "needs-you").map((r) => r.key)).toEqual([
       "message:global",
       "task:research",
+    ]);
+    expect(gladosInboxRows(state, "working").map((r) => r.key)).toEqual([
+      "message:update",
       "task:game",
     ]);
-    expect(gladosInboxRows(state, "working").map((r) => r.key)).toEqual(["message:update"]);
     expect(gladosInboxRows(state, "delivered").map((r) => r.key)).toEqual(["task:done"]);
     const acknowledged = {
       ...state,
       messages: state.messages.map((m) => ({ ...m, acknowledged: true })),
     };
-    expect(gladosInboxRows(acknowledged, "needs-you").map((r) => r.key)).toEqual(["task:game"]);
-    expect(gladosInboxRows(acknowledged, "working").map((r) => r.key)).toEqual(["task:research"]);
+    expect(gladosInboxRows(acknowledged, "needs-you").map((r) => r.key)).toEqual([]);
+    expect(gladosInboxRows(acknowledged, "working").map((r) => r.key)).toEqual([
+      "task:research",
+      "task:game",
+    ]);
   });
-  it("keeps answered tasks in working and cancelled questions in delivered", () => {
+  it("keeps answered tasks in working and cancelled outcomes in All", () => {
     const state = snapshot(
       [task("answered", "queued"), task("cancelled", "cancelled")],
       [message("answer", "answered", "progress"), message("old-question", "cancelled", "question")],
     );
     expect(gladosInboxRows(state, "needs-you")).toEqual([]);
     expect(gladosInboxRows(state, "working").map((row) => row.key)).toEqual(["task:answered"]);
-    expect(gladosInboxRows(state, "delivered").map((row) => row.key)).toEqual(["task:cancelled"]);
+    expect(gladosInboxRows(state, "delivered")).toEqual([]);
+    expect(gladosInboxRows(state, "all").map((row) => row.key)).toEqual([
+      "task:answered",
+      "task:cancelled",
+    ]);
   });
   it("keeps orphaned decisions visible and does not truncate a busy backlog", () => {
     const state = snapshot(
@@ -217,5 +227,44 @@ it("surfaces unsaved verification proposals in Needs you without claiming approv
   expect(gladosInboxRows(snapshot([proposed]), "needs-you").map((row) => row.key)).toEqual([
     "task:setup",
   ]);
-  expect(gladosReceiptStatus(proposed, snapshot([proposed]), Date.now())).toBe("Reported evidence");
+  expect(gladosReceiptStatus(proposed, snapshot([proposed]), Date.now())).toBe(
+    "Evidence not ready yet",
+  );
+});
+
+it("combines project and text filters without losing cancelled work or waiting decisions", () => {
+  const waiting = {
+    ...task("music", "active"),
+    projectId: ProjectId.make("studio"),
+    decisions: [
+      {
+        id: "choice",
+        question: "Which arrangement?",
+        options: ["Quiet", "Bright"],
+        recommendation: "Quiet",
+        requestedAt: "2026-09-14",
+      },
+    ],
+  };
+  const state = snapshot([
+    waiting,
+    task("music archive", "cancelled"),
+    task("unrelated", "queued"),
+  ]);
+  expect(gladosInboxRows(state, "needs-you").map((row) => row.key)).toEqual(["task:music"]);
+  expect(
+    gladosInboxRows(state, "all", { query: "MUSIC", projectId }).map((row) => row.key),
+  ).toEqual(["task:music archive"]);
+  expect(gladosInboxRows(state, "all", { query: " missing " })).toEqual([]);
+});
+it("full auto is an explicit brief command that retains scope and limits", () => {
+  const action = gladosFullAuto(brief);
+  if (action.type !== "brief") throw new Error("Expected brief");
+  expect(action.applyCoordinatorPermissions).toBe(true);
+  expect(action.brief).toEqual({
+    ...brief,
+    workerRuntimeMode: "full-access",
+    coordinatorRuntimeMode: "full-access",
+    verificationMode: "automatic",
+  });
 });

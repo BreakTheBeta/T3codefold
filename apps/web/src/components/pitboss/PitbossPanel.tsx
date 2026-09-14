@@ -20,6 +20,9 @@ import {
   PlusIcon,
   ChevronDownIcon,
   CheckCircle2Icon,
+  CircleAlertIcon,
+  XIcon,
+  ArrowLeftIcon,
   Settings2Icon,
 } from "lucide-react";
 import {
@@ -47,6 +50,14 @@ import { Button } from "../ui/button";
 
 const fieldClass =
   "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/50";
+const statusLabel: Record<PitbossTask["status"], string> = {
+  queued: "Planned",
+  active: "Working",
+  verifying: "In review",
+  done: "Delivered",
+  blocked: "Waiting",
+  cancelled: "Cancelled",
+};
 const statusClass: Record<PitbossTask["status"], string> = {
   queued: "text-muted-foreground",
   active: "text-sky-600 dark:text-sky-400",
@@ -146,6 +157,7 @@ export function PitbossPanel(props: {
   const projectName = (id: ProjectId) => projects.find((project) => project.id === id)?.title ?? id;
   const [filter, setFilter] = useState<WorkFilter>("All");
   const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(20);
   const [projectFilter, setProjectFilter] = useState("");
   const [isolatedWorkspace, setIsolatedWorkspace] = useState(false);
   const navigate = useNavigate();
@@ -249,8 +261,19 @@ export function PitbossPanel(props: {
               <ChevronDownIcon className="size-3" />
             </button>
             <span className="text-xs text-muted-foreground">
-              GLaDOS: {props.runtimeMode.replaceAll("-", " ")} · New workers:{" "}
-              {role.brief.workerRuntimeMode === "full-access" ? "full access" : "approvals"}
+              {props.runtimeMode === "full-access" &&
+              role.brief.workerRuntimeMode === "full-access" &&
+              role.brief.verificationMode === "automatic" ? (
+                "Full auto · checks by GLaDOS"
+              ) : (
+                <>
+                  GLaDOS: {props.runtimeMode.replaceAll("-", " ")} · New workers:{" "}
+                  {role.brief.workerRuntimeMode === "full-access" ? "full access" : "approvals"} ·{" "}
+                  {role.brief.verificationMode === "automatic"
+                    ? "Checks by GLaDOS"
+                    : "Recipe review"}
+                </>
+              )}
             </span>
             {attention.length > 0 && (
               <Button
@@ -338,9 +361,17 @@ export function PitbossPanel(props: {
       )}
       <WorkInspector open={open} scrollRef={inspectorRef}>
         <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-medium">Work</span>
-          <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-            Close work
+          <div>
+            <h2 className="text-sm font-semibold tracking-tight">Work</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">Across your projects</p>
+          </div>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Close work"
+            onClick={() => setOpen(false)}
+          >
+            <XIcon className="size-4" />
           </Button>
         </div>
         {role?.paused && isBoss && (
@@ -450,6 +481,7 @@ export function PitbossPanel(props: {
             Project
             <select
               className={fieldClass}
+              aria-label="Project"
               value={workProjectId ?? role.brief.projectIds[0] ?? ""}
               onChange={(event) =>
                 setWorkProjectId(
@@ -470,6 +502,7 @@ export function PitbossPanel(props: {
             Workspace
             <select
               className={fieldClass}
+              aria-label="Workspace"
               value={isolatedWorkspace ? "worktree" : "root"}
               onChange={(event) => setIsolatedWorkspace(event.target.value === "worktree")}
             >
@@ -546,12 +579,18 @@ export function PitbossPanel(props: {
                   </div>
                 )}
                 <div className="mb-4 space-y-3">
-                  <div className="flex flex-wrap gap-1" aria-label="Filter work">
+                  <div
+                    className="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-1"
+                    aria-label="Filter work"
+                  >
                     {workFilters.map((value) => (
                       <Button
                         key={value}
                         size="sm"
                         variant={filter === value ? "secondary" : "ghost"}
+                        className={
+                          filter === value ? "bg-background shadow-sm" : "text-muted-foreground"
+                        }
                         aria-pressed={filter === value}
                         onClick={() => setFilter(value)}
                       >
@@ -565,13 +604,19 @@ export function PitbossPanel(props: {
                     placeholder="Find an outcome…"
                     className={fieldClass}
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      setVisibleCount(20);
+                    }}
                   />
                   <select
                     aria-label="Filter work by project"
                     className={fieldClass}
                     value={projectFilter}
-                    onChange={(event) => setProjectFilter(event.target.value)}
+                    onChange={(event) => {
+                      setProjectFilter(event.target.value);
+                      setVisibleCount(20);
+                    }}
                   >
                     <option value="">All projects</option>
                     {[...new Set(state.tasks.map((task) => task.projectId))].map((id) => (
@@ -591,7 +636,7 @@ export function PitbossPanel(props: {
                       : "Describe what you want in chat. GLaDOS can coordinate code, research, creative work or operations and bring back results for review."}
                   </p>
                 )}
-                <div className="grid gap-3">
+                <div className="grid min-w-0 gap-4">
                   {[
                     { label: "Needs you", tasks: visibleTasks.filter(needsAttention) },
                     {
@@ -619,25 +664,27 @@ export function PitbossPanel(props: {
                     .filter(({ tasks }) => tasks.length > 0)
                     .map(({ label, tasks }) => {
                       return (
-                        <div key={String(label)} className="py-1">
+                        <div key={String(label)} className="min-w-0 py-1">
                           <h3 className="mb-2 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
                             {String(label)} <span>{tasks.length}</span>
                           </h3>
-                          {tasks.length ? (
-                            tasks.map((task) => (
-                              <button
-                                type="button"
-                                key={task.id}
-                                onClick={() => setSelectedId(task.id)}
-                                className="group mb-1 block w-full rounded-lg px-3 py-3 text-left hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring"
-                              >
-                                <span className="mb-1 block text-[11px] text-muted-foreground">
-                                  {projectName(task.projectId)} ·{" "}
-                                  {evidenceKind(verificationRecipeForTask(state, task))}
-                                </span>
-                                <span className="block text-sm font-medium">{task.title}</span>
+                          {tasks.slice(0, visibleCount).map((task) => (
+                            <button
+                              type="button"
+                              key={task.id}
+                              onClick={() => setSelectedId(task.id)}
+                              className="group mb-1 block w-full min-w-0 rounded-lg border border-transparent px-3 py-3 text-left hover:border-border/60 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring"
+                            >
+                              <span className="mb-1 block text-[11px] text-muted-foreground">
+                                {projectName(task.projectId)} ·{" "}
+                                {evidenceKind(verificationRecipeForTask(state, task))}
+                              </span>
+                              <span className="block text-sm font-medium leading-snug">
+                                {task.title}
+                              </span>
+                              {task.leadId && (
                                 <span className="block text-xs text-muted-foreground">
-                                  Managed by{" "}
+                                  Lead ·
                                   {state.leads?.find(
                                     (lead) =>
                                       lead.id === task.leadId &&
@@ -645,22 +692,24 @@ export function PitbossPanel(props: {
                                       lead.projectId === task.projectId,
                                   )?.id ?? "GLaDOS"}
                                 </span>
-                                <span className={`text-xs ${statusClass[task.status]}`}>
-                                  {task.status}
-                                </span>
-                                <span className="mt-1 block truncate text-xs text-muted-foreground">
-                                  {task.note || task.outcome}
-                                </span>
-                              </button>
-                            ))
-                          ) : (
-                            <p className="text-xs leading-relaxed text-muted-foreground">
-                              {label === "Up next"
-                                ? "Describe an outcome in chat or add your first task."
-                                : label === "Working"
-                                  ? "Workers appear here when GLaDOS assigns work."
-                                  : "Accepted results and blockers stay visible here."}
-                            </p>
+                              )}
+                              <span className={`text-xs ${statusClass[task.status]}`}>
+                                {statusLabel[task.status]}
+                              </span>
+                              <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                                {task.note || task.outcome}
+                              </span>
+                            </button>
+                          ))}
+                          {tasks.length > visibleCount && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="mt-1 w-full"
+                              onClick={() => setVisibleCount((count) => count + 20)}
+                            >
+                              Show more · {tasks.length - visibleCount} remaining
+                            </Button>
                           )}
                         </div>
                       );
@@ -676,11 +725,11 @@ export function PitbossPanel(props: {
                       {selected.title}
                     </h3>
                     <p className={`text-xs ${statusClass[selected.status]}`}>
-                      {selected.status} · criteria v{selected.criteriaVersion}
+                      {statusLabel[selected.status]}
                     </p>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => setSelectedId(null)}>
-                    Back to work
+                    <ArrowLeftIcon className="size-3" /> Back
                   </Button>
                 </div>
                 <TaskDecisionCard
@@ -700,7 +749,9 @@ export function PitbossPanel(props: {
                   {projectName(selected.projectId)} ·{" "}
                   {evidenceKind(verificationRecipeForTask(state, selected))}
                 </p>
-                <p className="my-3 whitespace-pre-wrap text-sm">{selected.outcome}</p>
+                <p className="my-3 whitespace-pre-wrap text-sm leading-relaxed">
+                  {selected.outcome}
+                </p>
                 {selected.note && (
                   <p className="mb-3 rounded-lg bg-muted/40 p-3 text-sm whitespace-pre-wrap">
                     {selected.note}
@@ -748,54 +799,79 @@ export function PitbossPanel(props: {
                     </pre>
                   )}
                 </details>
-                <VerificationCard
-                  key={`verification:${selected.id}`}
-                  task={selected}
-                  recipe={state ? verificationRecipeForTask(state, selected) : undefined}
-                  recipes={
-                    state?.verificationRecipes?.filter(
-                      (recipe) => recipe.projectId === selected.projectId,
-                    ) ?? []
-                  }
-                  busy={busy}
-                  paused={!!role?.paused}
-                  environmentId={selected.homeEnvironmentId ?? props.environmentId}
-                  command={command}
-                />
-                {selected.attempts.map((attempt) => (
-                  <div
-                    key={attempt.id}
-                    className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-muted/40 p-2 text-xs"
-                  >
-                    <span>
-                      Attempt {attempt.generation} · {attempt.model.model} · {attempt.state}
-                      {" · "}
-                      {attempt.runtimeMode?.replaceAll("-", " ") ?? "permissions: open worker"}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={
-                        !serverConfigs.has(selected.homeEnvironmentId ?? props.environmentId)
-                      }
-                      onClick={() =>
-                        openThread(
-                          attempt.threadId,
-                          selected.homeEnvironmentId ?? props.environmentId,
-                        )
-                      }
-                    >
-                      {serverConfigs.has(selected.homeEnvironmentId ?? props.environmentId)
-                        ? "Open worker"
-                        : "Connect task home first"}
-                      <ArrowUpRightIcon className="size-3" />
-                    </Button>
-                  </div>
-                ))}
+                <details
+                  className="my-3"
+                  open={selected.proposedVerificationRecipe ? true : undefined}
+                >
+                  <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+                    Evidence profile and captured checks
+                  </summary>
+                  <VerificationCard
+                    key={`verification:${selected.id}`}
+                    task={selected}
+                    automatic={role.brief.verificationMode === "automatic"}
+                    recipe={state ? verificationRecipeForTask(state, selected) : undefined}
+                    recipes={
+                      state?.verificationRecipes?.filter(
+                        (recipe) => recipe.projectId === selected.projectId,
+                      ) ?? []
+                    }
+                    busy={busy}
+                    paused={!!role?.paused}
+                    environmentId={selected.homeEnvironmentId ?? props.environmentId}
+                    command={command}
+                  />
+                </details>
+                {selected.attempts.length > 0 && (
+                  <details className="my-3">
+                    <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+                      Worker history · {selected.attempts.length}
+                    </summary>
+                    {selected.attempts.map((attempt) => (
+                      <div
+                        key={attempt.id}
+                        className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-muted/40 p-2 text-xs"
+                      >
+                        <span>
+                          Attempt {attempt.generation} · {attempt.model.model} · {attempt.state}
+                          {" · "}
+                          {attempt.runtimeMode?.replaceAll("-", " ") ?? "permissions: open worker"}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={
+                            !serverConfigs.has(selected.homeEnvironmentId ?? props.environmentId)
+                          }
+                          onClick={() =>
+                            openThread(
+                              attempt.threadId,
+                              selected.homeEnvironmentId ?? props.environmentId,
+                            )
+                          }
+                        >
+                          {serverConfigs.has(selected.homeEnvironmentId ?? props.environmentId)
+                            ? "Open worker"
+                            : "Connect task home first"}
+                          <ArrowUpRightIcon className="size-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </details>
+                )}
+                {selected.evidence.length > 0 && (
+                  <h4 className="mt-5 text-xs font-medium text-muted-foreground">
+                    Results and evidence
+                  </h4>
+                )}
                 {selected.evidence.map((evidence) => (
                   <article key={evidence.id} className="mt-3 rounded-lg border border-border p-3">
                     <div className="flex items-center gap-2 text-sm font-medium">
-                      <CheckCircle2Icon className="size-4" />
+                      {evidence.verdict === "pass" ? (
+                        <CheckCircle2Icon className="size-4 text-emerald-600" />
+                      ) : (
+                        <CircleAlertIcon className="size-4 text-amber-600" />
+                      )}
                       {evidence.verdict}{" "}
                       <span className="text-xs font-normal text-muted-foreground">
                         {evidence.provenance.replaceAll("_", " ")}
@@ -898,84 +974,89 @@ export function PitbossPanel(props: {
                     }}
                   />
                 )}
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy || !!selected.pendingOperationId}
-                    onClick={() => setEditingTask(!editingTask)}
-                  >
-                    Edit task and criteria
-                  </Button>
-                  {selected.status === "queued" && selected.attempts.at(-1)?.workspacePath && (
+                <details className="mt-4 border-t border-border pt-3">
+                  <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+                    Manage work
+                  </summary>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <Button
                       size="sm"
                       variant="outline"
                       disabled={busy || !!selected.pendingOperationId}
-                      onClick={() =>
-                        void command({
-                          type: "assign",
-                          taskId: selected.id,
-                          model: props.modelSelection,
-                          resumeAttemptId: selected.attempts.at(-1)!.id,
-                        })
-                      }
+                      onClick={() => setEditingTask(!editingTask)}
                     >
-                      Resume candidate with {props.modelSelection.model}
+                      Edit task and criteria
                     </Button>
-                  )}
-                  {selected.status === "queued" && (
-                    <Button
-                      size="sm"
-                      disabled={busy || !!selected.pendingOperationId}
-                      onClick={() => void command({ type: "assign", taskId: selected.id })}
-                    >
-                      Assign worker
-                    </Button>
-                  )}
-                  {["active", "verifying"].includes(selected.status) && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || !!selected.pendingOperationId}
-                      onClick={() =>
-                        void command({
-                          type: "rework",
-                          taskId: selected.id,
-                          note: "User requested rework. Preserve the current patch and evidence.",
-                        })
-                      }
-                    >
-                      Stop for rework
-                    </Button>
-                  )}
-                  {["blocked", "done", "cancelled"].includes(selected.status) && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || !!selected.pendingOperationId}
-                      onClick={() => void command({ type: "reopen", taskId: selected.id })}
-                    >
-                      Reopen
-                    </Button>
-                  )}
-                  {!["done", "cancelled"].includes(selected.status) && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={busy || !!selected.pendingOperationId}
-                      onClick={() =>
-                        void command({
-                          type: "cancel",
-                          taskId: selected.id,
-                          note: "Cancelled by user",
-                        })
-                      }
-                    >
-                      Cancel task
-                    </Button>
-                  )}
-                </div>
+                    {selected.status === "queued" && selected.attempts.at(-1)?.workspacePath && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || !!selected.pendingOperationId}
+                        onClick={() =>
+                          void command({
+                            type: "assign",
+                            taskId: selected.id,
+                            model: props.modelSelection,
+                            resumeAttemptId: selected.attempts.at(-1)!.id,
+                          })
+                        }
+                      >
+                        Resume candidate with {props.modelSelection.model}
+                      </Button>
+                    )}
+                    {selected.status === "queued" && (
+                      <Button
+                        size="sm"
+                        disabled={busy || !!selected.pendingOperationId}
+                        onClick={() => void command({ type: "assign", taskId: selected.id })}
+                      >
+                        Assign worker
+                      </Button>
+                    )}
+                    {["active", "verifying"].includes(selected.status) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || !!selected.pendingOperationId}
+                        onClick={() =>
+                          void command({
+                            type: "rework",
+                            taskId: selected.id,
+                            note: "User requested rework. Preserve the current patch and evidence.",
+                          })
+                        }
+                      >
+                        Stop for rework
+                      </Button>
+                    )}
+                    {["blocked", "done", "cancelled"].includes(selected.status) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || !!selected.pendingOperationId}
+                        onClick={() => void command({ type: "reopen", taskId: selected.id })}
+                      >
+                        Reopen
+                      </Button>
+                    )}
+                    {!["done", "cancelled"].includes(selected.status) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy || !!selected.pendingOperationId}
+                        onClick={() =>
+                          void command({
+                            type: "cancel",
+                            taskId: selected.id,
+                            note: "Cancelled by user",
+                          })
+                        }
+                      >
+                        Cancel task
+                      </Button>
+                    )}
+                  </div>
+                </details>
               </div>
             )}
             <details

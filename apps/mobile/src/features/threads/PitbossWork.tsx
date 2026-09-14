@@ -9,6 +9,9 @@ import {
   gladosInboxLayout,
   gladosElection,
   gladosNewTask,
+  gladosFullAuto,
+  gladosWorkKind,
+  gladosWorkStatus,
   type GladosInboxTab,
   type GladosInboxRow,
 } from "./glados-inbox";
@@ -87,13 +90,17 @@ export function PitbossWork(props: {
   const dimensions = useWindowDimensions();
   const [surface, setSurface] = useState({ width: dimensions.width, height: dimensions.height });
   const { split, listWidth } = gladosInboxLayout(surface.width, surface.height);
-  const [tab, setTab] = useState<GladosInboxTab>("needs-you");
+  const [tab, setTab] = useState<GladosInboxTab>("all");
+  const [search, setSearch] = useState("");
+  const [projectFilter, setProjectFilter] = useState<ProjectId | undefined>();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [panel, setPanel] = useState<"inbox" | "settings" | "create">("inbox");
   const [isolatedCode, setIsolatedCode] = useState(false);
   const [taskProjectId, setTaskProjectId] = useState(props.projectId);
   const [showHistory, setShowHistory] = useState(false);
   const [showProfiles, setShowProfiles] = useState(false);
+  const [showCriteria, setShowCriteria] = useState(false);
+  const [showManagement, setShowManagement] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const inFlight = useRef(false);
   const serverConfigs = useServerConfigs();
@@ -102,7 +109,7 @@ export function PitbossWork(props: {
   const [title, setTitle] = useState("");
   const [criteria, setCriteria] = useState("");
   const [busy, setBusy] = useState(false);
-  const [decisionAnswer, setDecisionAnswer] = useState("");
+  const [decisionDrafts, setDecisionDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const state = query.data;
   const role = state?.role;
@@ -127,6 +134,7 @@ export function PitbossWork(props: {
   }, [visible, state, now]);
   const inbox = useMemo(
     () => ({
+      all: state ? gladosInboxRows(state, "all") : [],
       "needs-you": state ? gladosInboxRows(state, "needs-you") : [],
       working: state ? gladosInboxRows(state, "working") : [],
       delivered: state ? gladosInboxRows(state, "delivered") : [],
@@ -171,10 +179,11 @@ export function PitbossWork(props: {
     }
   };
   if (!state) return null;
-  const rows = inbox[tab];
-  const selectedRow = [...inbox["needs-you"], ...inbox.working, ...inbox.delivered].find(
-    (row) => row.key === selectedKey,
-  );
+  const rows = gladosInboxRows(state, tab, {
+    query: search,
+    ...(projectFilter ? { projectId: projectFilter } : {}),
+  });
+  const selectedRow = inbox.all.find((row) => row.key === selectedKey);
   const selectedTask = selectedRow?.task;
   const projectName = (id: ProjectId) =>
     projects.find((project) => project.id === id)?.title ?? "Project";
@@ -182,6 +191,8 @@ export function PitbossWork(props: {
     setSelectedKey(null);
     setShowHistory(false);
     setShowProfiles(false);
+    setShowCriteria(false);
+    setShowManagement(false);
   };
   const goBack = () => {
     if (panel !== "inbox") setPanel("inbox");
@@ -278,6 +289,7 @@ export function PitbossWork(props: {
               <View className="flex-row border-b border-border px-2" accessibilityRole="tablist">
                 {(
                   [
+                    ["all", "All"],
                     ["needs-you", "Needs you"],
                     ["working", "Working"],
                     ["delivered", "Delivered"],
@@ -318,6 +330,37 @@ export function PitbossWork(props: {
                     style={{ width: split ? listWidth : "100%" }}
                     className="border-r border-border"
                   >
+                    <View className="gap-2 border-b border-border px-3 py-2">
+                      <TextInput
+                        accessibilityLabel="Search outcomes"
+                        placeholder="Search outcomes"
+                        value={search}
+                        onChangeText={setSearch}
+                        clearButtonMode="while-editing"
+                        className="min-h-11 rounded-lg bg-muted px-3 text-foreground"
+                      />
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        <View className="flex-row gap-2">
+                          {[{ id: undefined, title: "All projects" }, ...projects].map(
+                            (project) => (
+                              <Pressable
+                                key={project.id ?? "all"}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: projectFilter === project.id }}
+                                onPress={() => setProjectFilter(project.id)}
+                                className={`min-h-11 justify-center rounded-lg px-3 ${projectFilter === project.id ? "bg-primary/10" : "bg-muted"}`}
+                              >
+                                <Text className="text-sm">{project.title}</Text>
+                              </Pressable>
+                            ),
+                          )}
+                        </View>
+                      </ScrollView>
+                    </View>
                     <FlatList<GladosInboxRow>
                       data={rows}
                       keyExtractor={(row) => row.key}
@@ -327,11 +370,13 @@ export function PitbossWork(props: {
                       ListEmptyComponent={
                         <View className="gap-2 p-5">
                           <Text className="font-semibold">
-                            {tab === "needs-you"
-                              ? "Nothing needs your attention"
-                              : tab === "working"
-                                ? "Ready for your next outcome"
-                                : "Completed outcomes will appear here"}
+                            {search.trim() || projectFilter
+                              ? "No matching outcomes"
+                              : tab === "needs-you"
+                                ? "Nothing needs your attention"
+                                : tab === "working"
+                                  ? "Ready for your next outcome"
+                                  : "Completed outcomes will appear here"}
                           </Text>
                           <Text className="text-sm text-muted-foreground">
                             Keep talking to GLaDOS. Leads and workers report back here.
@@ -349,16 +394,17 @@ export function PitbossWork(props: {
                           accessibilityState={{ selected: selectedKey === item.key }}
                           onPress={() => {
                             setSelectedKey(item.key);
-                            setDecisionAnswer("");
                             setShowHistory(false);
                             setShowProfiles(false);
+                            setShowCriteria(false);
+                            setShowManagement(false);
                           }}
                           style={{ minHeight: 88 }}
-                          className={`gap-1 rounded-xl border p-3 ${selectedKey === item.key ? "border-primary bg-primary/10" : "border-border bg-muted/30"}`}
+                          className={`gap-1 rounded-xl border p-3 ${selectedKey === item.key ? "border-primary bg-primary/10" : "border-transparent"}`}
                         >
                           <Text className="text-xs text-muted-foreground">
                             {item.task
-                              ? `${projectName(item.task.projectId)} · ${item.task.status}`
+                              ? `${projectName(item.task.projectId)} · ${gladosWorkStatus(item.task)}`
                               : `GLaDOS · ${item.message.kind}`}
                           </Text>
                           <Text className="font-semibold" numberOfLines={2}>
@@ -406,14 +452,57 @@ export function PitbossWork(props: {
                               {task.leadId ? `Project lead ${task.leadId}` : "Managed by GLaDOS"}
                             </Text>
                             <Text className="text-xl font-semibold">{task.title}</Text>
+                            <Text className="text-xs text-muted-foreground">
+                              {gladosWorkKind(task, state)} · {gladosWorkStatus(task)}
+                            </Text>
                             {task.proposedVerificationRecipe && (
                               <View className="rounded-xl border border-primary p-3">
                                 <Text className="font-semibold">Verification setup proposed</Text>
-                                <Text>
-                                  {task.proposedVerificationRecipe.name}. Review and save the
-                                  proposed commands in this environment’s web or desktop GLaDOS work
-                                  inspector. This proposal is not approved configuration.
+                                <Text>{task.proposedVerificationRecipe.name}</Text>
+                                <Text className="text-sm text-muted-foreground">
+                                  Review the checks GLaDOS prepared. Saving approves this profile
+                                  for the outcome.
                                 </Text>
+                                {[
+                                  ["Work type", task.proposedVerificationRecipe.mode ?? "commit"],
+                                  ["Environment", task.proposedVerificationRecipe.environmentId],
+                                  ["Target", task.proposedVerificationRecipe.target],
+                                  ["Input files", task.proposedVerificationRecipe.inputPath],
+                                  ["Allowed effects", task.proposedVerificationRecipe.effects],
+                                  [
+                                    "Evidence lifetime",
+                                    task.proposedVerificationRecipe.maxAgeSeconds
+                                      ? `${task.proposedVerificationRecipe.maxAgeSeconds} seconds`
+                                      : undefined,
+                                  ],
+                                  ["Readiness", task.proposedVerificationRecipe.doctor],
+                                  ["Verification", task.proposedVerificationRecipe.verify],
+                                  ["Cleanup", task.proposedVerificationRecipe.cleanup],
+                                ]
+                                  .filter(([, value]) => value)
+                                  .map(([label, value]) => (
+                                    <View key={label} className="gap-1 py-2">
+                                      <Text className="text-sm font-semibold">{label}</Text>
+                                      <Text selectable className="text-xs">
+                                        {value}
+                                      </Text>
+                                    </View>
+                                  ))}
+                                <Text className="text-xs text-muted-foreground">
+                                  {task.proposedVerificationRecipe.timeoutSeconds}s limit ·{" "}
+                                  {task.proposedVerificationRecipe.artifacts.join(", ") ||
+                                    "No captured files"}
+                                </Text>
+                                {button(
+                                  "Save evidence profile",
+                                  () =>
+                                    void command({
+                                      type: "verification-recipe",
+                                      recipe: task.proposedVerificationRecipe!,
+                                      selectForTaskId: task.id,
+                                    }),
+                                  !!task.homeEnvironmentId,
+                                )}
                               </View>
                             )}
                             {task.status !== "cancelled" &&
@@ -431,8 +520,8 @@ export function PitbossWork(props: {
                                       {decision.recommendation || "No recommendation yet."}
                                     </Text>
                                     <Text className="text-sm text-muted-foreground">
-                                      Only this outcome is waiting. GLaDOS continues managing the
-                                      rest of your team.
+                                      This decision pauses this outcome. Independent work can
+                                      continue.
                                     </Text>
                                     {decision.options.map((option) => (
                                       <View key={option}>
@@ -453,33 +542,65 @@ export function PitbossWork(props: {
                                       accessibilityLabel="Your decision answer"
                                       placeholder="Or give your own direction"
                                       multiline
-                                      value={decisionAnswer}
-                                      onChangeText={setDecisionAnswer}
+                                      value={decisionDrafts[decision.id] ?? ""}
+                                      onChangeText={(value) =>
+                                        setDecisionDrafts((drafts) => ({
+                                          ...drafts,
+                                          [decision.id]: value,
+                                        }))
+                                      }
                                       className="min-h-12 rounded-lg border border-border p-3 text-foreground"
                                     />
                                     {button(
                                       "Send decision",
                                       () => {
-                                        if (decisionAnswer.trim())
+                                        if (decisionDrafts[decision.id]?.trim())
                                           void command({
                                             type: "resolve-decision",
                                             taskId: task.id,
                                             decisionId: decision.id,
-                                            answer: decisionAnswer.trim(),
+                                            answer: decisionDrafts[decision.id]!.trim(),
                                           }).then((saved) => {
-                                            if (saved) setDecisionAnswer("");
+                                            if (saved)
+                                              setDecisionDrafts((drafts) => ({
+                                                ...drafts,
+                                                [decision.id]: "",
+                                              }));
                                           });
                                       },
-                                      !decisionAnswer.trim() || !!task.homeEnvironmentId,
+                                      !decisionDrafts[decision.id]?.trim() ||
+                                        !!task.homeEnvironmentId,
                                     )}
                                     {button("Decide later", leaveDetail)}
                                   </View>
                                 ))}
                             <Text>{task.outcome}</Text>
-                            <View className="gap-1 rounded-xl bg-muted p-3">
-                              <Text className="font-semibold">What success means</Text>
-                              <Text>{task.criteria}</Text>
-                            </View>
+                            {task.dependencies.length > 0 && (
+                              <View className="gap-2">
+                                <Text className="text-sm font-semibold">Depends on</Text>
+                                {task.dependencies.map((id) => {
+                                  const dependency = state.tasks.find(
+                                    (candidate) => candidate.id === id,
+                                  );
+                                  return (
+                                    <View key={id}>
+                                      {button(
+                                        dependency?.title ?? id,
+                                        () => setSelectedKey(`task:${id}`),
+                                        !dependency,
+                                      )}
+                                    </View>
+                                  );
+                                })}
+                              </View>
+                            )}
+                            {button(
+                              showCriteria ? "Hide success criteria" : "What success means",
+                              () => setShowCriteria(!showCriteria),
+                            )}
+                            {showCriteria && (
+                              <Text className="text-sm text-muted-foreground">{task.criteria}</Text>
+                            )}
                             <Text className="font-semibold">
                               {gladosReceiptStatus(task, state, now)}
                             </Text>
@@ -634,10 +755,7 @@ export function PitbossWork(props: {
                                 },
                                 busy,
                               )}
-                            <Text className="text-xs">
-                              Verification recipes are configured in the web or desktop GLaDOS work
-                              board.
-                            </Text>
+
                             {(showHistory ? task.evidence : task.evidence.slice(-1)).map(
                               (evidence) => (
                                 <View key={evidence.id} className="gap-1 rounded-lg bg-muted p-3">
@@ -677,36 +795,43 @@ export function PitbossWork(props: {
                                 </View>
                               ),
                             )}
-                            {task.status === "queued" &&
-                              button(
-                                "Assign worker",
-                                () => void command({ type: "assign", taskId: task.id }),
-                              )}
-                            {["active", "verifying"].includes(task.status) &&
-                              button(
-                                "Stop for rework",
-                                () =>
-                                  void command({
-                                    type: "rework",
-                                    taskId: task.id,
-                                    note: "User requested rework; preserve artifacts.",
-                                  }),
-                              )}
-                            {["blocked", "cancelled", "done"].includes(task.status) &&
-                              button(
-                                "Reopen",
-                                () => void command({ type: "reopen", taskId: task.id }),
-                              )}
-                            {!["done", "cancelled"].includes(task.status) &&
-                              button(
-                                "Cancel task",
-                                () =>
-                                  void command({
-                                    type: "cancel",
-                                    taskId: task.id,
-                                    note: "Cancelled by user",
-                                  }),
-                              )}
+                            {button(showManagement ? "Close work controls" : "Manage work", () =>
+                              setShowManagement(!showManagement),
+                            )}
+                            {showManagement && (
+                              <View className="gap-2">
+                                {task.status === "queued" &&
+                                  button(
+                                    "Assign worker",
+                                    () => void command({ type: "assign", taskId: task.id }),
+                                  )}
+                                {["active", "verifying"].includes(task.status) &&
+                                  button(
+                                    "Stop for rework",
+                                    () =>
+                                      void command({
+                                        type: "rework",
+                                        taskId: task.id,
+                                        note: "User requested rework; preserve artifacts.",
+                                      }),
+                                  )}
+                                {["blocked", "cancelled", "done"].includes(task.status) &&
+                                  button(
+                                    "Reopen",
+                                    () => void command({ type: "reopen", taskId: task.id }),
+                                  )}
+                                {!["done", "cancelled"].includes(task.status) &&
+                                  button(
+                                    "Cancel task",
+                                    () =>
+                                      void command({
+                                        type: "cancel",
+                                        taskId: task.id,
+                                        note: "Cancelled by user",
+                                      }),
+                                  )}
+                              </View>
+                            )}
 
                             {showHistory && (
                               <View className="gap-2">
@@ -777,6 +902,48 @@ export function PitbossWork(props: {
                       </View>
                     );
                   })}
+                  {role && (
+                    <View className="gap-3 rounded-xl bg-muted p-4">
+                      <Text className="font-semibold">Autonomy</Text>
+                      <Text className="text-sm">
+                        GLaDOS preference:{" "}
+                        {role.brief.coordinatorRuntimeMode === "full-access"
+                          ? "full access"
+                          : role.brief.coordinatorRuntimeMode === "approval-required"
+                            ? "approval required"
+                            : "keep current permissions"}
+                      </Text>
+                      <Text className="text-sm">
+                        New workers:{" "}
+                        {role.brief.workerRuntimeMode === "full-access"
+                          ? "full access"
+                          : "approval required"}
+                      </Text>
+                      <Text className="text-sm">
+                        Evidence setup:{" "}
+                        {role.brief.verificationMode === "automatic"
+                          ? "GLaDOS prepares and saves checks"
+                          : "review before saving"}
+                      </Text>
+                      <Text className="text-sm text-muted-foreground">
+                        Full auto lets GLaDOS and new workers act within your project scope and
+                        prepare evidence checks. Changes to checks after work starts still need your
+                        decision. Existing workers keep their assigned permissions.
+                      </Text>
+                      {isBoss &&
+                        button("Use full auto", () => void command(gladosFullAuto(role.brief)))}
+                      {isBoss &&
+                        role.brief.verificationMode === "automatic" &&
+                        button(
+                          "Review new evidence profiles myself",
+                          () =>
+                            void command({
+                              type: "brief",
+                              brief: { ...role.brief, verificationMode: "user-approved" },
+                            }),
+                        )}
+                    </View>
+                  )}
                   <Text className="text-sm text-muted-foreground">Your priorities</Text>
                   <TextInput
                     accessibilityLabel="GLaDOS priorities"

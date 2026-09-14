@@ -11,7 +11,7 @@ import {
 import { decide, emptyWork, workContext } from "./Work.ts";
 import { replayJournal } from "./WorkJournal.ts";
 
-function fixture() {
+function fixture(verificationMode?: "automatic" | "user-approved") {
   let state: PitbossSnapshot = emptyWork;
   const history: string[] = [];
   const projectId = ProjectId.make("project");
@@ -32,6 +32,8 @@ function fixture() {
     projectId,
     threadId: boss.threadId,
     brief: {
+      ...(verificationMode ? { verificationMode } : {}),
+      ...(verificationMode === "automatic" ? { workerRuntimeMode: "full-access" as const } : {}),
       priorities: "Build",
       quality: "Evidence",
       projectIds: [projectId],
@@ -162,4 +164,124 @@ it("saving setup does not revise unrelated tasks in the same project", () => {
   const other = f.state.tasks[1];
   f.act({ type: "verification-recipe", recipe: f.recipe, selectForTaskId: "task" });
   expect(f.state.tasks[1]).toBe(other);
+});
+
+it("automatic setup saves and selects a real recipe before assignment and survives replay", () => {
+  const f = fixture("automatic");
+  f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
+  expect(f.state.tasks[0]!.proposedVerificationRecipe).toBeUndefined();
+  expect(verificationRecipeForTask(f.state, f.state.tasks[0]!)).toEqual(f.recipe);
+  f.act({ type: "assign", taskId: "task" }, f.boss);
+  expect(f.state.tasks[0]!.attempts).toHaveLength(1);
+  expect(f.state.tasks[0]!.attempts[0]!.runtimeMode).toBe("full-access");
+  expect(workContext(f.state, f.boss.threadId)).toContain(
+    "Automatic verification setup is enabled",
+  );
+  expect(replayJournal(f.history)).toEqual(f.state);
+});
+
+it("automatic setup still validates paths and required artifact inputs", () => {
+  const f = fixture("automatic");
+  for (const recipe of [
+    { ...f.recipe, artifacts: ["../secrets"] },
+    { ...f.recipe, mode: "artifact" as const },
+  ])
+    expect(() => f.act({ type: "propose-verification", taskId: "task", recipe }, f.boss)).toThrow();
+  expect(f.state.verificationRecipes).toBeUndefined();
+});
+
+it("automatic setup cannot revise attempted proof, including through another task", () => {
+  const f = fixture("automatic");
+  f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
+  f.act({ type: "assign", taskId: "task" }, f.boss);
+  f.act({
+    type: "create",
+    taskId: "other",
+    projectId: f.recipe.projectId,
+    title: "Other",
+    outcome: "Works",
+    criteria: "Prove behavior",
+    verifyCommand: "",
+    priority: 2,
+    dependencies: [],
+    workspaceStrategy: { type: "root" },
+  });
+  expect(() =>
+    f.act(
+      {
+        type: "propose-verification",
+        taskId: "other",
+        recipe: { ...f.recipe, version: 2, verify: "true" },
+      },
+      f.boss,
+    ),
+  ).toThrow(/after work has been attempted/);
+  f.act(
+    { type: "propose-verification", taskId: "task", recipe: { ...f.recipe, version: 2 } },
+    f.boss,
+  );
+  expect(f.state.tasks[0]!.proposedVerificationRecipe?.version).toBe(2);
+  expect(verificationRecipeForTask(f.state, f.state.tasks[0]!)?.version).toBe(1);
+  f.act(
+    { type: "propose-verification", taskId: "other", recipe: { ...f.recipe, profileId: "other" } },
+    f.boss,
+  );
+  expect(f.state.tasks[1]!.verificationProfileId).toBe("other");
+});
+
+it("automatic setup cannot change authority or answer a product decision", () => {
+  const f = fixture("automatic");
+  expect(() =>
+    f.act({ type: "brief", brief: { ...f.state.role!.brief, maxWorkers: 10 } }, f.boss),
+  ).toThrow(/Only the user/);
+  f.act(
+    {
+      type: "request-decision",
+      taskId: "task",
+      question: "Choose a direction",
+      options: ["A", "B"],
+      recommendation: "A",
+    },
+    f.boss,
+  );
+  f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
+  expect(() => f.act({ type: "assign", taskId: "task" }, f.boss)).toThrow(
+    /waiting for a user decision/,
+  );
+  expect(() =>
+    f.act(
+      {
+        type: "resolve-decision",
+        taskId: "task",
+        decisionId: f.state.tasks[0]!.decisions![0]!.id,
+        answer: "A",
+      },
+      f.boss,
+    ),
+  ).toThrow(/Only the user/);
+});
+
+it("automatic setup preserves another attempted task's pending recipe proposal", () => {
+  const f = fixture("automatic");
+  f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
+  f.act({ type: "assign", taskId: "task" }, f.boss);
+  const proposed = { ...f.recipe, profileId: "replacement" };
+  f.act({ type: "propose-verification", taskId: "task", recipe: proposed }, f.boss);
+  f.act({
+    type: "create",
+    taskId: "other",
+    projectId: f.recipe.projectId,
+    title: "Other",
+    outcome: "Works",
+    criteria: "Prove behavior",
+    verifyCommand: "",
+    priority: 2,
+    dependencies: [],
+    workspaceStrategy: { type: "root" },
+  });
+  expect(() =>
+    f.act({ type: "propose-verification", taskId: "other", recipe: proposed }, f.boss),
+  ).toThrow(/after work has been attempted/);
+  expect(f.state.tasks[0]!.proposedVerificationRecipe).toEqual(proposed);
+  expect(verificationRecipeForTask(f.state, f.state.tasks[0]!)).toEqual(f.recipe);
 });

@@ -61,7 +61,6 @@ export function WorkInspector({
           aria-valuemax={maxWidth}
           aria-valuenow={Math.round(width)}
           aria-valuetext={`${Math.round(width)} pixels`}
-          title="Drag to resize · Arrow keys to adjust · Double-click to reset"
           className="absolute inset-y-0 -left-1 z-20 w-2 touch-none cursor-col-resize hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-2 focus-visible:outline-primary"
           {...handlers}
           onDoubleClick={() => resizeTo(420)}

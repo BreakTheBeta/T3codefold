@@ -166,7 +166,7 @@ export const layer = Layer.effectDiscard(
                   threadId: state.role.threadId,
                   commandId: CommandId.make(`${effect.operation_id}:start`),
                   messageId: MessageId.make(`${effect.operation_id}:start`),
-                  text: "Full auto is enabled for GLaDOS and new workers within the saved brief. Read work_read, inspect the approved projects, and create and assign bounded useful work from the saved priorities. Preserve existing tasks and decisions. Propose missing verification settings for user-owned saving; never treat conversation as saved configuration or waive verification. End your turn when no independent work is actionable.",
+                  text: "Full auto is enabled for GLaDOS and new workers within the saved brief. Read work_read, inspect the approved projects, and create and assign bounded useful work from the saved priorities. Preserve existing tasks and decisions. Use the saved verificationMode: in automatic mode inspect capabilities and configure checks for unattempted work with propose-verification yourself; otherwise prepare one recipe proposal for user review. Never waive verification. End your turn when no independent work is actionable.",
                   mode: "auto",
                   attachments: [],
                   createdBy: "system",

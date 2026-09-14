@@ -96,6 +96,9 @@ export function BriefForm({
   const [workerRuntimeMode, setWorkerRuntimeMode] = useState(
     brief.workerRuntimeMode ?? "approval-required",
   );
+  const [verificationMode, setVerificationMode] = useState(
+    brief.verificationMode ?? "user-approved",
+  );
   const entries = useMemo(
     () =>
       config
@@ -168,6 +171,7 @@ export function BriefForm({
             maxWorkers,
             maxAttempts,
             workerRuntimeMode,
+            verificationMode,
             ...(coordinatorRuntimeMode === undefined ? {} : { coordinatorRuntimeMode }),
           },
           applyCoordinatorPermissions,
@@ -452,14 +456,16 @@ export function BriefForm({
               setApplyCoordinatorPermissions(true);
               setCoordinatorRuntimeMode("full-access");
               setWorkerRuntimeMode("full-access");
+              setVerificationMode("automatic");
             }}
           >
             Select full auto for GLaDOS and new workers
           </Button>
           <p className="mt-2 text-xs text-muted-foreground">
             Takes effect when you save. GLaDOS may create and assign workers within this brief.
-            Existing worker runs keep their permissions. Verification, task decisions and shared
-            leadership approvals still apply.
+            GLaDOS also prepares verification for new work. Existing workers keep their permissions.
+            Changes to attempted work’s proof, real product decisions and shared leadership still
+            need you.
           </p>
         </div>
         <Choice
@@ -479,6 +485,17 @@ export function BriefForm({
             { value: "unchanged", label: "Keep current permissions" },
             { value: "approval-required", label: "Ask for approvals" },
             { value: "full-access", label: "Full access within brief" },
+          ]}
+        />
+        <Choice
+          label="Verification setup"
+          value={verificationMode}
+          onChange={(value) =>
+            setVerificationMode(value === "automatic" ? "automatic" : "user-approved")
+          }
+          options={[
+            { value: "automatic", label: "GLaDOS prepares checks for new work" },
+            { value: "user-approved", label: "Review each new verification recipe" },
           ]}
         />
         <Choice

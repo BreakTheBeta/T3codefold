@@ -176,16 +176,14 @@ export function decide(
     (actor.type === "agent" &&
       state.role?.threadId === actor.threadId &&
       command.authorityGeneration === state.role.generation);
-  const userActions = [
-    "activate-home",
-    "elect",
-    "dismiss",
-    "brief",
-    "pause",
-    "verification-recipe",
-    "resolve-decision",
-  ];
-  if (userActions.includes(action.type) && !user)
+  const automaticVerification =
+    manager && actor.type === "agent" && state.role?.brief.verificationMode === "automatic";
+  const userActions = ["activate-home", "elect", "dismiss", "brief", "pause", "resolve-decision"];
+  if (
+    (userActions.includes(action.type) ||
+      (action.type === "verification-recipe" && !automaticVerification)) &&
+    !user
+  )
     fail("Only the user can change GLaDOS authority or limits.", "forbidden");
   if (!["report", "submit", "request-decision"].includes(action.type) && !manager)
     fail("Only the current GLaDOS or user can manage work.", "forbidden");
@@ -203,6 +201,7 @@ export function decide(
       "review",
       "verify",
       "verification-profile",
+      "verification-recipe",
       "propose-verification",
       "request-decision",
       "rework",
@@ -258,6 +257,37 @@ export function decide(
         selectedTask.homeEnvironmentId)
     )
       fail("Select verification only for a local task in this project.");
+    if (!user) {
+      if (!selectedTask || (lead && selectedTask.leadId !== lead.id))
+        fail("Automatic setup requires a local task owned by this manager.", "forbidden");
+      const affected = state.tasks.filter(
+        (task) =>
+          task.projectId === action.recipe.projectId &&
+          (task.id === selectedTask.id ||
+            (task.proposedVerificationRecipe &&
+              (task.proposedVerificationRecipe.profileId ?? "default") ===
+                (action.recipe.profileId ?? "default")) ||
+            (task.verificationProfileId !== null &&
+              (task.verificationProfileId ?? "default") ===
+                (action.recipe.profileId ?? "default"))),
+      );
+      if (
+        affected.some(
+          (task) => task.attempts.length > 0 || task.evidence.length > 0 || task.verification,
+        )
+      )
+        fail(
+          "Only the user can change proof requirements after work has been attempted.",
+          "forbidden",
+        );
+      if (lead && affected.some((task) => task.leadId !== lead.id))
+        fail(
+          "This recipe is shared with another manager's task. Choose a task-specific profile.",
+          "forbidden",
+        );
+      if (action.recipe.enabled === false)
+        fail("Automatic setup must select an enabled verification recipe.");
+    }
     if (
       selectedTask &&
       (hasUnresolvedWriter(selectedTask) ||
@@ -705,6 +735,22 @@ export function decide(
       fail("Propose verification at the task home for its own project.");
     if (lead && existing.leadId !== lead.id)
       fail("This task belongs to another manager.", "forbidden");
+    if (automaticVerification && existing.attempts.length === 0 && existing.evidence.length === 0) {
+      return decide(
+        state,
+        {
+          ...command,
+          action: {
+            type: "verification-recipe",
+            recipe: action.recipe,
+            selectForTaskId: existing.id,
+          },
+        },
+        actor,
+        now,
+        legacyReplay,
+      );
+    }
     return {
       ...next,
       tasks: state.tasks.map((task) =>
@@ -829,7 +875,7 @@ export function decide(
           entry.projectId === task.projectId && (entry.profileId ?? "default") === action.profileId,
       );
       if (action.profileId !== null && (!selected || selected.enabled === false))
-        fail("Select an enabled, user-approved profile for this project.");
+        fail("Select an enabled profile configured within this brief for this project.");
       task = {
         ...task,
         verificationProfileId: action.profileId,
@@ -1195,7 +1241,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
       `Work command shape: {commandId:"unique-id",expectedRevision:<latest snapshot revision>,authorityGeneration:${lead.generation},action:{...}}. Create action requires ALL of {type:"create",taskId:"unique-task",projectId:"${lead.projectId}",title:"...",outcome:"...",criteria:"...",verifyCommand:"...",priority:10,dependencies:[],workspaceStrategy:{type:"worktree",baseRef:"HEAD"}}. Your leadId is inferred for created tasks. Then assign with {type:"assign",taskId:"..."}. Update memory with {type:"lead-context",leadId:"${lead.id}",context:"..."}.`,
       "Use request-decision {taskId,question,options,recommendation} to park only work that needs user judgment. Do not block your conversation waiting for an answer or pause the portfolio. The server stops that task’s writer and retains its files; manage other ready tasks. User answers arrive durably through resolve-decision. Continue using existing permissions and resume retained work where appropriate.",
       "Use work_read and work_command. Create bounded tasks with exact outcomes, independent workspaces, acceptance and runnable verification. Assign workers with assign. Do not create subleads or use untracked delegation. You own project decisions within the charter, not changes to user permissions or quality standards.",
-      "Captured verification: after stopping writers and recording candidate evidence, use verify with taskId and evidenceId. Select a user-approved evidence profile with verification-profile before assigning workers. It runs on the required environment. Use commit:<SHA> for code, sha256:<digest of inputPath bytes> for files/audio/research packets, or observation:<target> for host observations. Readiness must check required tools or hardware; missing capability is inconclusive. Never treat automated metrics as listening or qualitative review. Profile changes after an attempt require the user. Read work state for its receipt. A captured pass proves only that recipe; add your combined-outcome judgment separately. Do not change criteria or recipes to manufacture a pass.",
+      "Captured verification: after stopping writers and recording candidate evidence, use verify with taskId and evidenceId. Select a configured evidence profile with verification-profile before assigning workers. In automatic verification mode, inspect the project and use propose-verification to configure and select checks for unattempted work yourself. It runs on the required environment. Use commit:<SHA> for code, sha256:<digest of inputPath bytes> for files/audio/research packets, or observation:<target> for host observations. Readiness must check required tools or hardware; missing capability is inconclusive. Never treat automated metrics as listening or qualitative review. Profile changes after an attempt require the user. Read work state for its receipt. A captured pass proves only that recipe; add your combined-outcome judgment separately. Do not change criteria or recipes to manufacture a pass.",
       "Quality loop: ground the actual app and runtime; record shared interface decisions before delegating; give workers the relevant context; require them to run meaningful checks and report candidate-specific evidence. Missing evidence goes back for repair, never invent a pass. Inspect the candidate yourself before accept, waiting for the writer to stop. Run the combined app and check cross-task integration, not just individual tests. Record your own observed verification with review {taskId,attemptId,candidate,criteriaVersion,verdict,summary,command,artifactUrls}, then accept its evidenceId. This is coordinator-reported evidence, not a server-captured check. You may review a retained stopped candidate even if its worker failed to submit. Use an additional bounded review task when needed. Diagnose infrastructure failures before upgrading a model. Preserve artifacts and exact commands. Never weaken criteria to pass.",
       "Keep current project decisions, reasons, sources, verification recipes and open questions in lead-context. Distinguish proposed lessons from accepted facts. A context update does not silently amend an existing worker's criteria: reconcile affected tasks explicitly.",
       "Use lead-report with leadId, kind, text and taskIds to report back to GLaDOS. Result reports require accepted tasks; include combined verification, artifact locations and limitations. Ask GLaDOS questions beyond your charter. Acknowledge messages only after handling them. When waiting for workers, end your turn; the server will wake you. Do not poll or run wait loops.",
@@ -1224,10 +1270,12 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
       `You are this environment's elected GLaDOS (generation ${state.role.generation}). ${state.role.paused ? "Autonomous dispatch is paused." : "Select eligible work within the brief using the work tools."}`,
       "Use work_read and work_command. Read current revision before mutations. Finished turns are not accepted outcomes. Inspect evidence before accepting. Answer worker questions, preserve useful partial work, and escalate within limits. Use propose-coordination to propose a shared source coordinator. Use send-peer with peerId and text to send a durable scoped request; include replyTo with the original peer message ID for replies. Acknowledge an inbox item only after handling its obligation. Leadership and permission changes require the user.",
       "When a user decision is needed, use request-decision {taskId,question,options,recommendation}. This parks only that task, not GLaDOS or the team. Manage independent work while the user answers in the inbox. Do not use a blocking conversational question for task decisions. After recording the decision, finish the turn if no other work is ready; the runtime wakes you for new work and answers. Never infer approval from silence.",
-      `Approved project verification recipes: ${JSON.stringify((state.verificationRecipes ?? []).map(({ projectId, profileId, mode, environmentId, name, version, enabled }) => ({ projectId, profileId: profileId ?? "default", mode: mode ?? "commit", environmentId: environmentId ?? "task home", name, version, enabled: enabled !== false })))}. Select an approved profile with verification-profile {taskId,profileId} before assigning work. A project can contain code, artifact/research and host-observation tasks. Missing hardware or environment capability is inconclusive, not permission to substitute weaker proof. Profile changes after attempts and reported-only proof require the user. Managers request verify with taskId and the latest evidenceId after stopping writers; inspect the server receipt, record review, then accept. Observe a fresh result before reviewing an observation; its evidence expires. Recipes are user-owned.`,
+      `Approved project verification recipes: ${JSON.stringify((state.verificationRecipes ?? []).map(({ projectId, profileId, mode, environmentId, name, version, enabled }) => ({ projectId, profileId: profileId ?? "default", mode: mode ?? "commit", environmentId: environmentId ?? "task home", name, version, enabled: enabled !== false })))}. Select an approved profile with verification-profile {taskId,profileId} before assigning work. A project can contain code, artifact/research and host-observation tasks. Missing hardware or environment capability is inconclusive, not permission to substitute weaker proof. Profile changes after attempts and reported-only proof require the user. Managers request verify with taskId and the latest evidenceId after stopping writers; inspect the server receipt, record review, then accept. Observe a fresh result before reviewing an observation; its evidence expires. Recipe setup follows the saved brief verificationMode; authority and limits remain user-owned.`,
       "Adaptive delegation: use a direct worker for bounded work. For sustained project context, shared decisions or several related workers, create-lead with leadId, projectId, charter, model and maxWorkers. Use a configured model available on this environment. Leads cannot create subleads. They share your worker allowance. Reuse dormant leads with lead-status. Send durable instructions to a lead with lead-message {leadId,text}. Use manage-task to transfer existing local work without restarting writers. You remain the user's contact; leads handle worker questions and send lead-report. Inspect their combined evidence. Do not duplicate lead-owned tasks or poll them. End your turn while waiting.",
       `Project leads: ${JSON.stringify(state.leads ?? [])}`,
-      "Setup recovery: distinguish missing saved configuration from missing tools/hardware and product decisions. For missing verification, inspect the project and propose concrete readiness, verification, cleanup and artifact settings with propose-verification {taskId,recipe}. The client presents them for user-owned review and saving. A proposal is not approved configuration; full discretion or continue in chat does not save it. Reuse a pending proposal instead of asking the same question repeatedly. Continue useful inspection and unrelated approved work. Never weaken evidence to bypass missing capabilities. Create and assign bounded workers within the saved brief without asking again for routine delegation.",
+      state.role?.brief.verificationMode === "automatic"
+        ? "Automatic verification setup is enabled. Inspect the project and its available capabilities, then use propose-verification {taskId,recipe} to save and select concrete readiness, verification, cleanup and artifact settings for unattempted work. Do this yourself; do not ask the user to fill forms or assign routine workers. Use a task-specific profile when an existing profile is already used by attempted work. Do not weaken evidence: changing proof after attempts still requires the user. Missing tools or hardware are inconclusive, not a reason to substitute weaker proof. Ask only for an actual product decision, unavailable capability or authority beyond the brief. Pending decisions park only their task; continue independent work."
+        : "Setup recovery: distinguish missing saved configuration from missing tools/hardware and product decisions. For missing verification, inspect the project and propose concrete readiness, verification, cleanup and artifact settings with propose-verification {taskId,recipe}. The client presents them for user-owned review and saving. A proposal is not approved configuration; full discretion or continue in chat does not save it. Reuse a pending proposal instead of asking the same question repeatedly. Continue useful inspection and unrelated approved work. Never weaken evidence to bypass missing capabilities. Create and assign bounded workers within the saved brief without asking again for routine delegation.",
       `Brief: ${JSON.stringify(state.role.brief)}`,
       "Worker selection: workerModel is the default and alternateWorkerModel is an optional alternative, each with provider-specific options including thinking level. Choose per task using modelGuidance, complexity, evidence and availability; do not switch models solely because an attempt failed. Use assign.model with the chosen configuration; omission uses the default. Explain non-default choices or escalation with work_command report. Discover model options with orchestrator_capabilities for the destination when reachable. For remote work ask the task-home GLaDOS for its worker configurations through send-peer, or omit assign.model to use its default. Never assume this environment's provider instance IDs or catalogs exist elsewhere. A different model does not raise limits or permit concurrent writers on a retained candidate.",
       `Shared source authority: ${JSON.stringify(state.sourceAuthorities ?? [])}. Environments remain independent outside these scopes; unavailable peers do not authorize takeover.`,
