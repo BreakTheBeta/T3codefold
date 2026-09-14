@@ -760,6 +760,23 @@ export function TimelineVimMode({
         return;
       }
       if (isTerminalFocused() || isPreviewFocused()) return;
+      if (
+        event.key === "Escape" &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        active instanceof HTMLElement &&
+        active.matches('input[type="search"], [role="searchbox"]')
+      ) {
+        const region = active.closest<HTMLElement>(
+          "[data-app-sidebar], [data-right-panel-surface-content]",
+        );
+        active.blur();
+        focusConversation(region ?? getScrollNode());
+        clear();
+        // Keep propagating so the search field can still clear its query or close.
+        return;
+      }
       if (sidebarSearch && redirectDropdownNavigationKey(event, sidebarSearch)) return;
       if (active?.closest(EDITABLE_SELECTOR)) return;
       if (
