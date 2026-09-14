@@ -40,8 +40,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.95.0
       - name: Build web and server bundle
         run: vp run --filter t3 build
+      - name: Install executable build runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26.8.2
       - name: Build executable
-        run: pnpm --package=node@26.8.2 dlx node apps/server/scripts/cli.ts build-exe --verbose
+        run: node apps/server/scripts/cli.ts build-exe --verbose
       - name: Build and stage resource monitor
         run: |
           cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
