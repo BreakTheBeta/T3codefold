@@ -96,6 +96,7 @@ const harness = Effect.gen(function* () {
   ]);
   const launched: ThreadId[] = [];
   const sent: ThreadId[] = [];
+  const interrupted: ThreadId[] = [];
   const failLaunch = new Set<ThreadId>();
   const command = (action: PitbossAction) =>
     Effect.gen(function* () {
@@ -146,6 +147,14 @@ const harness = Effect.gen(function* () {
     }),
     Layer.mock(ThreadManagementService)({
       streamDomainEvents: Stream.never,
+      getThreadProjection: (id) => Effect.succeed(projections.get(id)!),
+      interruptThread: (input) =>
+        Effect.sync(() => {
+          interrupted.push(input.threadId);
+          const p = projections.get(input.threadId)!;
+          projections.set(input.threadId, { ...p, runs: [] });
+          return { type: "no_active_run" as const };
+        }),
       getProjectThread: (input) => {
         const p = projections.get(input.threadId);
         return p
@@ -201,7 +210,7 @@ const harness = Effect.gen(function* () {
       model,
       maxWorkers: 1,
     }).pipe(Effect.map((s) => s.leads!.find((x) => x.id === id)!));
-  return { store, projections, launched, sent, failLaunch, command, drain, lead };
+  return { store, projections, launched, sent, interrupted, failLaunch, command, drain, lead };
 });
 const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
 it.effect(
@@ -277,3 +286,56 @@ for (const hasPreparingRun of [false, true]) {
       }).pipe(Effect.provide(services)),
   );
 }
+
+it.effect(
+  "a user decision stops only its writer while the runtime launches unrelated work and survives replay",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      for (const id of ["waiting", "independent"])
+        yield* h.command({
+          type: "create",
+          taskId: id,
+          projectId: a,
+          title: id,
+          outcome: id,
+          criteria: "Evidence",
+          verifyCommand: "",
+          priority: 1,
+          dependencies: [],
+          workspaceStrategy: { type: "root" },
+        });
+      yield* h.command({ type: "assign", taskId: "waiting" });
+      yield* h.drain();
+      const first = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+      yield* h.command({
+        type: "request-decision",
+        taskId: "waiting",
+        question: "Which direction?",
+        options: ["A", "B"],
+        recommendation: "A",
+      });
+      yield* h.command({ type: "assign", taskId: "independent" });
+      yield* h.drain();
+      const parked = yield* h.store.read();
+      expect(h.interrupted).toEqual([first.threadId]);
+      expect(parked.role?.paused).toBe(false);
+      expect(parked.tasks[0]!.status).toBe("blocked");
+      expect(parked.tasks[0]!.attempts[0]!.state).toBe("stopped");
+      expect(parked.tasks[1]!.attempts[0]!.state).toBe("running");
+      expect(h.launched).toHaveLength(2);
+      expect(yield* h.store.rebuild()).toEqual(parked);
+      yield* h.drain();
+      expect(h.interrupted).toHaveLength(1);
+      yield* h.command({
+        type: "resolve-decision",
+        taskId: "waiting",
+        decisionId: parked.tasks[0]!.decisions![0]!.id,
+        answer: "B",
+      });
+      const answered = yield* h.store.read();
+      expect(answered.tasks[0]!.status).toBe("queued");
+      expect(answered.tasks[1]!.attempts[0]!.state).toBe("running");
+      expect(yield* h.store.rebuild()).toEqual(answered);
+    }).pipe(Effect.provide(services)),
+);

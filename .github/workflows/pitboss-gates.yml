@@ -8,6 +8,9 @@ on:
       - "apps/server/src/mcp/**"
       - "apps/web/src/components/pitboss/**"
       - "apps/mobile/src/features/threads/PitbossWork.tsx"
+      - "apps/mobile/src/features/threads/glados-inbox*"
+      - "apps/mobile/plugins/withAndroidTabletOrientation*"
+      - "apps/mobile/modules/t3-markdown-text/src/**"
       - "packages/contracts/src/pitboss*"
       - "scripts/pitboss-tracker-fixture.ts"
       - ".github/workflows/pitboss-gates.yml"
@@ -59,3 +62,15 @@ jobs:
         if: always()
         run: |
           if [ -n "${T3_PITBOSS_TRACKER_FIXTURE:-}" ]; then rm -f -- "$T3_PITBOSS_TRACKER_FIXTURE"; fi
+  mobile:
+    name: Gate C — mobile decisions and fold layout
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+      - run: vp run test:pitboss:mobile

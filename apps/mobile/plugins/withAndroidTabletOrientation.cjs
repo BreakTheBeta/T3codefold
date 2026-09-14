@@ -1,4 +1,4 @@
-const { withMainActivity } = require("expo/config-plugins");
+const { withMainActivity, withAndroidManifest, AndroidConfig } = require("expo/config-plugins");
 
 // The top-level `orientation: "portrait"` writes android:screenOrientation="portrait"
 // into the manifest, which locks every Android device — including tablets — to
@@ -46,6 +46,15 @@ function insertAfter(contents, anchor, insertion, description) {
 }
 
 module.exports = function withAndroidTabletOrientation(config) {
+  config = withAndroidManifest(config, (nextConfig) => {
+    const activity = AndroidConfig.Manifest.getMainActivityOrThrow(nextConfig.modResults);
+    // Cover and inner displays can have different densities. Let React Native
+    // update window metrics without discarding the open inbox or answer draft.
+    const changes = new Set((activity.$["android:configChanges"] ?? "").split("|").filter(Boolean));
+    changes.add("density");
+    activity.$["android:configChanges"] = [...changes].join("|");
+    return nextConfig;
+  });
   return withMainActivity(config, (nextConfig) => {
     let contents = nextConfig.modResults.contents;
     if (nextConfig.modResults.language !== "kt") {
