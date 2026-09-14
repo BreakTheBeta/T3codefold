@@ -55,6 +55,7 @@ export function VerificationCard({
   recipes,
   busy,
   paused,
+  automatic = false,
   environmentId,
   command,
 }: {
@@ -63,6 +64,7 @@ export function VerificationCard({
   recipes: readonly PitbossVerificationRecipe[];
   busy: boolean;
   paused: boolean;
+  automatic?: boolean;
   environmentId: EnvironmentId;
   command: (action: PitbossAction) => Promise<boolean>;
 }) {
@@ -91,8 +93,10 @@ export function VerificationCard({
         <div className="rounded-lg border border-primary/40 p-3">
           <h4 className="text-sm font-semibold">Verification setup proposed</h4>
           <p className="my-2 text-xs text-muted-foreground">
-            {proposal.name} · Not saved. A conversational answer does not approve these commands.
-            Review and save the profile below; any pending task decision remains yours to resolve.
+            {proposal.name} ·{" "}
+            {automatic && task.attempts.length > 0
+              ? "The proof requirements would change after work started. Review the change before it applies."
+              : "Review the prepared checks and save to continue."}
           </p>
           <Button
             size="sm"
@@ -111,7 +115,9 @@ export function VerificationCard({
           <p className="text-xs text-muted-foreground">
             {recipe
               ? `${recipe.name} · recipe v${recipe.version}`
-              : "Approve a recipe to enable server-captured checks."}
+              : automatic
+                ? "GLaDOS prepares checks for new work within your brief."
+                : "Review a prepared recipe to enable captured checks."}
           </p>
         </div>
         <Button

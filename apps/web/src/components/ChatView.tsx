@@ -9395,7 +9395,7 @@ export default function ChatView(props: ChatViewProps) {
       {rightPanelControlsAtRoot ? panelLayoutControls : null}
       <div
         className={cn(
-          "flex min-h-0 min-w-0 flex-col overflow-x-hidden xl:has-[[data-glados-open=true]]:grid xl:has-[[data-glados-open=true]]:grid-cols-[minmax(0,1fr)_24rem] xl:has-[[data-glados-open=true]]:grid-rows-[auto_auto_minmax(0,1fr)]",
+          "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
@@ -9448,6 +9448,7 @@ export default function ChatView(props: ChatViewProps) {
             projectId={activeProject.id}
             modelSelection={activeThread.modelSelection}
             runtimeMode={activeThread.runtimeMode}
+            onComposeWork={focusComposer}
           />
         )}
 

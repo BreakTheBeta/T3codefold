@@ -25,6 +25,7 @@ export const PitbossBrief = Schema.Struct({
   managedPeerIds: Schema.optional(Schema.Array(Id).check(Schema.isMaxLength(50))),
   coordinatorRuntimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
   workerRuntimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
+  verificationMode: Schema.optional(Schema.Literals(["user-approved", "automatic"])),
 });
 export type PitbossBrief = typeof PitbossBrief.Type;
 export const PitbossRole = Schema.Struct({

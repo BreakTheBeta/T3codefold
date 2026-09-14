@@ -12,7 +12,7 @@ import {
 } from "@t3tools/contracts";
 import { deriveLayout } from "../../lib/layout";
 
-export type GladosInboxTab = "needs-you" | "working" | "delivered";
+export type GladosInboxTab = "all" | "needs-you" | "working" | "delivered";
 export type GladosInboxRow =
   | { key: string; task: PitbossTask; message?: never }
   | { key: string; task?: never; message: PitbossMessage };
@@ -20,19 +20,31 @@ const needsDecision = (message: PitbossMessage) =>
   message.kind !== "progress" && !message.acknowledged;
 
 /** Each task appears once; attached questions travel with its evidence, not as duplicate conversations. */
-export function gladosInboxRows(state: PitbossSnapshot, tab: GladosInboxTab): GladosInboxRow[] {
+export function gladosInboxRows(
+  state: PitbossSnapshot,
+  tab: GladosInboxTab,
+  filter: { query?: string; projectId?: ProjectId } = {},
+): GladosInboxRow[] {
+  const query = filter.query?.trim().toLocaleLowerCase() ?? "";
   const questions = new Set(state.messages.filter(needsDecision).map((message) => message.taskId));
   const tasks = state.tasks
     .filter((task) => {
       const bucket =
-        task.status === "done" || task.status === "cancelled"
+        task.status === "done"
           ? "delivered"
-          : !!task.proposedVerificationRecipe || questions.has(task.id)
-            ? "needs-you"
-            : task.status === "blocked" || task.status === "verifying"
+          : task.status === "cancelled"
+            ? "all"
+            : task.proposedVerificationRecipe ||
+                questions.has(task.id) ||
+                task.decisions?.some((decision) => decision.answer === undefined) ||
+                task.status === "blocked"
               ? "needs-you"
               : "working";
-      return bucket === tab;
+      return (
+        (tab === "all" || bucket === tab) &&
+        (!filter.projectId || task.projectId === filter.projectId) &&
+        (!query || `${task.title} ${task.outcome} ${task.note}`.toLocaleLowerCase().includes(query))
+      );
     })
     .sort((a, b) => a.priority - b.priority || b.updatedAt.localeCompare(a.updatedAt));
   const ids = new Set(state.tasks.map((task) => task.id));
@@ -40,7 +52,9 @@ export function gladosInboxRows(state: PitbossSnapshot, tab: GladosInboxTab): Gl
     (message) =>
       !message.acknowledged &&
       (!message.taskId || !ids.has(message.taskId)) &&
-      (needsDecision(message) ? tab === "needs-you" : tab === "working"),
+      !filter.projectId &&
+      (!query || message.text.toLocaleLowerCase().includes(query)) &&
+      (tab === "all" || (needsDecision(message) ? tab === "needs-you" : tab === "working")),
   );
   return [
     ...messages.map((message) => ({ key: `message:${message.id}`, message })),
@@ -50,7 +64,7 @@ export function gladosInboxRows(state: PitbossSnapshot, tab: GladosInboxTab): Gl
 
 export function gladosReceiptStatus(task: PitbossTask, state: PitbossSnapshot, now: number) {
   const run = task.verification;
-  if (!run) return "Reported evidence";
+  if (!run) return task.evidence.length ? "Reported evidence" : "Evidence not ready yet";
   if (run.state !== "completed") return `Verification ${run.state}`;
   if (run.receipt?.expiresAt && Date.parse(run.receipt.expiresAt) <= now)
     return "Evidence expired — check again";
@@ -117,4 +131,45 @@ export function gladosNewTask(input: {
       ? { type: "worktree", baseRef: "HEAD" }
       : { type: "root" },
   };
+}
+
+/** Explicit user activation preserves scope and asks the server to apply coordinator permissions. */
+export function gladosFullAuto(brief: PitbossBrief): PitbossAction {
+  return {
+    type: "brief",
+    brief: {
+      ...brief,
+      coordinatorRuntimeMode: "full-access",
+      workerRuntimeMode: "full-access",
+      verificationMode: "automatic",
+    },
+    applyCoordinatorPermissions: true,
+  };
+}
+
+export function gladosWorkKind(task: PitbossTask, state: PitbossSnapshot) {
+  const recipe = verificationRecipeForTask(state, task);
+  if (!recipe) return "Outcome";
+  return recipe.mode === "artifact"
+    ? "Files & research"
+    : recipe.mode === "observation"
+      ? "Host observation"
+      : "Code";
+}
+
+export function gladosWorkStatus(task: PitbossTask) {
+  switch (task.status) {
+    case "done":
+      return "Delivered";
+    case "active":
+      return "Working";
+    case "verifying":
+      return "In review";
+    case "blocked":
+      return "Waiting";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return "Planned";
+  }
 }
