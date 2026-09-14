@@ -432,21 +432,40 @@ it.effect(
       expect(h.permissionModes).toEqual(["full-access"]);
     }).pipe(Effect.provide(services)),
 );
-it.effect("an ordinary brief edit does not reapply a previous coordinator permission choice", () =>
-  Effect.gen(function* () {
-    const h = yield* harness;
-    yield* h.command({
-      type: "brief",
-      brief: {
+it.effect(
+  "priority-only saves retain a manual permission downgrade; explicit same-value full auto reapplies it",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const savedBrief = {
         ...(yield* h.store.read()).role!.brief,
-        coordinatorRuntimeMode: "full-access",
-        priorities: "Updated priorities",
-      },
-    });
-    yield* h.drain();
-    expect(h.permissionModes).toEqual([]);
-    expect(h.projections.get(boss)!.thread.runtimeMode).toBe("approval-required");
-  }).pipe(Effect.provide(services)),
+        coordinatorRuntimeMode: "full-access" as const,
+        workerRuntimeMode: "full-access" as const,
+      };
+      yield* h.command({ type: "brief", brief: savedBrief, applyCoordinatorPermissions: true });
+      yield* h.drain();
+      expect(h.permissionModes).toEqual(["full-access"]);
+      expect(h.sent).toEqual([boss]);
+      // The completed turn and composer downgrade arrive independently of the saved brief.
+      const previous = h.projections.get(boss)!;
+      h.projections.set(boss, {
+        ...previous,
+        thread: { ...previous.thread, runtimeMode: "approval-required" },
+        runs: [],
+      });
+      const editedBrief = { ...savedBrief, priorities: "Updated priorities" };
+      yield* h.command({ type: "brief", brief: editedBrief, applyCoordinatorPermissions: false });
+      yield* h.drain();
+      expect((yield* h.store.read()).role!.brief).toEqual(editedBrief);
+      expect(h.projections.get(boss)!.thread.runtimeMode).toBe("approval-required");
+      expect(h.permissionModes).toEqual(["full-access"]);
+      expect(h.sent).toEqual([boss]);
+      yield* h.command({ type: "brief", brief: editedBrief, applyCoordinatorPermissions: true });
+      yield* h.drain();
+      expect(h.projections.get(boss)!.thread.runtimeMode).toBe("full-access");
+      expect(h.permissionModes).toEqual(["full-access", "full-access"]);
+      expect(h.sent).toEqual([boss, boss]);
+    }).pipe(Effect.provide(services)),
 );
 
 it.effect(

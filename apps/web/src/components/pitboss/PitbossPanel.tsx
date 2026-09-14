@@ -270,7 +270,7 @@ export function PitbossPanel(props: {
             {role.brief.coordinatorRuntimeMode &&
               role.brief.coordinatorRuntimeMode !== props.runtimeMode && (
                 <span role="status" className="text-xs text-amber-600">
-                  Permission change pending · inspect delivery errors; save brief to retry
+                  Current and saved GLaDOS permissions differ · select permissions in Brief to apply
                 </span>
               )}
             <span className="flex-1" />
@@ -429,14 +429,14 @@ export function PitbossPanel(props: {
                 busy={busy}
                 error={error}
                 onCancel={() => setEditingBrief(false)}
-                onSave={async (brief) => {
+                onSave={async (brief, applyCoordinatorPermissions) => {
                   if (
                     await command(
                       role
                         ? {
                             type: "brief",
                             brief,
-                            applyCoordinatorPermissions: brief.coordinatorRuntimeMode !== undefined,
+                            applyCoordinatorPermissions,
                           }
                         : {
                             type: "activate-home",

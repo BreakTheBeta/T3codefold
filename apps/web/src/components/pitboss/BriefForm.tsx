@@ -67,7 +67,7 @@ export function BriefForm({
   brief: PitbossBrief;
   busy: boolean;
   error: string | null;
-  onSave: (brief: PitbossBrief) => Promise<void>;
+  onSave: (brief: PitbossBrief, applyCoordinatorPermissions: boolean) => Promise<void>;
   onCancel: () => void;
 }) {
   const configs = useServerConfigs();
@@ -89,6 +89,7 @@ export function BriefForm({
   ]);
   const [maxWorkers, setMaxWorkers] = useState(brief.maxWorkers);
   const [maxAttempts, setMaxAttempts] = useState(brief.maxAttempts);
+  const [applyCoordinatorPermissions, setApplyCoordinatorPermissions] = useState(false);
   const [coordinatorRuntimeMode, setCoordinatorRuntimeMode] = useState(
     brief.coordinatorRuntimeMode,
   );
@@ -154,20 +155,23 @@ export function BriefForm({
       className="space-y-6 rounded-xl border border-border bg-background p-4 sm:p-5"
       onSubmit={(event) => {
         event.preventDefault();
-        void onSave({
-          ...brief,
-          priorities,
-          quality,
-          projectIds,
-          managedPeerIds,
-          workerModel: models[0]!,
-          alternateWorkerModel: models[1],
-          modelGuidance,
-          maxWorkers,
-          maxAttempts,
-          workerRuntimeMode,
-          ...(coordinatorRuntimeMode === undefined ? {} : { coordinatorRuntimeMode }),
-        });
+        void onSave(
+          {
+            ...brief,
+            priorities,
+            quality,
+            projectIds,
+            managedPeerIds,
+            workerModel: models[0]!,
+            alternateWorkerModel: models[1],
+            modelGuidance,
+            maxWorkers,
+            maxAttempts,
+            workerRuntimeMode,
+            ...(coordinatorRuntimeMode === undefined ? {} : { coordinatorRuntimeMode }),
+          },
+          applyCoordinatorPermissions,
+        );
       }}
     >
       {error && (
@@ -445,6 +449,7 @@ export function BriefForm({
             type="button"
             variant="outline"
             onClick={() => {
+              setApplyCoordinatorPermissions(true);
               setCoordinatorRuntimeMode("full-access");
               setWorkerRuntimeMode("full-access");
             }}
@@ -460,15 +465,16 @@ export function BriefForm({
         <Choice
           label="GLaDOS permissions"
           value={coordinatorRuntimeMode ?? "unchanged"}
-          onChange={(value) =>
+          onChange={(value) => {
+            setApplyCoordinatorPermissions(value !== "unchanged");
             setCoordinatorRuntimeMode(
               value === "unchanged"
                 ? undefined
                 : value === "full-access"
                   ? "full-access"
                   : "approval-required",
-            )
-          }
+            );
+          }}
           options={[
             { value: "unchanged", label: "Keep current permissions" },
             { value: "approval-required", label: "Ask for approvals" },
