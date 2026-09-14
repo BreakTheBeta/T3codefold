@@ -95,6 +95,9 @@ const harness = Effect.gen(function* () {
     [boss, projection(boss, a)],
   ]);
   const launched: ThreadId[] = [];
+  const launchModes: string[] = [];
+  const permissionModes: string[] = [];
+  let failPermissions = false;
   const sent: ThreadId[] = [];
   const interrupted: ThreadId[] = [];
   const failLaunch = new Set<ThreadId>();
@@ -132,6 +135,7 @@ const harness = Effect.gen(function* () {
         Effect.gen(function* () {
           const id = input.threadId!;
           launched.push(id);
+          launchModes.push(input.runtimeMode);
           if (failLaunch.has(id))
             return yield* new ThreadLaunchError({
               operation: "provision-worktree",
@@ -146,6 +150,25 @@ const harness = Effect.gen(function* () {
         }),
     }),
     Layer.mock(ThreadManagementService)({
+      dispatch: (command) =>
+        Effect.gen(function* () {
+          if (command.type === "thread.runtime-mode.set") {
+            if (failPermissions) {
+              failPermissions = false;
+              return yield* new OrchestratorProjectionError({
+                threadId: command.threadId,
+                cause: "fixture permission failure",
+              });
+            }
+            permissionModes.push(command.runtimeMode);
+            const p = projections.get(command.threadId)!;
+            projections.set(command.threadId, {
+              ...p,
+              thread: { ...p.thread, runtimeMode: command.runtimeMode },
+            });
+          }
+          return { sequence: 1, storedEvents: [] };
+        }),
       streamDomainEvents: Stream.never,
       getThreadProjection: (id) => Effect.succeed(projections.get(id)!),
       interruptThread: (input) =>
@@ -210,7 +233,22 @@ const harness = Effect.gen(function* () {
       model,
       maxWorkers: 1,
     }).pipe(Effect.map((s) => s.leads!.find((x) => x.id === id)!));
-  return { store, projections, launched, sent, interrupted, failLaunch, command, drain, lead };
+  return {
+    store,
+    projections,
+    launched,
+    launchModes,
+    permissionModes,
+    failPermissions: () => {
+      failPermissions = true;
+    },
+    sent,
+    interrupted,
+    failLaunch,
+    command,
+    drain,
+    lead,
+  };
 });
 const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
 it.effect(
@@ -337,5 +375,118 @@ it.effect(
       expect(answered.tasks[0]!.status).toBe("queued");
       expect(answered.tasks[1]!.attempts[0]!.state).toBe("running");
       expect(yield* h.store.rebuild()).toEqual(answered);
+    }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "starts workers with the permissions approved at assignment, even if the brief changes before delivery",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const original = (yield* h.store.read()).role!.brief;
+      yield* h.command({ type: "brief", brief: { ...original, workerRuntimeMode: "full-access" } });
+      yield* h.command({
+        type: "create",
+        taskId: "permissions",
+        projectId: a,
+        title: "Scoped work",
+        outcome: "Result",
+        criteria: "Evidence",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "root" },
+      });
+      yield* h.command({ type: "assign", taskId: "permissions" });
+      yield* h.command({
+        type: "brief",
+        brief: { ...original, workerRuntimeMode: "approval-required" },
+      });
+      yield* h.drain();
+      expect(h.launchModes).toEqual(["full-access"]);
+      expect((yield* h.store.read()).tasks[0]!.attempts[0]!.runtimeMode).toBe("full-access");
+    }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "applies explicitly saved coordinator permissions durably and recovers delivery failure without lying about runtime",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const brief = {
+        ...(yield* h.store.read()).role!.brief,
+        coordinatorRuntimeMode: "full-access" as const,
+      };
+      h.failPermissions();
+      yield* h.command({ type: "brief", brief, applyCoordinatorPermissions: true });
+      yield* h.drain();
+      expect(h.projections.get(boss)!.thread.runtimeMode).toBe("approval-required");
+      expect(
+        (yield* h.store.read()).messages.some((message) =>
+          message.text.includes("Work delivery needs attention"),
+        ),
+      ).toBe(true);
+      yield* h.command({ type: "brief", brief, applyCoordinatorPermissions: true });
+      yield* h.drain();
+      expect(h.projections.get(boss)!.thread.runtimeMode).toBe("full-access");
+      expect(h.permissionModes).toEqual(["full-access"]);
+    }).pipe(Effect.provide(services)),
+);
+it.effect("an ordinary brief edit does not reapply a previous coordinator permission choice", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "brief",
+      brief: {
+        ...(yield* h.store.read()).role!.brief,
+        coordinatorRuntimeMode: "full-access",
+        priorities: "Updated priorities",
+      },
+    });
+    yield* h.drain();
+    expect(h.permissionModes).toEqual([]);
+    expect(h.projections.get(boss)!.thread.runtimeMode).toBe("approval-required");
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "deliberately enabling scoped full auto starts one coordinator turn, after permissions are applied",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const brief = {
+        ...(yield* h.store.read()).role!.brief,
+        coordinatorRuntimeMode: "full-access" as const,
+        workerRuntimeMode: "full-access" as const,
+      };
+      yield* h.command({ type: "brief", brief, applyCoordinatorPermissions: true });
+      yield* h.drain();
+      expect(h.projections.get(boss)!.thread.runtimeMode).toBe("full-access");
+      expect(h.sent).toEqual([boss]);
+      yield* h.drain();
+      expect(h.sent).toEqual([boss]);
+    }).pipe(Effect.provide(services)),
+);
+it.effect(
+  "empty scope and paused work do not start a coordinator just because permissions were saved",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const brief = {
+        ...(yield* h.store.read()).role!.brief,
+        coordinatorRuntimeMode: "full-access" as const,
+        workerRuntimeMode: "full-access" as const,
+      };
+      yield* h.command({
+        type: "brief",
+        brief: { ...brief, projectIds: [] },
+        applyCoordinatorPermissions: true,
+      });
+      yield* h.drain();
+      expect(h.sent).toEqual([]);
+      yield* h.command({ type: "pause", paused: true });
+      yield* h.command({ type: "brief", brief, applyCoordinatorPermissions: true });
+      yield* h.drain();
+      expect(h.sent).toEqual([]);
     }).pipe(Effect.provide(services)),
 );

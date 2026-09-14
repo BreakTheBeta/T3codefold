@@ -113,6 +113,22 @@ export const layer = Layer.effectDiscard(
                 },
               });
             }
+            if (
+              (action.type === "elect" ||
+                (action.type === "brief" && action.applyCoordinatorPermissions)) &&
+              state.role
+            ) {
+              if (action.type === "elect" && state.role.threadId !== action.threadId) return;
+              const mode = state.role.brief.coordinatorRuntimeMode;
+              if (mode !== undefined) {
+                yield* threads.dispatch({
+                  type: "thread.runtime-mode.set",
+                  commandId: CommandId.make(`${effect.operation_id}:permissions`),
+                  threadId: state.role.threadId,
+                  runtimeMode: mode,
+                });
+              }
+            }
             if (action.type === "elect") {
               if (state.role?.threadId !== action.threadId) return;
               const electedThread = yield* threads.getProjectThread({
@@ -130,6 +146,32 @@ export const layer = Layer.effectDiscard(
                 commandId: CommandId.make(`${effect.operation_id}:pin`),
                 threadId: action.threadId,
               });
+            }
+            if (
+              ((action.type === "elect" && action.startCoordinator) ||
+                (action.type === "brief" && action.applyCoordinatorPermissions)) &&
+              state.role &&
+              !state.role.paused &&
+              state.role.brief.coordinatorRuntimeMode === "full-access" &&
+              state.role.brief.workerRuntimeMode === "full-access" &&
+              state.role.brief.projectIds.length > 0
+            ) {
+              const coordinator = yield* threads.getProjectThread({
+                projectId: state.role.projectId,
+                threadId: state.role.threadId,
+              });
+              if (!latestActiveRun(coordinator))
+                yield* threads.sendToThread({
+                  projectId: state.role.projectId,
+                  threadId: state.role.threadId,
+                  commandId: CommandId.make(`${effect.operation_id}:start`),
+                  messageId: MessageId.make(`${effect.operation_id}:start`),
+                  text: "Full auto is enabled for GLaDOS and new workers within the saved brief. Read work_read, inspect the approved projects, and create and assign bounded useful work from the saved priorities. Preserve existing tasks and decisions. Propose missing verification settings for user-owned saving; never treat conversation as saved configuration or waive verification. End your turn when no independent work is actionable.",
+                  mode: "auto",
+                  attachments: [],
+                  createdBy: "system",
+                  creationSource: "server",
+                });
             }
             if (action.type === "create-lead" || action.type === "lead-status") {
               const lead = activeLeads(state).find((entry) => entry.id === action.leadId);
@@ -173,7 +215,8 @@ export const layer = Layer.effectDiscard(
                 projectId: task.projectId,
                 title: task.title,
                 modelSelection: attempt.model,
-                runtimeMode: state.role?.brief.workerRuntimeMode ?? "approval-required",
+                runtimeMode:
+                  attempt.runtimeMode ?? state.role?.brief.workerRuntimeMode ?? "approval-required",
                 interactionMode: "default",
                 workspaceStrategy: task.workspaceStrategy,
                 initialMessage: {

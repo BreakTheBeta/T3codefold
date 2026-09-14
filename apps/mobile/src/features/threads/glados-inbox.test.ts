@@ -189,3 +189,33 @@ describe("GLaDOS mobile decisions", () => {
     if (split) expect(width - layout.listWidth).toBeGreaterThanOrEqual(428);
   });
 });
+
+it("new GLaDOS creation requests an environment home instead of electing the current repository thread", () => {
+  const action = gladosElection({
+    threadId: ThreadId.make("unrelated"),
+    projectId,
+    priorities: "Useful work",
+    modelSelection: model,
+  });
+  expect(action.type).toBe("activate-home");
+  expect(action).not.toHaveProperty("threadId");
+});
+it("surfaces unsaved verification proposals in Needs you without claiming approval", () => {
+  const proposed = {
+    ...task("setup", "queued"),
+    proposedVerificationRecipe: {
+      projectId,
+      version: 1,
+      name: "Checks",
+      doctor: "node --version",
+      verify: "node --test",
+      cleanup: "",
+      timeoutSeconds: 60,
+      artifacts: [],
+    },
+  };
+  expect(gladosInboxRows(snapshot([proposed]), "needs-you").map((row) => row.key)).toEqual([
+    "task:setup",
+  ]);
+  expect(gladosReceiptStatus(proposed, snapshot([proposed]), Date.now())).toBe("Reported evidence");
+});

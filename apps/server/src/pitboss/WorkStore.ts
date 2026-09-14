@@ -226,7 +226,8 @@ export const layer = Layer.effect(
               "cancel",
               "propose-coordination",
               "send-peer",
-            ].includes(action.type)
+            ].includes(action.type) ||
+            (action.type === "brief" && action.applyCoordinatorPermissions)
           ) {
             yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, ${action.type}, ${encodeJson(action)})`;
           }

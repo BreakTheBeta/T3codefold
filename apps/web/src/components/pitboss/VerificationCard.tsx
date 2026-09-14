@@ -66,6 +66,14 @@ export function VerificationCard({
   environmentId: EnvironmentId;
   command: (action: PitbossAction) => Promise<boolean>;
 }) {
+  const proposal = task.proposedVerificationRecipe;
+  const proposedSaved =
+    proposal &&
+    recipes.some(
+      (saved) =>
+        (saved.profileId ?? "default") === (proposal.profileId ?? "default") &&
+        saved.version >= proposal.version,
+    );
   const run = task.verification;
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -79,6 +87,24 @@ export function VerificationCard({
       className="my-4 space-y-3 rounded-xl border border-border bg-muted/20 p-4"
       aria-label="Captured verification"
     >
+      {proposal && !proposedSaved && (
+        <div className="rounded-lg border border-primary/40 p-3">
+          <h4 className="text-sm font-semibold">Verification setup proposed</h4>
+          <p className="my-2 text-xs text-muted-foreground">
+            {proposal.name} · Not saved. A conversational answer does not approve these commands.
+            Review and save the profile below; any pending task decision remains yours to resolve.
+          </p>
+          <Button
+            size="sm"
+            onClick={() => {
+              setCreating(true);
+              setEditing(true);
+            }}
+          >
+            Review proposed settings
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h4 className="text-sm font-semibold">Captured verification</h4>
@@ -149,14 +175,24 @@ export function VerificationCard({
         <DialogPopup className="max-w-2xl max-h-[90dvh] overflow-y-auto p-5">
           <DialogTitle>{creating ? "New evidence profile" : "Edit evidence profile"}</DialogTitle>
           <DialogDescription>
-            Approve how GLaDOS checks this kind of work. Select the profile separately for each
-            task.
+            Review how GLaDOS checks this kind of work. Saving approves the profile and selects it
+            for this task.
           </DialogDescription>
           {editing && (
             <RecipeEditor
               key={recipe?.version ?? 0}
               task={task}
-              recipe={creating ? undefined : recipe}
+              recipe={
+                creating && proposal
+                  ? recipes.find(
+                      (entry) =>
+                        (entry.profileId ?? "default") === (proposal.profileId ?? "default"),
+                    )
+                  : creating
+                    ? undefined
+                    : recipe
+              }
+              proposal={creating && !proposedSaved ? proposal : undefined}
               environmentId={environmentId}
               busy={busy}
               onSave={async (action) => {
@@ -257,29 +293,36 @@ export function VerificationCard({
 function RecipeEditor({
   task,
   recipe,
+  proposal,
   environmentId,
   busy,
   onSave,
 }: {
   task: PitbossTask;
   recipe: PitbossVerificationRecipe | undefined;
+  proposal: PitbossVerificationRecipe | undefined;
   environmentId: EnvironmentId;
   busy: boolean;
   onSave: (action: PitbossAction) => Promise<boolean>;
 }) {
   const formId = useId();
-  const [profileId, setProfileId] = useState(recipe?.profileId ?? (recipe ? "default" : ""));
-  const [mode, setMode] = useState<"commit" | "artifact" | "observation">(recipe?.mode ?? "commit");
-  const [inputPath, setInputPath] = useState(recipe?.inputPath ?? "");
-  const [target, setTarget] = useState(recipe?.target ?? "");
-  const [maxAge, setMaxAge] = useState(recipe?.maxAgeSeconds ?? 0);
-  const [effects, setEffects] = useState<"observe" | "host-commands">(recipe?.effects ?? "observe");
-  const [name, setName] = useState(recipe?.name ?? "Project acceptance");
-  const [doctor, setDoctor] = useState(recipe?.doctor ?? "");
-  const [verify, setVerify] = useState(recipe?.verify ?? task.verifyCommand);
-  const [cleanup, setCleanup] = useState(recipe?.cleanup ?? "");
-  const [artifacts, setArtifacts] = useState(recipe?.artifacts.join("\n") ?? "");
-  const [timeout, setTimeout] = useState(recipe?.timeoutSeconds ?? 60);
+  const initial = proposal ?? recipe;
+  const [profileId, setProfileId] = useState(initial?.profileId ?? "default");
+  const [mode, setMode] = useState<"commit" | "artifact" | "observation">(
+    initial?.mode ?? "commit",
+  );
+  const [inputPath, setInputPath] = useState(initial?.inputPath ?? "");
+  const [target, setTarget] = useState(initial?.target ?? "");
+  const [maxAge, setMaxAge] = useState(initial?.maxAgeSeconds ?? 0);
+  const [effects, setEffects] = useState<"observe" | "host-commands">(
+    initial?.effects ?? "observe",
+  );
+  const [name, setName] = useState(initial?.name ?? "Project acceptance");
+  const [doctor, setDoctor] = useState(initial?.doctor ?? "");
+  const [verify, setVerify] = useState(initial?.verify ?? task.verifyCommand);
+  const [cleanup, setCleanup] = useState(initial?.cleanup ?? "");
+  const [artifacts, setArtifacts] = useState(initial?.artifacts.join("\n") ?? "");
+  const [timeout, setTimeout] = useState(initial?.timeoutSeconds ?? 60);
   const fields = [
     ["Recipe name", name, setName],
     ["Readiness command", doctor, setDoctor],
@@ -294,6 +337,7 @@ function RecipeEditor({
         event.preventDefault();
         void onSave({
           type: "verification-recipe",
+          selectForTaskId: task.id,
           recipe: {
             projectId: task.projectId,
             profileId: profileId.trim(),
@@ -447,7 +491,7 @@ function RecipeEditor({
         </select>
       </label>
       <Button type="submit" size="sm" disabled={busy}>
-        Approve recipe v{(recipe?.version ?? 0) + 1}
+        Save and select profile v{(recipe?.version ?? 0) + 1}
       </Button>
     </form>
   );

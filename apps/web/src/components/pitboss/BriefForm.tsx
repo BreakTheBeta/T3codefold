@@ -89,6 +89,9 @@ export function BriefForm({
   ]);
   const [maxWorkers, setMaxWorkers] = useState(brief.maxWorkers);
   const [maxAttempts, setMaxAttempts] = useState(brief.maxAttempts);
+  const [coordinatorRuntimeMode, setCoordinatorRuntimeMode] = useState(
+    brief.coordinatorRuntimeMode,
+  );
   const [workerRuntimeMode, setWorkerRuntimeMode] = useState(
     brief.workerRuntimeMode ?? "approval-required",
   );
@@ -163,6 +166,7 @@ export function BriefForm({
           maxWorkers,
           maxAttempts,
           workerRuntimeMode,
+          ...(coordinatorRuntimeMode === undefined ? {} : { coordinatorRuntimeMode }),
         });
       }}
     >
@@ -225,6 +229,11 @@ export function BriefForm({
               </label>
             ))}
           </div>
+          {projectIds.length === 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              No project work authorized. You can create the home now and add scope later.
+            </p>
+          )}
           {projects.length === 0 && (
             <p className="text-sm text-muted-foreground">
               Waiting for this environment’s projects. Saved project scope is retained.
@@ -429,7 +438,43 @@ export function BriefForm({
           />
         </label>
       </fieldset>
-      <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-3">
+      <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
+        <legend className="mb-2 text-sm font-semibold">Autonomy and permissions</legend>
+        <div className="sm:col-span-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setCoordinatorRuntimeMode("full-access");
+              setWorkerRuntimeMode("full-access");
+            }}
+          >
+            Select full auto for GLaDOS and new workers
+          </Button>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Takes effect when you save. GLaDOS may create and assign workers within this brief.
+            Existing worker runs keep their permissions. Verification, task decisions and shared
+            leadership approvals still apply.
+          </p>
+        </div>
+        <Choice
+          label="GLaDOS permissions"
+          value={coordinatorRuntimeMode ?? "unchanged"}
+          onChange={(value) =>
+            setCoordinatorRuntimeMode(
+              value === "unchanged"
+                ? undefined
+                : value === "full-access"
+                  ? "full-access"
+                  : "approval-required",
+            )
+          }
+          options={[
+            { value: "unchanged", label: "Keep current permissions" },
+            { value: "approval-required", label: "Ask for approvals" },
+            { value: "full-access", label: "Full access within brief" },
+          ]}
+        />
         <Choice
           label="Concurrent workers"
           value={String(maxWorkers)}
@@ -461,12 +506,7 @@ export function BriefForm({
         />
       </fieldset>
       <div className="flex items-center gap-2 border-t border-border pt-4">
-        <Button
-          size="sm"
-          className="h-9 min-w-24 sm:h-9"
-          type="submit"
-          disabled={busy || projectIds.length === 0}
-        >
+        <Button size="sm" className="h-9 min-w-24 sm:h-9" type="submit" disabled={busy}>
           Save brief
         </Button>
         <Button

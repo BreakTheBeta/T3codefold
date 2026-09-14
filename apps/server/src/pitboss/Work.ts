@@ -177,6 +177,7 @@ export function decide(
       state.role?.threadId === actor.threadId &&
       command.authorityGeneration === state.role.generation);
   const userActions = [
+    "activate-home",
     "elect",
     "dismiss",
     "brief",
@@ -188,6 +189,7 @@ export function decide(
     fail("Only the user can change GLaDOS authority or limits.", "forbidden");
   if (!["report", "submit", "request-decision"].includes(action.type) && !manager)
     fail("Only the current GLaDOS or user can manage work.", "forbidden");
+  if (action.type === "activate-home") fail("Open GLaDOS through the environment client.");
   const next = { ...state, revision: state.revision + 1 };
   if (
     lead &&
@@ -201,6 +203,7 @@ export function decide(
       "review",
       "verify",
       "verification-profile",
+      "propose-verification",
       "request-decision",
       "rework",
       "cancel",
@@ -245,6 +248,22 @@ export function decide(
       fail(
         "Observation profiles require a target, environment, freshness limit and explicit effect approval.",
       );
+    const selectedTask = action.selectForTaskId
+      ? state.tasks.find((task) => task.id === action.selectForTaskId)
+      : undefined;
+    if (
+      action.selectForTaskId &&
+      (!selectedTask ||
+        selectedTask.projectId !== action.recipe.projectId ||
+        selectedTask.homeEnvironmentId)
+    )
+      fail("Select verification only for a local task in this project.");
+    if (
+      selectedTask &&
+      (hasUnresolvedWriter(selectedTask) ||
+        ["pending", "running"].includes(selectedTask.verification?.state ?? ""))
+    )
+      fail("Stop the task's writer and verification before changing its proof requirements.");
     return {
       ...next,
       verificationRecipes: [
@@ -255,20 +274,38 @@ export function decide(
         ),
         action.recipe,
       ],
-      tasks: state.tasks.map((task) =>
-        task.projectId === action.recipe.projectId &&
-        task.verificationProfileId !== null &&
-        (task.verificationProfileId ?? "default") === (action.recipe.profileId ?? "default") &&
-        task.status === "done"
-          ? {
-              ...task,
-              status: "verifying",
-              acceptedEvidenceId: null,
-              revision: task.revision + 1,
-              note: "Verification recipe changed; rerun before acceptance.",
-            }
-          : task,
-      ),
+      tasks: state.tasks.map((task) => {
+        if (task.projectId !== action.recipe.projectId) return task;
+        const selects = task.id === action.selectForTaskId;
+        const matches =
+          (task.verificationProfileId ?? "default") === (action.recipe.profileId ?? "default") &&
+          task.verificationProfileId !== null;
+        const { proposedVerificationRecipe, ...rest } = task;
+        const removesProposal =
+          proposedVerificationRecipe &&
+          (proposedVerificationRecipe.profileId ?? "default") ===
+            (action.recipe.profileId ?? "default");
+        if (!selects && !removesProposal && !(matches && task.status === "done")) return task;
+        const base = removesProposal ? rest : task;
+        return {
+          ...base,
+          ...(selects
+            ? {
+                verificationProfileId: action.recipe.profileId ?? "default",
+                criteriaVersion: task.criteriaVersion + 1,
+                acceptedEvidenceId: null,
+              }
+            : {}),
+          ...(task.status === "done" && (matches || selects)
+            ? {
+                status: "verifying" as const,
+                acceptedEvidenceId: null,
+                note: "Verification recipe changed; rerun before acceptance.",
+              }
+            : {}),
+          revision: task.revision + 1,
+        };
+      }),
     };
   }
   if (action.type === "create-lead") {
@@ -663,6 +700,25 @@ export function decide(
   if (!existing) return fail("Task not found.");
   if (!user && manager && !state.role?.brief.projectIds.includes(existing.projectId))
     fail("Project is outside the current GLaDOS brief.", "forbidden");
+  if (action.type === "propose-verification") {
+    if (existing.homeEnvironmentId || action.recipe.projectId !== existing.projectId)
+      fail("Propose verification at the task home for its own project.");
+    if (lead && existing.leadId !== lead.id)
+      fail("This task belongs to another manager.", "forbidden");
+    return {
+      ...next,
+      tasks: state.tasks.map((task) =>
+        task.id === existing.id
+          ? {
+              ...task,
+              proposedVerificationRecipe: action.recipe,
+              revision: task.revision + 1,
+              updatedAt: now,
+            }
+          : task,
+      ),
+    };
+  }
   const latest = existing.attempts.at(-1);
   const worker =
     actor.type === "agent" &&
@@ -933,6 +989,7 @@ export function decide(
               : {}),
             state: "pending",
             model: action.model ?? role.brief.workerModel,
+            runtimeMode: role.brief.workerRuntimeMode ?? "approval-required",
             createdAt: now,
             detail: "",
           },
@@ -1170,6 +1227,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
       `Approved project verification recipes: ${JSON.stringify((state.verificationRecipes ?? []).map(({ projectId, profileId, mode, environmentId, name, version, enabled }) => ({ projectId, profileId: profileId ?? "default", mode: mode ?? "commit", environmentId: environmentId ?? "task home", name, version, enabled: enabled !== false })))}. Select an approved profile with verification-profile {taskId,profileId} before assigning work. A project can contain code, artifact/research and host-observation tasks. Missing hardware or environment capability is inconclusive, not permission to substitute weaker proof. Profile changes after attempts and reported-only proof require the user. Managers request verify with taskId and the latest evidenceId after stopping writers; inspect the server receipt, record review, then accept. Observe a fresh result before reviewing an observation; its evidence expires. Recipes are user-owned.`,
       "Adaptive delegation: use a direct worker for bounded work. For sustained project context, shared decisions or several related workers, create-lead with leadId, projectId, charter, model and maxWorkers. Use a configured model available on this environment. Leads cannot create subleads. They share your worker allowance. Reuse dormant leads with lead-status. Send durable instructions to a lead with lead-message {leadId,text}. Use manage-task to transfer existing local work without restarting writers. You remain the user's contact; leads handle worker questions and send lead-report. Inspect their combined evidence. Do not duplicate lead-owned tasks or poll them. End your turn while waiting.",
       `Project leads: ${JSON.stringify(state.leads ?? [])}`,
+      "Setup recovery: distinguish missing saved configuration from missing tools/hardware and product decisions. For missing verification, inspect the project and propose concrete readiness, verification, cleanup and artifact settings with propose-verification {taskId,recipe}. The client presents them for user-owned review and saving. A proposal is not approved configuration; full discretion or continue in chat does not save it. Reuse a pending proposal instead of asking the same question repeatedly. Continue useful inspection and unrelated approved work. Never weaken evidence to bypass missing capabilities. Create and assign bounded workers within the saved brief without asking again for routine delegation.",
       `Brief: ${JSON.stringify(state.role.brief)}`,
       "Worker selection: workerModel is the default and alternateWorkerModel is an optional alternative, each with provider-specific options including thinking level. Choose per task using modelGuidance, complexity, evidence and availability; do not switch models solely because an attempt failed. Use assign.model with the chosen configuration; omission uses the default. Explain non-default choices or escalation with work_command report. Discover model options with orchestrator_capabilities for the destination when reachable. For remote work ask the task-home GLaDOS for its worker configurations through send-peer, or omit assign.model to use its default. Never assume this environment's provider instance IDs or catalogs exist elsewhere. A different model does not raise limits or permit concurrent writers on a retained candidate.",
       `Shared source authority: ${JSON.stringify(state.sourceAuthorities ?? [])}. Environments remain independent outside these scopes; unavailable peers do not authorize takeover.`,

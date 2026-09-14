@@ -27,7 +27,7 @@ export function gladosInboxRows(state: PitbossSnapshot, tab: GladosInboxTab): Gl
       const bucket =
         task.status === "done" || task.status === "cancelled"
           ? "delivered"
-          : questions.has(task.id)
+          : !!task.proposedVerificationRecipe || questions.has(task.id)
             ? "needs-you"
             : task.status === "blocked" || task.status === "verifying"
               ? "needs-you"
@@ -81,9 +81,9 @@ export function gladosElection(input: {
   brief?: PitbossBrief;
 }): PitbossAction {
   return {
-    type: "elect",
-    threadId: input.threadId,
-    projectId: input.projectId,
+    ...(input.brief
+      ? { type: "elect" as const, threadId: input.threadId, projectId: input.projectId }
+      : { type: "activate-home" as const }),
     brief: input.brief ?? {
       priorities: input.priorities,
       quality: "Prove the requested outcome and preserve unrelated work.",
