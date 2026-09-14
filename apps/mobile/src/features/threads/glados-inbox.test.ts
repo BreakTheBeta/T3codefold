@@ -148,7 +148,43 @@ describe("GLaDOS mobile decisions", () => {
       Array.from({ length: 150 }, (_, i) => task(`task-${i}`, "blocked")),
       [message("orphan", "removed", "question")],
     );
-    expect(gladosInboxRows(state, "needs-you")).toHaveLength(151);
+    expect(gladosInboxRows(state, "needs-you")).toHaveLength(1);
+    expect(gladosInboxRows(state, "working")).toHaveLength(150);
+  });
+  it("keeps worker questions and submitted results with GLaDOS, not the user", () => {
+    const state = snapshot(
+      [task("repair", "blocked"), task("review", "verifying")],
+      [
+        { ...message("worker-help", "repair", "question"), threadId: ThreadId.make("worker") },
+        message("result", "review", "result"),
+        { ...message("peer-help", null, "question"), sourcePeerId: "peer" },
+      ],
+    );
+    expect(gladosInboxRows(state, "needs-you")).toEqual([]);
+    expect(gladosInboxRows(state, "working").map((row) => row.key)).toEqual([
+      "message:peer-help",
+      "task:repair",
+      "task:review",
+    ]);
+    const choice = {
+      ...state,
+      tasks: [
+        {
+          ...state.tasks[0]!,
+          decisions: [
+            {
+              id: "target",
+              question: "Which target?",
+              options: ["A", "B"],
+              recommendation: "A",
+              requestedAt: "2026-09-15",
+            },
+          ],
+        },
+      ],
+    };
+    expect(gladosInboxRows(choice, "needs-you").map((row) => row.key)).toEqual(["task:repair"]);
+    expect(gladosInboxRows(choice, "working").some((row) => row.key === "task:repair")).toBe(false);
   });
   it("marks expired observations as stale even when the captured command passed", () => {
     let t = task("health", "verifying");

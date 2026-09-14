@@ -1,18 +1,10 @@
+import { workNeedsUserInput } from "@t3tools/contracts";
 import type { PitbossTask, PitbossVerificationRecipe } from "@t3tools/contracts";
 
 export const workFilters = ["All", "Needs you", "Working", "Delivered"] as const;
 export type WorkFilter = (typeof workFilters)[number];
 
-export function needsAttention(
-  task: Pick<PitbossTask, "status" | "decisions" | "proposedVerificationRecipe">,
-) {
-  return (
-    !["done", "cancelled"].includes(task.status) &&
-    (task.status === "blocked" ||
-      !!task.proposedVerificationRecipe ||
-      !!task.decisions?.some((decision) => decision.answer === undefined))
-  );
-}
+export const needsAttention = workNeedsUserInput;
 
 /** Filters never truncate: every matching outcome remains reachable in the work list. */
 export function filterWork<
@@ -35,7 +27,9 @@ export function filterWork<
         (!query || `${task.title} ${task.outcome}`.toLocaleLowerCase().includes(query)) &&
         (filter === "All" ||
           (filter === "Needs you" && needsAttention(task)) ||
-          (filter === "Working" && ["queued", "active", "verifying"].includes(task.status)) ||
+          (filter === "Working" &&
+            !["done", "cancelled"].includes(task.status) &&
+            !needsAttention(task)) ||
           (filter === "Delivered" && task.status === "done")),
     )
     .toSorted((a, b) => a.priority - b.priority);

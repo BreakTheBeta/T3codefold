@@ -31,11 +31,29 @@ describe("GLaDOS work discovery", () => {
       ),
     ).toEqual([first, second]);
   });
-  it("shows blockers as needing attention and keeps cancelled work out of delivered results", () => {
+  it("keeps operational blockers with GLaDOS and keeps cancelled work out of delivered results", () => {
     const blocked = task("Missing hardware", "blocked");
     const done = task("Research report", "done");
     const cancelled = task("Cancelled render", "cancelled");
-    expect(filterWork([blocked, done, cancelled], "Needs you", "", "")).toEqual([blocked]);
+    expect(filterWork([blocked, done, cancelled], "Needs you", "", "")).toEqual([]);
+    expect(filterWork([blocked, done, cancelled], "Working", "", "")).toEqual([blocked]);
+    const decision = {
+      ...blocked,
+      decisions: [
+        {
+          id: "choice",
+          question: "Which target?",
+          options: ["A", "B"],
+          recommendation: "A",
+          requestedAt: "2026-09-15",
+        },
+      ],
+    };
+    expect(filterWork([decision], "Needs you", "", "")).toEqual([decision]);
+    expect(filterWork([decision], "Working", "", "")).toEqual([]);
+    expect(
+      needsAttention({ ...decision, decisions: [{ ...decision.decisions[0]!, answer: "A" }] }),
+    ).toBe(false);
     expect(filterWork([blocked, done, cancelled], "Delivered", "", "")).toEqual([done]);
     expect(needsAttention(cancelled)).toBe(false);
   });

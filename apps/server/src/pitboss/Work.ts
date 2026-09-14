@@ -974,19 +974,27 @@ export function decide(
           .length >= lead.maxWorkers
       )
         fail("Project lead worker allocation is full.");
+      // A routine retry retains its last candidate. Only stopped writers are reusable;
+      // readiness above still fences running writers, decisions and attempt limits.
+      const resumeAttemptId =
+        action.resumeAttemptId ??
+        (!legacyReplay &&
+        task.workspaceStrategy.type === "worktree" &&
+        task.workspaceStrategy.branch &&
+        latest?.state === "stopped" &&
+        latest.workspacePath
+          ? latest.id
+          : undefined);
       if (
         !legacyReplay &&
-        !action.resumeAttemptId &&
-        task.attempts.length > 0 &&
+        !resumeAttemptId &&
         task.workspaceStrategy.type === "worktree" &&
         task.workspaceStrategy.branch &&
         task.attempts.some((attempt) => attempt.workspacePath)
       )
-        fail(
-          "This named worktree already exists. Use resumeAttemptId for its stopped attempt, or choose a fresh workspace branch.",
-        );
-      if (action.resumeAttemptId) {
-        const previous = task.attempts.find((attempt) => attempt.id === action.resumeAttemptId);
+        fail("The previous workspace cannot be reused until its writer is confirmed stopped.");
+      if (resumeAttemptId) {
+        const previous = task.attempts.find((attempt) => attempt.id === resumeAttemptId);
         if (!previous?.workspacePath || previous.state !== "stopped")
           fail("Resuming a candidate requires a stopped attempt with a recorded workspace.");
         if (
@@ -1277,6 +1285,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
         ? "Automatic verification setup is enabled. Inspect the project and its available capabilities, then use propose-verification {taskId,recipe} to save and select concrete readiness, verification, cleanup and artifact settings for unattempted work. Do this yourself; do not ask the user to fill forms or assign routine workers. Use a task-specific profile when an existing profile is already used by attempted work. Do not weaken evidence: changing proof after attempts still requires the user. Missing tools or hardware are inconclusive, not a reason to substitute weaker proof. Ask only for an actual product decision, unavailable capability or authority beyond the brief. Pending decisions park only their task; continue independent work."
         : "Setup recovery: distinguish missing saved configuration from missing tools/hardware and product decisions. For missing verification, inspect the project and propose concrete readiness, verification, cleanup and artifact settings with propose-verification {taskId,recipe}. The client presents them for user-owned review and saving. A proposal is not approved configuration; full discretion or continue in chat does not save it. Reuse a pending proposal instead of asking the same question repeatedly. Continue useful inspection and unrelated approved work. Never weaken evidence to bypass missing capabilities. Create and assign bounded workers within the saved brief without asking again for routine delegation.",
       "Chat is the primary work interface. When the user describes an outcome or refines a request, create or update the durable tasks yourself: fill in the outcome, acceptance criteria, dependencies, workspace and verification plan from the conversation and project evidence. Keep the user-facing work view current through work_command. Do not ask the user to enter routine task fields, author recipes or assign workers. Explain meaningful assumptions briefly and proceed within the saved brief. Ask only when an actual decision or a change beyond saved authority is required. Respect manual verification review when selected; prepare its fields yourself. Never claim a task or result exists until the command succeeds.",
+      "Own recovery before escalating: inspect worker questions and launch/check receipts, distinguish a failing solution from unavailable infrastructure, and answer routine choices within the brief. Preserve partial files. Stop and confirm the previous writer before rework/reopen/assign; named worktree retries automatically retain the latest stopped workspace, or use resumeAttemptId for a specific stopped candidate. Keep the existing verification contract and attempt limits. Never repeatedly retry the same forbidden action, spend unlimited attempts, or turn missing hardware into weaker proof. Request a user decision only for a concrete choice or capability you cannot resolve; include the evidence and a recommendation. Do not forward raw worker questions or ask for permissions already saved. Continue unrelated ready work while a task waits.",
       `Brief: ${JSON.stringify(state.role.brief)}`,
       "Worker selection: workerModel is the default and alternateWorkerModel is an optional alternative, each with provider-specific options including thinking level. Choose per task using modelGuidance, complexity, evidence and availability; do not switch models solely because an attempt failed. Use assign.model with the chosen configuration; omission uses the default. Explain non-default choices or escalation with work_command report. Discover model options with orchestrator_capabilities for the destination when reachable. For remote work ask the task-home GLaDOS for its worker configurations through send-peer, or omit assign.model to use its default. Never assume this environment's provider instance IDs or catalogs exist elsewhere. A different model does not raise limits or permit concurrent writers on a retained candidate.",
       `Shared source authority: ${JSON.stringify(state.sourceAuthorities ?? [])}. Environments remain independent outside these scopes; unavailable peers do not authorize takeover.`,
@@ -1325,7 +1334,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
     `Attempt ${task.attempts.length} of ${state.role?.brief.maxAttempts ?? task.attempts.length}. Ask for help or report a blocker when the prescribed verification cannot run.`,
     `Source observation (context only): ${JSON.stringify(task.source)}`,
     "Evidence: commit profiles use commit:<full SHA>; artifact profiles use sha256:<SHA-256 of inputPath file bytes> (a research packet should include dated sources and unknowns); observation profiles use observation:<approved target>. Run readiness for required hardware/tools. Report unavailable checks and qualitative limitations honestly. A supported negative finding may meet the task criteria.",
-    "If blocked on user judgment, request-decision {taskId,question,options,recommendation}. Your task is parked and your retained workspace is preserved while the rest of the team continues. Do not poll or hold a worker slot waiting for an answer.",
+    'Route questions and recoverable blockers to your manager first with report {taskId,kind:"question",text}. Include the concrete failure, evidence, what you tried and your recommended next step. The manager owns routine decisions and recovery within the brief. Continue independent parts of your assignment when possible; otherwise end the turn after recording the question, without claiming completion. Reserve request-decision for an actual user-only decision that the manager cannot resolve; never ask the user to fill task or verification forms.',
     `Task verification profile: ${JSON.stringify(verificationRecipeForTask(state, task) ?? null)}`,
     `Verification: ${task.verifyCommand || "Report what can and cannot be demonstrated; do not invent a pass."}`,
     `Submit shape: {commandId:"unique-id",expectedRevision:<revision from work_read>,action:{type:"submit",taskId:"${task.id}",attemptId:"${task.attempts.at(-1)!.id}",candidate:"commit:<full SHA>",criteriaVersion:${task.criteriaVersion},verdict:"pass",summary:"What you actually checked and gaps",command:"Exact command run",artifactUrls:[]}}. For help use action {type:"report",taskId:"${task.id}",kind:"question",text:"..."}. Your observation may tolerate unrelated portfolio revision changes, but your attempt and criteria must still match. Do not end without submitting your evidence; a chat answer alone is not a submission.`,

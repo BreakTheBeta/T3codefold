@@ -1,5 +1,7 @@
 import {
   verificationRecipeForTask,
+  workNeedsUserInput,
+  isUserWorkMessage,
   hasCurrentVerification,
   type PitbossAction,
   type PitbossBrief,
@@ -16,8 +18,7 @@ export type GladosInboxTab = "all" | "needs-you" | "working" | "delivered";
 export type GladosInboxRow =
   | { key: string; task: PitbossTask; message?: never }
   | { key: string; task?: never; message: PitbossMessage };
-const needsDecision = (message: PitbossMessage) =>
-  message.kind !== "progress" && !message.acknowledged;
+const needsDecision = (message: PitbossMessage) => isUserWorkMessage(message);
 
 /** Each task appears once; attached questions travel with its evidence, not as duplicate conversations. */
 export function gladosInboxRows(
@@ -34,10 +35,7 @@ export function gladosInboxRows(
           ? "delivered"
           : task.status === "cancelled"
             ? "all"
-            : task.proposedVerificationRecipe ||
-                questions.has(task.id) ||
-                task.decisions?.some((decision) => decision.answer === undefined) ||
-                task.status === "blocked"
+            : workNeedsUserInput(task) || questions.has(task.id)
               ? "needs-you"
               : "working";
       return (
