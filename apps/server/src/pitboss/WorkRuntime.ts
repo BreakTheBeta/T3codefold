@@ -185,7 +185,11 @@ export const layer = Layer.effectDiscard(
               });
               yield* store.updateAttempt(task.id, attempt.id, "running", "Worker launched");
             }
-            if (action.type === "cancel" || action.type === "rework") {
+            if (
+              action.type === "cancel" ||
+              action.type === "rework" ||
+              action.type === "request-decision"
+            ) {
               const task = state.tasks.find((task) => task.id === action.taskId);
               for (const attempt of task?.attempts ?? []) {
                 if (attempt.state !== "stop_requested" || !task) continue;
@@ -193,7 +197,7 @@ export const layer = Layer.effectDiscard(
                   projectId: task.projectId,
                   threadId: attempt.threadId,
                   commandId: CommandId.make(`${effect.operation_id}:stop:${attempt.id}`),
-                  reason: action.note,
+                  reason: action.type === "request-decision" ? action.question : action.note,
                 });
                 if (stopped.type !== "interrupt_requested")
                   yield* store.updateAttempt(
@@ -346,7 +350,7 @@ export const layer = Layer.effectDiscard(
           messageId: MessageId.make(
             `pitboss:wake:${recipient.id}:${recipient.generation}:${state.revision}`,
           ),
-          text: "Review current work and unresolved messages with work_read. Handle your obligations within the charter, then acknowledge them. When waiting, end the turn; do not poll.",
+          text: "Review current work and unresolved messages with work_read. Pending user decisions park only their tasks. Continue independent assignments, reviews and reports; acknowledge messages after handling them, but never treat acknowledgement as user approval. When no actionable work remains, end the turn; do not poll.",
           attachments: [],
           mode: "queue",
           createdBy: "agent",

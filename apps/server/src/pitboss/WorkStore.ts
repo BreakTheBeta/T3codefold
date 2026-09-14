@@ -222,6 +222,7 @@ export const layer = Layer.effect(
               "elect",
               "assign",
               "rework",
+              "request-decision",
               "cancel",
               "propose-coordination",
               "send-peer",

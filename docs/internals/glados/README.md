@@ -10,6 +10,8 @@ See [project leadership and context ownership](project-leadership.md) for worklo
 
 See [worker model choices and routing](worker-model-policy.md) for the native editor and per-task selection policy.
 
+See [decisions without blocking coordination](task-decisions.md) for task-scoped user questions and the mobile decision inbox.
+
 ## Browse by question
 
 | What you want to explore                                 | Start here                                    |

@@ -870,6 +870,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   return (
     <View className="flex-1">
       <PitbossWork
+        connected={props.connectionStateLabel === "connected"}
         environmentId={props.environmentId}
         threadId={props.selectedThread.id}
         projectId={props.selectedThread.projectId}
