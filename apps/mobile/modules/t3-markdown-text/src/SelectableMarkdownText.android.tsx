@@ -10,7 +10,7 @@ import {
 import {
   SelectableMarkdownText as RichSelectableMarkdownText,
   hasNativeSelectableMarkdownText,
-} from "./SelectableMarkdownText";
+} from "./RichSelectableMarkdownText";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";
 
 export type {

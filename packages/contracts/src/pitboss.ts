@@ -204,7 +204,21 @@ export function isPitbossLeadActive(role: PitbossRole | null | undefined, lead: 
   );
 }
 
+export const PitbossDecision = Schema.Struct({
+  id: Id,
+  question: TrimmedNonEmptyString.check(Schema.isMaxLength(4000)),
+  options: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(400))).check(
+    Schema.isMaxLength(6),
+  ),
+  recommendation: Text,
+  requestedAt: Schema.String,
+  answer: Schema.optional(Text),
+  resolvedAt: Schema.optional(Schema.String),
+});
+export type PitbossDecision = typeof PitbossDecision.Type;
+
 export const PitbossTask = Schema.Struct({
+  decisions: Schema.optional(Schema.Array(PitbossDecision).check(Schema.isMaxLength(20))),
   verificationProfileId: Schema.optional(Schema.NullOr(Id)),
   verification: Schema.optional(PitbossVerification),
   leadId: Schema.optional(Id),
@@ -267,6 +281,19 @@ const TaskFields = {
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
 };
 export const PitbossAction = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("request-decision"),
+    taskId: Id,
+    question: PitbossDecision.fields.question,
+    options: PitbossDecision.fields.options,
+    recommendation: Text,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("resolve-decision"),
+    taskId: Id,
+    decisionId: Id,
+    answer: TrimmedNonEmptyString.check(Schema.isMaxLength(4000)),
+  }),
   Schema.Struct({
     type: Schema.Literal("verification-profile"),
     taskId: Id,

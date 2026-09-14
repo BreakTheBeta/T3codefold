@@ -1,3 +1,4 @@
+import { TaskDecisionCard } from "./TaskDecisionCard";
 import { VerificationCard, VerificationArtifact } from "./VerificationCard";
 import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialog";
 import { BriefForm } from "./BriefForm";
@@ -503,6 +504,12 @@ export function PitbossPanel(props: {
                       {selected.verifyCommand}
                     </pre>
                   )}
+                  <TaskDecisionCard
+                    key={selected.id}
+                    task={selected}
+                    busy={busy}
+                    command={command}
+                  />
                   <VerificationCard
                     task={selected}
                     recipe={state ? verificationRecipeForTask(state, selected) : undefined}

@@ -10,6 +10,7 @@ This catalog is retained in the repository at the maintainer's request so future
 - T3 owns durable task identity, attempts, messages, context and acceptance. Providers remain interchangeable. A task, a conversation, and an execution attempt are distinct identities.
 - Cheap workers receive bounded assignments and meaningful verification. A stronger worker can resume a stopped candidate without discarding its history. Model price is not evidence of correctness.
 - Personal work, exploration, home-server operations, game development and tool improvement need different evidence. External tracker workflow and T3 acceptance remain distinct.
+- User decisions park individual tasks and their dependencies. GLaDOS and project leads continue independent work; recommendations, acknowledgements and silence never resolve a gate. See [task decisions](task-decisions.md).
 
 ## Adaptive delegation
 
@@ -27,11 +28,11 @@ Project leads and this adaptive lifecycle are tracked in [PR #16](https://github
 
 The pilot includes durable brief/task state, context injection, bounded assignment and retained-worktree takeover, worker-reported evidence and coordinator acceptance, and a shared MCP/CLI work contract. Web/desktop and mobile expose the role and work controls. Read-only task adapters cover Vikunja, Jira and Linear.
 
-Independent verification can be performed by agents, but the server does not require a separate verifier or execute the recorded verification command before acceptance.
+Configured verification profiles require current server-captured receipts bound to their candidate and criteria before acceptance. Reported-evidence tasks still rely on agent and coordinator judgment. The server does not require a separate reviewer model; see [outcome verification](work-outcomes.md).
 
 Two peers may coordinate a shared tracker scope with durable commands, task observations, messages and application receipts. Work executes at its fixed task home. Coordinator changes preserve that home and require resolved workers. This is a deliberately small peer protocol, not general multi-party consensus or automatic failover.
 
-Live experiments exercised a local execute/verify/accept loop, remote assignment and acceptance with browsers closed, deliberately failed Luna work resumed by Sol in the same worktree, and restart preservation. Vikunja was tested live; Jira/Linear used fixtures. Mobile was typechecked, not exercised in an emulator. These small sandbox experiments do not establish sustained performance on large projects.
+Live experiments exercised a local execute/verify/accept loop, remote assignment and acceptance with browsers closed, deliberately failed Luna work resumed by Sol in the same worktree, and restart preservation. Vikunja was tested live; Jira/Linear used fixtures. The decision inbox was exercised in an Android emulator at phone and Fold-class sizes, including density changes, retained drafts, offline/reconnect behavior and a persisted answer. These checks do not establish physical-device or iOS coverage. These small sandbox experiments do not establish sustained performance on large projects.
 
 Revisit these gaps when the corresponding need is observed:
 
