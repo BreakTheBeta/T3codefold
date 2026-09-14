@@ -1,3 +1,6 @@
+import { makeAssistantDelivery } from "./AssistantDelivery.ts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import * as Clock from "effect/Clock";
 import {
   CommandId,
   type EventId,
@@ -525,26 +528,6 @@ export class RunExecutionServiceV2 extends Context.Service<
   RunExecutionServiceV2Shape
 >()("t3/orchestration-v2/RunExecutionService/RunExecutionServiceV2") {}
 
-export function shouldDeliverProviderEvent(
-  event: ProviderAdapterV2Event,
-  assistantStreamingEnabled: boolean,
-): boolean {
-  if (assistantStreamingEnabled) {
-    return true;
-  }
-
-  switch (event.type) {
-    case "node.updated":
-      return event.node.kind !== "assistant_message" || event.node.status !== "running";
-    case "message.updated":
-      return event.message.role !== "assistant" || !event.message.streaming;
-    case "turn_item.updated":
-      return event.turnItem.type !== "assistant_message" || !event.turnItem.streaming;
-    default:
-      return true;
-  }
-}
-
 /**
  * IMPLEMENTATIONS
  */
@@ -785,8 +768,12 @@ export const layer: Layer.Layer<
     return RunExecutionServiceV2.of({
       startRootRun: (input) =>
         Effect.gen(function* () {
-          const assistantStreamingEnabled = yield* serverSettings.getSettings.pipe(
-            Effect.map((settings) => settings.enableLegacyTokenStreaming),
+          const streamingMode = yield* serverSettings.getSettings.pipe(
+            Effect.map(
+              (settings) =>
+                resolveProjectSettings(settings, input.appThread.projectId).settings
+                  .responseStreamingMode,
+            ),
             Effect.mapError(
               (cause) =>
                 new RunExecutionStartError({
@@ -1112,6 +1099,7 @@ export const layer: Layer.Layer<
             }
             return true;
           });
+          const deliverAssistant = makeAssistantDelivery(streamingMode);
           const providerEventFiber = yield* eventSubscription.events.pipe(
             Stream.filterEffect((event) =>
               Ref.modify(eventRouting, (state) => routeProviderEvent(event, routeIdentity, state)),
@@ -1119,7 +1107,8 @@ export const layer: Layer.Layer<
             Stream.tap((event) =>
               Effect.gen(function* () {
                 let storedEventCount = 0;
-                const shouldDeliver = shouldDeliverProviderEvent(event, assistantStreamingEnabled);
+                const deliveredEvent = deliverAssistant(event, yield* Clock.currentTimeMillis);
+                const shouldDeliver = deliveredEvent !== null;
                 if (shouldDeliver) {
                   // Root provider_thread.updated always uses an ownership gate:
                   // pre-terminal writeIfRunCurrent (attempt still running), or
@@ -1141,7 +1130,7 @@ export const layer: Layer.Layer<
                     threadId: input.run.threadId,
                     runId: input.run.id,
                     nodeId: input.rootNode.id,
-                    event,
+                    event: deliveredEvent,
                     ...(isRootProviderThreadUpdate
                       ? rootTerminalAlreadySeen
                         ? {

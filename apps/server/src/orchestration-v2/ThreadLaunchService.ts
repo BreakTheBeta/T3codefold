@@ -1,3 +1,6 @@
+import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as TerminalManager from "../terminal/Manager.ts";
+import * as Deferred from "effect/Deferred";
 import {
   CommandId,
   type ChatAttachment,
@@ -127,6 +130,8 @@ function failureDetail(error: unknown): string {
 export const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const git = yield* GitWorkflow.GitWorkflowService;
+  const setupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+  const terminals = yield* TerminalManager.TerminalManager;
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -228,7 +233,12 @@ export const make = Effect.gen(function* () {
       input.workspaceStrategy.type === "existing_worktree"
         ? input.workspaceStrategy.worktreePath
         : null;
-    if (input.workspaceStrategy.type === "worktree") {
+    if (
+      input.workspaceStrategy.type === "worktree" &&
+      (yield* git
+        .isRepository(project.workspaceRoot)
+        .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))))
+    ) {
       if (runId !== null) {
         yield* threads
           .dispatch({
@@ -249,6 +259,7 @@ export const make = Effect.gen(function* () {
           .remoteExists({ cwd: project.workspaceRoot, remoteName: "origin" })
           .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))));
       if (startFromOrigin) {
+        yield* setupTracker.stageStatus(threadId, "fetch", "running");
         yield* git
           .fetchRemote({ cwd: project.workspaceRoot, remoteName: "origin" })
           .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
@@ -272,17 +283,71 @@ export const make = Effect.gen(function* () {
             );
         }
       }
-      const worktree = yield* git
-        .createWorktree({
-          cwd: project.workspaceRoot,
-          refName: startRef,
-          newRefName: branch!,
-          baseRefName: input.workspaceStrategy.baseRef,
-          path: null,
-        })
-        .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-      worktreePath = worktree.worktree.path;
-      branch = worktree.worktree.refName;
+      yield* setupTracker.stageStatus(threadId, "fetch", startFromOrigin ? "done" : "skipped");
+      if (
+        yield* git
+          .hasCommit({ cwd: project.workspaceRoot, refName: startRef })
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))
+      ) {
+        yield* setupTracker.stageStatus(threadId, "checkout", "running");
+        const worktree = yield* git
+          .createWorktree(
+            {
+              cwd: project.workspaceRoot,
+              refName: startRef,
+              newRefName: branch!,
+              baseRefName: input.workspaceStrategy.baseRef,
+              path: null,
+            },
+            {
+              progress: {
+                onCheckoutProgress: ({ percent, completed, total }) =>
+                  setupTracker.stage(threadId, "checkout", {
+                    percent,
+                    detail: `${completed}/${total} files`,
+                  }),
+                onWorktreeClaimed: (claimedPath) => {
+                  worktreePath = claimedPath;
+                  return setupTracker
+                    .update(threadId, (snapshot) => ({ ...snapshot, worktreePath: claimedPath }))
+                    .pipe(Effect.andThen(setupTracker.stageStatus(threadId, "checkout", "done")));
+                },
+                onSubmodulesStarted: () =>
+                  setupTracker.stageStatus(threadId, "submodules", "running"),
+                onSubmoduleLine: (line) => setupTracker.appendTail(threadId, "submodules", line),
+                onSubmodulesFinished: ({ ok, detail }) =>
+                  setupTracker.stageStatus(threadId, "submodules", ok ? "done" : "warning", detail),
+              },
+            },
+          )
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+        worktreePath = worktree.worktree.path;
+        branch = worktree.worktree.refName;
+        yield* setupTracker.update(threadId, (snapshot) => ({
+          ...snapshot,
+          branch,
+          worktreePath,
+          stages: snapshot.stages.map((stage) =>
+            stage.id === "submodules" && stage.status === "pending"
+              ? { ...stage, status: "skipped" }
+              : stage,
+          ),
+        }));
+        yield* setupTracker.stageStatus(threadId, "checkout", "done");
+      }
+    }
+    const useProjectCheckout = input.workspaceStrategy.type === "worktree" && worktreePath === null;
+    if (useProjectCheckout) {
+      branch = null;
+      yield* setupTracker.update(threadId, (snapshot) => ({
+        ...snapshot,
+        branch: null,
+        stages: snapshot.stages.map((stage) =>
+          ["fetch", "checkout", "submodules"].includes(stage.id)
+            ? { ...stage, status: "skipped", detail: "using project checkout" }
+            : stage,
+        ),
+      }));
     }
 
     yield* threads
@@ -342,19 +407,62 @@ export const make = Effect.gen(function* () {
         })
         .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
     }
-    yield* setupScripts
-      .runForThread({
-        threadId,
-        projectId: input.projectId,
-        projectCwd: project.workspaceRoot,
-        worktreePath: cwd,
-        project: {
-          workspaceRoot: project.workspaceRoot,
-          scripts: project.scripts,
-        },
-      })
-      .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
+    yield* setupTracker.stageStatus(threadId, "setup-script", "running");
+    const setup = yield* useProjectCheckout
+      ? Effect.succeed({ status: "no-script" } as const)
+      : setupScripts
+          .runForThread({
+            threadId,
+            projectId: input.projectId,
+            projectCwd: project.workspaceRoot,
+            worktreePath: cwd,
+            observeCompletion: {
+              onOutputLine: (line) => setupTracker.appendTail(threadId, "setup-script", line),
+            },
+            project: {
+              workspaceRoot: project.workspaceRoot,
+              scripts: project.scripts,
+            },
+          })
+          .pipe(
+            Effect.catch((error) =>
+              setupTracker
+                .stageStatus(threadId, "setup-script", "failed", error.message)
+                .pipe(Effect.as(null)),
+            ),
+          );
 
+    let setupFailed = setup === null;
+    if (setup?.status === "started") {
+      yield* setupTracker.update(threadId, (snapshot) => ({
+        ...snapshot,
+        setupScript: {
+          name: setup.scriptName,
+          command: setup.scriptCommand,
+          terminalId: setup.terminalId,
+        },
+      }));
+      if (setup.completion) {
+        const completion = yield* setup.completion.pipe(
+          Effect.onInterrupt(() =>
+            terminals.close({ threadId, terminalId: setup.terminalId }).pipe(Effect.ignore),
+          ),
+        );
+        yield* setupTracker.stage(threadId, "setup-script", {
+          detail: `Exit code: ${completion.exitCode ?? "unknown"}`,
+        });
+        if (completion.exitCode !== 0) {
+          setupFailed = true;
+        }
+      }
+    }
+    yield* setupTracker.stageStatus(
+      threadId,
+      "setup-script",
+      setup?.status === "no-script" ? "skipped" : setupFailed ? "failed" : "done",
+    );
+    yield* setupTracker.markUncancellable(threadId);
+    yield* setupTracker.stageStatus(threadId, "agent", "running");
     if (runId !== null) {
       yield* threads
         .dispatch({
@@ -424,15 +532,44 @@ export const make = Effect.gen(function* () {
     threadId: ThreadId,
     runId: RunId | null,
   ) {
-    yield* prepareInBackground(input, threadId, runId).pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.void
-          : failPreparedRun(input, threadId, runId, Cause.squash(cause)),
-      ),
+    const ready = yield* Deferred.make<void>();
+    const fiber = yield* Deferred.await(ready).pipe(
+      Effect.andThen(prepareInBackground(input, threadId, runId)),
+      Effect.interruptible,
+      Effect.onExit((exit) => {
+        if (Exit.isSuccess(exit)) return setupTracker.finish(threadId, "done");
+        const cancelled = Cause.hasInterruptsOnly(exit.cause);
+        return failPreparedRun(
+          input,
+          threadId,
+          runId,
+          cancelled ? new Error("Worktree setup cancelled.") : Cause.squash(exit.cause),
+        ).pipe(
+          Effect.andThen(
+            setupTracker.finish(
+              threadId,
+              cancelled ? "cancelled" : "failed",
+              cancelled ? null : failureDetail(Cause.squash(exit.cause)),
+            ),
+          ),
+        );
+      }),
+      Effect.catchCause(() => Effect.void),
       Effect.ensuring(releasePreparation(input.commandId)),
+      Effect.interruptible,
       Effect.forkIn(preparationScope),
     );
+    yield* setupTracker.begin({
+      threadId,
+      branch: input.workspaceStrategy.branch ?? null,
+      baseRef: input.workspaceStrategy.type === "worktree" ? input.workspaceStrategy.baseRef : null,
+      stages:
+        input.workspaceStrategy.type === "worktree"
+          ? ["fetch", "checkout", "submodules", "setup-script", "agent"]
+          : ["setup-script", "agent"],
+      fiber,
+    });
+    yield* Deferred.succeed(ready, undefined);
   });
 
   const launch: ThreadLaunchService["Service"]["launch"] = Effect.fn("ThreadLaunchService.launch")(

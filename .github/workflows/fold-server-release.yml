@@ -25,7 +25,26 @@ concurrency:
   group: fold-server-release
   cancel-in-progress: false
 jobs:
+  archives:
+    if: github.repository == 'BreakTheBeta/T3codefold'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, platform: linux, arch: x64, key: linux-x64 }
+          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, key: linux-arm64 }
+          - { runner: macos-15, platform: mac, arch: arm64, key: darwin-arm64 }
+          - { runner: windows-2025, platform: win, arch: x64, key: win32-x64 }
+          - { runner: windows-11-arm, platform: win, arch: arm64, key: win32-arm64 }
+    uses: ./.github/workflows/fold-cli-archive.yml
+    with:
+      runner: ${{ matrix.runner }}
+      platform: ${{ matrix.platform }}
+      arch: ${{ matrix.arch }}
+      version: ${{ inputs.version }}
+      artifact_name: fold-cli-${{ matrix.key }}
   release:
+    needs: archives
     if: github.repository == 'BreakTheBeta/T3codefold'
     runs-on: ubuntu-24.04
     steps:
@@ -50,6 +69,13 @@ jobs:
           runtime_dir="$(mktemp -d)"
           npm install --prefix "$runtime_dir" --no-audit --no-fund "$PWD"/release-assets/t3-*.tgz
           "$runtime_dir/node_modules/.bin/t3" --version
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: fold-cli-*
+          path: release-assets
+          merge-multiple: true
+      - name: Checksum executable archives
+        run: cd release-assets && sha256sum *.tar.gz *.zip > SHA256SUMS
       - name: Publish immutable version and update channel
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,10 +88,11 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             published_commit="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
             test "$published_commit" = "$GITHUB_SHA" || { echo "Version already belongs to another commit" >&2; exit 1; }
-            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "t3-$version.tgz" --dir published
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir published
+            (cd published && sha256sum -c SHA256SUMS)
             cp "published/t3-$version.tgz" "release-assets/t3-$version.tgz"
           else
-          gh release create "$tag" "release-assets/t3-$version.tgz" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Fold server $version" --notes "Fold server and web client. Install using the attached npm-compatible tarball." --prerelease
+          gh release create "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Fold server $version" --notes "Fold server and web client. Install a self-contained CLI archive, or use the npm-compatible tarball for older launchers." --prerelease
           fi
           cp "release-assets/t3-$version.tgz" release-assets/t3.tgz
           channel_tag="fold-server-$CHANNEL"

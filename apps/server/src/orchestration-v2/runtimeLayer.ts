@@ -1,3 +1,4 @@
+import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import { layer as verificationRuntimeLayer } from "../pitboss/VerificationRuntime.ts";
 import { layer as verificationRunnerLayer } from "../pitboss/VerificationRunner.ts";
 import { layer as verificationProcessLayer } from "../processRunner.ts";
@@ -220,6 +221,7 @@ const threadLaunchProvided = threadLaunchServiceLayer.pipe(
     Layer.mergeAll(
       ProjectServiceLayerLive,
       ProjectSetupScriptRunnerLayerLive,
+      WorktreeSetupTracker.layer,
       threadManagementProvided,
       commandReceiptStoreProvided,
       idAllocatorLayer,

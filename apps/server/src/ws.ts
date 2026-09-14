@@ -1,3 +1,5 @@
+import { remoteSshDeviceHosts } from "./device/localSshDeviceHost.ts";
+import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextAttachments";
 import { PeerService } from "./pitboss/PeerService.ts";
 import { SourceService } from "./pitboss/SourceService.ts";
@@ -575,6 +577,8 @@ const makeWsRpcLayer = (
       const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const deviceService = yield* DeviceService.DeviceService;
+      const deviceHostContext =
+        yield* Effect.context<Effect.Services<ReturnType<typeof remoteSshDeviceHosts>>>();
       const canReplayPersistedRange = Effect.fnUntraced(function* (
         afterSequence: number,
         headSequence: number,
@@ -650,6 +654,7 @@ const makeWsRpcLayer = (
           ),
       );
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
+      const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const workSources = yield* SourceService;
       const workPeers = yield* PeerService;
       const work = yield* WorkStore;
@@ -1395,6 +1400,9 @@ const makeWsRpcLayer = (
       });
 
       const handlers = ServerWsRpcGroup.of({
+        subscribeWorktreeSetup: ({ threadId }) => worktreeSetupTracker.stream(threadId),
+        "worktreeSetup.cancel": ({ threadId }) =>
+          worktreeSetupTracker.cancel(threadId).pipe(Effect.map((cancelled) => ({ cancelled }))),
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
@@ -2150,9 +2158,18 @@ const makeWsRpcLayer = (
         [WS_METHODS.serverUpdateSettings]: ({ patch }) =>
           observeRpcEffect(
             WS_METHODS.serverUpdateSettings,
-            serverSettings
-              .updateSettings(patch)
-              .pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
+            Effect.gen(function* () {
+              const deviceHosts = patch.deviceHosts
+                ? yield* remoteSshDeviceHosts(patch.deviceHosts).pipe(
+                    Effect.provide(deviceHostContext),
+                  )
+                : undefined;
+              const settings = yield* serverSettings.updateSettings({
+                ...patch,
+                ...(deviceHosts ? { deviceHosts } : {}),
+              });
+              return ServerSettings.redactServerSettingsForClient(settings);
+            }),
             {
               "rpc.aggregate": "server",
             },

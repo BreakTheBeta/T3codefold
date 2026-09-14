@@ -96,6 +96,8 @@ export function hasCurrentVerification(
   task: PitbossTask,
   recipe: PitbossVerificationRecipe | undefined,
   candidate: string,
+  // Pure callers can supply their observation time; UI callers use wall time.
+  // @effect-diagnostics-next-line globalDate:off
   now = Date.now(),
 ) {
   const run = task.verification;

@@ -1,3 +1,5 @@
+import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as TerminalManager from "../terminal/Manager.ts";
 import { assert, it, vi } from "@effect/vitest";
 import {
   CommandId,
@@ -69,6 +71,8 @@ const adapter = {
 } as ProviderAdapterV2Shape;
 
 interface HarnessOptions {
+  readonly isRepository?: boolean;
+  readonly hasCommit?: boolean;
   readonly createWorktree?: GitWorkflow.GitWorkflowService["Service"]["createWorktree"];
   readonly fetchRemote?: GitWorkflow.GitWorkflowService["Service"]["fetchRemote"];
   readonly renameBranch?: GitWorkflow.GitWorkflowService["Service"]["renameBranch"];
@@ -110,6 +114,8 @@ function makeHarness(options: HarnessOptions = {}) {
     options.generateTitle ?? (() => Effect.succeed({ title: "Generated title" })),
   );
   const externalServices = Layer.mergeAll(
+    WorktreeSetupTracker.layer,
+    Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
     Layer.succeed(ProjectService.ProjectService, {
       create: () => Effect.die("unused"),
       bootstrap: () => Effect.die("unused"),
@@ -121,6 +127,8 @@ function makeHarness(options: HarnessOptions = {}) {
     }),
     Layer.mock(GitWorkflow.GitWorkflowService)({
       createWorktree,
+      isRepository: () => Effect.succeed(options.isRepository ?? true),
+      hasCommit: () => Effect.succeed(options.hasCommit ?? true),
       renameBranch,
       fetchRemote: options.fetchRemote ?? (() => Effect.void),
       remoteExists: () => Effect.succeed(true),
@@ -165,7 +173,14 @@ function makeHarness(options: HarnessOptions = {}) {
     Layer.provide(Layer.mergeAll(threadManagement, projectedProjects, externalServices)),
   );
   return {
-    layer: Layer.mergeAll(launch, threadManagement, titleRegeneration, outbox, database),
+    layer: Layer.mergeAll(
+      launch,
+      threadManagement,
+      titleRegeneration,
+      outbox,
+      database,
+      externalServices,
+    ),
     createWorktree,
     renameBranch,
     generateBranchName,
@@ -344,6 +359,7 @@ it.effect("enqueues provider work only after setup has been initiated", () =>
             status: "started" as const,
             scriptId: "setup",
             scriptName: "Setup",
+            scriptCommand: "npm install",
             terminalId: "setup",
             cwd: "/repo",
           }),
@@ -382,17 +398,13 @@ it.effect("enqueues provider work only after setup has been initiated", () =>
 );
 
 it.effect(
-  "queues follow-up messages behind preparation and checkpoints them in the final workspace",
+  "queues follow-up messages during setup and checkpoints them in the final workspace after cancellation",
   () =>
     Effect.gen(function* () {
       const setupEntered = yield* Deferred.make<void>();
-      const failSetup = yield* Deferred.make<void>();
       const harness = makeHarness({
         runSetup: () =>
-          Deferred.succeed(setupEntered, undefined).pipe(
-            Effect.andThen(Deferred.await(failSetup)),
-            Effect.andThen(Effect.fail(new Error("setup failed") as never)),
-          ),
+          Deferred.succeed(setupEntered, undefined).pipe(Effect.andThen(Effect.never)),
       });
       yield* Effect.gen(function* () {
         const launches = yield* ThreadLaunch.ThreadLaunchService;
@@ -427,7 +439,8 @@ it.effect(
           null,
         );
 
-        yield* Deferred.succeed(failSetup, undefined);
+        const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+        yield* tracker.cancel(launched.threadId);
         yield* waitUntil(() =>
           threads
             .getThreadProjection(launched.threadId)
@@ -1088,44 +1101,61 @@ it.effect("shows the fetch diagnosis when preparing a worktree from origin fails
 });
 
 for (const failurePoint of ["worktree", "setup"] as const) {
-  it.effect(
-    `${failurePoint} failure keeps the thread and message visible and emits failure items`,
-    () =>
-      Effect.gen(function* () {
-        const failure = new Error(`${failurePoint} failed`);
-        const harness = makeHarness(
-          failurePoint === "worktree"
-            ? { createWorktree: () => Effect.fail(failure as never) }
-            : { runSetup: () => Effect.fail(failure as never) },
+  it.effect(`${failurePoint} failure remains visible with upstream continuation behavior`, () =>
+    Effect.gen(function* () {
+      const failure = new Error(`${failurePoint} failed`);
+      const harness = makeHarness(
+        failurePoint === "worktree"
+          ? { createWorktree: () => Effect.fail(failure as never) }
+          : { runSetup: () => Effect.fail(failure as never) },
+      );
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const input = launchInput({
+          command: `command:launch:${failurePoint}-failure`,
+          thread: `thread:launch:${failurePoint}-failure`,
+          message: `Fail during ${failurePoint}`,
+          workspace: { type: "worktree", baseRef: "main" },
+        });
+        const launched = yield* launches.launch(input);
+        yield* waitUntil(() =>
+          threads
+            .getThreadProjection(launched.threadId)
+            .pipe(
+              Effect.map(
+                (projection) =>
+                  projection.runs[0]?.status === (failurePoint === "setup" ? "starting" : "failed"),
+              ),
+            ),
         );
-        yield* Effect.gen(function* () {
-          const launches = yield* ThreadLaunch.ThreadLaunchService;
-          const threads = yield* ThreadManagement.ThreadManagementService;
-          const input = launchInput({
-            command: `command:launch:${failurePoint}-failure`,
-            thread: `thread:launch:${failurePoint}-failure`,
-            message: `Fail during ${failurePoint}`,
-            workspace: { type: "worktree", baseRef: "main" },
-          });
-          const launched = yield* launches.launch(input);
-          yield* waitUntil(() =>
-            threads
-              .getThreadProjection(launched.threadId)
-              .pipe(Effect.map((projection) => projection.runs[0]?.status === "failed")),
+        const projection = yield* threads.getThreadProjection(launched.threadId);
+        assert.equal(projection.messages[0]?.text, `Fail during ${failurePoint}`);
+        assert.equal(projection.runs[0]?.status, failurePoint === "setup" ? "starting" : "failed");
+        if (failurePoint === "setup") {
+          const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+          yield* tracker.stream(launched.threadId).pipe(
+            Stream.filter((snapshot) => snapshot?.phase === "done"),
+            Stream.runHead,
           );
-          const projection = yield* threads.getThreadProjection(launched.threadId);
-          assert.equal(projection.messages[0]?.text, `Fail during ${failurePoint}`);
-          assert.equal(projection.runs[0]?.status, "failed");
           assert.equal(
-            projection.turnItems.find((item) => item.type === "command_execution")?.status,
+            (yield* tracker.get(launched.threadId))?.stages.find(
+              (stage) => stage.id === "setup-script",
+            )?.status,
             "failed",
           );
-          assert.match(
-            projection.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
-            new RegExp(`${failurePoint} failed`, "u"),
-          );
-        }).pipe(Effect.provide(harness.layer));
-      }),
+          return;
+        }
+        assert.equal(
+          projection.turnItems.find((item) => item.type === "command_execution")?.status,
+          "failed",
+        );
+        assert.match(
+          projection.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
+          new RegExp(`${failurePoint} failed`, "u"),
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }),
   );
 }
 
@@ -1286,3 +1316,101 @@ it.effect("does not depend on the legacy launch workflow table", () => {
     assert.equal(launched.projection.messages[0]?.text, "No private workflow state");
   }).pipe(Effect.provide(harness.layer));
 });
+
+it.effect.each(["done", "failed", "cancelled"] as const)(
+  "waits for setup completion before continuing or cancelling: %s",
+  (outcome) =>
+    Effect.gen(function* () {
+      const waiting = yield* Deferred.make<void>();
+      const completion =
+        yield* Deferred.make<ProjectSetupScriptRunner.ProjectSetupScriptCompletion>();
+      const harness = makeHarness({
+        runSetup: () =>
+          Effect.succeed({
+            status: "started",
+            scriptId: "setup",
+            scriptName: "Setup",
+            scriptCommand: "npm install",
+            terminalId: "setup",
+            cwd: "/repo",
+            completion: Deferred.succeed(waiting, undefined).pipe(
+              Effect.andThen(Deferred.await(completion)),
+            ),
+          }),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
+        const input = launchInput({
+          command: `command:completion:${outcome}`,
+          thread: `thread:completion:${outcome}`,
+          message: "Wait for setup",
+          workspace: { type: "worktree", baseRef: "main" },
+        });
+        const launched = yield* launches.launch(input);
+        yield* Deferred.await(waiting);
+        const releaseId = CommandId.make(`${input.commandId}:release`);
+        assert.isEmpty(yield* outbox.listByCommandId(releaseId));
+        assert.equal((yield* tracker.get(launched.threadId))?.phase, "running");
+        if (outcome === "cancelled") {
+          assert.isTrue(yield* tracker.cancel(launched.threadId));
+          assert.equal((yield* tracker.get(launched.threadId))?.phase, "cancelled");
+        } else {
+          yield* Deferred.succeed(completion, {
+            exitCode: outcome === "done" ? 0 : 1,
+            durationMs: 10,
+          });
+        }
+        const result = yield* tracker.stream(launched.threadId).pipe(
+          Stream.filter(
+            (snapshot) => snapshot?.phase === (outcome === "cancelled" ? "cancelled" : "done"),
+          ),
+          Stream.runHead,
+        );
+        assert.isTrue(Option.isSome(result));
+        const effects = yield* outbox.listByCommandId(releaseId);
+        assert.equal(effects.length, outcome === "cancelled" ? 0 : 1);
+        if (outcome === "failed") {
+          assert.equal(
+            (yield* tracker.get(launched.threadId))?.stages.find(
+              (stage) => stage.id === "setup-script",
+            )?.status,
+            "failed",
+          );
+        }
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
+it.effect.each(["not-repository", "unborn-base"] as const)(
+  "runs locally when worktrees are unavailable: %s",
+  (reason) => {
+    const harness = makeHarness({
+      isRepository: reason !== "not-repository",
+      hasCommit: reason !== "unborn-base",
+    });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: `fallback:${reason}`,
+          thread: `fallback:${reason}`,
+          message: "Run here",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+      );
+      yield* tracker.stream(launched.threadId).pipe(
+        Stream.filter((snapshot) => snapshot?.phase === "done"),
+        Stream.runHead,
+      );
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(projection.thread.worktreePath, null);
+      assert.equal(projection.runs[0]?.status, "starting");
+      assert.equal(harness.createWorktree.mock.calls.length, 0);
+      assert.equal(harness.runSetup.mock.calls.length, 0);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);

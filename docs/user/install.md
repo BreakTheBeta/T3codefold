@@ -5,8 +5,9 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 
 ## Requirements
 
-Command-line use, SSH hosts, and WSL backends need Node.js 22.16+ (22.x), 23.11+
-(23.x), or 24.10 and later. The native desktop app includes its server runtime.
+Fold's self-contained CLI archives and desktop app include their server runtime.
+The npm-compatible tarball requires Node.js 24. SSH and WSL use the matching
+self-contained CLI archive; provider CLIs may have their own Node.js requirements.
 
 You need an installed, authenticated provider before starting a thread. You can
 launch T3 Code and configure providers afterwards.
@@ -20,6 +21,22 @@ npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/r
 This starts the server and opens the local web app. Run
 `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 --help` for command-line options.
 
+The executable is built for Apple Silicon Macs, Linux, and Windows. There is
+no Intel Mac build of it, because Node cannot produce a single executable for
+that platform; the Intel desktop app is unaffected. To run a standalone server
+on an Intel Mac, build it from source. You need Node.js 24 and `vp` (see
+[Install vp](https://github.com/pingdotgg/t3code#install-vp)):
+
+```bash
+git clone https://github.com/BreakTheBeta/T3codefold t3code
+cd t3code && vp i && vp run build:desktop
+node apps/server/dist/bin.mjs
+```
+
+A server run this way is a plain Node program: `t3 update` and the background
+service do not apply, so update it with `git pull` and a rebuild, and start it
+however you run other Node processes.
+
 ## Desktop app
 
 Download a release from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases),
@@ -28,7 +45,7 @@ using the asset for your operating system. Upstream package-manager entries inst
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects
-there. Install Node.js and provider CLIs inside that distro. T3 Code installs its
+there. Install your provider CLIs inside that distro. T3 Code installs its
 matching server runtime there automatically; the first launch after an app
 update can take longer.
 

@@ -63,3 +63,4 @@ export { UserInputAttachmentAnswerPayload } from "./orchestration.ts";
 export * from "./pitboss.ts";
 
 export * from "./pitbossPeer.ts";
+export * from "./worktreeSetup.ts";

@@ -3515,3 +3515,48 @@ function deriveTimelineEntries(
     })),
   ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
+
+it.each(["running", "cancelled", "failed"] as const)(
+  "keeps the %s setup card directly after the first user message",
+  (phase) => {
+    const createdAt = "2026-09-14T00:00:00.000Z";
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          kind: "message",
+          id: "user-entry",
+          createdAt,
+          message: {
+            id: MessageId.make("user-message"),
+            runId: null,
+            role: "user",
+            text: "Start work",
+            createdAt,
+            updatedAt: createdAt,
+            streaming: false,
+          },
+        },
+      ],
+      isWorking: phase === "running",
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+      worktreeSetup: {
+        threadId: ThreadId.make("setup-thread"),
+        phase,
+        startedAt: createdAt,
+        endedAt: phase === "running" ? null : createdAt,
+        branch: null,
+        baseRef: "main",
+        worktreePath: null,
+        setupScript: null,
+        stages: [],
+        error: null,
+        sequence: 1,
+      },
+    });
+    expect(rows[0]).toMatchObject({ kind: "message", message: { role: "user" } });
+    expect(rows[1]).toMatchObject({ kind: "worktree-setup", snapshot: { phase } });
+    expect(rows.some((row) => row.kind === "working" || row.kind === "thinking")).toBe(false);
+  },
+);

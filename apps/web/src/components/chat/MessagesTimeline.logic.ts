@@ -35,6 +35,7 @@ import {
   type OrchestrationV2ProjectedTurnItem,
   type RunAttemptId,
   type RunId,
+  type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import type { ThreadRunSummary } from "@t3tools/client-runtime/state/shell";
 import {
@@ -440,6 +441,12 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       proposedPlan: ProposedPlan;
+    }
+  | {
+      kind: "worktree-setup";
+      id: string;
+      createdAt: string | null;
+      snapshot: WorktreeSetupSnapshot;
     };
 
 export interface StableMessagesTimelineRowsState {
@@ -915,6 +922,7 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnStartedAt?: string | null;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
+  worktreeSetup?: WorktreeSetupSnapshot | null;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const durationStartByMessageId = computeMessageDurationStart(
@@ -1345,6 +1353,30 @@ export function deriveMessagesTimelineRows(input: {
     });
   }
 
+  // The setup card takes the place of the working and thinking placeholders
+  // while a worktree is being prepared. It stays after the setup settles so a
+  // failure and its actions remain visible until the thread state moves on.
+  if (input.worktreeSetup) {
+    const setupRow = {
+      kind: "worktree-setup",
+      id: WORKTREE_SETUP_ROW_ID,
+      createdAt: input.worktreeSetup.startedAt,
+      snapshot: input.worktreeSetup,
+    } as const;
+    // Sit directly under the first user message: a finished snapshot can
+    // outlive the first assistant reply, and it belongs to the send, not the
+    // end of the thread.
+    const firstUserRowIndex = nextRows.findIndex(
+      (row) => row.kind === "message" && row.message.role === "user",
+    );
+    if (firstUserRowIndex >= 0) {
+      nextRows.splice(firstUserRowIndex + 1, 0, setupRow);
+    } else {
+      nextRows.push(setupRow);
+    }
+    return attachTrailingToolGroupsToAssistant(nextRows);
+  }
+
   if (input.isWorking && activeTurnHeaderIndex === input.timelineEntries.length) {
     appendWorkingRow();
   }
@@ -1358,6 +1390,8 @@ export function deriveMessagesTimelineRows(input: {
 
   return attachTrailingToolGroupsToAssistant(nextRows);
 }
+
+export const WORKTREE_SETUP_ROW_ID = "worktree-setup-row";
 
 type MessagesTimelineRowsInput = Parameters<typeof deriveMessagesTimelineRows>[0];
 
@@ -1491,6 +1525,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "working":
     case "thinking":
       return a.createdAt === (b as typeof a).createdAt;
+    case "worktree-setup":
+      return a.snapshot === (b as typeof a).snapshot;
 
     case "assistant-meta": {
       const bm = b as typeof a;
