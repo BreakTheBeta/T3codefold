@@ -22,7 +22,6 @@ import {
   ChevronDownIcon,
   CheckCircle2Icon,
   CircleAlertIcon,
-  XIcon,
   ArrowLeftIcon,
   Settings2Icon,
 } from "lucide-react";
@@ -240,12 +239,256 @@ export function PitbossPanel(props: {
       to: "/$environmentId/$threadId",
       params: { environmentId, threadId },
     });
+  const workList = (
+    <>
+      {questions.length > 0 && (
+        <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+            Needs attention
+          </h3>
+          {questions.map((message) => (
+            <div key={message.id} className="mb-3 grid grid-cols-2 gap-2 text-sm">
+              <details className="col-span-2">
+                <summary className="cursor-pointer">
+                  {message.text.length > 160 ? `${message.text.slice(0, 160)}…` : message.text}
+                </summary>
+                <p className="mt-2 whitespace-pre-wrap">{message.text}</p>
+              </details>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  if (message.taskId) setSelectedId(message.taskId);
+                }}
+              >
+                Inspect
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => void command({ type: "acknowledge", messageId: message.id })}
+              >
+                Acknowledge
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-1" aria-label="Filter work">
+          {workFilters.map((value) => (
+            <Button
+              key={value}
+              size="sm"
+              variant={filter === value ? "secondary" : "ghost"}
+              className={filter === value ? "bg-background shadow-sm" : "text-muted-foreground"}
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+            >
+              {value}
+            </Button>
+          ))}
+        </div>
+        <input
+          type="search"
+          aria-label="Search work"
+          placeholder="Find an outcome…"
+          className={fieldClass}
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setVisibleCount(20);
+          }}
+        />
+        <select
+          aria-label="Filter work by project"
+          className={fieldClass}
+          value={projectFilter}
+          onChange={(event) => {
+            setProjectFilter(event.target.value);
+            setVisibleCount(20);
+          }}
+        >
+          <option value="">All projects</option>
+          {[...new Set(state.tasks.map((task) => task.projectId))].map((id) => (
+            <option key={id} value={id}>
+              {projectName(id)}
+            </option>
+          ))}
+        </select>
+      </div>
+      {!visibleTasks.length && (
+        <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+          {state.tasks.length
+            ? "No outcomes match these filters."
+            : "Describe what you want in chat. GLaDOS can coordinate code, research, creative work or operations and bring back results for review."}
+        </p>
+      )}
+      <div className="grid min-w-0 gap-4">
+        {[
+          { label: "Needs you", tasks: visibleTasks.filter(needsAttention) },
+          {
+            label: "In progress",
+            tasks: visibleTasks.filter(
+              (task) => !needsAttention(task) && ["active", "verifying"].includes(task.status),
+            ),
+          },
+          {
+            label: "Up next",
+            tasks: visibleTasks.filter((task) => !needsAttention(task) && task.status === "queued"),
+          },
+          {
+            label: "Delivered",
+            tasks: visibleTasks.filter((task) => task.status === "done"),
+          },
+          {
+            label: "Cancelled",
+            tasks: visibleTasks.filter((task) => task.status === "cancelled"),
+          },
+        ]
+          .filter(({ tasks }) => tasks.length > 0)
+          .map(({ label, tasks }) => {
+            return (
+              <div key={String(label)} className="min-w-0 py-1">
+                <h3 className="mb-2 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
+                  {String(label)} <span>{tasks.length}</span>
+                </h3>
+                {tasks.slice(0, visibleCount).map((task) => (
+                  <button
+                    type="button"
+                    key={task.id}
+                    onClick={() => setSelectedId(task.id)}
+                    aria-pressed={selected?.id === task.id}
+                    className={`group mb-1 block w-full min-w-0 rounded-lg border px-3 py-3 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring ${selected?.id === task.id ? "border-primary/30 bg-muted/60" : "border-transparent hover:border-border/60"}`}
+                  >
+                    <span className="mb-1 block text-[11px] text-muted-foreground">
+                      {projectName(task.projectId)} ·{" "}
+                      {evidenceKind(verificationRecipeForTask(state, task))}
+                    </span>
+                    <span className="block text-sm font-medium leading-snug">{task.title}</span>
+                    {task.leadId && (
+                      <span className="block text-xs text-muted-foreground">
+                        Lead ·
+                        {state.leads?.find(
+                          (lead) =>
+                            lead.id === task.leadId &&
+                            isPitbossLeadActive(role, lead) &&
+                            lead.projectId === task.projectId,
+                        )?.id ?? "GLaDOS"}
+                      </span>
+                    )}
+                    <span className={`text-xs ${statusClass[task.status]}`}>
+                      {statusLabel[task.status]}
+                    </span>
+                    <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                      {task.note || task.outcome}
+                    </span>
+                  </button>
+                ))}
+                {tasks.length > visibleCount && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="mt-1 w-full"
+                    onClick={() => setVisibleCount((count) => count + 20)}
+                  >
+                    Show more · {tasks.length - visibleCount} remaining
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+      </div>
+      <details
+        open={settingsOpen}
+        onToggle={(event) => setSettingsOpen(event.currentTarget.open)}
+        className="mt-4 border-t border-border pt-3"
+      >
+        <summary className="cursor-pointer text-sm font-medium">
+          Connections and administration
+        </summary>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="mt-3"
+          disabled={!role?.brief.projectIds.length}
+          onClick={() => setAdding(true)}
+        >
+          <PlusIcon className="size-3" />
+          Add work manually
+        </Button>
+        {role && !selected && (state.leads ?? []).length > 0 && (
+          <div className="mb-4 space-y-2" aria-label="Project leads">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Project leads · report to GLaDOS</span>
+              <span>{role.brief.maxWorkers} shared workers · 1 lead turn at a time</span>
+            </div>
+            {(state.leads ?? []).map((lead) => {
+              const active = isPitbossLeadActive(role, lead);
+              const tasks = state.tasks.filter((task) => task.leadId === lead.id);
+              return (
+                <div key={lead.id} className="rounded-xl border border-border bg-background p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => openThread(lead.threadId)}>
+                      {lead.id}
+                      <ArrowUpRightIcon className="size-3" />
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {active ? "Managing" : "Dormant"} · {lead.model.model} · up to{" "}
+                      {lead.maxWorkers} workers
+                    </span>
+                    <span className="flex-1" />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || !role.brief.projectIds.includes(lead.projectId)}
+                      onClick={() =>
+                        void command({
+                          type: "lead-status",
+                          leadId: lead.id,
+                          status: active ? "dormant" : "active",
+                        })
+                      }
+                    >
+                      {active ? "Return to GLaDOS" : "Reactivate"}
+                    </Button>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-sm">{lead.charter}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {tasks.filter((task) => task.status === "done").length} / {tasks.length}{" "}
+                    outcomes accepted · Context revision {lead.contextRevision}
+                  </p>
+                  <details className="mt-2 text-sm">
+                    <summary className="cursor-pointer text-muted-foreground">
+                      Project context and decisions
+                    </summary>
+                    <p className="mt-2 whitespace-pre-wrap">
+                      {lead.context || "The lead has not recorded project context yet."}
+                    </p>
+                  </details>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <PitbossSources environmentId={props.environmentId} projectId={props.projectId} />
+        <PitbossPeers environmentId={props.environmentId} tasks={state.tasks} onCommand={command} />
+        <div className="mt-3 flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => void command({ type: "dismiss" })}
+          >
+            Dismiss GLaDOS
+          </Button>
+        </div>
+      </details>
+    </>
+  );
   return (
-    <section
-      aria-label="GLaDOS workspace"
-      className="contents"
-      data-glados-open={open && isBoss ? "true" : "false"}
-    >
+    <section aria-label="GLaDOS workspace" className="contents">
       <div className="col-span-2 flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         <CrownIcon className="size-4 text-amber-600 dark:text-amber-400" />
         {isBoss ? (
@@ -360,85 +603,46 @@ export function PitbossPanel(props: {
           {error ?? query.error}
         </p>
       )}
-      <WorkInspector open={open} scrollRef={inspectorRef}>
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold tracking-tight">Work</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Outcomes from your conversation</p>
-          </div>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Close work"
-            onClick={() => setOpen(false)}
-          >
-            <XIcon className="size-4" />
-          </Button>
-        </div>
-        {isBoss && !selected && !adding && (
-          <p className="mb-3 text-sm text-muted-foreground">
-            Describe what you want in chat. GLaDOS prepares the tasks, success criteria and checks.
-          </p>
-        )}
-        {role?.paused && isBoss && (
-          <p className="mb-3 text-xs text-muted-foreground">
-            New autonomous work is paused. Existing workers continue until you stop them.
-          </p>
-        )}
-        {role && !selected && (state.leads ?? []).length > 0 && (
-          <div className="mb-4 space-y-2" aria-label="Project leads">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Project leads · report to GLaDOS</span>
-              <span>{role.brief.maxWorkers} shared workers · 1 lead turn at a time</span>
+      <WorkInspector
+        open={open}
+        onOpenChange={setOpen}
+        onReturnToChat={props.onComposeWork}
+        scrollRef={inspectorRef}
+        selected={!!selected}
+        list={isBoss && !adding ? workList : undefined}
+        header={
+          <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
+            <div className="mr-auto">
+              <h2 className="text-lg font-semibold">GLaDOS work</h2>
+              <p className="text-xs text-muted-foreground">
+                {role?.paused
+                  ? "New work paused"
+                  : `${active.length} working · ${next.length} planned`}
+              </p>
             </div>
-            {(state.leads ?? []).map((lead) => {
-              const active = isPitbossLeadActive(role, lead);
-              const tasks = state.tasks.filter((task) => task.leadId === lead.id);
-              return (
-                <div key={lead.id} className="rounded-xl border border-border bg-background p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => openThread(lead.threadId)}>
-                      {lead.id}
-                      <ArrowUpRightIcon className="size-3" />
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      {active ? "Managing" : "Dormant"} · {lead.model.model} · up to{" "}
-                      {lead.maxWorkers} workers
-                    </span>
-                    <span className="flex-1" />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || !role.brief.projectIds.includes(lead.projectId)}
-                      onClick={() =>
-                        void command({
-                          type: "lead-status",
-                          leadId: lead.id,
-                          status: active ? "dormant" : "active",
-                        })
-                      }
-                    >
-                      {active ? "Return to GLaDOS" : "Reactivate"}
-                    </Button>
-                  </div>
-                  <p className="mt-2 line-clamp-2 text-sm">{lead.charter}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {tasks.filter((task) => task.status === "done").length} / {tasks.length}{" "}
-                    outcomes accepted · Context revision {lead.contextRevision}
-                  </p>
-                  <details className="mt-2 text-sm">
-                    <summary className="cursor-pointer text-muted-foreground">
-                      Project context and decisions
-                    </summary>
-                    <p className="mt-2 whitespace-pre-wrap">
-                      {lead.context || "The lead has not recorded project context yet."}
-                    </p>
-                  </details>
-                </div>
-              );
-            })}
+            <Button size="sm" variant="ghost" onClick={() => setEditingBrief(true)}>
+              <Settings2Icon className="size-3" /> Brief & team
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void command({ type: "pause", paused: !role?.paused })}
+            >
+              {role?.paused ? <PlayIcon className="size-3" /> : <PauseIcon className="size-3" />}
+              {role?.paused ? "Resume" : "Pause"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+              <MessageSquareIcon className="size-3" /> Back to chat
+            </Button>
+            {(error || query.error) && (
+              <p role="alert" className="w-full text-sm text-destructive">
+                {error ?? query.error}
+              </p>
+            )}
           </div>
-        )}
+        }
+      >
         {editingBrief && (
           <Dialog
             open
@@ -545,189 +749,25 @@ export function PitbossPanel(props: {
         {isBoss && !editingBrief && !adding && (
           <>
             {!selected && (
-              <>
-                {questions.length > 0 && (
-                  <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                      Needs attention
-                    </h3>
-                    {questions.map((message) => (
-                      <div key={message.id} className="mb-3 grid grid-cols-2 gap-2 text-sm">
-                        <details className="col-span-2">
-                          <summary className="cursor-pointer">
-                            {message.text.length > 160
-                              ? `${message.text.slice(0, 160)}…`
-                              : message.text}
-                          </summary>
-                          <p className="mt-2 whitespace-pre-wrap">{message.text}</p>
-                        </details>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            if (message.taskId) setSelectedId(message.taskId);
-                          }}
-                        >
-                          Inspect
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() =>
-                            void command({ type: "acknowledge", messageId: message.id })
-                          }
-                        >
-                          Acknowledge
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="mb-4 space-y-3">
-                  <div
-                    className="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-1"
-                    aria-label="Filter work"
-                  >
-                    {workFilters.map((value) => (
-                      <Button
-                        key={value}
-                        size="sm"
-                        variant={filter === value ? "secondary" : "ghost"}
-                        className={
-                          filter === value ? "bg-background shadow-sm" : "text-muted-foreground"
-                        }
-                        aria-pressed={filter === value}
-                        onClick={() => setFilter(value)}
-                      >
-                        {value}
-                      </Button>
-                    ))}
-                  </div>
-                  <input
-                    type="search"
-                    aria-label="Search work"
-                    placeholder="Find an outcome…"
-                    className={fieldClass}
-                    value={search}
-                    onChange={(event) => {
-                      setSearch(event.target.value);
-                      setVisibleCount(20);
-                    }}
-                  />
-                  <select
-                    aria-label="Filter work by project"
-                    className={fieldClass}
-                    value={projectFilter}
-                    onChange={(event) => {
-                      setProjectFilter(event.target.value);
-                      setVisibleCount(20);
-                    }}
-                  >
-                    <option value="">All projects</option>
-                    {[...new Set(state.tasks.map((task) => task.projectId))].map((id) => (
-                      <option key={id} value={id}>
-                        {projectName(id)}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    {visibleTasks.length} outcomes · Code, research, creative work and operations
-                  </p>
-                </div>
-                {!visibleTasks.length && (
-                  <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-                    {state.tasks.length
-                      ? "No outcomes match these filters."
-                      : "Describe what you want in chat. GLaDOS can coordinate code, research, creative work or operations and bring back results for review."}
-                  </p>
-                )}
-                <div className="grid min-w-0 gap-4">
-                  {[
-                    { label: "Needs you", tasks: visibleTasks.filter(needsAttention) },
-                    {
-                      label: "In progress",
-                      tasks: visibleTasks.filter(
-                        (task) =>
-                          !needsAttention(task) && ["active", "verifying"].includes(task.status),
-                      ),
-                    },
-                    {
-                      label: "Up next",
-                      tasks: visibleTasks.filter(
-                        (task) => !needsAttention(task) && task.status === "queued",
-                      ),
-                    },
-                    {
-                      label: "Delivered",
-                      tasks: visibleTasks.filter((task) => task.status === "done"),
-                    },
-                    {
-                      label: "Cancelled",
-                      tasks: visibleTasks.filter((task) => task.status === "cancelled"),
-                    },
-                  ]
-                    .filter(({ tasks }) => tasks.length > 0)
-                    .map(({ label, tasks }) => {
-                      return (
-                        <div key={String(label)} className="min-w-0 py-1">
-                          <h3 className="mb-2 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
-                            {String(label)} <span>{tasks.length}</span>
-                          </h3>
-                          {tasks.slice(0, visibleCount).map((task) => (
-                            <button
-                              type="button"
-                              key={task.id}
-                              onClick={() => setSelectedId(task.id)}
-                              className="group mb-1 block w-full min-w-0 rounded-lg border border-transparent px-3 py-3 text-left hover:border-border/60 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring"
-                            >
-                              <span className="mb-1 block text-[11px] text-muted-foreground">
-                                {projectName(task.projectId)} ·{" "}
-                                {evidenceKind(verificationRecipeForTask(state, task))}
-                              </span>
-                              <span className="block text-sm font-medium leading-snug">
-                                {task.title}
-                              </span>
-                              {task.leadId && (
-                                <span className="block text-xs text-muted-foreground">
-                                  Lead ·
-                                  {state.leads?.find(
-                                    (lead) =>
-                                      lead.id === task.leadId &&
-                                      isPitbossLeadActive(role, lead) &&
-                                      lead.projectId === task.projectId,
-                                  )?.id ?? "GLaDOS"}
-                                </span>
-                              )}
-                              <span className={`text-xs ${statusClass[task.status]}`}>
-                                {statusLabel[task.status]}
-                              </span>
-                              <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                                {task.note || task.outcome}
-                              </span>
-                            </button>
-                          ))}
-                          {tasks.length > visibleCount && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="mt-1 w-full"
-                              onClick={() => setVisibleCount((count) => count + 20)}
-                            >
-                              Show more · {tasks.length - visibleCount} remaining
-                            </Button>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
-              </>
+              <div className="flex min-h-64 flex-col justify-center p-5">
+                <h3 className="text-xl font-semibold">Choose an outcome</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  See its progress, evidence and next decision here.
+                </p>
+                <p className="mt-5 text-sm text-muted-foreground">
+                  For new work, tell GLaDOS what you want in chat.
+                </p>
+              </div>
             )}
             {selected && (
               <div className="mt-1 min-w-0">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 ref={detailHeadingRef} tabIndex={-1} className="font-semibold outline-none">
+                    <h3
+                      ref={detailHeadingRef}
+                      tabIndex={-1}
+                      className="text-xl font-semibold outline-none"
+                    >
                       {selected.title}
                     </h3>
                     <p className={`text-xs ${statusClass[selected.status]}`}>
@@ -1065,41 +1105,6 @@ export function PitbossPanel(props: {
                 </details>
               </div>
             )}
-            <details
-              open={settingsOpen}
-              onToggle={(event) => setSettingsOpen(event.currentTarget.open)}
-              className="mt-4 border-t border-border pt-3"
-            >
-              <summary className="cursor-pointer text-sm font-medium">
-                Connections and administration
-              </summary>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="mt-3"
-                disabled={role.brief.projectIds.length === 0}
-                onClick={() => setAdding(true)}
-              >
-                <PlusIcon className="size-3" />
-                Add work manually
-              </Button>
-              <PitbossSources environmentId={props.environmentId} projectId={props.projectId} />
-              <PitbossPeers
-                environmentId={props.environmentId}
-                tasks={state.tasks}
-                onCommand={command}
-              />
-              <div className="mt-3 flex justify-end">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void command({ type: "dismiss" })}
-                >
-                  Dismiss GLaDOS
-                </Button>
-              </div>
-            </details>
           </>
         )}
       </WorkInspector>

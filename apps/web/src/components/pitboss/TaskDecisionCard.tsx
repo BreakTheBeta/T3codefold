@@ -46,8 +46,8 @@ export function TaskDecisionCard({
         {pending.recommendation || "No recommendation yet."}
       </p>
       <p className="text-sm text-muted-foreground">
-        Only this task is waiting. GLaDOS continues managing the rest of your team. You can leave
-        this decision for later.
+        This decision pauses this task. Independent work can continue. You can leave this decision
+        for later.
       </p>
       <div className="flex flex-wrap gap-2">
         {pending.options.map((option) => (
