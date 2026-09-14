@@ -1,3 +1,5 @@
+import { recordVerification } from "./Verification.ts";
+import type { PitbossVerification } from "@t3tools/contracts";
 import { leadView } from "./Leads.ts";
 import { replayJournal } from "./WorkJournal.ts";
 import * as NodeCrypto from "node:crypto";
@@ -62,6 +64,10 @@ export class WorkStore extends Context.Service<
     ) => Effect.Effect<void, PitbossError>;
     mirrorTask: (sender: EnvironmentId, task: PitbossTask) => Effect.Effect<void, PitbossError>;
     receiveMessage: (message: typeof PitbossMessage.Type) => Effect.Effect<void, PitbossError>;
+    recordVerification: (
+      taskId: string,
+      run: PitbossVerification,
+    ) => Effect.Effect<void, PitbossError>;
     rebuild: () => Effect.Effect<PitbossSnapshot, PitbossError>;
     read: (actor?: WorkActor) => Effect.Effect<PitbossSnapshot, PitbossError>;
     command: (
@@ -137,6 +143,7 @@ export const layer = Layer.effect(
           ...state,
           role: null,
           leads: [],
+          verificationRecipes: [],
           tasks: state.tasks.filter((task) => task.source?.scope === actor.scope),
           messages: [],
           sourceAuthorities: state.sourceAuthorities?.filter(
@@ -154,6 +161,9 @@ export const layer = Layer.effect(
         role: null,
         leads: [],
         sourceAuthorities: [],
+        verificationRecipes: (state.verificationRecipes ?? []).filter((recipe) =>
+          tasks.some((task) => task.projectId === recipe.projectId),
+        ),
         tasks,
         messages: state.messages.filter((message) =>
           tasks.some((task) => task.id === message.taskId),
@@ -388,6 +398,23 @@ export const layer = Layer.effect(
                 revision: state.revision + 1,
                 messages: [...state.messages, message],
               });
+            }),
+          )
+          .pipe(
+            Effect.tap(() => PubSub.publish(notifications, undefined)),
+            Effect.mapError(unavailable),
+          ),
+      recordVerification: (taskId, run) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const before = yield* readAll();
+              const next = recordVerification(before, taskId, run);
+              if (next === before) return;
+              const id = `verification:${run.id}:${run.state}`;
+              const now = DateTime.formatIso(yield* DateTime.now);
+              yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${id}, ${id}, ${encodeJson({ type: "verification", taskId, run })}, ${now})`;
+              yield* persist(next);
             }),
           )
           .pipe(
