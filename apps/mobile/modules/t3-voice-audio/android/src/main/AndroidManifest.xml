@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+  <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+  <application>
+    <service android:name=".VoiceCallService" android:exported="false" android:foregroundServiceType="microphone" android:stopWithTask="true" />
+  </application>
+</manifest>

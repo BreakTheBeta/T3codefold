@@ -1,4 +1,8 @@
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
+import * as PitbossPeerHttp from "./pitboss/PeerHttp.ts";
+import * as FleetBroker from "./mcp/FleetBroker.ts";
+import * as FleetRouter from "./mcp/FleetRouter.ts";
+import * as FleetThreadService from "./mcp/FleetThreadService.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 
@@ -601,10 +605,17 @@ const makeRoutesLayer = Layer.mergeAll(
   // The MCP session registry is provided globally (shared with V2 provider
   // sessions) rather than inline here.
   McpHttpServer.layer,
+  PitbossPeerHttp.layer,
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),
+  Layer.provideMerge(
+    FleetRouter.layer.pipe(
+      Layer.provideMerge(FleetBroker.layer),
+      Layer.provideMerge(FleetThreadService.layer),
+    ),
+  ),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(DesktopAppUpdateLayerLive))),
   Layer.provide(commandReadinessLayer),

@@ -65,6 +65,7 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import {
   describeMcpElicitation,
+  makeCodexRealtimeVoice,
   toMcpElicitationResponse,
 } from "../../provider/Layers/CodexSessionRuntime.ts";
 import { ServerConfig } from "../../config.ts";
@@ -1371,11 +1372,19 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
           const scope = yield* Scope.Scope;
           const environment = {
             ...input.environment,
-            ...(input.settings.homePath ? { CODEX_HOME: input.settings.homePath } : {}),
+            ...McpProviderSession.workCliEnvironment(input.threadId),
+            ...(input.settings.homePath
+              ? { CODEX_HOME: expandHomePath(input.settings.homePath) }
+              : {}),
           };
           const command = yield* makeCodexAppServerSpawnCommand({
-            command: input.settings.binaryPath || "codex",
-            args: ["app-server"],
+            command: input.settings.binaryPath
+              ? expandHomePath(input.settings.binaryPath)
+              : "codex",
+            args: codexSessionAppServerArgs(
+              undefined,
+              resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
+            ),
             env: environment,
           });
           const handle = yield* spawner.spawn(command).pipe(
@@ -4874,6 +4883,29 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           }),
         );
 
+        const voiceScope = yield* Effect.scope;
+        const voiceControllers = new Map<
+          string,
+          Effect.Success<ReturnType<typeof makeCodexRealtimeVoice>>
+        >();
+        const voiceLock = yield* Semaphore.make(1);
+        const voiceForThread = (nativeThreadId: string) =>
+          voiceLock.withPermit(
+            Effect.gen(function* () {
+              const existing = voiceControllers.get(nativeThreadId);
+              if (existing) return existing;
+              const voice = yield* makeCodexRealtimeVoice(client, {
+                readProviderThreadId: Effect.succeed(nativeThreadId),
+                currentSessionProviderThreadId: Effect.succeed(nativeThreadId),
+              }).pipe(Effect.provideService(Scope.Scope, voiceScope));
+              voiceControllers.set(nativeThreadId, voice);
+              return voice;
+            }),
+          );
+        yield* Effect.addFinalizer(() =>
+          Effect.forEach(voiceControllers.values(), (voice) => voice.close, { discard: true }),
+        );
+
         const runtime: ProviderAdapterV2SessionRuntime = {
           instanceId: adapterOptions.instanceId,
           driver: CODEX_PROVIDER,
@@ -4885,6 +4917,9 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           // against a long-delayed resume. Codex emits no resume-expected
           // signal to pin on.
           hasPendingBackgroundWork: Effect.gen(function* () {
+            for (const voice of voiceControllers.values()) {
+              if (yield* voice.isActive) return true;
+            }
             for (const items of (yield* Ref.get(runningCommandItemsByTurn)).values()) {
               if (items.size > 0) {
                 return true;
@@ -5507,6 +5542,80 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                     }),
               ),
             ),
+          listRealtimeVoices: (voiceInput) =>
+            Effect.gen(function* () {
+              const id = yield* getNativeThreadId(voiceInput.providerThread);
+              return yield* (yield* voiceForThread(id)).listVoices;
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterProtocolError({
+                    driver: CODEX_PROVIDER,
+                    detail: "Could not list voices.",
+                    payload: cause,
+                  }),
+              ),
+            ),
+          appendRealtimeVoiceContext: (voiceInput) =>
+            Effect.gen(function* () {
+              const id = yield* getNativeThreadId(voiceInput.providerThread);
+              yield* (yield* voiceForThread(id)).appendContext(voiceInput.callId, voiceInput.text);
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterProtocolError({
+                    driver: CODEX_PROVIDER,
+                    detail: "Could not share voice context.",
+                    payload: cause,
+                  }),
+              ),
+            ),
+          realtimeVoiceEvents: (voiceInput) =>
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const id = yield* getNativeThreadId(voiceInput.providerThread);
+                return (yield* voiceForThread(id)).events;
+              }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapterProtocolError({
+                      driver: CODEX_PROVIDER,
+                      detail: "Could not subscribe to voice.",
+                      payload: cause,
+                    }),
+                ),
+              ),
+            ),
+          startRealtimeVoice: (voiceInput) =>
+            Effect.gen(function* () {
+              const nativeThreadId = yield* getNativeThreadId(voiceInput.providerThread);
+              const voice = yield* voiceForThread(nativeThreadId);
+              return { sdp: yield* voice.startRealtimeVoice(voiceInput.sdp, voiceInput.options) };
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterProtocolError({
+                    driver: CODEX_PROVIDER,
+                    detail: "Codex realtime voice failed.",
+                    payload: cause,
+                  }),
+              ),
+            ),
+          stopRealtimeVoice: (voiceInput) =>
+            Effect.gen(function* () {
+              const nativeThreadId = yield* getNativeThreadId(voiceInput.providerThread);
+              const voice = voiceControllers.get(nativeThreadId);
+              if (voice) yield* voice.stopRealtimeVoice;
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterProtocolError({
+                    driver: CODEX_PROVIDER,
+                    detail: "Codex realtime voice failed.",
+                    payload: cause,
+                  }),
+              ),
+            ),
           uploadFeedback: (feedbackInput) =>
             Effect.gen(function* () {
               const threadId = yield* getNativeThreadId(feedbackInput.providerThread);
@@ -5699,3 +5808,8 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
       ),
   });
 }
+import {
+  codexSessionAppServerArgs,
+  resolveCodexLaunchArgs,
+} from "../../provider/Layers/codexLaunchArgs.ts";
+import { expandHomePath } from "../../pathExpansion.ts";

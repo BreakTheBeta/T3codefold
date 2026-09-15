@@ -1,3 +1,4 @@
+import { foldDesktopFeed } from "@t3tools/shared/foldRelease";
 import {
   DesktopUpdateChannelSchema,
   type DesktopRuntimeInfo,
@@ -377,6 +378,7 @@ export const make = Effect.gen(function* () {
   ) {
     yield* Effect.annotateCurrentSpan({ channel });
     const allowsPrerelease = channel === "nightly";
+    if (!config.mockUpdates) yield* electronUpdater.setFeedURL(foldDesktopFeed(channel));
     yield* electronUpdater.setChannel(channel);
     yield* electronUpdater.setAllowPrerelease(allowsPrerelease);
     yield* electronUpdater.setAllowDowngrade(allowsPrerelease);

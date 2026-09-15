@@ -1,3 +1,6 @@
+import { supportsCodexRealtimeVoiceVersion } from "@t3tools/client-runtime/realtime-voice";
+import { useCodexRealtimeVoice } from "../voice-input/useCodexRealtimeVoice";
+import { CodexVoiceControl } from "../voice-input/CodexVoiceControl";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -415,6 +418,30 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onChangeDraftMessage: props.onChangeDraftMessage,
     onChangeSelection: composerMenu.onSelectionChange,
   });
+  const codexVoice = useCodexRealtimeVoice({
+    title: props.selectedThread.title,
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+    enabled:
+      selectedProviderStatus?.driver === "codex" &&
+      props.connectionState === "connected" &&
+      !voiceInput.isBusy,
+  });
+  const codexVoiceActive = codexVoice.status !== "idle" && codexVoice.status !== "error";
+  const codexVoiceControl =
+    selectedProviderStatus?.driver === "codex" ? (
+      <CodexVoiceControl
+        voice={codexVoice}
+        disabled={
+          voiceInput.isBusy ||
+          props.connectionState !== "connected" ||
+          !supportsCodexRealtimeVoiceVersion(selectedProviderStatus.version)
+        }
+      />
+    ) : null;
+  useEffect(() => {
+    if (codexVoice.error) Alert.alert("Codex voice", codexVoice.error);
+  }, [codexVoice.error]);
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
     voiceInput.elapsedSeconds,
@@ -890,9 +917,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             ) : null}
             {!isExpanded ? (
               <View className="flex-row items-center">
+                {!codexVoiceActive ? codexVoiceControl : null}
                 <ComposerDictationStartAction
                   state={voiceInput.state}
-                  isAvailable={voiceInput.isAvailable}
+                  isAvailable={voiceInput.isAvailable && !codexVoiceActive}
                   onStart={voiceInput.start}
                   onCancel={voiceInput.cancel}
                 />
@@ -943,6 +971,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 paddingTop={0}
                 style={{ gap: 0 }}
               >
+                {isExpanded && !codexVoiceActive ? codexVoiceControl : null}
                 <ComposerDictationCancelAction
                   presentation={voicePresentation}
                   onCancel={voiceInput.cancel}
@@ -986,7 +1015,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   <ComposerDictationPrimaryAction
                     state={voiceInput.state}
                     presentation={voicePresentation}
-                    isAvailable={voiceInput.isAvailable}
+                    isAvailable={voiceInput.isAvailable && !codexVoiceActive}
                     onStart={voiceInput.start}
                     onConfirm={voiceInput.stop}
                     onCancel={voiceInput.cancel}

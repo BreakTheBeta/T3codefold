@@ -1,11 +1,28 @@
 import type { NavigationState } from "@react-navigation/native";
 
 export type AdaptiveNavigationAction = "push" | "replace" | "set-params";
+export type AdaptiveWorkspaceBackAction = "close-inspector" | "show-sidebar" | "navigate";
 
 const BASE_THREAD_ROUTE_PATTERN = /^\/threads\/[^/]+\/[^/]+\/?$/;
 
 export function isBaseThreadRoute(pathname: string): boolean {
   return BASE_THREAD_ROUTE_PATTERN.test(pathname);
+}
+
+export function shouldRestorePrimarySidebar(input: {
+  readonly usesSplitView: boolean;
+  readonly pathname: string;
+}): boolean {
+  return input.usesSplitView && input.pathname === "/";
+}
+
+export function resolveAdaptiveWorkspaceBackAction(input: {
+  readonly auxiliaryPaneVisible: boolean;
+  readonly primarySidebarVisible: boolean;
+}): AdaptiveWorkspaceBackAction {
+  if (input.auxiliaryPaneVisible) return "close-inspector";
+  if (!input.primarySidebarVisible) return "show-sidebar";
+  return "navigate";
 }
 
 /**

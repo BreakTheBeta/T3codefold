@@ -294,6 +294,18 @@
     "./file-preview": {
       "types": "./src/filePreview.ts",
       "default": "./src/filePreview.ts"
+    },
+    "./realtime-voice/workspace": {
+      "types": "./src/realtime-voice/workspace.ts",
+      "default": "./src/realtime-voice/workspace.ts"
+    },
+    "./realtime-voice/feed": {
+      "types": "./src/realtime-voice/feed.ts",
+      "default": "./src/realtime-voice/feed.ts"
+    },
+    "./realtime-voice": {
+      "types": "./src/realtime-voice/controller.ts",
+      "default": "./src/realtime-voice/controller.ts"
     }
   },
   "scripts": {

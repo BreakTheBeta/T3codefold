@@ -1,0 +1,76 @@
+name: Fold CLI archive
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      platform:
+        required: true
+        type: string
+      arch:
+        required: true
+        type: string
+      version:
+        type: string
+        default: ""
+      artifact_name:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Align release versions
+        if: inputs.version != ''
+        env:
+          FOLD_VERSION: ${{ inputs.version }}
+        run: node scripts/update-release-package-versions.ts "$FOLD_VERSION"
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Build web and server bundle
+        run: vp run --filter t3 build
+      - name: Install executable build runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26.8.2
+      - name: Build executable
+        env:
+          # Keep vp pack's child runtime on the SEA-capable Node version too.
+          VP_NODE_VERSION: 26.8.2
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+      - name: Build and stage resource monitor
+        run: |
+          cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
+          key="$(node -p 'process.platform + "-" + process.arch')"
+          binary="t3-resource-monitor${{ inputs.platform == 'win' && '.exe' || '' }}"
+          mkdir -p "cli-resource-monitor/$key"
+          cp "native/resource-monitor/target/release/$binary" "cli-resource-monitor/$key/$binary"
+      - name: Package CLI archive
+        env:
+          BUILD_PLATFORM: ${{ inputs.platform }}
+          BUILD_ARCH: ${{ inputs.arch }}
+        run: |
+          version="$(node -p "require('./apps/server/package.json').version")"
+          node scripts/build-cli-archive.ts --platform "$BUILD_PLATFORM" --arch "$BUILD_ARCH" --version "$version" --resource-monitor-dir cli-resource-monitor --output-dir release-cli
+      - name: Smoke-test extracted executable
+        run: |
+          version="$(node -p "require('./apps/server/package.json').version")"
+          for archive in release-cli/*; do
+            node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$version"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: release-cli/*
+          if-no-files-found: error

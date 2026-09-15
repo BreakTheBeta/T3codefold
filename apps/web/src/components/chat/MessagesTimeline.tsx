@@ -1945,7 +1945,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         ) : null}
-        <div onCopyCapture={onBodyCopyCapture}>
+        <div onCopyCapture={onBodyCopyCapture} data-vim-conversation-text="">
           <CollapsibleUserMessageBody
             text={resolvedContext.text}
             renderContextReference={renderContextReference}

@@ -51,6 +51,9 @@ public final class T3KeyboardCommandsView: ExpoView {
         action: #selector(copyThreadReference),
         title: "Copy PR Link or Thread ID"
       ),
+      enabledCommand("voiceToggle", input: "v", modifiers: [.command, .alternate], action: #selector(toggleVoice), title: "Start or End Voice Call"),
+      enabledCommand("voiceMute", input: "m", modifiers: [.command, .alternate], action: #selector(muteVoice), title: "Mute or Unmute Microphone"),
+      enabledCommand("voiceOutputMute", input: "s", modifiers: [.command, .alternate], action: #selector(muteVoiceOutput), title: "Mute or Unmute Speaker"),
       enabledCommand("toggleSidebar", input: "\\", modifiers: .command, action: #selector(handleToggleSidebar), title: "Toggle Sidebar"),
     ].compactMap { $0 }
     if isPad {
@@ -134,6 +137,9 @@ public final class T3KeyboardCommandsView: ExpoView {
     return command
   }
 
+  @objc private func toggleVoice() { emit("voiceToggle") }
+  @objc private func muteVoice() { emit("voiceMute") }
+  @objc private func muteVoiceOutput() { emit("voiceOutputMute") }
   @objc private func newTask() { emit("newTask") }
   @objc private func openCommandPalette() { emit("commandPalette") }
   @objc private func paletteNext() { emit("paletteNext") }

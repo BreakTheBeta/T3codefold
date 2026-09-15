@@ -1,4 +1,14 @@
-import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
+import { makeHome } from "./pitboss/Home.ts";
+import { remapComposerContextAttachments } from "@t3tools/shared/composerContextAttachments";
+import { PeerService } from "./pitboss/PeerService.ts";
+import { SourceService } from "./pitboss/SourceService.ts";
+import { WorkStore } from "./pitboss/WorkStore.ts";
+import { PitbossError } from "@t3tools/contracts";
+import { keybindingsForVoiceClient } from "@t3tools/shared/keybindings";
+import { makeRealtimeVoiceSessionResolver } from "./orchestration-v2/RealtimeVoiceSession.ts";
+import { FleetBroker } from "./mcp/FleetBroker.ts";
+import { FleetRouter } from "./mcp/FleetRouter.ts";
+import { FleetThreadService } from "./mcp/FleetThreadService.ts";
 import * as Crypto from "effect/Crypto";
 import { OrchestratorV2 } from "./orchestration-v2/Orchestrator.ts";
 import * as NodeCrypto from "node:crypto";
@@ -48,6 +58,7 @@ import {
   OrchestrationGetFullThreadDiffError,
   OrchestrationSearchThreadsError,
   OrchestrationGetTurnDiffError,
+  OrchestrationDispatchCommandError,
   ORCHESTRATION_V2_WS_METHODS,
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
@@ -61,12 +72,13 @@ import {
   type ProjectFileFailure,
   type ProjectFileOperation,
   type ProjectMutation,
+  ProjectMutationError,
   ProjectListEntriesError,
   ProjectReadFileError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
-  ProjectMutationError,
+  ProviderRealtimeVoiceError,
   ProviderUploadFeedbackError,
   ProviderSetupError,
   RelayClientInstallFailedError,
@@ -584,10 +596,14 @@ const makeWsRpcLayer = (
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
+  openGladosHome: Effect.Success<ReturnType<typeof makeHome>>,
 ) =>
   ServerWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
+      const fleetBroker = yield* FleetBroker;
+      const fleetRouter = yield* FleetRouter;
+      const fleetThreads = yield* FleetThreadService;
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
       const intakeContext = yield* Effect.context<
@@ -626,6 +642,10 @@ const makeWsRpcLayer = (
         return true;
       });
       const providerSessionsV2 = yield* ProviderSessionManagerV2;
+      const realtimeVoiceSession = yield* makeRealtimeVoiceSessionResolver({
+        getThreadProjection: threadManagement.getThreadProjection,
+        sessions: providerSessionsV2,
+      });
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Client-origin attribution (#7774): every thread/turn the connecting
       // client starts is credited to its surface + app version. Best-effort:
@@ -671,6 +691,9 @@ const makeWsRpcLayer = (
       );
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManagerV2;
+      const workSources = yield* SourceService;
+      const workPeers = yield* PeerService;
+      const work = yield* WorkStore;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
@@ -1156,7 +1179,10 @@ const makeWsRpcLayer = (
           ),
         );
 
-      const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
+      const loadServerConfig = (options: {
+        readonly usageLimitsCommand: boolean;
+        readonly realtimeVoiceControls?: boolean;
+      }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
           const currentProviders = yield* providerRegistry.getProviders;
@@ -1182,7 +1208,10 @@ const makeWsRpcLayer = (
             auth,
             cwd: config.cwd,
             keybindingsConfigPath: config.keybindingsConfigPath,
-            keybindings: keybindingsConfig.keybindings,
+            keybindings: keybindingsForVoiceClient(
+              keybindingsConfig.keybindings,
+              options.realtimeVoiceControls === true,
+            ),
             issues: keybindingsConfig.issues,
             providers,
             availableEditors,
@@ -1932,6 +1961,33 @@ const makeWsRpcLayer = (
               "orchestration_v2.thread_id": input.threadId,
             },
           ),
+        [WS_METHODS.pitbossPeers]: () => workPeers.list(),
+        [WS_METHODS.pitbossPeerCommand]: (input) => workPeers.execute(input),
+        [WS_METHODS.pitbossSources]: () => workSources.list(),
+        [WS_METHODS.pitbossSourceCommand]: (input) => workSources.execute(input),
+        [WS_METHODS.pitbossRead]: () => work.read(),
+        [WS_METHODS.pitbossSubscribe]: () => work.subscribe(),
+        [WS_METHODS.pitbossCommand]: (input) =>
+          Effect.gen(function* () {
+            if (input.action.type === "activate-home") return yield* openGladosHome(input);
+            if (input.action.type === "elect") {
+              yield* threadManagement
+                .getProjectThread({
+                  projectId: input.action.projectId,
+                  threadId: input.action.threadId,
+                })
+                .pipe(
+                  Effect.mapError(
+                    () =>
+                      new PitbossError({
+                        code: "invalid",
+                        message: "Choose an existing thread in this project.",
+                      }),
+                  ),
+                );
+            }
+            return yield* work.command(input, { type: "user" });
+          }),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           observeRpcEffect(WS_METHODS.scheduledTasksList, scheduledTasks.list(), {
             "rpc.aggregate": "scheduledTasks",
@@ -2187,6 +2243,155 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "provider" },
           ),
+        [WS_METHODS.providerRealtimeVoiceList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRealtimeVoiceList,
+            Effect.gen(function* () {
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "list voices",
+                true,
+              );
+              if (!runtime.listRealtimeVoices)
+                return yield* new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "list voices",
+                });
+              return yield* runtime.listRealtimeVoices({ providerThread });
+            }).pipe(
+              Effect.mapError(
+                () =>
+                  new ProviderRealtimeVoiceError({
+                    threadId: input.threadId,
+                    operation: "list voices",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerRealtimeVoiceContext]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRealtimeVoiceContext,
+            Effect.gen(function* () {
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "share context",
+              );
+              if (!runtime.appendRealtimeVoiceContext)
+                return yield* new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "share context",
+                });
+              return yield* runtime.appendRealtimeVoiceContext({
+                providerThread,
+                callId: input.callId,
+                text: input.text,
+              });
+            }).pipe(
+              Effect.mapError(
+                () =>
+                  new ProviderRealtimeVoiceError({
+                    threadId: input.threadId,
+                    operation: "share context",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerRealtimeVoiceEvents]: (input) =>
+          Stream.unwrap(
+            Effect.gen(function* () {
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "subscribe",
+                true,
+              );
+              if (!runtime.realtimeVoiceEvents)
+                return yield* new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "subscribe",
+                });
+              return runtime.realtimeVoiceEvents({ providerThread });
+            }),
+          ).pipe(
+            Stream.mapError(
+              () =>
+                new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "subscribe",
+                }),
+            ),
+          ),
+        [WS_METHODS.providerRealtimeVoiceStart]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRealtimeVoiceStart,
+            Effect.gen(function* () {
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "start",
+                true,
+              );
+              if (!runtime?.startRealtimeVoice) {
+                return yield* new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "start",
+                });
+              }
+              return yield* runtime.startRealtimeVoice({
+                providerThread,
+                sdp: input.sdp,
+                ...(input.options ? { options: input.options } : {}),
+              });
+            }).pipe(
+              Effect.tapError((cause) =>
+                Effect.logError("Failed to start provider realtime voice.", {
+                  threadId: input.threadId,
+                  cause,
+                }),
+              ),
+              Effect.mapError(
+                () =>
+                  new ProviderRealtimeVoiceError({
+                    threadId: input.threadId,
+                    operation: "start",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerRealtimeVoiceStop]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRealtimeVoiceStop,
+            Effect.gen(function* () {
+              const { runtime, providerThread } = yield* realtimeVoiceSession(
+                input.threadId,
+                "stop",
+                true,
+              );
+              if (!runtime.stopRealtimeVoice) {
+                return yield* new ProviderRealtimeVoiceError({
+                  threadId: input.threadId,
+                  operation: "stop",
+                });
+              }
+              return yield* runtime.stopRealtimeVoice({ providerThread });
+            }).pipe(
+              Effect.tapError((cause) =>
+                Effect.logError("Failed to stop provider realtime voice.", {
+                  threadId: input.threadId,
+                  cause,
+                }),
+              ),
+              Effect.mapError(
+                () =>
+                  new ProviderRealtimeVoiceError({
+                    threadId: input.threadId,
+                    operation: "stop",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
         [WS_METHODS.serverUpdateProvider]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverUpdateProvider,
@@ -2319,7 +2524,13 @@ const makeWsRpcLayer = (
             WS_METHODS.serverUpsertKeybinding,
             Effect.gen(function* () {
               const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
-              return { keybindings: keybindingsConfig, issues: [] };
+              return {
+                keybindings: keybindingsForVoiceClient(
+                  keybindingsConfig,
+                  rule.command.startsWith("voice."),
+                ),
+                issues: [],
+              };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -2328,7 +2539,13 @@ const makeWsRpcLayer = (
             WS_METHODS.serverRemoveKeybinding,
             Effect.gen(function* () {
               const keybindingsConfig = yield* keybindings.removeKeybindingRule(rule);
-              return { keybindings: keybindingsConfig, issues: [] };
+              return {
+                keybindings: keybindingsForVoiceClient(
+                  keybindingsConfig,
+                  rule.command.startsWith("voice."),
+                ),
+                issues: [],
+              };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -3206,6 +3423,16 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.previewReportStatus, previewManager.reportStatus(input), {
             "rpc.aggregate": "preview",
           }),
+        [WS_METHODS.fleetConnect]: (input) =>
+          observeRpcStreamEffect(
+            WS_METHODS.fleetConnect,
+            fleetBroker.connect(currentSessionId, input),
+            { "rpc.aggregate": "fleet" },
+          ),
+        [WS_METHODS.fleetRespond]: (input) => fleetBroker.respond(currentSessionId, input),
+        [WS_METHODS.fleetExecute]: (input) => fleetThreads.execute(input),
+        [WS_METHODS.fleetInvoke]: (input) => fleetRouter.invoke(input),
+        [WS_METHODS.fleetEnvironments]: () => fleetRouter.environments,
         [WS_METHODS.previewAutomationConnect]: (input) =>
           observeRpcStreamEffect(
             WS_METHODS.previewAutomationConnect,
@@ -3301,13 +3528,17 @@ const makeWsRpcLayer = (
             WS_METHODS.subscribeServerConfig,
             Effect.gen(function* () {
               const usageLimitsCommand = input.usageLimitsCommand === true;
-              const config = yield* loadServerConfig({ usageLimitsCommand });
+              const realtimeVoiceControls = input.realtimeVoiceControls === true;
+              const config = yield* loadServerConfig({ usageLimitsCommand, realtimeVoiceControls });
               const keybindingsUpdates = keybindings.streamChanges.pipe(
                 Stream.map((event) => ({
                   version: 1 as const,
                   type: "keybindingsUpdated" as const,
                   payload: {
-                    keybindings: event.keybindings,
+                    keybindings: keybindingsForVoiceClient(
+                      event.keybindings,
+                      realtimeVoiceControls,
+                    ),
                     issues: event.issues,
                   },
                 })),
@@ -3468,10 +3699,14 @@ const makeWsRpcLayer = (
 
 export const websocketRpcRouteLayer = Layer.unwrap(
   Effect.gen(function* () {
+    const fleetBroker = yield* FleetBroker;
+    const fleetRouter = yield* FleetRouter;
+    const fleetThreads = yield* FleetThreadService;
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
-    const sql = yield* SqlClient.SqlClient;
+    const config = yield* ServerConfig.ServerConfig;
+    const openGladosHome = yield* makeHome(config.stateDir);
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3521,9 +3756,12 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               clientOrigin,
               clientAnalyticsProps,
               previewAutomationBroker,
+              openGladosHome,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
-              Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
+              Layer.provide(Layer.succeed(FleetBroker, fleetBroker)),
+              Layer.provide(Layer.succeed(FleetRouter, fleetRouter)),
+              Layer.provide(Layer.succeed(FleetThreadService, fleetThreads)),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),

@@ -1,4 +1,5 @@
 import { setThreadChangeRequestSnapshot } from "./ThreadStatusIndicators";
+import { PitbossPin } from "./pitboss/PitbossPanel";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -1481,8 +1482,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // a useful hierarchy nor a reliable hover cue. Status now lives in the row
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
-    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
-    variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
+    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus:bg-sidebar-row-selected focus:text-sidebar-foreground",
     props.isActive
       ? "bg-sidebar-row-active text-sidebar-foreground"
       : isSelected
@@ -1673,6 +1673,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 ref={rowRef}
                 role="button"
                 tabIndex={0}
+                aria-current={props.isActive ? "page" : undefined}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
@@ -1826,6 +1827,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ref={rowRef}
               role="button"
               tabIndex={0}
+              aria-current={props.isActive ? "page" : undefined}
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
@@ -4396,6 +4398,13 @@ export default function Sidebar() {
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
+      {environments.map((environment) => (
+        <PitbossPin
+          key={environment.environmentId}
+          environmentId={environment.environmentId}
+          label={environment.label}
+        />
+      ))}
       <SidebarContent
         className="gap-0 min-h-full"
         fixedHeader={

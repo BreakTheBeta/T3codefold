@@ -1,3 +1,9 @@
+import IconVolume from "@tabler/icons-react-native/IconVolume";
+import IconDeviceMobile from "@tabler/icons-react-native/IconDeviceMobile";
+import IconMicrophone from "@tabler/icons-react-native/IconMicrophone";
+import IconMicrophoneOff from "@tabler/icons-react-native/IconMicrophoneOff";
+import IconPhoneOff from "@tabler/icons-react-native/IconPhoneOff";
+import IconWaveSine from "@tabler/icons-react-native/IconWaveSine";
 import type { Icon } from "@tabler/icons-react-native/types";
 /*
  * Keep these as per-icon exports. Importing the package root eagerly registers
@@ -156,9 +162,15 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   paintbrush: IconPalette,
   "person.crop.circle": IconUserCircle,
   photo: IconPhoto,
+  mic: IconMicrophone,
+  "mic.slash": IconMicrophoneOff,
+  "phone.down.fill": IconPhoneOff,
+  waveform: IconWaveSine,
   pin: IconPin,
   "pin.slash": IconPinnedOff,
   play: IconPlayerPlay,
+  "speaker.wave.2.fill": IconVolume,
+  iphone: IconDeviceMobile,
   plus: IconPlus,
   "qrcode.viewfinder": IconQrcode,
   "point.3.connected.trianglepath.dotted": IconNetwork,

@@ -52,12 +52,15 @@ describe("requestLatencyState", () => {
     expect(getSlowRpcAckRequests()).toEqual([]);
   });
 
-  it("ignores the long-lived preview automation connection", () => {
-    trackRpcRequestSent("1", WS_METHODS.previewAutomationConnect);
-    vi.advanceTimersByTime(SLOW_RPC_ACK_THRESHOLD_MS * 2);
+  it.each([WS_METHODS.previewAutomationConnect, WS_METHODS.fleetConnect])(
+    "ignores long-lived connection %s",
+    (method) => {
+      trackRpcRequestSent("1", method);
+      vi.advanceTimersByTime(SLOW_RPC_ACK_THRESHOLD_MS * 2);
 
-    expect(getSlowRpcAckRequests()).toEqual([]);
-  });
+      expect(getSlowRpcAckRequests()).toEqual([]);
+    },
+  );
 
   it("ignores usage summary requests", () => {
     trackRpcRequestSent("1", WS_METHODS.serverGetUsageSummary);

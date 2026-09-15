@@ -117,6 +117,7 @@ export type PreparedHttpAuthorization =
     };
 
 export interface PreparedConnection {
+  readonly legacyOrchestration?: boolean;
   readonly environmentId: EnvironmentId;
   readonly label: string;
   readonly httpBaseUrl: string;

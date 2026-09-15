@@ -1,4 +1,4 @@
-import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
+import { remapComposerContextAttachments } from "@t3tools/shared/composerContextAttachments";
 import {
   type ThreadLinkedPullRequest,
   CommandId,

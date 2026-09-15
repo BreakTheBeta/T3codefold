@@ -82,8 +82,12 @@ export const ServerSelfUpdateCapability = Schema.Literals([
 export type ServerSelfUpdateCapability = typeof ServerSelfUpdateCapability.Type;
 
 export const ExecutionEnvironmentCapabilities = Schema.Struct({
+  /** Supports native thread control through a client's connected environments. */
+  fleetOrchestration: Schema.optionalKey(Schema.Boolean),
   repositoryIdentity: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   connectionProbe: Schema.optionalKey(Schema.Boolean),
+  /** Voice selection, transcript events and view context; absent on basic-voice hosts. */
+  realtimeVoiceControls: Schema.optionalKey(Schema.Boolean),
   /** Missing on older servers, which still accept inline image attachments. */
   attachmentUploads: Schema.optionalKey(Schema.Boolean),
   /** Uploaded files may accompany question answers. */
@@ -152,6 +156,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       servers that must be relaunched manually (dev checkouts, Windows
       foreground runs, pre-update servers). */
   serverSelfUpdate: Schema.optionalKey(ServerSelfUpdateCapability),
+  /** Distribution owning this server and desktop update path. Absent on pre-Fold updaters. */
+  updateRepository: Schema.optionalKey(Schema.String),
   /** Server can stream self-update progress before acknowledging the
       restart. Clients fall back to server.updateServer when absent. */
   serverSelfUpdateProgress: Schema.optionalKey(Schema.Boolean),

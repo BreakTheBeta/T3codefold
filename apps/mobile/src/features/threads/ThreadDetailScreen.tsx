@@ -1,3 +1,4 @@
+import { PitbossWork } from "./PitbossWork";
 import { useNavigation } from "@react-navigation/native";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
@@ -864,6 +865,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     composerEditorRef.current?.blur();
   }, []);
 
+  const handleComposeWork = useCallback(() => {
+    setComposerExpanded(true);
+    requestAnimationFrame(() => composerEditorRef.current?.focus());
+  }, []);
+
   const handleUseArtifactTemplate = useCallback(
     (template: CodexArtifactTemplate) => {
       const currentDraft = draftMessageRef.current;
@@ -924,6 +930,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
+      <PitbossWork
+        connected={props.connectionStateLabel === "connected"}
+        environmentId={props.environmentId}
+        threadId={props.selectedThread.id}
+        projectId={props.selectedThread.projectId}
+        modelSelection={props.selectedThread.modelSelection}
+        onComposeWork={handleComposeWork}
+      />
       {showContent ? (
         <BlurTargetView
           ref={feedBlurTarget}
@@ -1006,7 +1020,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             {/* No paddingTop here: the overlay's measured height becomes the
                 list's bottom inset, so any padding above the pill/composer
                 pushes the resting content floor up by the same amount. */}
-            <View ref={composerOverlayRef} onLayout={onComposerLayout} className="w-full">
+            <View
+              ref={composerOverlayRef}
+              onLayout={onComposerLayout}
+              className={Platform.OS === "android" ? "w-full bg-screen" : "w-full"}
+            >
               <FloatingWorkingControl
                 colorScheme={isDarkMode ? "dark" : "light"}
                 status={floatingStatus}

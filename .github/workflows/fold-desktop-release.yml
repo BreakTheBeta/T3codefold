@@ -1,0 +1,198 @@
+name: Fold desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Desktop version
+        required: true
+        default: 0.1.6
+      release_tag:
+        description: Existing Fold release to attach the installer to
+        required: true
+        default: fold-preview-v0.1.6
+
+      platform:
+        description: Installer platform to publish
+        type: choice
+        options: [all, mac, linux, win]
+        default: all
+      desktop_only:
+        description: Rebuild desktop installers using an already published server version
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    if: github.repository == 'BreakTheBeta/T3codefold' && !inputs.desktop_only
+    uses: ./.github/workflows/fold-server-release.yml
+    permissions:
+      contents: write
+    with:
+      version: ${{ inputs.version }}
+      channel: ${{ contains(inputs.version, '-nightly.') && 'nightly' || 'latest' }}
+  unix:
+    if: ${{ !cancelled() && inputs.platform != 'win' && (needs.server.result == 'success' || (inputs.desktop_only && needs.server.result == 'skipped')) }}
+    needs: server
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.platform == 'mac' && '[{"runner":"macos-15","platform":"mac","target":"dmg","arch":"universal"}]' || inputs.platform == 'linux' && '[{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]' || '[{"runner":"macos-15","platform":"mac","target":"dmg","arch":"universal"},{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]') }}
+    concurrency:
+      group: fold-desktop-${{ matrix.platform }}
+      cancel-in-progress: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup override set 1.95.0
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config imagemagick
+      - name: Install macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build desktop artifacts
+        id: build
+        shell: bash
+        env:
+          FOLD_VERSION: ${{ inputs.version }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_ARCH: ${{ matrix.arch }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          args=(--platform "$BUILD_PLATFORM" --target "$BUILD_TARGET" --arch "$BUILD_ARCH" --build-version "$FOLD_VERSION" --output-dir release-assets --verbose)
+          publish_mode=""
+          if [[ "$BUILD_PLATFORM" == mac ]]; then
+            if [[ -n "$CSC_LINK" && -n "$CSC_KEY_PASSWORD" && -n "$APPLE_API_KEY" && -n "$APPLE_API_KEY_ID" && -n "$APPLE_API_ISSUER" && -n "$APPLE_TEAM_ID" && -n "$MACOS_PROVISIONING_PROFILE" ]]; then
+              key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+              printf '%s' "$APPLE_API_KEY" > "$key_path"
+              export APPLE_API_KEY="$key_path"
+              profile_path="$RUNNER_TEMP/fold.provisionprofile"
+              printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
+              security cms -D -i "$profile_path" >/dev/null
+              export T3CODE_APPLE_TEAM_ID="$APPLE_TEAM_ID"
+              export T3CODE_MACOS_PROVISIONING_PROFILE="$profile_path"
+              args+=(--signed)
+            else
+              publish_mode="--manual-only"
+              echo "Apple signing is not configured; publishing a manual download only."
+            fi
+          fi
+          node scripts/build-desktop-artifact.ts "${args[@]}"
+          echo "publish_mode=$publish_mode" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fold-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Publish Fold desktop feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          FOLD_VERSION: ${{ inputs.version }}
+          PUBLISH_MODE: ${{ steps.build.outputs.publish_mode }}
+        run: node scripts/publish-fold-desktop.ts release-assets "$RELEASE_TAG" "$FOLD_VERSION" "$PUBLISH_MODE"
+  wsl:
+    if: github.repository == 'BreakTheBeta/T3codefold' && (inputs.platform == 'all' || inputs.platform == 'win')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Build WSL terminal binding
+        shell: bash
+        run: |
+          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['./apps/server'] }))")"
+          pty_dir="$(dirname "$pty_pkg")"
+          (cd "$pty_dir" && npx --yes node-gyp rebuild)
+          mkdir -p wsl-prebuild
+          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fold-wsl-pty
+          path: wsl-prebuild/pty.node
+  windows:
+    if: ${{ !cancelled() && needs.wsl.result == 'success' && (needs.server.result == 'success' || (inputs.desktop_only && needs.server.result == 'skipped')) }}
+    needs: [wsl, server]
+    concurrency:
+      group: fold-desktop-win
+      cancel-in-progress: false
+    runs-on: windows-2025
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Install Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup override set 1.95.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: fold-wsl-pty
+          path: wsl-prebuild
+      - name: Install Spectre-mitigated MSVC libs
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $proc = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($null -eq $proc -or $proc.ExitCode -ne 0) {
+            $code = if ($null -ne $proc) { $proc.ExitCode } else { 1 }
+            Write-Error "Visual Studio Installer failed with exit code $code"
+            exit $code
+          }
+
+      - name: Build Windows installer
+        shell: pwsh
+        env:
+          FOLD_VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --build-version "$env:FOLD_VERSION" --output-dir release-assets --wsl-prebuild wsl-prebuild/pty.node --verbose
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fold-windows-x64
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Publish Fold desktop feed
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          FOLD_VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/publish-fold-desktop.ts release-assets "$env:RELEASE_TAG" "$env:FOLD_VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

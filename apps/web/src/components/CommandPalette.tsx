@@ -1,5 +1,8 @@
 "use client";
 
+import { openPitbossPanel } from "./pitboss/panelEvents";
+import { useOptionalVoiceWorkspace, runVoiceAction } from "./voice/VoiceWorkspaceProvider";
+
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -41,6 +44,7 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  CrownIcon,
   ArrowLeftIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
@@ -503,11 +507,13 @@ export function CommandPalette({ children }: { children: ReactNode }) {
             query: detail.query,
             ...(detail.linkedThreads ? { linkedThreads: detail.linkedThreads } : {}),
           });
+        } else if (detail.mode) {
+          toggleMode(detail.mode);
         } else {
           setOpen(true);
         }
       }),
-    [openAddProject, openNewThreadIn, setOpen],
+    [openAddProject, openNewThreadIn, setOpen, toggleMode],
   );
 
   return (
@@ -1629,7 +1635,27 @@ function OpenCommandPaletteDialog(props: {
     pushPaletteView,
   ]);
 
+  const voiceWorkspace = useOptionalVoiceWorkspace();
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  if (voiceWorkspace) {
+    for (const [command, title] of [
+      ["voice.toggle", "Start or end voice call"],
+      ["voice.mute", "Mute or unmute voice microphone"],
+      ["voice.outputMute", "Mute or unmute voice speaker"],
+    ] as const) {
+      actionItems.push({
+        kind: "action",
+        value: `action:${command}`,
+        title,
+        searchTerms: ["voice", "live", "audio", "microphone"],
+        icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: command,
+        run: async () => {
+          runVoiceAction(voiceWorkspace, command);
+        },
+      });
+    }
+  }
 
   if (projects.length > 0) {
     const activeProjectTitle =
@@ -1681,6 +1707,18 @@ function OpenCommandPaletteDialog(props: {
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "thread.copyReference",
       run: copyActiveThreadReference,
+    });
+  }
+
+  if (activeThread !== null) {
+    actionItems.push({
+      kind: "action",
+      value: "action:pitboss",
+      searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
+      title: "Set up or edit GLaDOS",
+      icon: <CrownIcon className={ITEM_ICON_CLASS} />,
+      run: async () =>
+        openPitbossPanel({ environmentId: activeThread.environmentId, threadId: activeThread.id }),
     });
   }
 

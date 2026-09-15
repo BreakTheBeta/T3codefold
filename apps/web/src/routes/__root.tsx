@@ -1,3 +1,4 @@
+import { VoiceWorkspaceProvider } from "../components/voice/VoiceWorkspaceProvider";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -194,11 +195,13 @@ function RootRouteView() {
   }
 
   const appShell = (
-    <CommandPalette>
-      <AppSidebarLayout>
-        <Outlet />
-      </AppSidebarLayout>
-    </CommandPalette>
+    <VoiceWorkspaceProvider>
+      <CommandPalette>
+        <AppSidebarLayout>
+          <Outlet />
+        </AppSidebarLayout>
+      </CommandPalette>
+    </VoiceWorkspaceProvider>
   );
 
   // FirstRunGate holds back everything below it — including EventRouter,

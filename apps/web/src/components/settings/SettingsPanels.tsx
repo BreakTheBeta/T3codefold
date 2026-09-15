@@ -1,3 +1,4 @@
+import { VoiceSettings } from "../voice/VoiceWorkspaceProvider";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
 import { ArchiveIcon, ArchiveX, ChevronRightIcon, SettingsIcon } from "lucide-react";
@@ -576,6 +577,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu
         ? ["Show skills in slash menu"]
         : []),
+      ...(settings.citeSelectionEnabled !== DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled
+        ? ["Show Cite on text selection"]
+        : []),
+      ...(settings.vimModeEnabled !== DEFAULT_UNIFIED_SETTINGS.vimModeEnabled
+        ? ["Vim keyboard mode"]
+        : []),
       ...(settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
         ? ["Collapse composer on scroll"]
         : []),
@@ -665,6 +672,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.showSkillsInSlashMenu,
+      settings.citeSelectionEnabled,
+      settings.vimModeEnabled,
       settings.timestampFormat,
       settings.notificationMode,
       settings.inAppNotificationsEnabled,
@@ -750,6 +759,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
+      citeSelectionEnabled: DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled,
+      vimModeEnabled: DEFAULT_UNIFIED_SETTINGS.vimModeEnabled,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
@@ -2221,6 +2232,7 @@ export function GeneralSettingsPanel() {
   return (
     <SettingsPageContainer>
       <ProjectDefaultsSettings category="general" />
+      <VoiceSettings />
       <SettingsSection id="organization" title="Organization">
         <SettingsRow
           {...searchableSetting("project-grouping")}
@@ -2588,6 +2600,56 @@ export function GeneralSettingsPanel() {
                 updateSettings({ proactivePanelsEnabled: Boolean(checked) })
               }
               aria-label="Proactive panels"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("cite-selection")}
+          description="Show a Cite bubble when selecting assistant text to quote it in the composer."
+          resetAction={
+            settings.citeSelectionEnabled !== DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled ? (
+              <SettingResetButton
+                label="Cite on text selection"
+                onClick={() =>
+                  updateSettings({
+                    citeSelectionEnabled: DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.citeSelectionEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ citeSelectionEnabled: Boolean(checked) })
+              }
+              aria-label="Show Cite on text selection"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("vim-keyboard-mode")}
+          description="Use Vim-style navigation in conversations and modal editing in the composer. Press ? in conversation Normal mode for help."
+          resetAction={
+            settings.vimModeEnabled !== DEFAULT_UNIFIED_SETTINGS.vimModeEnabled ? (
+              <SettingResetButton
+                label="Vim keyboard mode"
+                onClick={() =>
+                  updateSettings({
+                    vimModeEnabled: DEFAULT_UNIFIED_SETTINGS.vimModeEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.vimModeEnabled}
+              onCheckedChange={(checked) => updateSettings({ vimModeEnabled: Boolean(checked) })}
+              aria-label="Vim keyboard mode"
             />
           }
         />

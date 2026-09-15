@@ -1,4 +1,4 @@
-import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
+import { remapComposerContextAttachments } from "@t3tools/shared/composerContextAttachments";
 import { appendUserInputAttachmentPaths } from "../provider/userInputAttachments.ts";
 import type { ChatAttachment, OrchestrationV2Command } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";

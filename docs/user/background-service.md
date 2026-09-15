@@ -7,17 +7,17 @@ to keep a terminal open.
 
 Run these commands on the machine that will host T3 Code:
 
-| Task                            | Command                           |
-| ------------------------------- | --------------------------------- |
-| Install and start               | `npx t3@latest service install`   |
-| Inspect status and log location | `npx t3@latest service status`    |
-| Update or repair                | `npx t3@latest service update`    |
-| Stop and remove from startup    | `npx t3@latest service uninstall` |
+| Task                            | Command                                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Install and start               | `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 service install`   |
+| Inspect status and log location | `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 service status`    |
+| Update or repair                | `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 service update`    |
+| Stop and remove from startup    | `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 service uninstall` |
 
 Uninstalling the service leaves your projects, threads, and settings intact.
 
 Install and update use the version of the CLI you invoke. For nightly, use
-`npx t3@nightly service update`; replace `nightly` with an exact version to pin
+`npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-nightly/t3.tgz t3 service update`; use the versioned `fold-server-v<version>/t3-<version>.tgz` asset to pin
 one. An older CLI refuses to replace a newer service unless you explicitly add
 `--allow-downgrade`.
 

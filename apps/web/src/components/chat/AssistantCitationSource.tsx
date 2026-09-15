@@ -371,6 +371,7 @@ export function AssistantCitationSource({
       data-assistant-citation-source={messageId}
       data-assistant-citation-environment={threadRef?.environmentId}
       data-assistant-citation-thread={threadRef?.threadId}
+      data-vim-conversation-text=""
     >
       {children}
     </div>

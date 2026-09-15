@@ -191,7 +191,16 @@ import {
 } from "../composerFooterLayout";
 import { measureRestingComposerControls } from "./restingComposerControlsMeasurement";
 import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
-import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
+import {
+  type ComposerPromptEditorHandle,
+  type ComposerVimModeDisplay,
+  ComposerPromptEditor,
+} from "../ComposerPromptEditor";
+import {
+  type CodexRealtimeVoiceController,
+  supportsCodexRealtimeVoiceVersion,
+} from "../../hooks/useCodexRealtimeVoice";
+import { ComposerVoiceControl } from "./ComposerVoiceControl";
 import {
   ComposerContextActionsContext,
   composerContextRecordsFromDraft,
@@ -1493,6 +1502,7 @@ export interface ChatComposerProps {
   providerCatalogKnown: boolean;
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
+  codexRealtimeVoice: CodexRealtimeVoiceController;
 
   // Context window
   activeContextWindow: ContextWindowSnapshot | null;
@@ -1626,6 +1636,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     providerCatalogKnown,
     activeProjectDefaultModelSelection,
     activeThreadModelSelection,
+    codexRealtimeVoice,
     activeContextWindow,
     compactThreadUnavailable,
     compactDisabled,
@@ -2052,6 +2063,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => selectedProviderEntry?.snapshot ?? null,
     [selectedProviderEntry],
   );
+  const codexRealtimeVoiceVersionSupported = supportsCodexRealtimeVoiceVersion(
+    selectedProviderStatus?.version ?? null,
+  );
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
   const selectedProviderSkills = selectedProviderStatus
     ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
@@ -2249,6 +2263,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Refs
   // ------------------------------------------------------------------
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const composerVimDisplayRef = useRef<ComposerVimModeDisplay>({ mode: "NORMAL", pending: "" });
+  const composerVimModeIndicatorRef = useRef<HTMLSpanElement | null>(null);
+  const updateComposerVimDisplay = useCallback((display: ComposerVimModeDisplay) => {
+    composerVimDisplayRef.current = display;
+    const indicator = composerVimModeIndicatorRef.current;
+    if (indicator)
+      indicator.textContent = display.pending ? `${display.mode} ${display.pending}` : display.mode;
+  }, []);
+  const setComposerVimModeIndicator = useCallback((indicator: HTMLSpanElement | null) => {
+    composerVimModeIndicatorRef.current = indicator;
+    if (!indicator) return;
+    const display = composerVimDisplayRef.current;
+    indicator.textContent = display.pending ? `${display.mode} ${display.pending}` : display.mode;
+  }, []);
   const pasteAsTextShortcutUntilRef = useRef(0);
   const pastedTextFileNamesRef = useRef<{ targetKey: string; names: Set<string> }>({
     targetKey: "",
@@ -6092,6 +6120,29 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ],
   );
 
+  const isCodexRealtimeVoiceActive =
+    codexRealtimeVoice.status === "connecting" ||
+    codexRealtimeVoice.status === "live" ||
+    codexRealtimeVoice.status === "playback-blocked";
+  const codexVoiceControl =
+    routeKind === "server" &&
+    selectedProvider === ProviderDriverKind.make("codex") &&
+    activeThreadId ? (
+      <ComposerVoiceControl
+        voice={codexRealtimeVoice}
+        disabled={
+          environmentUnavailable !== null ||
+          isConnecting ||
+          noProviderAvailable ||
+          projectSelectionRequired ||
+          !codexRealtimeVoiceVersionSupported
+        }
+        {...(!codexRealtimeVoiceVersionSupported
+          ? { disabledReason: "Update Codex to 0.145.0 or newer to use voice" }
+          : {})}
+      />
+    ) : null;
+
   // Render
   // ------------------------------------------------------------------
   return (
@@ -6895,6 +6946,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 ) : null}
                 <ComposerContextActionsContext value={composerContextActions}>
                   <ComposerPromptEditor
+                    vimModeEnabled={settings.vimModeEnabled}
+                    onVimModeDisplayChange={updateComposerVimDisplay}
                     editorRef={composerEditorRef}
                     value={
                       isComposerApprovalState
@@ -6953,6 +7006,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                   />
                 </ComposerContextActionsContext>
+                {isCodexRealtimeVoiceActive ? codexVoiceControl : null}
                 {isComposerResting ? collapsedComposerImagePreviews : null}
                 {showMobilePendingAnswerActions ? (
                   <div
@@ -6984,6 +7038,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 ) : null}
               </div>
             </div>
+
+            {(isComposerCollapsedMobile || isComposerApprovalState) &&
+            !showMobilePendingAnswerActions &&
+            isCodexRealtimeVoiceActive ? (
+              <div
+                data-chat-composer-voice-fallback="true"
+                className={cn(
+                  "flex items-center justify-end px-3 pb-3 sm:px-4 sm:pb-4",
+                  isComposerCollapsedMobile && "pt-3",
+                )}
+              >
+                {codexVoiceControl}
+              </div>
+            ) : null}
 
             <ComposerPromptLengthValidation
               message={providerInputSubmissionError ?? composerSubmissionError}
@@ -7026,6 +7094,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {settings.vimModeEnabled ? (
+                    <span
+                      ref={setComposerVimModeIndicator}
+                      aria-live="polite"
+                      className="pointer-events-none rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary"
+                      data-testid="composer-vim-mode"
+                    />
+                  ) : null}
                   {showComposerAttachAction ? (
                     <>
                       <input
@@ -7063,6 +7139,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </Tooltip>
                     </>
                   ) : null}
+                  {showMobilePendingAnswerActions && isCodexRealtimeVoiceActive
+                    ? null
+                    : codexVoiceControl}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     activeContextWindow={

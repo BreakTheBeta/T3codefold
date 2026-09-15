@@ -1341,6 +1341,8 @@ export function KeybindingsSettingsPanel() {
   );
   const keybindingsConfigPath = primaryEnvironment?.serverConfig?.keybindingsConfigPath ?? null;
   const availableEditors = primaryEnvironment?.serverConfig?.availableEditors ?? [];
+  const voiceControls =
+    primaryEnvironment?.serverConfig?.environment.capabilities.realtimeVoiceControls === true;
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
   });
@@ -1356,8 +1358,20 @@ export function KeybindingsSettingsPanel() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [savingCommand, setSavingCommand] = useState<KeybindingCommand | null>(null);
   const [isAddingBinding, setIsAddingBinding] = useState(false);
-  const rows = useMemo(() => buildKeybindingRows(keybindings, query), [keybindings, query]);
-  const commandOptions = useMemo(() => buildKeybindingCommandOptions(keybindings), [keybindings]);
+  const rows = useMemo(
+    () =>
+      buildKeybindingRows(keybindings, query).filter(
+        (row) => voiceControls || !row.command.startsWith("voice."),
+      ),
+    [keybindings, query, voiceControls],
+  );
+  const commandOptions = useMemo(
+    () =>
+      buildKeybindingCommandOptions(keybindings).filter(
+        (command) => voiceControls || !command.startsWith("voice."),
+      ),
+    [keybindings, voiceControls],
+  );
   const whenVariables = useMemo(() => buildWhenVariableOptions(), []);
 
   useEffect(() => {

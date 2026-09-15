@@ -1,3 +1,4 @@
+import { VoiceWorkspaceProvider } from "./features/voice-input/VoiceWorkspaceProvider";
 import { BlurTargetView } from "expo-blur";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
@@ -23,6 +24,7 @@ import { appAtomRegistry } from "./state/atom-registry";
 import { OverlayPortalHost } from "./components/OverlayPortal";
 import { appBlurTargetRef } from "./lib/appBlurTarget";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
+import { LocalAgentNotificationsCoordinator } from "./features/agent-awareness/localNotifications";
 
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 
@@ -96,9 +98,12 @@ function AppContent() {
                 the system is in dark mode. */}
             {/* Blur target for Android dropdown backdrops — see appBlurTarget.ts. */}
             <BlurTargetView ref={appBlurTargetRef} style={{ flex: 1 }}>
-              <IncomingShareProvider>
-                <Navigation linking={appLinking} theme={navigationTheme} />
-              </IncomingShareProvider>
+              <VoiceWorkspaceProvider>
+                <IncomingShareProvider>
+                  <LocalAgentNotificationsCoordinator />
+                  <Navigation linking={appLinking} theme={navigationTheme} />
+                </IncomingShareProvider>
+              </VoiceWorkspaceProvider>
               <ConfirmDialogHost />
               <ThreadArrangementHost />
             </BlurTargetView>

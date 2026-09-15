@@ -1,6 +1,6 @@
+import { PitbossPins } from "../threads/PitbossWork";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
-import type { ThreadMoveDestination } from "../threads/threadOrder";
-import { createThreadMovePlanner } from "../threads/threadOrder";
+import { createThreadMovePlanner, type ThreadMoveDestination } from "../threads/threadOrder";
 import {
   LegendList,
   type LegendListRef,
@@ -1134,7 +1134,12 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  const listHeader = Platform.OS === "ios" ? null : <HomeTopContentSpacer />;
+  const listHeader = (
+    <>
+      {Platform.OS === "ios" ? null : <HomeTopContentSpacer />}
+      <PitbossPins environments={props.environments} />
+    </>
+  );
 
   // Project scoping lives in the header filter menu (no inline chip row on
   // mobile — the menu is the one filter surface).

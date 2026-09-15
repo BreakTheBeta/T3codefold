@@ -155,9 +155,12 @@ type ThreadTerminalRouteScreenProps = StaticScreenProps<{
   readonly environmentId: string;
   readonly threadId: string;
   readonly terminalId?: string;
-}>;
+}> & {
+  readonly presentation?: "route" | "inspector";
+};
 
 export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps) {
+  const isInspector = props.presentation === "inspector";
   const terminalBlurTarget = useRef<View>(null);
   const navigation = useNavigation();
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
@@ -1145,42 +1148,30 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
 
   return (
     <>
-      {capturedOutput !== null && selectedThread ? (
-        <TerminalContextSheet
-          text={capturedOutput}
-          environmentId={selectedThread.environmentId}
-          threadId={selectedThread.id}
-          terminalId={terminalId}
-          terminalLabel={resolveTerminalSessionLabel(terminalId, terminal.summary)}
-          onClose={() => setCapturedOutput(null)}
-          onAttach={() => {
-            setCapturedOutput(null);
-            if (navigation.canGoBack()) navigation.goBack();
+      {!isInspector ? (
+        <NativeStackScreenOptions
+          options={{
+            // Static header config lives in Stack.tsx (SOLID_HEADER_OPTIONS — the pty
+            // scrolls internally, nothing for glass to sample). Default title/subtitle
+            // styling, like every other page.
+            // Android draws its own in-flow header (AndroidScreenHeader below);
+            // the native stack header stays iOS-only.
+            headerShown: Platform.OS !== "android",
+            title: "Terminal",
+            unstable_headerSubtitle:
+              usesNativeHeaderGlass && headerSubtitle.length > 0 ? headerSubtitle : undefined,
           }}
         />
       ) : null}
-      <NativeStackScreenOptions
-        options={{
-          // Static header config lives in Stack.tsx (SOLID_HEADER_OPTIONS — the pty
-          // scrolls internally, nothing for glass to sample). Default title/subtitle
-          // styling, like every other page.
-          // Android draws its own in-flow header (AndroidScreenHeader below);
-          // the native stack header stays iOS-only.
-          headerShown: Platform.OS !== "android",
-          title: "Terminal",
-          unstable_headerSubtitle:
-            usesNativeHeaderGlass && headerSubtitle.length > 0 ? headerSubtitle : undefined,
-        }}
-      />
 
       {Platform.OS === "android" ? (
         <AndroidScreenHeader
           title="Terminal"
           subtitle={headerSubtitle}
-          onBack={handleCloseTerminal}
+          onBack={!isInspector && navigation.canGoBack() ? () => navigation.goBack() : undefined}
           trailing={
             <>
-              {layout.usesSplitView ? (
+              {layout.usesSplitView && !isInspector ? (
                 <AndroidHeaderIconButton
                   accessibilityLabel={
                     panes.primarySidebarVisible ? "Maximize terminal" : "Show threads"
@@ -1211,7 +1202,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         />
       ) : null}
 
-      {layout.usesSplitView ? (
+      {layout.usesSplitView && !isInspector ? (
         <NativeHeaderToolbar placement="left">
           <NativeHeaderToolbar.Button
             accessibilityLabel="Close terminal"
@@ -1230,7 +1221,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         </NativeHeaderToolbar>
       ) : null}
 
-      {isEnvironmentReady ? (
+      {isEnvironmentReady && !isInspector ? (
         <NativeHeaderToolbar placement="right">
           <NativeHeaderToolbar.Menu icon="terminal" title="Terminal options" separateBackground>
             <NativeHeaderToolbar.Label>

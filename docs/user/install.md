@@ -16,11 +16,11 @@ launch T3 Code and configure providers afterwards.
 ## Run without installing
 
 ```bash
-npx t3@latest
+npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
 ```
 
 This starts the server and opens the local web app. Run
-`npx t3@latest --help` for command-line options.
+`npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 --help` for command-line options.
 
 The executable is built for Apple Silicon Macs, Linux, and Windows. There is
 no Intel Mac build of it, because Node cannot produce a single executable for
@@ -40,15 +40,8 @@ however you run other Node processes.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
-or use a package manager:
-
-| Platform           | Install                         |
-| ------------------ | ------------------------------- |
-| Windows            | `winget install T3Tools.T3Code` |
-| macOS              | `brew install --cask t3-code`   |
-| Arch Linux         | `yay -S t3code-bin`             |
-| Arch Linux nightly | `yay -S t3code-nightly-bin`     |
+Download a release from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases),
+using the asset for your operating system. Upstream package-manager entries install regular T3 Code.
 
 ### Windows Subsystem for Linux
 
@@ -62,11 +55,11 @@ update can take longer.
 With the desktop app already running on the same machine:
 
 ```bash
-npx t3 app
+npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 app
 ```
 
 This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `npx t3 app ../my-project`, to open another directory. It requires
+Pass a path, such as `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 app ../my-project`, to open another directory. It requires
 the desktop app, so a standalone server or an SSH session is not enough. If the
 command cannot reach the app, start or update the desktop app and try again.
 

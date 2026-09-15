@@ -1,3 +1,4 @@
+import { foldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
 import {
   type EnvironmentId,
   type ServerConfig,
@@ -87,6 +88,15 @@ const serverUpdateStateAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.withLabel(`environment-data:server:update-state:${environmentId}`),
   ),
 );
+
+export class ServerUpdateSourceMismatchError extends Schema.TaggedError<ServerUpdateSourceMismatchError>()(
+  "ServerUpdateSourceMismatchError",
+  { targetVersion: Schema.String },
+) {
+  override get message(): string {
+    return `This server updater does not identify itself as Fold. Update it manually with: ${foldServerCommand(this.targetVersion)} service update`;
+  }
+}
 
 export class ServerUpdateResumeTimeoutError extends Schema.TaggedError<ServerUpdateResumeTimeoutError>()(
   "ServerUpdateResumeTimeoutError",
@@ -728,6 +738,9 @@ export function createServerEnvironmentAtoms<R, E>(
           target,
           Effect.gen(function* () {
             const currentConfig = atomRegistry.get(configValueAtom(target.environmentId));
+            if (!supportsFoldUpdates(currentConfig?.environment.capabilities ?? {})) {
+              return yield* Effect.fail(new ServerUpdateSourceMismatchError({ targetVersion }));
+            }
             fromVersion = currentConfig?.environment.serverVersion ?? targetVersion;
             atomRegistry.set(stateAtom, {
               status: "running",
@@ -1037,6 +1050,30 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverGetProcessResourceHistory,
     }),
     /** Live scheduled-task list: snapshot on subscribe, fresh list after every server-side change. */
+    pitbossPeers: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "pitboss:peers",
+      tag: WS_METHODS.pitbossPeers,
+    }),
+    pitbossPeerCommand: createEnvironmentRpcCommand(runtime, {
+      label: "pitboss:peer-command",
+      tag: WS_METHODS.pitbossPeerCommand,
+    }),
+    pitbossSources: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "pitboss:sources",
+      tag: WS_METHODS.pitbossSources,
+    }),
+    pitbossSourceCommand: createEnvironmentRpcCommand(runtime, {
+      label: "pitboss:source-command",
+      tag: WS_METHODS.pitbossSourceCommand,
+    }),
+    pitbossLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:pitboss:live",
+      tag: WS_METHODS.pitbossSubscribe,
+    }),
+    pitbossCommand: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:pitboss:command",
+      tag: WS_METHODS.pitbossCommand,
+    }),
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,

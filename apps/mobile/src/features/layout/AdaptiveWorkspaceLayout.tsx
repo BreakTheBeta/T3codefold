@@ -43,6 +43,7 @@ import {
 import {
   resolveThreadSelectionNavigationAction,
   resolveThreadSelectionOverlayState,
+  shouldRestorePrimarySidebar,
 } from "../../lib/adaptive-navigation";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { mobilePreferencesAtom } from "../../state/preferences";
@@ -253,6 +254,14 @@ function AdaptiveWorkspaceLayoutContent(
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
   const baseLayout = useMemo(() => deriveLayout({ width, height }), [height, width]);
   const layout = baseLayout;
+  useEffect(() => {
+    if (!shouldRestorePrimarySidebar({ usesSplitView: layout.usesSplitView, pathname })) {
+      return;
+    }
+    setPrimarySidebarPreferredVisible(true);
+    setFileInspectorPreferredVisible(false);
+    setFocusedAuxiliaryPaneRole(null);
+  }, [layout.usesSplitView, pathname]);
   // In split layouts the sidebar IS the thread list — it renders on every
   // route, including Home (which shows an empty-detail pane instead of the
   // compact list).

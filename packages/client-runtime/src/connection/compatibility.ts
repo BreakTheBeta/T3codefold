@@ -9,14 +9,14 @@ import { ConnectionBlockedError } from "./model.ts";
 export function orchestrationProtocolCompatibilityError(
   descriptor: ExecutionEnvironmentDescriptor,
 ): ConnectionBlockedError | null {
-  if (descriptor.orchestrationProtocolVersion === ORCHESTRATION_PROTOCOL_VERSION) {
+  if (
+    descriptor.orchestrationProtocolVersion === undefined ||
+    descriptor.orchestrationProtocolVersion === ORCHESTRATION_PROTOCOL_VERSION
+  ) {
     return null;
   }
   const hostProtocol = descriptor.orchestrationProtocolVersion;
-  const detail =
-    hostProtocol === undefined
-      ? `Update T3 Code on ${descriptor.label} before reconnecting. This host predates orchestration protocol ${ORCHESTRATION_PROTOCOL_VERSION}.`
-      : `Update T3 Code on ${descriptor.label} and this client before reconnecting. The host uses orchestration protocol ${hostProtocol}, while this client requires ${ORCHESTRATION_PROTOCOL_VERSION}.`;
+  const detail = `Update T3 Code on ${descriptor.label} and this client before reconnecting. The host uses orchestration protocol ${hostProtocol}, while this client requires ${ORCHESTRATION_PROTOCOL_VERSION}.`;
   return new ConnectionBlockedError({ reason: "unsupported", detail });
 }
 

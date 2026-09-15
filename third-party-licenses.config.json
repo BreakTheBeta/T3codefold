@@ -511,6 +511,38 @@
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2025 opencode"]
       }
+    },
+    {
+      "name": "@connectrpc/connect",
+      "version": "1.7.0",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2021-2024 The Connect Authors"]
+      }
+    },
+    {
+      "name": "@connectrpc/connect-node",
+      "version": "1.7.0",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2021-2024 The Connect Authors"]
+      }
+    },
+    {
+      "name": "@connectrpc/connect-web",
+      "version": "1.7.0",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2021-2024 The Connect Authors"]
+      }
+    },
+    {
+      "name": "@bufbuild/protobuf",
+      "version": "1.10.0",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2021-2024 Buf Technologies, Inc."]
+      }
     }
   ]
 }

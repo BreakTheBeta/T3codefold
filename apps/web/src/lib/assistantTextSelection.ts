@@ -225,6 +225,10 @@ export function captureAssistantTextSelection(
   // boundary. Validate the text actually selected, not that empty endpoint.
   range.setStart(first, first === range.startContainer ? range.startOffset : 0);
   range.setEnd(last, last === range.endContainer ? range.endOffset : last.length);
+  return captureAssistantTextRange(source, range);
+}
+
+function captureAssistantTextRange(source: HTMLElement, range: Range) {
   if (!isUsableRange(source, range)) return null;
 
   const stream = readAssistantText(source);
@@ -241,6 +245,29 @@ export function captureAssistantTextSelection(
   if (rawStart === null) return null;
   const selector = createAssistantTextSelector(stream.text, rawStart, rawEnd);
   return selector === null ? null : { source, selector, range };
+}
+
+/** Captures each assistant response touched by one native cross-message selection. */
+export function captureAssistantTextSelections(
+  viewport: HTMLElement,
+  selection: Selection | null,
+): Array<{ source: HTMLElement; selector: AssistantTextSelector; range: Range }> {
+  if (selection === null || selection.isCollapsed || selection.rangeCount !== 1) return [];
+  const selectedRange = selection.getRangeAt(0).cloneRange();
+  const captures = [
+    ...viewport.querySelectorAll<HTMLElement>("[data-assistant-citation-source]"),
+  ].flatMap((source) => {
+    if (!selectedRange.intersectsNode(source)) return [];
+    const first = selectedTextBoundary(selectedRange, source, false);
+    const last = selectedTextBoundary(selectedRange, source, true);
+    if (!first || !last) return [];
+    const range = selectedRange.cloneRange();
+    range.setStart(first, first === selectedRange.startContainer ? selectedRange.startOffset : 0);
+    range.setEnd(last, last === selectedRange.endContainer ? selectedRange.endOffset : last.length);
+    const captured = captureAssistantTextRange(source, range);
+    return captured ? [captured] : [];
+  });
+  return captures;
 }
 
 function rawTextOffset(text: string, normalizedOffset: number): number {

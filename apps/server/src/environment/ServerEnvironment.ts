@@ -1,3 +1,4 @@
+import { FOLD_REPOSITORY } from "@t3tools/shared/foldRelease";
 import {
   ORCHESTRATION_PROTOCOL_VERSION,
   EnvironmentId,
@@ -215,8 +216,10 @@ export const make = Effect.gen(function* () {
     serverVersion: packageJson.version,
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
     capabilities: {
+      fleetOrchestration: true,
       repositoryIdentity: true,
       connectionProbe: true,
+      realtimeVoiceControls: true,
       attachmentUploads: true,
       questionAttachments: true,
       fileAttachments: { maxUploadBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES },
@@ -240,7 +243,7 @@ export const make = Effect.gen(function* () {
       threadPullRequestLinking: true,
       serverResolvedCommandContext: true,
       environmentIcon: true,
-      projectCloneTracking: true,
+      updateRepository: FOLD_REPOSITORY,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
       // V2 restart recovery uses the environment-owned opt-in. The old
       // per-update request flag is not wired into the V2 update RPC path.

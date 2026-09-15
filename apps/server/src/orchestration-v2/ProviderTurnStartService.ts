@@ -1,4 +1,5 @@
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
+import { WorkStore } from "../pitboss/WorkStore.ts";
 import {
   CommandId,
   type OrchestrationV2DomainEvent,
@@ -74,9 +75,11 @@ export const layer: Layer.Layer<
   | ProviderSessionManagerV2
   | RunExecutionServiceV2
   | RuntimePolicyV2
+  | WorkStore
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
+    const workStore = yield* WorkStore;
     const eventSink = yield* EventSinkV2;
     const contextHandoffService = yield* ContextHandoffServiceV2;
     const idAllocator = yield* IdAllocatorV2;
@@ -639,6 +642,16 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         canRouteRelatedSubagent(subagent.status),
       );
+      const workPacket =
+        message.text.trim() === "/compact"
+          ? null
+          : yield* workStore.context(projection.thread.id, `turn:${attempt.id}`);
+      const providerMessage = projectComposerContextForProvider({
+        text: message.text,
+        records: message.context?.records ?? [],
+      });
+      const workMessage =
+        workPacket === null ? providerMessage : `${workPacket}\n\n${providerMessage}`;
       yield* runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,
@@ -701,16 +714,10 @@ export const layer: Layer.Layer<
           messageId: message.id,
           text:
             effectiveHandoffs.length === 0
-              ? projectComposerContextForProvider({
-                  text: message.text,
-                  records: message.context?.records ?? [],
-                })
+              ? workMessage
               : providerMessageWithContextHandoffs({
                   handoffs: effectiveHandoffs,
-                  userText: projectComposerContextForProvider({
-                    text: message.text,
-                    records: message.context?.records ?? [],
-                  }),
+                  userText: workMessage,
                 }),
           attachments: message.attachments,
           createdBy: message.createdBy,

@@ -69,6 +69,31 @@ function buildGroups(
 }
 
 describe("buildHomeThreadGroups", () => {
+  it("hides delegated subagent backing threads from the legacy mobile thread list", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const projectId = ProjectId.make("project-1");
+    const parentId = ThreadId.make("parent");
+    const groups = buildGroups(
+      [makeProject({ environmentId, id: projectId, title: "Project" })],
+      [
+        makeThread({ environmentId, id: parentId, projectId, title: "Parent" }),
+        makeThread({
+          environmentId,
+          id: ThreadId.make("subagent"),
+          projectId,
+          title: "Delegated research task",
+          lineage: {
+            rootThreadId: parentId,
+            parentThreadId: parentId,
+            relationshipToParent: "subagent",
+          },
+        }),
+      ],
+    );
+
+    expect(groups.flatMap((group) => group.threads).map((thread) => thread.id)).toEqual([parentId]);
+  });
+
   it("builds one v2 scope for the same repository across environments", () => {
     const localEnvironmentId = EnvironmentId.make("environment-local");
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");
@@ -266,6 +291,50 @@ describe("buildHomeThreadGroups", () => {
         projectSortOrder: "updated_at",
       }).map((scope) => scope.representative.id),
     ).toEqual([olderProject.id, newerProject.id]);
+  });
+
+  it("does not let delegated subagent activity reorder project scopes", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const firstProject = makeProject({
+      environmentId,
+      id: ProjectId.make("project-first"),
+      title: "A project",
+      updatedAt: "2026-06-03T00:00:00.000Z",
+    });
+    const secondProject = makeProject({
+      environmentId,
+      id: ProjectId.make("project-second"),
+      title: "B project",
+      updatedAt: "2026-06-02T00:00:00.000Z",
+    });
+    const parentId = ThreadId.make("parent");
+    const scopes = buildHomeProjectScopes({
+      projects: [firstProject, secondProject],
+      environmentId: null,
+      projectGroupingMode: "separate",
+    });
+
+    expect(
+      sortHomeProjectScopes({
+        scopes,
+        threads: [
+          makeThread({
+            environmentId,
+            id: ThreadId.make("subagent"),
+            projectId: secondProject.id,
+            title: "Delegated task",
+            updatedAt: "2026-06-04T00:00:00.000Z",
+            lineage: {
+              rootThreadId: parentId,
+              parentThreadId: parentId,
+              relationshipToParent: "subagent",
+            },
+          }),
+        ],
+        pendingTasks: [],
+        projectSortOrder: "updated_at",
+      }).map((scope) => scope.representative.id),
+    ).toEqual([firstProject.id, secondProject.id]);
   });
 
   it("sorts invalid project creation timestamps after valid ones", () => {

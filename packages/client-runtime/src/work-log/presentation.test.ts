@@ -45,7 +45,7 @@ function commandItem(
   };
 }
 
-describe("workEntryIndicatesToolFailure", () => {
+describe("workEntryDisplayIndicatesToolFailure", () => {
   const base = {
     id: "w1",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -78,7 +78,7 @@ describe("workEntryIndicatesToolFailure", () => {
 
   it("is true for error tone", () => {
     expect(
-      workEntryIndicatesToolFailure({
+      workEntryDisplayIndicatesToolFailure({
         ...base,
         tone: "error",
         detail: "nothing special",
@@ -88,7 +88,7 @@ describe("workEntryIndicatesToolFailure", () => {
 
   it("is true when lifecycle says failed even if detail is empty", () => {
     expect(
-      workEntryIndicatesToolFailure({
+      workEntryDisplayIndicatesToolFailure({
         ...base,
         tone: "tool",
         toolLifecycleStatus: "failed",
@@ -98,7 +98,7 @@ describe("workEntryIndicatesToolFailure", () => {
 
   it("detects file-not-found style tool output with completed lifecycle", () => {
     expect(
-      workEntryIndicatesToolFailure({
+      workEntryDisplayIndicatesToolFailure({
         ...base,
         tone: "tool",
         toolLifecycleStatus: "completed",
@@ -109,7 +109,7 @@ describe("workEntryIndicatesToolFailure", () => {
 
   it("detects glob no files and PowerShell command errors", () => {
     expect(
-      workEntryIndicatesToolFailure({
+      workEntryDisplayIndicatesToolFailure({
         ...base,
         label: "Glob",
         tone: "tool",
@@ -117,7 +117,7 @@ describe("workEntryIndicatesToolFailure", () => {
       }),
     ).toBe(true);
     expect(
-      workEntryIndicatesToolFailure({
+      workEntryDisplayIndicatesToolFailure({
         ...base,
         label: "Bash",
         tone: "tool",
@@ -129,7 +129,7 @@ describe("workEntryIndicatesToolFailure", () => {
 
   it("is false for successful completed tools", () => {
     expect(
-      workEntryIndicatesToolFailure({
+      workEntryDisplayIndicatesToolFailure({
         ...base,
         tone: "tool",
         toolLifecycleStatus: "completed",
@@ -149,40 +149,12 @@ describe("workEntryIndicatesToolFailure", () => {
     } satisfies WorkLogPresentationEntry;
 
     expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(false);
-    // Older activities can store output in this field, so that path stays separate.
-    expect(workEntryIndicatesToolFailure(entry)).toBe(true);
     expect(workEntryDisplayIndicatesToolFailure({ ...entry, detail: "File not found" })).toBe(true);
-  });
-
-  it("treats successful tool rows as success candidates", () => {
-    expect(
-      workEntryIndicatesToolSuccess({
-        ...base,
-        tone: "tool",
-        toolLifecycleStatus: "completed",
-        detail: "ok",
-      }),
-    ).toBe(true);
-    expect(
-      workEntryIndicatesToolSuccess({
-        ...base,
-        tone: "tool",
-        toolLifecycleStatus: "inProgress",
-        detail: "…",
-      }),
-    ).toBe(false);
-    expect(workEntryIndicatesToolSuccess({ ...base, tone: "thinking", detail: "…" })).toBe(false);
-    expect(
-      workEntryIndicatesToolSuccess({ ...base, tone: "tool", toolLifecycleStatus: "stopped" }),
-    ).toBe(false);
-    expect(
-      workEntryIndicatesToolSuccess({ ...base, tone: "tool", toolLifecycleStatus: "idle" }),
-    ).toBe(false);
   });
 
   it("does not run heuristics on non-tool info rows", () => {
     expect(
-      workEntryIndicatesToolFailure({
+      workEntryDisplayIndicatesToolFailure({
         ...base,
         label: "Context compacted",
         tone: "info",

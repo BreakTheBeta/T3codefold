@@ -2,7 +2,9 @@ export function resolveAgentAwarenessPlatformPresentation(platform: string): {
   readonly supported: boolean;
   readonly subtitle: string | undefined;
 } {
-  return platform === "ios" || platform === "android"
-    ? { supported: true, subtitle: undefined }
-    : { supported: false, subtitle: "Unavailable on this platform" };
+  if (platform === "ios") return { supported: true, subtitle: undefined };
+  if (platform === "android") {
+    return { supported: true, subtitle: "While connected in the background" };
+  }
+  return { supported: false, subtitle: "Not supported" };
 }

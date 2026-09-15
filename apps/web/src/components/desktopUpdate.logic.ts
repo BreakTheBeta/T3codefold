@@ -2,7 +2,7 @@ import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/con
 
 export type DesktopUpdateButtonAction = "download" | "install" | "none";
 
-const DESKTOP_RELEASE_HISTORY_URL = "https://github.com/pingdotgg/t3code/releases";
+const DESKTOP_RELEASE_HISTORY_URL = "https://github.com/BreakTheBeta/T3codefold/releases";
 const DESKTOP_RELEASE_TAG_URL = `${DESKTOP_RELEASE_HISTORY_URL}/tag`;
 
 /**
@@ -18,7 +18,7 @@ export function getDesktopUpdateDownloadedVersion(state: DesktopUpdateState): st
 export function getDesktopUpdateReleaseUrl(version: string | null): string | null {
   const normalizedVersion = version?.trim();
   if (!normalizedVersion) return null;
-  return `${DESKTOP_RELEASE_TAG_URL}/v${encodeURIComponent(normalizedVersion)}`;
+  return `${DESKTOP_RELEASE_TAG_URL}/fold-preview-v${encodeURIComponent(normalizedVersion.replace(/-preview\.\d+$/, ""))}`;
 }
 
 export function getDesktopUpdateReleaseHistoryUrl(): string {

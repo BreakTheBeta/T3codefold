@@ -1,0 +1,412 @@
+import { assert, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+
+import { migrationEntries, runMigrations } from "../Migrations.ts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import Migration0065 from "./065_ProjectionThreadMessageContext.ts";
+import Migration0066 from "./066_ProjectionThreadPullRequests.ts";
+import Migration0067 from "./067_ProjectionThreadTitleState.ts";
+
+const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+
+layer("050_051_OrchestrationV2", (it) => {
+  it.effect("keeps released and private migration ids contiguous", () =>
+    Effect.sync(() => {
+      assert.deepStrictEqual(
+        migrationEntries.map(([id]) => id),
+        Array.from({ length: 67 }, (_, index) => index + 1),
+      );
+    }),
+  );
+
+  it.effect(
+    "upgrades a released migration 49 database without skipping v2 or losing thread data",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 49 });
+        const now = "2026-09-07T00:00:00.000Z";
+        yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode,
+          created_at, updated_at, branch_pull_request_json, active_order_key
+        ) VALUES (
+          'existing-thread', 'existing-project', 'Existing work',
+          '{"instanceId":"codex","model":"gpt-5.4"}', 'full-access',
+          ${now}, ${now}, '{"number":123}', 'gm'
+        )
+      `;
+
+        const executed = yield* runMigrations();
+        assert.deepStrictEqual(
+          executed.map(([id]) => id),
+          Array.from({ length: 18 }, (_, i) => i + 50),
+        );
+        const threads = yield* sql<{
+          readonly title: string;
+          readonly branch_pull_request_json: string;
+          readonly active_order_key: string;
+        }>`
+        SELECT title, branch_pull_request_json, active_order_key
+        FROM projection_threads WHERE thread_id = 'existing-thread'
+      `;
+        assert.deepStrictEqual(threads, [
+          {
+            title: "Existing work",
+            branch_pull_request_json: '{"number":123}',
+            active_order_key: "gm",
+          },
+        ]);
+        const events = yield* sql`SELECT event_id FROM orchestration_v2_events`;
+        assert.deepStrictEqual(events, []);
+        assert.deepStrictEqual(yield* runMigrations(), []);
+      }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  );
+
+  it.effect("repairs upstream main's conflicting migration 50 before installing V2", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 49 });
+      yield* sql`
+        CREATE TABLE projection_thread_pull_requests (
+          thread_id TEXT NOT NULL,
+          host TEXT NOT NULL,
+          repository TEXT NOT NULL,
+          number INTEGER NOT NULL,
+          url TEXT NOT NULL,
+          source TEXT NOT NULL,
+          linked_at TEXT NOT NULL,
+          snapshot_json TEXT,
+          stack_json TEXT,
+          PRIMARY KEY (thread_id, host, repository, number)
+        )
+      `;
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (50, 'ProjectionThreadPullRequests')
+      `;
+
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(
+        executed.map(([id]) => id),
+        Array.from({ length: 17 }, (_, index) => index + 51),
+      );
+      const migration = yield* sql<{ readonly name: string }>`
+        SELECT name FROM effect_sql_migrations WHERE migration_id = 50
+      `;
+      assert.deepStrictEqual(migration, [{ name: "OrchestrationV2" }]);
+      const v2Tables = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name = 'orchestration_v2_events'
+      `;
+      assert.deepStrictEqual(v2Tables, [{ name: "orchestration_v2_events" }]);
+      const upstreamTable = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name = 'projection_thread_pull_requests'
+      `;
+      assert.deepStrictEqual(upstreamTable, [{ name: "projection_thread_pull_requests" }]);
+    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  );
+
+  for (const upstreamLatestId of [51, 52] as const) {
+    it.effect(`repairs upstream main's partial migration ${upstreamLatestId} ledger`, () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 49 });
+        yield* Migration0066;
+        yield* Migration0065;
+        if (upstreamLatestId === 52) yield* Migration0067;
+        yield* sql`
+          INSERT INTO effect_sql_migrations (migration_id, name) VALUES
+            (50, 'ProjectionThreadPullRequests'),
+            (51, 'ProjectionThreadMessageContext')
+        `;
+        if (upstreamLatestId === 52) {
+          yield* sql`
+            INSERT INTO effect_sql_migrations (migration_id, name)
+            VALUES (52, 'ProjectionThreadTitleState')
+          `;
+        }
+
+        const executed = yield* runMigrations();
+        assert.deepStrictEqual(
+          executed.map(([id]) => id),
+          Array.from({ length: 67 - upstreamLatestId }, (_, index) => index + upstreamLatestId + 1),
+        );
+        const repaired = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+          SELECT migration_id, name FROM effect_sql_migrations
+          WHERE migration_id BETWEEN 50 AND 52 ORDER BY migration_id
+        `;
+        assert.deepStrictEqual(repaired, [
+          { migration_id: 50, name: "OrchestrationV2" },
+          { migration_id: 51, name: "OrchestrationV2Subagents" },
+          { migration_id: 52, name: "OrchestrationV2Foundation" },
+        ]);
+        assert.deepStrictEqual(yield* runMigrations(), []);
+      }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+    );
+  }
+
+  it.effect("normalizes upstream's consolidated migration 53 without replaying its schema", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 61 });
+      yield* sql`
+        INSERT INTO orchestration_v2_events (
+          event_id, thread_id, sequence, event_type, occurred_at, payload_json
+        ) VALUES ('event:existing', 'thread:existing', 1, 'thread.created',
+          '2026-01-01T00:00:00.000Z', '{}')
+      `;
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id BETWEEN 50 AND 61`;
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (53, 'OrchestrationV2')
+      `;
+
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(
+        executed.map(([id]) => id),
+        Array.from({ length: 6 }, (_, index) => index + 62),
+      );
+      const normalized = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+        SELECT migration_id, name FROM effect_sql_migrations
+        WHERE migration_id BETWEEN 50 AND 61 ORDER BY migration_id
+      `;
+      assert.deepStrictEqual(
+        normalized,
+        migrationEntries.slice(49, 61).map(([migration_id, name]) => ({ migration_id, name })),
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT event_id FROM orchestration_v2_events WHERE event_id = 'event:existing'`,
+        [{ event_id: "event:existing" }],
+      );
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  );
+
+  it.effect("installs the orchestration v2 and subagent schemas", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* runMigrations({ toMigrationInclusive: 51 });
+
+      const migrations = yield* sql<{
+        readonly migration_id: number;
+        readonly name: string;
+      }>`
+        SELECT migration_id, name
+        FROM effect_sql_migrations
+        WHERE migration_id IN (46, 47, 48, 49, 50, 51)
+        ORDER BY migration_id
+      `;
+      assert.deepStrictEqual(migrations, [
+        {
+          migration_id: 46,
+          name: "RepairAutomaticSettlementTimestamps",
+        },
+        {
+          migration_id: 47,
+          name: "ProjectionProjectIcon",
+        },
+        {
+          migration_id: 48,
+          name: "ProjectionThreadBranchPullRequest",
+        },
+        {
+          migration_id: 49,
+          name: "ProjectionThreadsActiveOrderKey",
+        },
+        {
+          migration_id: 50,
+          name: "OrchestrationV2",
+        },
+        {
+          migration_id: 51,
+          name: "OrchestrationV2Subagents",
+        },
+      ]);
+
+      const eventColumns = yield* sql<{ readonly name: string }>`
+        PRAGMA table_info(orchestration_v2_events)
+      `;
+      const subagentColumns = yield* sql<{ readonly name: string }>`
+        PRAGMA table_info(orchestration_v2_projection_subagents)
+      `;
+
+      assert.ok(eventColumns.some((column) => column.name === "event_id"));
+      assert.ok(subagentColumns.some((column) => column.name === "child_thread_id"));
+    }),
+  );
+
+  it.effect("backfills provider-session thread bindings in migration 053", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 52 });
+      yield* sql`
+        INSERT INTO orchestration_v2_projection_provider_sessions (
+          provider_session_id,
+          thread_id,
+          provider,
+          driver,
+          provider_instance_id,
+          status,
+          model,
+          updated_at,
+          payload_json
+        ) VALUES (
+          'provider-session:shared',
+          'thread:existing',
+          'codex',
+          'codex',
+          'codex',
+          'ready',
+          'gpt-5.4',
+          '2026-01-01T00:00:00.000Z',
+          '{}'
+        )
+      `;
+
+      yield* runMigrations({ toMigrationInclusive: 53 });
+
+      const bindings = yield* sql<{
+        readonly provider_session_id: string;
+        readonly thread_id: string;
+      }>`
+        SELECT provider_session_id, thread_id
+        FROM orchestration_v2_projection_provider_session_bindings
+      `;
+      assert.deepStrictEqual(bindings, [
+        {
+          provider_session_id: "provider-session:shared",
+          thread_id: "thread:existing",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("preserves turn items with colliding ordinals in migration 052", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 51 });
+      yield* sql`
+        INSERT INTO orchestration_v2_projection_runs (
+          run_id,
+          thread_id,
+          ordinal,
+          provider,
+          status,
+          requested_at,
+          payload_json
+        ) VALUES (
+          'run:one',
+          'thread:one',
+          1,
+          'codex',
+          'completed',
+          '2026-01-01T00:00:00.000Z',
+          '{}'
+        )
+      `;
+      yield* sql`
+        INSERT INTO orchestration_v2_projection_turn_items (
+          turn_item_id,
+          thread_id,
+          run_id,
+          ordinal,
+          type,
+          status,
+          updated_at,
+          payload_json
+        ) VALUES
+          ('turn-item:b', 'thread:one', 'run:one', 7, 'assistant_message', 'completed', '2026-01-01T00:00:00.000Z', '{}'),
+          ('turn-item:a', 'thread:one', 'run:one', 7, 'assistant_message', 'completed', '2026-01-01T00:00:00.000Z', '{}'),
+          ('turn-item:c', 'thread:one', 'run:one', 9, 'assistant_message', 'completed', '2026-01-01T00:00:00.000Z', '{}'),
+          ('turn-item:d', 'thread:two', NULL, 42, 'assistant_message', 'completed', '2026-01-01T00:00:00.000Z', '{}')
+      `;
+
+      yield* runMigrations({ toMigrationInclusive: 52 });
+
+      const positions = yield* sql<{
+        readonly thread_id: string;
+        readonly turn_item_id: string;
+        readonly ordinal: number;
+      }>`
+        SELECT thread_id, turn_item_id, ordinal
+        FROM orchestration_v2_turn_item_positions
+        ORDER BY thread_id, ordinal
+      `;
+      assert.deepStrictEqual(positions, [
+        { thread_id: "thread:one", turn_item_id: "turn-item:a", ordinal: 1_000_001 },
+        { thread_id: "thread:one", turn_item_id: "turn-item:b", ordinal: 1_000_002 },
+        { thread_id: "thread:one", turn_item_id: "turn-item:c", ordinal: 1_000_003 },
+        { thread_id: "thread:two", turn_item_id: "turn-item:d", ordinal: 1 },
+      ]);
+    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  );
+});
+
+it.effect("upgrades a database already at released main migration 043", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* runMigrations({ toMigrationInclusive: 43 });
+    const snoozeColumns = yield* sql<{ readonly name: string }>`
+      PRAGMA table_info(projection_threads)
+    `;
+    assert.ok(snoozeColumns.some((column) => column.name === "snoozed_until"));
+    assert.ok(snoozeColumns.some((column) => column.name === "snoozed_at"));
+
+    yield* runMigrations({ toMigrationInclusive: 58 });
+
+    const migrations = yield* sql<{
+      readonly migration_id: number;
+      readonly name: string;
+    }>`
+      SELECT migration_id, name
+      FROM effect_sql_migrations
+      WHERE migration_id BETWEEN 39 AND 58
+      ORDER BY migration_id
+    `;
+    assert.deepStrictEqual(
+      migrations.map(({ migration_id, name }) => [migration_id, name]),
+      [
+        [39, "ProjectionProjectsDefaultThreadEnvMode"],
+        [40, "ProjectionProjectFaviconPath"],
+        [41, "AuthSessionClientConnection"],
+        [42, "ProjectionThreadLinkedPullRequest"],
+        [43, "ProjectionThreadsUnsettledAt"],
+        [44, "ClearAutomaticProjectModelDefaults"],
+        [45, "ProjectionProjectsAutoPull"],
+        [46, "RepairAutomaticSettlementTimestamps"],
+        [47, "ProjectionProjectIcon"],
+        [48, "ProjectionThreadBranchPullRequest"],
+        [49, "ProjectionThreadsActiveOrderKey"],
+        [50, "OrchestrationV2"],
+        [51, "OrchestrationV2Subagents"],
+        [52, "OrchestrationV2Foundation"],
+        [53, "OrchestrationV2ProviderSessionBindings"],
+        [54, "OrchestrationV2ThreadLaunchWorkflows"],
+        [55, "ApplicationEventSource"],
+        [56, "OrchestrationV2EffectCancellation"],
+        [57, "ScheduledTasks"],
+        [58, "LegacyV1ImportState"],
+      ],
+    );
+
+    const v2Tables = yield* sql<{ readonly name: string }>`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'orchestration_v2_projection_threads'
+    `;
+    assert.strictEqual(v2Tables.length, 1);
+
+    const legacyImportTables = yield* sql<{ readonly name: string }>`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'orchestration_v2_legacy_imports'
+    `;
+    assert.strictEqual(legacyImportTables.length, 1);
+  }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+);

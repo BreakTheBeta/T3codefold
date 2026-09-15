@@ -13,6 +13,7 @@ import {
 import {
   type AssistantTextSelector,
   captureAssistantTextSelection,
+  captureAssistantTextSelections,
   createAssistantTextSelector,
   findAssistantCitationText,
 } from "./assistantTextSelection";
@@ -80,6 +81,12 @@ class SelectionNode {
   }
   contains(node: SelectionNode): boolean {
     return node === this || this.childNodes.some((child) => child.contains(node));
+  }
+  querySelectorAll<T>(selector: string): T[] {
+    return this.childNodes.flatMap((child) => [
+      ...(child.matches(selector) ? [child as T] : []),
+      ...child.querySelectorAll<T>(selector),
+    ]);
   }
   matches(selector: string) {
     return selector.split(", ").some((part) => {
@@ -332,6 +339,28 @@ describe("captureAssistantTextSelection", () => {
     expect(
       capture(new SelectionNode("MAIN"), nativeSelection([quote, 0], [quote, quote.length])),
     ).toBeNull();
+  });
+});
+
+describe("captureAssistantTextSelections", () => {
+  it("splits one cross-message selection into one citation per assistant response", () => {
+    const firstText = textNode("First response.");
+    const secondText = textNode("Second response.");
+    const first = assistantSource(firstText);
+    const second = assistantSource(secondText);
+    const userMessage = new SelectionNode("ARTICLE").append(textNode("A user message."));
+    const viewport = new SelectionNode("MAIN").append(first, userMessage, second);
+
+    const captures = captureAssistantTextSelections(
+      viewport as unknown as HTMLElement,
+      nativeSelection([firstText, 6], [secondText, 6]),
+    );
+
+    expect(captures).toHaveLength(2);
+    expect(captures[0]?.source).toBe(first);
+    expect(captures[0]?.selector.text).toBe("response.");
+    expect(captures[1]?.source).toBe(second);
+    expect(captures[1]?.selector.text).toBe("Second");
   });
 });
 

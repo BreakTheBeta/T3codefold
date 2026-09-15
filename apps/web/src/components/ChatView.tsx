@@ -1,4 +1,8 @@
 import { resolveVisibleWorktreeSetup } from "./ChatView.logic";
+import { PitbossPanel } from "./pitboss/PitbossPanel";
+import { useVoiceViewContext } from "./voice/VoiceWorkspaceProvider";
+import { useCodexRealtimeVoice } from "../hooks/useCodexRealtimeVoice";
+import { TimelineVimMode } from "~/vim/TimelineVimMode";
 import * as DateTime from "effect/DateTime";
 import { restorePlanFollowUpComposer } from "./ChatView.logic";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
@@ -3041,6 +3045,15 @@ export default function ChatView(props: ChatViewProps) {
   const supportsConversationRollback =
     conversationProviderStatus !== null &&
     conversationProviderStatus.supportsConversationRollback !== false;
+  const codexRealtimeVoice = useCodexRealtimeVoice({
+    title: activeThread?.title ?? "Current thread",
+    environmentId,
+    threadId: routeKind === "server" ? activeThreadId : null,
+    enabled:
+      routeKind === "server" &&
+      selectedProvider === ProviderDriverKind.make("codex") &&
+      activeEnvironmentUnavailableState === null,
+  });
   const phase = derivePhase(activeRuntime);
   const pendingRequests = useMemo(
     () =>
@@ -3058,6 +3071,10 @@ export default function ChatView(props: ChatViewProps) {
     [pendingRequests.userInputs],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
+  useVoiceViewContext(
+    "question",
+    activePendingUserInput ? JSON.stringify(activePendingUserInput.questions).slice(0, 2500) : null,
+  );
   const activePendingRequestKey = JSON.stringify([
     environmentId,
     activeThreadId,
@@ -9772,6 +9789,17 @@ export default function ChatView(props: ChatViewProps) {
           />
         </header>
 
+        {isServerThread && activeProject ? (
+          <PitbossPanel
+            environmentId={activeThread.environmentId}
+            threadId={activeThread.id}
+            projectId={activeProject.id}
+            modelSelection={activeThread.modelSelection}
+            runtimeMode={activeThread.runtimeMode}
+            onComposeWork={focusComposer}
+          />
+        ) : null}
+
         {/* Main content area with optional plan sidebar */}
         <div
           className="relative flex min-h-0 min-w-0 flex-1"
@@ -9818,11 +9846,23 @@ export default function ChatView(props: ChatViewProps) {
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+              {settings.vimModeEnabled ? (
+                <TimelineVimMode
+                  key={activeThreadKey ?? routeThreadKey}
+                  routeKey={activeThreadKey ?? routeThreadKey}
+                  getScrollNode={getTimelineScrollableNode}
+                  focusComposer={() => composerRef.current?.focusAtEnd()}
+                  onUserNavigation={cancelTimelineLiveFollowForUserNavigation}
+                  onScrollToEnd={() => scrollToEnd(false)}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
-                {...(!paintOnlyDisplayedTimeline ? { onCiteAssistantText: citeAssistantText } : {})}
+                {...(settings.citeSelectionEnabled && !paintOnlyDisplayedTimeline
+                  ? { onCiteAssistantText: citeAssistantText }
+                  : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
                 activeTurnInProgress={
                   !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
@@ -10059,6 +10099,7 @@ export default function ChatView(props: ChatViewProps) {
                             providerCatalogKnown={serverConfig !== null}
                             activeProjectDefaultModelSelection={activeProjectDefaultModelSelection}
                             activeThreadModelSelection={activeThread?.modelSelection}
+                            codexRealtimeVoice={codexRealtimeVoice}
                             activeContextWindow={activeContextWindow}
                             activeTasksProgress={activeComposerTasksProgress}
                             activeTaskSteps={activeComposerTaskSteps}

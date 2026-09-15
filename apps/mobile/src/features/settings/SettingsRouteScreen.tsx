@@ -1,3 +1,4 @@
+import { VoiceSettings } from "../voice-input/VoiceWorkspaceProvider";
 import { useAuth, useUser } from "@clerk/expo";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import Constants from "expo-constants";
@@ -129,6 +130,7 @@ function LocalSettingsRouteScreen() {
           paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
+        <VoiceSettings />
         <SettingsSection title="Configuration">
           <SettingsRow
             icon="desktopcomputer"
@@ -184,7 +186,7 @@ function ConfiguredSettingsRouteScreen() {
   }, [isLoaded, isSignedIn, user?.primaryEmailAddress?.emailAddress]);
 
   const refreshNotifications = useCallback(async () => {
-    if (Platform.OS !== "ios" && Platform.OS !== "android") {
+    if (process.env.EXPO_OS !== "ios" && process.env.EXPO_OS !== "android") {
       setNotificationStatus("unsupported");
       return;
     }
@@ -229,7 +231,9 @@ function ConfiguredSettingsRouteScreen() {
       runtime.runPromiseExit(
         requestAgentNotificationPermission.pipe(
           Effect.tap((permission) =>
-            permission.type === "granted" ? refreshAgentAwarenessRegistration() : Effect.void,
+            permission.type === "granted" && Platform.OS === "ios"
+              ? refreshAgentAwarenessRegistration()
+              : Effect.void,
           ),
         ),
       ),
@@ -246,6 +250,14 @@ function ConfiguredSettingsRouteScreen() {
     }
     if (result.value.type === "granted") {
       setNotificationStatus("enabled");
+      if (Platform.OS === "android") {
+        savePreferences({ notificationsEnabled: true });
+        Alert.alert(
+          "Notifications enabled",
+          "T3 Code will notify you while it remains connected in the background.",
+        );
+        return;
+      }
       // Permission alone is not enough: the switch stays off until the relay
       // registration succeeds, so tell the user the truth about which happened.
       if (getAgentAwarenessRegistrationStatus() === "registered") {
@@ -260,10 +272,7 @@ function ConfiguredSettingsRouteScreen() {
     }
     if (result.value.type === "unsupported") {
       setNotificationStatus("unsupported");
-      Alert.alert(
-        "Notifications unavailable",
-        "Agent notifications are unavailable on this platform.",
-      );
+      Alert.alert("Notifications unavailable", "Notifications are not available on this platform.");
       return;
     }
     setNotificationStatus("disabled");
@@ -279,7 +288,7 @@ function ConfiguredSettingsRouteScreen() {
         { text: "Open Settings", onPress: () => void Linking.openSettings() },
       ],
     );
-  }, []);
+  }, [savePreferences]);
 
   const promptSignIn = useCallback(() => {
     Alert.alert(
@@ -409,6 +418,11 @@ function ConfiguredSettingsRouteScreen() {
         return;
       }
 
+      if (Platform.OS === "android") {
+        savePreferences({ notificationsEnabled: false });
+        return;
+      }
+
       Alert.alert(
         "Disable notifications",
         "Open system Settings to disable notifications for T3 Code.",
@@ -418,7 +432,7 @@ function ConfiguredSettingsRouteScreen() {
         ],
       );
     },
-    [isSignedIn, promptSignIn, requestNotifications],
+    [requestNotifications, savePreferences],
   );
 
   const handleLiveActivitiesChange = useCallback(
@@ -511,6 +525,7 @@ function ConfiguredSettingsRouteScreen() {
           </Text>
         </View>
 
+        <VoiceSettings />
         <SettingsSection title="Configuration">
           <SettingsRow
             icon="desktopcomputer"
@@ -523,39 +538,38 @@ function ConfiguredSettingsRouteScreen() {
             label="Device Notifications"
             disabled={
               !agentAwarenessPlatform.supported ||
-              !agentAwarenessPushAvailable ||
               notificationStatus === "checking" ||
               notificationStatus === "unsupported"
             }
-            subtitle={agentAwarenessSubtitle}
-            // Only reads as on when this device is actually registered with the
-            // relay; otherwise notifications cannot be delivered regardless of
-            // the local iOS permission.
+            subtitle={agentAwarenessPlatform.subtitle}
+            // Android notifications are local and preference-gated. iOS delivery
+            // requires the relay registration in addition to local permission.
             value={
-              agentAwarenessPushAvailable && notificationStatus === "enabled" && deviceRegistered
+              Platform.OS === "android"
+                ? notificationStatus === "enabled" &&
+                  AsyncResult.isSuccess(preferencesResult) &&
+                  preferencesResult.value.notificationsEnabled === true
+                : agentAwarenessPushAvailable &&
+                  notificationStatus === "enabled" &&
+                  deviceRegistered
             }
             onValueChange={handleDeviceNotificationsChange}
           />
           <SettingsSwitchRow
             disabled={
-              !agentAwarenessPlatform.supported ||
+              Platform.OS !== "ios" ||
               !agentAwarenessPushAvailable ||
               !isLoaded ||
               liveActivityStatus === "checking" ||
               liveActivityStatus === "linking"
             }
             icon="bolt.circle"
-            label={
-              Platform.OS === "android"
-                ? supportsAndroidLiveUpdateSettings()
-                  ? "Agent Live Updates"
-                  : "Ongoing Agent Activity"
-                : "Live Activity Updates"
-            }
-            subtitle={agentAwarenessSubtitle}
+            label="Live Activity Updates"
+            subtitle={Platform.OS === "ios" ? agentAwarenessPlatform.subtitle : "iOS only"}
             // Same gate: a saved preference is meaningless until the device
             // registration the relay needs to push updates has succeeded.
             value={
+              Platform.OS === "ios" &&
               agentAwarenessPushAvailable &&
               (liveActivityStatus === "enabled" || liveActivityStatus === "linking") &&
               deviceRegistered

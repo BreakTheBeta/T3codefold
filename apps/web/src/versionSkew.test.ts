@@ -17,6 +17,7 @@ import {
   isVersionMismatchDismissed,
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
+  manualServerUpdateCommand,
   resolveVersionMismatch,
   serverUpdateGuidance,
   supportsDesktopAppUpdate,
@@ -184,6 +185,30 @@ describe("versionSkew", () => {
     );
   });
 
+  it("offers manual Fold installation for older or upstream server updaters", () => {
+    for (const updateRepository of [undefined, "pingdotgg/t3code"]) {
+      const config = {
+        environment: {
+          environmentId: EnvironmentId.make("old-server"),
+          label: "Older Mac",
+          platform: { os: "darwin", arch: "arm64" } as const,
+          serverVersion: "0.1.4",
+          capabilities: {
+            repositoryIdentity: true,
+            serverSelfUpdate: "desktop-managed" as const,
+            desktopAppUpdate: true,
+            ...(updateRepository ? { updateRepository } : {}),
+          },
+        },
+      };
+      expect(resolveServerSelfUpdateCapability(config)).toBeNull();
+      expect(supportsDesktopAppUpdate(config)).toBe(false);
+    }
+    expect(manualServerUpdateCommand("0.1.6")).toBe(
+      "npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v0.1.6/t3-0.1.6.tgz t3",
+    );
+  });
+
   it("reads desktop-managed update capabilities from config descriptors", () => {
     expect(
       resolveServerSelfUpdateCapability({
@@ -194,6 +219,7 @@ describe("versionSkew", () => {
           serverVersion: "9.9.9",
           capabilities: {
             repositoryIdentity: true,
+            updateRepository: "BreakTheBeta/T3codefold",
             serverSelfUpdate: "desktop-managed",
           },
         },
@@ -211,6 +237,7 @@ describe("versionSkew", () => {
         serverVersion: "9.9.9",
         capabilities: {
           repositoryIdentity: true,
+          updateRepository: "BreakTheBeta/T3codefold",
           serverSelfUpdate: "desktop-managed" as const,
           ...(desktopAppUpdate === undefined ? {} : { desktopAppUpdate }),
         },

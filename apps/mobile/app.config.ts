@@ -214,19 +214,25 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
-  version: "1.2.0",
+  version: "1.0.16",
+
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
     // expensive native-project calculation there. Preview and production stay
     // fingerprinted so OTAs only reach binaries with matching native projects.
     policy: runtimeVersionPolicy,
   },
-  orientation: "portrait",
+  // Foldables, tablets, DeX, and Android multi-window can resize or rotate
+  // the app while it is running. Keep the window unrestricted so the
+  // adaptive workspace can respond to the actual available dimensions.
+  orientation: "default",
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    enabled: repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
-    url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
+    // GitHub hosts the fork's protocol manifest and content-addressed assets.
+    // Fingerprinted runtimes prevent JavaScript from crossing native revisions.
+    enabled: APP_VARIANT === "preview",
+    url: "https://raw.githubusercontent.com/BreakTheBeta/T3codefold/mobile-ota/manifest-android.json",
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
   },
@@ -274,6 +280,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
+    versionCode: 16,
     icon: variant.assets.appIcon,
     package: variant.androidPackage,
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
@@ -296,6 +303,7 @@ const config: ExpoConfig = {
     favicon: variant.assets.appIcon,
   },
   plugins: [
+    "./plugins/withRealtimeVoice.cjs",
     "expo-asset",
     [
       "expo-font",
@@ -453,10 +461,10 @@ const config: ExpoConfig = {
       tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
     },
     eas: {
-      projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",
+      projectId: "5c3bde99-9c75-4cd6-b0a0-cc5d2cf846df",
     },
   },
-  owner: "pingdotgg",
+  owner: "BreakTheBeta",
 };
 
 export default config;

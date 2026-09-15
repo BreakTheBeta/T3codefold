@@ -1,4 +1,99 @@
-# T3 Code
+# T3 Code Fold
+
+T3 Code Fold extends [T3 Code](https://github.com/pingdotgg/t3code) with a foldable Android workspace, live Codex voice, and agent handoffs between connected machines. Web, desktop, and Android share compatibility with older servers, while Fold builds use their own install and update sources.
+
+[Download Fold](https://github.com/BreakTheBeta/T3codefold/releases) · [Install a server](#installation) · [Update guide](docs/user/updating.md) · [Foldable demo](#foldable-demo)
+
+## Extra features
+
+| Difference                                        | What Fold adds / how to use it                                                                                                                                                                                                                                                                                                                                                                                  | Upstream comparison and retirement condition                                                                                                                                                                            |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Live GPT/Codex voice**                          | Talk with Codex from web, desktop, or mobile. Includes voice selection, transcripts, separate microphone/speaker mute, microphone selection, keyboard controls, calls that survive navigation, optional bounded file/diff/question context, and spoken end/task switching. Switching reconnects audio; screen capture is not included. See [voice setup](docs/user/providers-codex.md#talk-to-codex-fold-beta). | Compare upstream realtime controls, thread ownership, context sharing, idle-session resumption, and all client surfaces before retiring these changes. Voice choices follow the host CLI; experimental APIs can change. |
+| **Background Android calls and system audio**     | Keep talking with the screen locked, end calls from the ongoing notification, recover from brief network interruptions, and use speakerphone or Bluetooth call-capable headsets/glasses through Core-Telecom. Meta Ray-Ban audio still needs physical-device verification.                                                                                                                                      | Retire the Android additions only when upstream voice covers background lifetime, system call controls, microphone routing, and recovery.                                                                               |
+| **Project colours and icons on mobile**           | Mobile displays automatic project colours, custom icons, and emoji selected on desktop when connected to the same host.                                                                                                                                                                                                                                                                                         | Upstream already has desktop/web project styling; Fold shares its icon model with mobile. Replace when upstream mobile renders the same settings consistently.                                                          |
+| **Foldable workspace and resizable panes**        | Keep chat beside Files, Terminal, or Git on an unfolded Android phone. Drag the divider to give either pane more room, down to a compact sliver.                                                                                                                                                                                                                                                                | Builds on upstream's adaptive layout. Compare fold/unfold resizing, pane limits, and persistent chat visibility before dropping Fold's layout changes.                                                                  |
+| **Fold-aware navigation**                         | Selected tool states, reversible sidebar controls, and Android Back behavior work with the split workspace.                                                                                                                                                                                                                                                                                                     | Compare upstream navigation with both panes open, including opening, closing, and returning from tools.                                                                                                                 |
+| **Selectable Android output and clickable links** | Select and copy across Markdown paragraphs, lists, and tables; open links directly from responses.                                                                                                                                                                                                                                                                                                              | Extends the Android Markdown rendering path. Retire when upstream supports selection across mixed content and link activation together.                                                                                 |
+| **Android completion notifications**              | Enable notifications in mobile Settings to hear when work finishes while the app remains connected in the background.                                                                                                                                                                                                                                                                                           | Upstream's iOS notification support is shared foundation, not a Fold feature. Compare Android background delivery and thread navigation; this is not disconnected push delivery.                                        |
+| **Optional Cite selection bubble**                | In web or desktop, turn off **Settings → General → Show Cite on text selection** to stop the Cite bubble appearing when selecting assistant text. Enabled by default; saved per client.                                                                                                                                                                                                                         | The Cite feature itself is upstream. Fold adds its opt-out. Replace when upstream provides an equivalent preference, preserving saved choices.                                                                          |
+| **Isolated Android preview and GitHub updates**   | The preview installs alongside the Play Store app and uses Fold's own update source. Compatible JavaScript updates are published through GitHub; runtime fingerprints keep native revisions separate. See the [mobile build configuration](apps/mobile/app.config.ts) and [update publisher](scripts/publish-mobile-github-ota.ts).                                                                             | Keep fork identity and update isolation while distributing Fold builds. Reuse upstream update mechanisms only if they preserve that separation.                                                                         |
+| **Fold Windows desktop releases**                 | A dedicated [release workflow](.github/workflows/fold-desktop-release.yml) builds Windows installers with WSL terminal support, installs native build prerequisites, and keeps packaging diagnostics out of release downloads.                                                                                                                                                                                  | Fork release destinations remain intentional. Drop individual build workarounds when equivalent upstream packaging is verified.                                                                                         |
+
+### Agents, voice, and compatibility
+
+| Feature                        | What you get                                                                                                                                                                                                                                                                                                        | Available in                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **Live Codex voice**           | Choose a speaking voice and microphone, read transcripts and agent status, mute speaker and mic separately, use shortcuts, and keep talking while navigating. Optional file/diff/question context and spoken end/task switching are supported. [Voice setup](docs/user/providers-codex.md#talk-to-codex-fold-beta). | Web · Desktop · Mobile                   |
+| **Handoffs between machines**  | An agent can discover connected environments, start or message a thread elsewhere, and read or wait for its response.                                                                                                                                                                                               | Server · Connected clients               |
+| **Fleet CLI**                  | Use `t3 fleet` to discover environments and projects, create threads, send messages, read results, and wait. Retried requests keep their original receipt.                                                                                                                                                          | CLI                                      |
+| **Task handoff skill**         | Give another thread ownership of work with its objective, progress, code location, constraints, and a return contact. [Handoff instructions](.agents/skills/t3-handoff/SKILL.md).                                                                                                                                   | Agents with T3 tools or CLI              |
+| **Older-server compatibility** | Connect the same client to pre-orchestration and current servers; browse threads, send messages, and answer approvals and questions. [Compatibility guide](docs/user/updating.md#compatibility-with-older-servers).                                                                                                 | Web · Desktop, including macOS · Android |
+| **Optional Cite bubble**       | Hide the selection bubble through **Settings → General → Show Cite on text selection**, without disabling text selection.                                                                                                                                                                                           | Web · Desktop                            |
+| **Vim keyboard mode**          | Navigate threads, responses, controls, and the composer with Zed-style modal keyboard controls. Follow the [learning guide](docs/user/vim-keyboard-mode.md) to get started.                                                                                                                                         | Web · Desktop                            |
+
+### Android and foldable phones
+
+| Feature                              | What you get                                                                                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Chat beside workspace tools**      | Keep the conversation visible while using Files, Terminal, or Git on an unfolded phone.                                                     |
+| **Resizable panes**                  | Drag the divider to adjust the workspace, including a compact pane when chat needs more space.                                              |
+| **Fold-aware navigation**            | Tool selection, sidebar controls, and Android Back behavior account for the split workspace.                                                |
+| **Background voice calls**           | Keep talking with the screen locked, end calls from the ongoing notification, and use system speaker or Bluetooth call routing.             |
+| **Shared project colours and icons** | See automatic colours, custom icons, and emoji configured on desktop for projects on the same server.                                       |
+| **Selectable Markdown and links**    | Select and copy across paragraphs, lists, and tables, while keeping response links clickable.                                               |
+| **Agent activity notifications**     | Get local alerts for completed or failed work, approvals, and questions; tap to return to the thread. Requires the app to remain connected. |
+
+### Fold installation and updates
+
+| Feature                       | What you get                                                                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Separate Android preview**  | Install Fold alongside the upstream Play Store app. Compatible JavaScript updates come from Fold's GitHub OTA feed and must match the native runtime.                                      |
+| **Fork-owned server updates** | Server updates, remote SSH installs, and copied commands use Fold release packages. Older updaters get a manual Fold command instead of installing upstream T3.                            |
+| **Dedicated desktop feeds**   | Windows, macOS, and Linux builds use Fold's desktop feeds, separate from APK releases. The release workflow publishes the matching server first and includes Windows WSL terminal support. |
+
+<details>
+<summary><strong>Connection and release limits</strong></summary>
+
+- Cross-environment delivery requires a running client connected to both servers. Accepted work continues on the destination if that client disconnects; follow-up delivery needs the connection restored.
+- A handoff passes context and code references. It does not copy your checkout or uncommitted changes to another machine.
+- Compatibility mode connects updated Fold clients to older servers. New orchestration actions still need a current server; it does not retrofit old client binaries.
+- Updated clients preserve basic voice on older Fold hosts and enable advanced controls per host as servers are updated. Older clients retain basic voice on updated hosts. Task switching reconnects audio; view sharing is optional and bounded, without screen capture. Recheck upstream voice controls, context sharing, and call ownership across clients before retiring these differences.
+- Android activity notifications are local, connected-app notifications, not disconnected push delivery. Bluetooth behavior, including Meta Ray-Ban glasses, still needs physical-device verification.
+- Installers and source availability differ. macOS automatic updates require signed builds; unsigned Mac builds are manual downloads. See [releases](https://github.com/BreakTheBeta/T3codefold/releases) for available artifacts.
+
+</details>
+
+### Upstream orchestration integrated early
+
+Fold also includes [upstream's orchestration work](https://github.com/pingdotgg/t3code/commit/415ed0f73), merged ahead of the upstream `main` baseline above. These capabilities come from that integration; Fold's cross-environment routing builds on it.
+
+| Capability                      | What it enables                                                                                                                                     |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agent thread tools**          | Start, list, read, message, and wait for threads, with task delegation through T3's orchestration tools.                                            |
+| **Subagent threads**            | Represent supported provider subagents as child threads with their own activity and relationship to the parent.                                     |
+| **Forks and provider handoffs** | Branch work, switch providers, and merge work back where supported. Portable context has limits: [handoff details](docs/user/portable-handoffs.md). |
+| **Server-owned message queues** | Queue work after an active turn and edit, reorder, remove, or promote queued messages. [Queue controls](docs/user/composer.md#queued-messages).     |
+| **Cursor SDK runtime**          | Run Cursor through its SDK, including streamed task activity and child-thread projections. [Setup and capability limits](docs/user/cursor.md).      |
+
+Upgrading an older server also migrates its conversation transcripts into the new runtime. Read [older-thread migration](docs/user/thread-migration.md) for what carries over and how sessions resume.
+
+Upstream already supplies the core clients, remote connections, provider support, voice dictation, source-control tools, and much of the project styling. The tables above describe Fold's additions or extensions to that foundation. Recheck them after upstream merges overlapping functionality; Pebble's separate watch app and its legacy compatibility branch are not features of this main branch.
+
+## Foldable demo
+
+| Chat + Files                                                                                        | Resizable workspace                                                                                            |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| ![Chat and Files side by side on an unfolded Android phone](docs/images/t3codefold-chat-files.webp) | ![A resized T3 Code Fold workspace giving the active pane more room](docs/images/t3codefold-resized-pane.webp) |
+
+### Select across Markdown
+
+Android's native selection controls work across mixed response content, including headings, paragraphs, links, lists, inline code, and tables.
+
+<img src="docs/images/t3codefold-text-selection.webp" alt="Native Android text selection spanning Markdown headings, paragraphs, lists, links, inline code, and a table" width="420">
+
+Download the Android preview from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
+
+## About upstream T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 
@@ -27,44 +122,16 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 The easiest way to test T3 Code is to run the server in your terminal (requires Node.js 22.16+, 23.11+, or 24.10+):
 
 ```bash
-npx t3@latest
+npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
 ```
 
 This will launch T3 Code's backend on your machine as well as the local web app to control your agents.
 
-Tip: Use `npx t3@latest --help` for the full CLI reference.
+Tip: Use `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 --help` for the full CLI reference.
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
+Download Fold desktop builds from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The upstream Homebrew, winget, and AUR packages install regular T3 Code.
 
 ## Some notes
 
@@ -74,11 +141,15 @@ We are (mostly) not accepting contributions yet. Small fixes may be considered. 
 
 ## Documentation
 
+- [GLaDOS orchestration idea library](docs/internals/glados/README.md): Gas City, pstack, Cursor, Hermes, model routing and project leadership.
+
 Full docs live in [docs/](./docs). There's no docs site yet.
 
+- [T3 Pebble integration notes](./docs/integrations/t3pebble.md)
 - [Install and first run](./docs/user/install.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)
+- [Vim keyboard mode learning guide](./docs/user/vim-keyboard-mode.md)
 - [Project settings](./docs/user/project-settings.md)
 - [Appearance preferences](./docs/user/appearance.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)

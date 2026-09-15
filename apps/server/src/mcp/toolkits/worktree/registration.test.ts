@@ -1,8 +1,5 @@
-import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
-import { ProjectionStoreV2 } from "../../../orchestration-v2/ProjectionStore.ts";
-import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { DeviceService } from "../../../device/DeviceService.ts";
-import * as ServerConfig from "../../../config.ts";
+import { SqlitePersistenceMemory } from "../../../persistence/Layers/Sqlite.ts";
+import { layerTest as serverConfigTestLayer } from "../../../config.ts";
 import { expect, it } from "@effect/vitest";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -26,10 +23,8 @@ import * as McpSessionRegistry from "../../McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 
 const StubServicesLive = Layer.mergeAll(
-  Layer.mock(OrchestratorV2)({}),
-  Layer.mock(ProjectionStoreV2)({}),
-  Layer.mock(ProjectionSnapshotQuery)({}),
-  Layer.mock(DeviceService)({}),
+  SqlitePersistenceMemory,
+  serverConfigTestLayer(process.cwd(), { prefix: "t3-worktree-test-" }),
   Layer.mock(ThreadManagementService)({}),
   Layer.mock(ProviderRegistry)({}),
   Layer.mock(ScheduledTaskService)({}),
@@ -146,7 +141,7 @@ it.effect("production mcp layer lists worktree tools over http", () =>
     Effect.provide(
       Layer.mergeAll(
         NodeHttpServer.layerTest,
-        ServerConfig.layerTest(process.cwd(), { prefix: "t3-worktree-mcp-" }).pipe(
+        serverConfigTestLayer(process.cwd(), { prefix: "t3-worktree-mcp-" }).pipe(
           Layer.provide(NodeServices.layer),
         ),
         NodeServices.layer,

@@ -39,7 +39,11 @@ type ConnectionLayerSource =
 
 const providedClientConnectionLayer = snapshotLoaderLayer.pipe(
   Layer.provideMerge(
-    Connection.layerWithOptions({ usageLimitSources: true, usageLimitsCommand: true }),
+    Connection.layerWithOptions({
+      usageLimitSources: true,
+      realtimeVoiceControls: true,
+      usageLimitsCommand: true,
+    }),
   ),
   Layer.provideMerge(
     Layer.mergeAll(
