@@ -119,59 +119,95 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
   expect(state.tasks[0]!.status).toBe("done");
 });
 
-it("preserves a stopped candidate for takeover and rejects a second writer before the stop", () => {
-  let state = elect();
-  const run = (action: Parameters<typeof decide>[1]["action"]) => {
-    state = decide(
+it.each([false, true])(
+  "preserves a stopped candidate with explicit resume=%s and rejects a second writer before the stop",
+  (explicitResume) => {
+    let state = elect();
+    const run = (action: Parameters<typeof decide>[1]["action"]) => {
+      state = decide(
+        state,
+        {
+          commandId: CommandId.make(`takeover-${state.revision}`),
+          expectedRevision: state.revision,
+          action,
+        },
+        { type: "user" },
+        "2026-09-10T00:00:00Z",
+      );
+    };
+    run({
+      type: "create",
+      taskId: "takeover",
+      projectId,
+      title: "Finish partial work",
+      outcome: "Keep the patch",
+      criteria: "Verify candidate",
+      verifyCommand: "test candidate",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD", branch: "fix/retained" },
+    });
+    run({ type: "assign", taskId: "takeover" });
+    const first = state.tasks[0]!.attempts[0]!;
+    state = observeAttempt(
       state,
-      {
-        commandId: CommandId.make(`takeover-${state.revision}`),
-        expectedRevision: state.revision,
-        action,
-      },
-      { type: "user" },
-      "2026-09-10T00:00:00Z",
+      "takeover",
+      first.id,
+      "running",
+      "Started",
+      "/tmp/retained-candidate",
     );
-  };
-  run({
-    type: "create",
-    taskId: "takeover",
-    projectId,
-    title: "Finish partial work",
-    outcome: "Keep the patch",
-    criteria: "Verify candidate",
-    verifyCommand: "test candidate",
-    priority: 1,
-    dependencies: [],
-    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
-  });
-  run({ type: "assign", taskId: "takeover" });
-  const first = state.tasks[0]!.attempts[0]!;
-  state = observeAttempt(
-    state,
-    "takeover",
-    first.id,
-    "running",
-    "Started",
-    "/tmp/retained-candidate",
-  );
-  run({ type: "rework", taskId: "takeover", note: "Escalate with candidate retained" });
-  expect(() => run({ type: "reopen", taskId: "takeover" })).toThrow(/previous writer/);
-  state = observeAttempt(state, "takeover", first.id, "stopped", "Confirmed stopped");
-  run({ type: "reopen", taskId: "takeover" });
-  run({
-    type: "assign",
-    taskId: "takeover",
-    resumeAttemptId: first.id,
-    model: { instanceId: ProviderInstanceId.make("codex"), model: "stronger-test-model" },
-  });
-  expect(state.tasks[0]?.workspaceStrategy).toEqual({
-    type: "existing_worktree",
-    worktreePath: "/tmp/retained-candidate",
-  });
-  expect(state.tasks[0]?.attempts.at(-1)?.model.model).toBe("stronger-test-model");
-  expect(state.tasks[0]?.attempts[0]?.state).toBe("stopped");
-});
+    run({ type: "rework", taskId: "takeover", note: "Escalate with candidate retained" });
+    expect(() => run({ type: "reopen", taskId: "takeover" })).toThrow(/previous writer/);
+    state = observeAttempt(state, "takeover", first.id, "stopped", "Confirmed stopped");
+    run({ type: "reopen", taskId: "takeover" });
+    const retained = state;
+    state = {
+      ...state,
+      tasks: [
+        ...state.tasks,
+        {
+          ...state.tasks[0]!,
+          id: "another-owner",
+          status: "active",
+          attempts: [
+            {
+              ...first,
+              id: "other-attempt",
+              threadId: ThreadId.make("other-worker"),
+              state: "running",
+              workspacePath: "/tmp/retained-candidate",
+            },
+          ],
+        },
+      ],
+    };
+    // Raise only capacity in the test so the workspace ownership check is reached.
+    state = { ...state, role: { ...state.role!, brief: { ...state.role!.brief, maxWorkers: 2 } } };
+    expect(() =>
+      run({
+        type: "assign",
+        taskId: "takeover",
+        ...(explicitResume ? { resumeAttemptId: first.id } : {}),
+      }),
+    ).toThrow(/owns that workspace/);
+    state = retained;
+    run({
+      type: "assign",
+      taskId: "takeover",
+      ...(explicitResume ? { resumeAttemptId: first.id } : {}),
+      model: { instanceId: ProviderInstanceId.make("codex"), model: "stronger-test-model" },
+    });
+    expect(state.tasks[0]?.workspaceStrategy).toEqual({
+      type: "existing_worktree",
+      worktreePath: "/tmp/retained-candidate",
+    });
+    expect(state.tasks[0]?.attempts.at(-1)?.model.model).toBe("stronger-test-model");
+    expect(state.tasks[0]?.attempts[0]?.state).toBe("stopped");
+    expect(state.tasks[0]?.attempts.at(-1)?.workspacePath).toBe("/tmp/retained-candidate");
+    expect(() => run({ type: "assign", taskId: "takeover" })).toThrow(/not ready/);
+  },
+);
 
 it("forwards shared control to its fixed home and fences the previous coordinator", () => {
   const elected = elect();

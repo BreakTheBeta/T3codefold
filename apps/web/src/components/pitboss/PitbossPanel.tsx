@@ -1,3 +1,4 @@
+import { isUserWorkMessage } from "@t3tools/contracts";
 import { WorkInspector } from "./WorkInspector";
 import { evidenceKind, filterWork, needsAttention, workFilters, type WorkFilter } from "./workView";
 import { CreateHome } from "./CreateHome";
@@ -79,11 +80,7 @@ export function PitbossPin({
   const reopen = useAtomCommand(serverEnvironment.pitbossCommand, { label: "Open GLaDOS" });
   const [openError, setOpenError] = useState<string | null>(null);
   const role = query.data?.role;
-  const questions =
-    query.data?.messages.filter(
-      (message) =>
-        !message.acknowledged && ["question", "decision", "result"].includes(message.kind),
-    ).length ?? 0;
+  const questions = query.data?.tasks.filter(needsAttention).length ?? 0;
   return (
     <>
       <CreateHome environmentId={environmentId} label={label} />
@@ -223,9 +220,7 @@ export function PitbossPanel(props: {
   if (!state) return null;
   if (!isBoss && !editingBrief) return null;
   const selected = state.tasks.find((task) => task.id === selectedId);
-  const questions = state.messages.filter(
-    (message) => !message.acknowledged && ["question", "decision", "result"].includes(message.kind),
-  );
+  const questions = state.messages.filter(isUserWorkMessage);
   const active = state.tasks.filter(
     (task) => task.status === "active" || task.status === "verifying",
   );
@@ -329,9 +324,10 @@ export function PitbossPanel(props: {
         {[
           { label: "Needs you", tasks: visibleTasks.filter(needsAttention) },
           {
-            label: "In progress",
+            label: "With GLaDOS",
             tasks: visibleTasks.filter(
-              (task) => !needsAttention(task) && ["active", "verifying"].includes(task.status),
+              (task) =>
+                !needsAttention(task) && ["active", "verifying", "blocked"].includes(task.status),
             ),
           },
           {

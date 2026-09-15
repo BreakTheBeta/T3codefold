@@ -460,3 +460,25 @@ export const PitbossSourceRequest = Schema.Union([
 export type PitbossSourceRequest = typeof PitbossSourceRequest.Type;
 
 export type PitbossSourcesResult = typeof PitbossSourcesResult.Type;
+
+/** User attention is a concrete decision or setup review, not every operational blocker. */
+export function workNeedsUserInput(
+  task: Pick<PitbossTask, "status" | "decisions" | "proposedVerificationRecipe">,
+) {
+  return (
+    !["done", "cancelled"].includes(task.status) &&
+    (!!task.proposedVerificationRecipe ||
+      !!task.decisions?.some((decision) => decision.answer === undefined))
+  );
+}
+
+/** Worker/peer reports and submitted results belong to the coordinator's inbox. */
+export function isUserWorkMessage(message: PitbossMessage) {
+  return (
+    !message.acknowledged &&
+    !message.threadId &&
+    !message.sourcePeerId &&
+    !message.recipientLeadId &&
+    (message.kind === "question" || message.kind === "decision")
+  );
+}
