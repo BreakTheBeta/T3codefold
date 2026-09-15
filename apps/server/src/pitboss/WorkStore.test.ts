@@ -64,6 +64,43 @@ it.effect("does not expose the portfolio or role controls to an unrelated agent"
   }).pipe(Effect.provide(services)),
 );
 
+it.effect("does not let a downgraded coordinator launch the saved full-access default", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    const elected = yield* store.command(election, { type: "user" });
+    const brief = { ...elected.role!.brief, workerRuntimeMode: "full-access" as const };
+    const configured = yield* store.command(
+      {
+        commandId: CommandId.make("full-worker-default"),
+        expectedRevision: elected.revision,
+        action: { type: "brief", brief },
+      },
+      { type: "user" },
+    );
+    const denied = yield* store
+      .command(
+        {
+          commandId: CommandId.make("downgraded-lead"),
+          expectedRevision: configured.revision,
+          authorityGeneration: configured.role!.generation,
+          action: {
+            type: "create-lead",
+            leadId: "downgraded",
+            projectId: election.action.projectId,
+            charter: "Own the project",
+            model: election.action.brief.workerModel,
+            maxWorkers: 1,
+          },
+        },
+        { type: "agent", threadId: election.action.threadId },
+        { runtimeMode: "approval-required" },
+      )
+      .pipe(Effect.flip);
+    expect(denied.code).toBe("forbidden");
+    expect((yield* store.read()).leads ?? []).toEqual([]);
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect(
   "deduplicates tracker refreshes and keeps external Done separate from accepted work",
   () =>
@@ -222,13 +259,27 @@ it.effect(
           charter: "Build a small app with two bounded workers and inspect the combined result",
           model: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-terra" },
           maxWorkers: 1,
+          runtimeMode: "full-access" as const,
         },
       };
       const boss = { type: "agent" as const, threadId: election.action.threadId };
-      const first = yield* store.command(input, boss);
-      const retry = yield* store.command(input, boss);
+      const first = yield* store.command(input, boss, { runtimeMode: "full-access" });
+      const retry = yield* store.command(input, boss, { runtimeMode: "approval-required" });
       expect(retry.revision).toBe(first.revision);
+      expect(first.leads?.[0]?.runtimeMode).toBe("full-access");
       expect((yield* store.effects()).filter((e) => e.kind === "create-lead")).toHaveLength(1);
+      const denied = yield* store
+        .command(
+          {
+            ...input,
+            commandId: CommandId.make("create-terra-again"),
+            expectedRevision: first.revision,
+          },
+          boss,
+          { runtimeMode: "approval-required" },
+        )
+        .pipe(Effect.flip);
+      expect(denied.code).toBe("forbidden");
       const lead = first.leads![0]!;
       const actor = { type: "agent" as const, threadId: lead.threadId };
       yield* store.command(

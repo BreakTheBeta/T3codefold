@@ -973,6 +973,7 @@ function ThreadRouteContent(
         }
       >
         <ThreadDetailScreen
+          key={scopedThreadKey(selectedThread.environmentId, selectedThread.id)}
           selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
           contentPresentation={contentPresentation}
           screenTone={connectionTone(routeConnectionState)}

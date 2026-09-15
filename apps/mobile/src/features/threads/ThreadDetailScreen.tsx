@@ -43,7 +43,6 @@ import {
 } from "react";
 import {
   Alert,
-  AppState,
   Keyboard,
   Platform,
   useWindowDimensions,
@@ -271,37 +270,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const insets = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
-  // Android can swallow the IME hide callbacks when the app is backgrounded
-  // mid keyboard-hide (the reported repro: send — which blurs and starts the
-  // hide — then Home within a second). The keyboard library's height AND
-  // visibility then stay frozen open, so gating the sticky translation on
-  // visibility alone still strands the composer after resume. Quarantine the
-  // translation on every Android resume instead; any sign of a live keyboard
-  // stream — an owned input gaining focus, or any visibility/height movement —
-  // lifts it. A healthy resume sees no visual difference (the translation is
-  // already zero while the keyboard is closed).
-  const [keyboardStateSuspect, setKeyboardStateSuspect] = useState(false);
-  useEffect(() => {
-    if (Platform.OS !== "android") {
-      return;
-    }
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        setKeyboardStateSuspect(true);
-      }
-    });
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-  useEffect(() => {
-    setKeyboardStateSuspect(false);
-  }, [isKeyboardVisible, liveKeyboardHeight]);
-  const handleOwnedInputFocusChange = useCallback((focused: boolean) => {
-    if (focused) {
-      setKeyboardStateSuspect(false);
-    }
-  }, []);
   const windowHeight = useWindowDimensions().height;
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + 44;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
@@ -321,13 +289,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const lastScrolledSubmittedMessageIdRef = useRef<MessageId | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
-  const handleComposerFocusChange = useCallback(
-    (focused: boolean) => {
-      setComposerFocused(focused);
-      handleOwnedInputFocusChange(focused);
-    },
-    [handleOwnedInputFocusChange],
-  );
   const [anchorMessageId, setAnchorMessageId] = useState<MessageId | null>(null);
   const [submittedMessageId, setSubmittedMessageId] = useState<MessageId | null>(null);
   const [endFollowEnabled, setEndFollowEnabled] = useState(true);
@@ -1001,10 +962,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
       {showContent ? (
         <KeyboardStickyView
-          // iOS emits a native animated height target on both will-show and
-          // will-hide, so stay subscribed for the full transition. Android
-          // retains its background/resume stale-state quarantine.
-          enabled={Platform.OS === "ios" || (isKeyboardVisible && !keyboardStateSuspect)}
           pointerEvents="box-none"
           style={{ position: "absolute", bottom: 0, left: 0, right: 0, top: 0 }}
           offset={{ closed: 0, opened: 0 }}
@@ -1102,7 +1059,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         onStopThread={props.onStopThread}
                         cardProgress={userInputCardProgress}
                         cardCoverage={userInputCardCoverage}
-                        onInputFocusChange={handleOwnedInputFocusChange}
                         drafts={props.activePendingUserInputDrafts}
                         answers={props.activePendingUserInputAnswers}
                         respondingUserInputId={props.respondingUserInputId}
@@ -1164,7 +1120,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
                     onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
                     onExpandedChange={setComposerExpanded}
-                    onEditorFocusChange={handleComposerFocusChange}
+                    onEditorFocusChange={setComposerFocused}
                   />
                 </GlassBlurTargetContext>
               </View>

@@ -100,6 +100,7 @@ const harness = Effect.gen(function* () {
   let failPermissions = false;
   const sent: ThreadId[] = [];
   const interrupted: ThreadId[] = [];
+  let deferInterrupt = false;
   const failLaunch = new Set<ThreadId>();
   const command = (action: PitbossAction) =>
     Effect.gen(function* () {
@@ -174,8 +175,10 @@ const harness = Effect.gen(function* () {
       interruptThread: (input) =>
         Effect.sync(() => {
           interrupted.push(input.threadId);
-          const p = projections.get(input.threadId)!;
-          projections.set(input.threadId, { ...p, runs: [] });
+          if (!deferInterrupt) {
+            const p = projections.get(input.threadId)!;
+            projections.set(input.threadId, { ...p, runs: [] });
+          }
           return { type: "no_active_run" as const };
         }),
       getProjectThread: (input) => {
@@ -244,6 +247,9 @@ const harness = Effect.gen(function* () {
     },
     sent,
     interrupted,
+    deferInterrupt: () => {
+      deferInterrupt = true;
+    },
     failLaunch,
     command,
     drain,
@@ -375,6 +381,109 @@ it.effect(
       expect(answered.tasks[0]!.status).toBe("queued");
       expect(answered.tasks[1]!.attempts[0]!.state).toBe("running");
       expect(yield* h.store.rebuild()).toEqual(answered);
+    }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "keeps explicitly requested lead permissions through failed launch, rebuild and reactivation",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const created = yield* h.command({
+        type: "create-lead",
+        leadId: "full-access-lead",
+        projectId: a,
+        charter: "Own this project",
+        model,
+        maxWorkers: 1,
+        runtimeMode: "full-access",
+      });
+      const lead = created.leads!.find((entry) => entry.id === "full-access-lead")!;
+      expect(lead.runtimeMode).toBe("full-access");
+      h.failLaunch.add(lead.threadId);
+      yield* h.drain();
+      expect(h.launchModes).toEqual(["full-access"]);
+      yield* h.store.rebuild();
+      h.failLaunch.clear();
+      yield* h.command({
+        type: "lead-status",
+        leadId: lead.id,
+        status: "active",
+        runtimeMode: "full-access",
+      });
+      yield* h.drain();
+      expect(h.launchModes).toEqual(["full-access", "full-access"]);
+    }).pipe(Effect.provide(services)),
+);
+
+it.effect("an explicit lead downgrade overrides a full-access worker default", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const original = (yield* h.store.read()).role!.brief;
+    yield* h.command({
+      type: "brief",
+      brief: { ...original, workerRuntimeMode: "full-access" },
+    });
+    yield* h.command({
+      type: "create-lead",
+      leadId: "approval-lead",
+      projectId: a,
+      charter: "Own this project",
+      model,
+      maxWorkers: 1,
+      runtimeMode: "approval-required",
+    });
+    yield* h.drain();
+    expect(h.launchModes).toEqual(["approval-required"]);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("an explicit mode is applied when an existing lead is reactivated", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const lead = yield* h.lead("existing", a);
+    yield* h.drain();
+    yield* h.command({ type: "lead-status", leadId: lead.id, status: "dormant" });
+    yield* h.drain();
+    expect(h.interrupted).toEqual([lead.threadId]);
+    yield* h.command({
+      type: "lead-status",
+      leadId: lead.id,
+      status: "active",
+      runtimeMode: "approval-required",
+    });
+    yield* h.drain();
+    expect(h.permissionModes).toEqual(["approval-required"]);
+    expect(h.launched).toEqual([lead.threadId]);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "reactivation waits for the dormant lead writer to stop before changing permissions",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const lead = yield* h.lead("stopping", a);
+      yield* h.drain();
+      h.deferInterrupt();
+      yield* h.command({ type: "lead-status", leadId: lead.id, status: "dormant" });
+      yield* h.drain();
+      expect(h.interrupted).toEqual([lead.threadId]);
+      yield* h.command({
+        type: "lead-status",
+        leadId: lead.id,
+        status: "active",
+        runtimeMode: "full-access",
+      });
+      yield* h.drain();
+      expect(h.permissionModes).toEqual([]);
+      expect((yield* h.store.effects()).some((effect) => effect.kind === "lead-status")).toBe(true);
+      h.projections.set(lead.threadId, projection(lead.threadId, a));
+      yield* h.drain();
+      expect(h.permissionModes).toEqual(["full-access"]);
+      expect((yield* h.store.effects()).filter((effect) => effect.kind === "lead-status")).toEqual(
+        [],
+      );
     }).pipe(Effect.provide(services)),
 );
 

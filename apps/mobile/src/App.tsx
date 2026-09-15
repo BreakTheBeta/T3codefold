@@ -2,7 +2,7 @@ import { VoiceWorkspaceProvider } from "./features/voice-input/VoiceWorkspacePro
 import { BlurTargetView } from "expo-blur";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -54,12 +54,12 @@ const appLinking = {
 
 const Navigation = createStaticNavigation(RootStack);
 
-function SplashScreenCoordinator() {
+function SplashScreenCoordinator({ navigationReady }: { readonly navigationReady: boolean }) {
   const { isReady } = useAppearancePreferences();
 
   useEffect(() => {
-    if (isReady) void SplashScreen.hide();
-  }, [isReady]);
+    if (isReady && navigationReady) void SplashScreen.hide();
+  }, [isReady, navigationReady]);
 
   return null;
 }
@@ -79,12 +79,16 @@ export default function App() {
 function AppContent() {
   const { themeAppearance } = useAppearancePreferences();
   const navigationTheme = useMobileNavigationTheme();
+  const [navigationReady, setNavigationReady] = useState(false);
 
   return (
     <>
-      <SplashScreenCoordinator />
+      <SplashScreenCoordinator navigationReady={navigationReady} />
       <SubscriptionUsageCoordinator />
-      <GestureHandlerRootView className="flex-1">
+      <GestureHandlerRootView
+        className="flex-1"
+        style={{ backgroundColor: navigationTheme.colors.background }}
+      >
         <KeyboardProvider statusBarTranslucent>
           <SafeAreaProvider>
             <StatusBar
@@ -101,7 +105,11 @@ function AppContent() {
               <VoiceWorkspaceProvider>
                 <IncomingShareProvider>
                   <LocalAgentNotificationsCoordinator />
-                  <Navigation linking={appLinking} theme={navigationTheme} />
+                  <Navigation
+                    linking={appLinking}
+                    theme={navigationTheme}
+                    onReady={() => setNavigationReady(true)}
+                  />
                 </IncomingShareProvider>
               </VoiceWorkspaceProvider>
               <ConfirmDialogHost />
