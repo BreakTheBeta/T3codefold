@@ -13,7 +13,9 @@ import {
   PitbossCommand,
   PitbossError,
   PitbossSnapshot,
+  isRuntimeModeBroaderThan,
   type PitbossAttempt,
+  type RuntimeMode,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -40,6 +42,9 @@ export interface WorkEffect {
   readonly payload_json: string;
   readonly attempts: number;
   readonly error: string | null;
+}
+export interface WorkCommandAuthority {
+  readonly runtimeMode: RuntimeMode;
 }
 const isPitbossError = Schema.is(PitbossError);
 const decodeCommand = Schema.decodeUnknownEffect(PitbossCommand);
@@ -73,6 +78,7 @@ export class WorkStore extends Context.Service<
     command: (
       input: PitbossCommand,
       actor: WorkActor,
+      authority?: WorkCommandAuthority,
     ) => Effect.Effect<PitbossSnapshot, PitbossError>;
     subscribe: () => Stream.Stream<PitbossSnapshot, PitbossError>;
     changes: Stream.Stream<void>;
@@ -173,6 +179,7 @@ export const layer = Layer.effect(
     const command = Effect.fn("WorkStore.command")(function* (
       raw: PitbossCommand,
       actor: WorkActor,
+      authority?: WorkCommandAuthority,
     ) {
       const input = yield* decodeCommand(raw);
       const requestJson = encodeJson({ input, actor });
@@ -191,6 +198,28 @@ export const layer = Layer.effect(
             return yield* readAll();
           }
           const before = yield* readAll();
+          if (actor.type === "agent") {
+            const action = input.action;
+            const requestedMode =
+              action.type === "create-lead" || action.type === "assign"
+                ? (action.runtimeMode ??
+                  before.role?.brief.workerRuntimeMode ??
+                  "approval-required")
+                : action.type === "lead-status" && action.status === "active"
+                  ? (action.runtimeMode ??
+                    before.leads?.find((lead) => lead.id === action.leadId)?.runtimeMode ??
+                    before.role?.brief.workerRuntimeMode ??
+                    "approval-required")
+                  : undefined;
+            if (
+              requestedMode !== undefined &&
+              (!authority || isRuntimeModeBroaderThan(requestedMode, authority.runtimeMode))
+            )
+              return yield* new PitbossError({
+                code: "forbidden",
+                message: `Launch runtime mode ${requestedMode} is broader than caller mode ${authority?.runtimeMode ?? "unknown"}.`,
+              });
+          }
           const after = yield* Effect.try({
             try: () => decide(before, input, actor, now),
             catch: unavailable,
@@ -231,7 +260,7 @@ export const layer = Layer.effect(
           ) {
             yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, ${action.type}, ${encodeJson(action)})`;
           }
-          if (action.type === "lead-status" && action.status === "active") {
+          if (action.type === "lead-status") {
             yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${input.commandId}, 'lead-status', ${encodeJson(action)})`;
           }
           return after;

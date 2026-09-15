@@ -13,6 +13,7 @@ import { OrchestrationV2ThreadLaunchWorkspaceStrategy } from "./orchestrationV2.
 const Text = Schema.String.check(Schema.isMaxLength(16000));
 const Id = TrimmedNonEmptyString.check(Schema.isMaxLength(200));
 const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const PitbossRuntimeMode = Schema.Literals(["approval-required", "full-access"]);
 export const PitbossBrief = Schema.Struct({
   priorities: Text,
   quality: Text,
@@ -23,8 +24,8 @@ export const PitbossBrief = Schema.Struct({
   alternateWorkerModel: Schema.optional(ModelSelection),
   modelGuidance: Schema.optional(Text),
   managedPeerIds: Schema.optional(Schema.Array(Id).check(Schema.isMaxLength(50))),
-  coordinatorRuntimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
-  workerRuntimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
+  coordinatorRuntimeMode: Schema.optional(PitbossRuntimeMode),
+  workerRuntimeMode: Schema.optional(PitbossRuntimeMode),
   verificationMode: Schema.optional(Schema.Literals(["user-approved", "automatic"])),
 });
 export type PitbossBrief = typeof PitbossBrief.Type;
@@ -153,7 +154,7 @@ export const PitbossEvidence = Schema.Struct({
 });
 export type PitbossEvidence = typeof PitbossEvidence.Type;
 export const PitbossAttempt = Schema.Struct({
-  runtimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
+  runtimeMode: Schema.optional(PitbossRuntimeMode),
   id: Id,
   threadId: ThreadId,
   generation: Version,
@@ -185,6 +186,7 @@ export const PitbossSource = Schema.Struct({
 });
 export type PitbossSource = typeof PitbossSource.Type;
 export const PitbossLead = Schema.Struct({
+  runtimeMode: Schema.optional(PitbossRuntimeMode),
   id: Id,
   threadId: ThreadId,
   projectId: ProjectId,
@@ -329,11 +331,13 @@ export const PitbossAction = Schema.Union([
     charter: PitbossLead.fields.charter,
     model: ModelSelection,
     maxWorkers: PitbossLead.fields.maxWorkers,
+    runtimeMode: Schema.optional(PitbossRuntimeMode),
   }),
   Schema.Struct({
     type: Schema.Literal("lead-status"),
     leadId: Id,
     status: PitbossLead.fields.status,
+    runtimeMode: Schema.optional(PitbossRuntimeMode),
   }),
   Schema.Struct({ type: Schema.Literal("lead-context"), leadId: Id, context: Text }),
   Schema.Struct({
@@ -375,6 +379,7 @@ export const PitbossAction = Schema.Union([
     type: Schema.Literal("assign"),
     taskId: Id,
     model: Schema.optional(ModelSelection),
+    runtimeMode: Schema.optional(PitbossRuntimeMode),
     resumeAttemptId: Schema.optional(Id),
   }),
   Schema.Struct({

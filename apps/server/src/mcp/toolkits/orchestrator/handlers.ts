@@ -1,6 +1,7 @@
 import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import {
   OrchestratorMcpFailure,
+  PitbossError,
   OrchestratorMcpCapabilitiesResult,
   OrchestratorMcpCreatedThread,
   OrchestratorMcpThreadListResult,
@@ -73,7 +74,28 @@ export const handlers = {
   work_command: (input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext;
-      return yield* (yield* WorkStore).command(input, { type: "agent", threadId: scope.threadId });
+      const needsLaunchAuthority =
+        input.action.type === "create-lead" ||
+        input.action.type === "assign" ||
+        (input.action.type === "lead-status" && input.action.status === "active");
+      const authority = needsLaunchAuthority
+        ? {
+            runtimeMode: (yield* (yield* OrchestratorMcpService).capabilities(scope).pipe(
+              Effect.mapError(
+                (error) =>
+                  new PitbossError({
+                    code: "forbidden",
+                    message: `Cannot authorize work launch permissions: ${error.message}`,
+                  }),
+              ),
+            )).runtimeMode,
+          }
+        : undefined;
+      return yield* (yield* WorkStore).command(
+        input,
+        { type: "agent", threadId: scope.threadId },
+        authority,
+      );
     }),
   t3_environment_list: () =>
     Effect.gen(function* () {
