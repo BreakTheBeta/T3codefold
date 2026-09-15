@@ -21,7 +21,6 @@ The controls retreat as the composer docks after you send the first message.
 Turn on **Composer context** to keep those controls visible after the thread starts. This preference
 applies to the web and desktop clients.
 
-
 ## Motion
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the

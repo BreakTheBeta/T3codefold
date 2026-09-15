@@ -59,6 +59,7 @@ export const ProviderAdapterV2TurnMessage = Schema.Struct({
   attachments: Schema.Array(ChatAttachment),
   createdBy: OrchestrationV2ConversationMessage.fields.createdBy,
   creationSource: OrchestrationV2ConversationMessage.fields.creationSource,
+  scheduledTaskId: OrchestrationV2ConversationMessage.fields.scheduledTaskId,
 });
 export type ProviderAdapterV2TurnMessage = typeof ProviderAdapterV2TurnMessage.Type;
 
@@ -375,6 +376,10 @@ export interface ProviderAdapterV2OpenSessionInput {
   readonly modelSelection: ModelSelection;
   readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
   readonly resumeFromSession?: OrchestrationV2ProviderSession;
+  /** Native thread to activate while an eager adapter opens its provider process. */
+  readonly initialNativeThreadId?: string;
+  /** Preserves provider item identity across eager activation of a persisted thread. */
+  readonly initialProviderItemIdentityVersion?: 2;
 }
 
 export interface ProviderAdapterV2EnsureThreadInput {
@@ -526,31 +531,6 @@ export interface ProviderAdapterV2SessionRuntime {
    * Providers that accept product feedback for a thread (#7949, Codex → OpenAI)
    * expose it here; absent means the driver has no feedback channel.
    */
-  readonly listRealtimeVoices?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-  }) => Effect.Effect<
-    import("@t3tools/contracts").ProviderRealtimeVoiceListResult,
-    ProviderAdapterV2Error
-  >;
-  readonly appendRealtimeVoiceContext?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-    readonly callId: string;
-    readonly text: string;
-  }) => Effect.Effect<void, ProviderAdapterV2Error>;
-  readonly realtimeVoiceEvents?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-  }) => Stream.Stream<
-    import("@t3tools/contracts").ProviderRealtimeVoiceEvent,
-    ProviderAdapterV2Error
-  >;
-  readonly startRealtimeVoice?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-    readonly sdp: string;
-    readonly options?: import("@t3tools/contracts").RealtimeVoiceOptions;
-  }) => Effect.Effect<{ readonly sdp: string }, ProviderAdapterV2Error>;
-  readonly stopRealtimeVoice?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-  }) => Effect.Effect<void, ProviderAdapterV2Error>;
   readonly uploadFeedback?: (input: {
     readonly providerThread: OrchestrationV2ProviderThread;
     readonly reason?: string;

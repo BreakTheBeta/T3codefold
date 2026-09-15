@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./legacyCliLauncher": {
+      "types": "./src/legacyCliLauncher.ts",
+      "import": "./src/legacyCliLauncher.ts"
+    },
     "./delimitedPreview": {
       "types": "./src/delimitedPreview.ts",
       "import": "./src/delimitedPreview.ts"
@@ -86,6 +90,10 @@
     "./toolActivity": {
       "types": "./src/toolActivity.ts",
       "import": "./src/toolActivity.ts"
+    },
+    "./toolOutput": {
+      "types": "./src/toolOutput.ts",
+      "import": "./src/toolOutput.ts"
     },
     "./favicon": {
       "types": "./src/favicon.ts",
@@ -338,18 +346,6 @@
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"
-    },
-    "./projectIconModel": {
-      "types": "./src/projectIconModel.ts",
-      "import": "./src/projectIconModel.ts"
-    },
-    "./foldRelease": {
-      "types": "./src/foldRelease.ts",
-      "import": "./src/foldRelease.ts"
-    },
-    "./composerContextAttachments": {
-      "types": "./src/composerContextAttachments.ts",
-      "import": "./src/composerContextAttachments.ts"
     },
     "./cliRelease": {
       "types": "./src/cliRelease.ts",

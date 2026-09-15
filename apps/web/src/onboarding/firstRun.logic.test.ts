@@ -508,7 +508,7 @@ describe("isFreshFirstRunWorkspace", () => {
         primaryEnvironmentId,
         serverCwd: "/projects/current",
         projects: [bootstrapProject],
-        threads: [{ ...bootstrapThread, latestRun: { id: "first-turn" } }],
+        threads: [{ ...bootstrapThread, latestRun: { id: "first-run" } }],
       }),
     ).toBe(false);
   });
@@ -519,7 +519,7 @@ describe("isFreshFirstRunWorkspace", () => {
         primaryEnvironmentId,
         serverCwd: "/projects/current",
         projects: [bootstrapProject],
-        threads: [{ ...bootstrapThread, runtime: { status: "idle" } }],
+        threads: [{ ...bootstrapThread, runtime: { status: "ready" } }],
       }),
     ).toBe(false);
   });

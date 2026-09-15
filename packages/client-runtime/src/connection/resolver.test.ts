@@ -1,9 +1,4 @@
 import {
-  GitHubRoutingPermissions,
-  gitHubRoutingConnectionKey,
-  makeGitHubRoutingPermissions,
-} from "./githubRoutingPermissions.ts";
-import {
   EnvironmentId,
   ORCHESTRATION_PROTOCOL_VERSION,
   type DesktopSshEnvironmentTarget,
@@ -38,6 +33,11 @@ import {
 } from "./model.ts";
 import * as ConnectionProfileStore from "./profileStore.ts";
 import { remoteHttpClientLayer } from "../rpc/http.ts";
+import {
+  GitHubRoutingPermissions,
+  gitHubRoutingConnectionKey,
+  makeGitHubRoutingPermissions,
+} from "./githubRoutingPermissions.ts";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-1");
 const ENDPOINT = {
@@ -81,20 +81,17 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
   readonly primaryBearerToken?: string;
   readonly prepareSsh?: ClientCapabilities.SshEnvironmentGateway["Service"]["prepare"];
   readonly descriptorProtocolVersion?: number | null | undefined;
-  readonly surface?: "web" | "desktop" | "mobile";
 }) => {
   const profiles = new Map(
     (options?.profiles ?? []).map((profile) => [profile.connectionId, profile]),
   );
   const credentials = new Map(options?.credentials ?? []);
 
-  const profileStore =
-    options?.profileStore ??
-    ConnectionProfileStore.ConnectionProfileStore.of({
-      get: (connectionId) => Effect.succeed(Option.fromNullishOr(profiles.get(connectionId))),
-      put: (profile) => Effect.sync(() => void profiles.set(profile.connectionId, profile)),
-      remove: (connectionId) => Effect.sync(() => void profiles.delete(connectionId)),
-    });
+  const profileStore = ConnectionProfileStore.ConnectionProfileStore.of({
+    get: (connectionId) => Effect.succeed(Option.fromNullishOr(profiles.get(connectionId))),
+    put: (profile) => Effect.sync(() => void profiles.set(profile.connectionId, profile)),
+    remove: (connectionId) => Effect.sync(() => void profiles.delete(connectionId)),
+  });
   const credentialStore = ConnectionCredentialStore.ConnectionCredentialStore.of({
     get: (connectionId) => Effect.succeed(Option.fromNullishOr(credentials.get(connectionId))),
     put: (connectionId, credential) =>
@@ -164,7 +161,10 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
           capabilities: { repositoryIdentity: true },
         }),
       )) satisfies typeof fetch),
-    Layer.succeed(ConnectionProfileStore.ConnectionProfileStore, profileStore),
+    Layer.succeed(
+      ConnectionProfileStore.ConnectionProfileStore,
+      options?.profileStore ?? profileStore,
+    ),
     Layer.succeed(ConnectionCredentialStore.ConnectionCredentialStore, credentialStore),
     Layer.succeed(
       ClientCapabilities.PrimaryEnvironmentAuth,
@@ -175,11 +175,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
     Layer.succeed(
       ClientCapabilities.ClientPresentation,
       ClientCapabilities.ClientPresentation.of({
-        metadata: {
-          label: "Test Client",
-          deviceType: options?.surface === "mobile" ? "mobile" : "desktop",
-          surface: options?.surface ?? "web",
-        },
+        metadata: { label: "Test Client", deviceType: "desktop", surface: "web" },
         scopes: [],
       }),
     ),
@@ -191,63 +187,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
 });
 
 describe("ConnectionResolver", () => {
-  for (const surface of ["web", "desktop", "mobile"] as const) {
-    for (const protocol of [null, ORCHESTRATION_PROTOCOL_VERSION]) {
-      it.effect(
-        `${surface} selects the host protocol across direct, relay, and SSH connections (${protocol ?? "legacy"})`,
-        () =>
-          Effect.gen(function* () {
-            const brokerLayer = yield* makeDependencies({
-              surface,
-              descriptorProtocolVersion: protocol,
-              primaryBearerToken: "local-token",
-            });
-            const broker = yield* ConnectionResolver.ConnectionResolver.pipe(
-              Effect.provide(brokerLayer),
-            );
-            const targets = [
-              catalogEntry(
-                new PrimaryConnectionTarget({
-                  environmentId: ENVIRONMENT_ID,
-                  label: "Local",
-                  ...ENDPOINT,
-                }),
-              ),
-              catalogEntry(
-                new RelayConnectionTarget({ environmentId: ENVIRONMENT_ID, label: "Remote" }),
-              ),
-              catalogEntry(
-                new SshConnectionTarget({
-                  environmentId: ENVIRONMENT_ID,
-                  label: "SSH",
-                  connectionId: "ssh-1",
-                }),
-                Option.some(
-                  new SshConnectionProfile({
-                    environmentId: ENVIRONMENT_ID,
-                    label: "SSH",
-                    connectionId: "ssh-1",
-                    target: SSH_TARGET,
-                  }),
-                ),
-              ),
-            ];
-            for (const target of targets) {
-              const prepared = yield* broker.prepare(target);
-              expect(prepared.legacyOrchestration === true).toBe(protocol === null);
-              const socket = new URL(prepared.socketUrl);
-              expect(socket.searchParams.get("orchestrationProtocol")).toBe(
-                protocol === null ? null : String(protocol),
-              );
-              expect(prepared.httpAuthorization).not.toBeNull();
-              expect(socket.searchParams.get("wsTicket")).not.toBeNull();
-            }
-          }),
-      );
-    }
-  }
-
-  it.effect("selects the legacy adapter without advertising the newer protocol", () =>
+  it.effect("blocks an old host during discovery before opening orchestration RPC", () =>
     Effect.gen(function* () {
       const brokerLayer = yield* makeDependencies({ descriptorProtocolVersion: null });
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
@@ -258,10 +198,10 @@ describe("ConnectionResolver", () => {
         wsBaseUrl: "ws://127.0.0.1:3777",
       });
 
-      const prepared = yield* broker.prepare(catalogEntry(target));
+      const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
 
-      expect(prepared.legacyOrchestration).toBe(true);
-      expect(new URL(prepared.socketUrl).searchParams.has("orchestrationProtocol")).toBe(false);
+      expect(error).toMatchObject({ reason: "unsupported" });
+      expect(error.message).toContain("Update T3 Code on Compatible environment");
     }),
   );
 

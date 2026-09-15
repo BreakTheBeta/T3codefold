@@ -5,19 +5,25 @@ to keep a terminal open.
 
 ## Manage the service
 
-After installing the Fold CLI, run these commands on the host machine:
+Run these commands on the machine that will host T3 Code:
 
-| Task                    | Command                |
-| ----------------------- | ---------------------- |
-| Install or repair       | `t3 service install`   |
-| Inspect status and logs | `t3 service status`    |
-| Update the CLI          | `t3 update`            |
-| Restart the service     | `t3 service restart`   |
-| Remove from startup     | `t3 service uninstall` |
+| Task                            | Command                           |
+| ------------------------------- | --------------------------------- |
+| Install and start               | `npx t3@latest service install`   |
+| Inspect status and log location | `npx t3@latest service status`    |
+| Update or repair                | `npx t3@latest service update`    |
+| Stop and remove from startup    | `npx t3@latest service uninstall` |
 
 Uninstalling the service leaves your projects, threads, and settings intact.
-Finish active work before restarting the service. To match a remote client's
-version, follow [Updating T3 Code](./updating.md).
+
+Install and update use the version of the CLI you invoke. For nightly, use
+`npx t3@nightly service update`; replace `nightly` with an exact version to pin
+one. An older CLI refuses to replace a newer service unless you explicitly add
+`--allow-downgrade`.
+
+Updating restarts the server. Finish active work first, and wait for any remote
+update already in progress. To match a remote client's version, follow
+[Updating T3 Code](./updating.md).
 
 Self-contained builds install as a download from the T3 Code GitHub release
 instead of through npm, so the machine running the service does not need
@@ -25,10 +31,10 @@ Node.js or npm once the CLI is on it. To get the CLI onto a machine without
 Node, run the install script:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/BreakTheBeta/T3codefold/main/scripts/install.sh | sh
+curl -fsSL https://t3.codes/install.sh | sh
 ```
 
-On Windows, run `irm https://raw.githubusercontent.com/BreakTheBeta/T3codefold/main/scripts/install.ps1 | iex` in PowerShell instead.
+On Windows, run `irm https://t3.codes/install.ps1 | iex` in PowerShell instead.
 
 It places `t3` in `~/.local/bin` and reuses the same download when you later
 run `t3 service install`. It follows the stable train by default; set
@@ -45,8 +51,8 @@ newer one without npm: it downloads the newest release on the channel the
 running `t3` came from, verifies it, and points the `t3` launcher at it. When
 a background service is installed for the same T3 home it asks before
 restarting it, since a restart interrupts running agent turns, terminals, and
-remote clients; answer no and the running process stays on the old version until you run
-`t3 service restart`. From a script there is no prompt, so pass `--yes` to
+remote clients; answer no and the service keeps the old version until you run
+`t3 service update`. From a script there is no prompt, so pass `--yes` to
 restart the service. A server you started by hand is never touched; the
 command tells you it is still on the old version so you can restart it
 yourself. Pass an exact version (`t3 update 0.0.41-preview.20260912.1595`) to
@@ -55,7 +61,7 @@ pin one, `--channel` to follow a different release train (moving onto preview fr
 
 `t3 uninstall` reverses the install script: it shows what it found (the
 background service, the `t3` launcher, every downloaded version under
-`~/.t3/runtime/fold`), asks once, and removes them. Your projects, threads, and
+`~/.t3/runtime`), asks once, and removes them. Your projects, threads, and
 settings under `~/.t3/userdata` are kept; delete that directory yourself if
 you want them gone too. Pass `--yes` from a script.
 

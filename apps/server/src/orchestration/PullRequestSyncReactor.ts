@@ -123,7 +123,7 @@ export class PullRequestSyncReactor extends Context.Service<
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
-  const orchestrator = yield* OrchestratorV2;
+  const engine = yield* OrchestratorV2;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
 
@@ -149,7 +149,7 @@ export const make = Effect.gen(function* () {
       Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.logWarning(message, fields);
 
   const sweep = Effect.fn("PullRequestSyncReactor.sweep")(function* () {
-    const snapshot = yield* orchestrator.getShellSnapshot();
+    const snapshot = yield* engine.getShellSnapshot();
     const now = yield* DateTime.now;
     const nowMs = DateTime.toEpochMillis(now);
     const nowIso = DateTime.formatIso(now);
@@ -186,7 +186,7 @@ export const make = Effect.gen(function* () {
         !stacksEqual(link.stack, nextStack);
       if (changed) {
         const uuid = yield* crypto.randomUUIDv4;
-        yield* orchestrator.dispatch({
+        yield* engine.dispatch({
           type: "thread.pull-request-link.sync",
           commandId: CommandId.make(`server:pr-sync:${thread.id}:${uuid}`),
           threadId: thread.id,
@@ -218,7 +218,7 @@ export const make = Effect.gen(function* () {
         if (url === null) continue;
         linkedThisSweep.add(dedupeKey);
         const uuid = yield* crypto.randomUUIDv4;
-        yield* orchestrator
+        yield* engine
           .dispatch({
             type: "thread.pull-request.link",
             commandId: CommandId.make(`server:pr-stack-link:${thread.id}:${uuid}`),

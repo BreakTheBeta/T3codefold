@@ -1,4 +1,4 @@
-import type { ThreadShell } from "../types";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type AssetCreateUrlInput,
@@ -18,8 +18,10 @@ import {
   type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
-  type RunId,
   type ThreadLinkedPullRequest,
+  type RunId,
+  WORKTREE_SETUP_ACTIVITY_KIND,
+  WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -43,15 +45,12 @@ import {
   type TurnDiffSummary,
 } from "../types";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadShells, environmentThreadDetails } from "../state/threads";
 import { waitForAtomValue } from "../state/waitForAtomValue";
-import {
-  filterTerminalContextsWithText,
-  stripInlineTerminalContextPlaceholders,
-  type TerminalContextDraft,
-} from "../lib/terminalContext";
+import { filterTerminalContextsWithText, type TerminalContextDraft } from "../lib/terminalContext";
 import { stripInlineContextReferences } from "~/lib/composerContextReferences";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import { collapseExpandedComposerCursor, type ComposerSubmissionIntent } from "../composer-logic";
@@ -182,7 +181,7 @@ export function shouldOpenProactiveTurnDiff(input: {
 export function resolveProactiveTurnDiffAction(input: {
   checkpoint: Pick<TurnDiffSummary, "status" | "files"> | undefined;
   isGitRepo: boolean | undefined;
-  activeSurfaceKind?: RightPanelSurface["kind"] | null;
+  activeSurfaceKind: RightPanelSurface["kind"] | null;
 }): "defer" | "ignore" | "open" {
   if (input.activeSurfaceKind === "pull-request") return "ignore";
   if (input.checkpoint === undefined || input.checkpoint.status === "missing") return "defer";
@@ -268,6 +267,52 @@ export function toolGroupConsumesUpwardNavigation(target: EventTarget | null): b
     if (element === group) break;
   }
   return false;
+}
+
+const decodeWorktreeSetupSnapshot = Schema.decodeUnknownOption(WorktreeSetupSnapshot);
+
+/**
+ * The worktree setup the server recorded on the thread, if any: running once
+ * the bootstrap created the thread, then the settled outcome. It is what a
+ * reload or a second client renders, and what tells them to attach the live
+ * stream while it still says running.
+ */
+export function findRecordedWorktreeSetup(
+  activities: ReadonlyArray<{ readonly kind: string; readonly payload: unknown }>,
+  threadId: ThreadId,
+): WorktreeSetupSnapshot | null {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index]!;
+    if (activity.kind !== WORKTREE_SETUP_ACTIVITY_KIND) continue;
+    const decoded = decodeWorktreeSetupSnapshot(activity.payload);
+    if (Option.isSome(decoded) && decoded.value.threadId === threadId) return decoded.value;
+  }
+  return null;
+}
+
+/**
+ * Which setup snapshot the timeline shows, if any. The live stream wins while
+ * it has a newer sequence; the recorded activity covers everything else. A
+ * running setup always shows. Once settled, the card stays only while it
+ * still says something the turn does not: the turn has not started yet, or a
+ * stage failed and the turn is still running so the exit code stays reachable.
+ */
+export function resolveVisibleWorktreeSetup(input: {
+  live: WorktreeSetupSnapshot | null;
+  recorded: WorktreeSetupSnapshot | null;
+  turnStarted: boolean;
+  isWorking: boolean;
+}): WorktreeSetupSnapshot | null {
+  const snapshot =
+    input.live && (!input.recorded || input.live.sequence >= input.recorded.sequence)
+      ? input.live
+      : input.recorded;
+  if (!snapshot) return null;
+  if (snapshot.phase === "running") return snapshot;
+  if (snapshot.phase !== "done") return snapshot;
+  if (!input.turnStarted) return snapshot;
+  const stageFailed = snapshot.stages.some((stage) => stage.status === "failed");
+  return stageFailed && input.isWorking ? snapshot : null;
 }
 
 export function resolveDraftHeroState(input: {
@@ -656,22 +701,6 @@ export function getAntigravitySendBlockReason(
   return null;
 }
 
-export function buildRunningThreadTurnInterruptInput(
-  thread: Pick<Thread, "id" | "runtime"> | null | undefined,
-  phase: SessionPhase,
-): { threadId: ThreadId; runId?: RunId } | null {
-  if (
-    phase !== "running" ||
-    !thread?.runtime ||
-    !["running", "waiting", "starting", "preparing"].includes(thread.runtime.status)
-  )
-    return null;
-  return {
-    threadId: thread.id,
-    ...(thread.runtime.activeRunId ? { runId: thread.runtime.activeRunId } : {}),
-  };
-}
-
 export function reconcileMountedTerminalThreadIds(input: {
   currentThreadIds: ReadonlyArray<string>;
   openThreadIds: ReadonlyArray<string>;
@@ -851,19 +880,6 @@ export function resolveSendEnvMode(input: {
   return input.isGitRepo ? input.requestedEnvMode : "local";
 }
 
-export function shouldShowComposerContextStrip(input: {
-  isDraftHeroState: boolean;
-  isGitRepo: boolean;
-  hasActiveProject: boolean;
-  persistInActiveThreads: boolean;
-}): boolean {
-  return (
-    input.isGitRepo &&
-    input.hasActiveProject &&
-    (input.isDraftHeroState || input.persistInActiveThreads)
-  );
-}
-
 export function resolveBackgroundDraftWorkspaceOptions(input: {
   envMode: DraftThreadEnvMode;
   branch: string | null;
@@ -914,9 +930,7 @@ export function deriveComposerSendState(options: {
   expiredTerminalContextCount: number;
   hasSendableContent: boolean;
 } {
-  const trimmedPrompt = stripInlineTerminalContextPlaceholders(
-    stripInlineContextReferences(options.prompt),
-  ).trim();
+  const trimmedPrompt = stripInlineContextReferences(options.prompt).trim();
   const sendableTerminalContexts = filterTerminalContextsWithText(options.terminalContexts);
   const expiredTerminalContextCount =
     options.terminalContexts.length - sendableTerminalContexts.length;
@@ -1038,23 +1052,32 @@ export function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(thread && (thread.latestRun !== null || thread.itemCount > 0 || thread.runtime));
 }
 
-// `threadProvider` is the open branded driver kind carried by the session.
-// Unknown driver kinds degrade to `null` (i.e. "unlocked"), which is the safe
-// rollback / fork behavior — the routing layer is the right place to surface
-// "driver not installed" errors, not the lock state.
-//
-// `selectedProvider` takes the same open-string shape because the composer
-// now tracks the picker selection as a `ProviderInstanceId` (e.g.
-// `codex_personal`). Custom instance ids that don't directly match a
-// registered driver resolve to `null` here, which matches the existing
-// "unknown driver -> unlocked" semantics. Callers that want the lock to track
-// a custom instance's underlying driver kind should resolve the instance id
-// upstream and pass the correlated kind.
+/**
+ * Whether a thread ran at least one turn, judged from its shell alone.
+ *
+ * `threadHasStarted` needs the detail: a thread whose latest turn was cleared
+ * still has messages, and the loading shell carries none. The shell records
+ * when the last user message landed, which every started thread has.
+ */
+export function threadShellHasStarted(
+  shell:
+    | Pick<EnvironmentThreadShell, "latestRun" | "latestUserMessageAt" | "runtime">
+    | null
+    | undefined,
+): boolean {
+  return Boolean(
+    shell &&
+    (shell.latestRun !== null || shell.latestUserMessageAt !== null || shell.runtime !== null),
+  );
+}
 
+// Imported history has no session until its first prompt. Resolve its instance
+// through the environment's provider catalog before locking to a driver.
 export function deriveLockedProvider(input: {
   thread: Thread | null | undefined;
   selectedProvider: string | null;
   threadProvider: string | null;
+  providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "driver">>;
 }): ProviderDriverKind | null {
   if (!threadHasStarted(input.thread)) {
     return null;
@@ -1063,14 +1086,18 @@ export function deriveLockedProvider(input: {
   if (sessionProvider && isProviderDriverKind(sessionProvider)) {
     return sessionProvider;
   }
+  // Preserve the existing lock while an instance is missing from the catalog;
+  // a started thread must not silently fall back to a different driver.
+  const threadProvider =
+    input.providers.find((provider) => provider.instanceId === input.threadProvider)?.driver ??
+    input.threadProvider;
+  const selectedProvider =
+    input.providers.find((provider) => provider.instanceId === input.selectedProvider)?.driver ??
+    input.selectedProvider;
   const narrowedThreadProvider =
-    input.threadProvider && isProviderDriverKind(input.threadProvider)
-      ? input.threadProvider
-      : null;
+    threadProvider && isProviderDriverKind(threadProvider) ? threadProvider : null;
   const narrowedSelectedProvider =
-    input.selectedProvider && isProviderDriverKind(input.selectedProvider)
-      ? input.selectedProvider
-      : null;
+    selectedProvider && isProviderDriverKind(selectedProvider) ? selectedProvider : null;
   return narrowedThreadProvider ?? narrowedSelectedProvider ?? null;
 }
 
@@ -1142,11 +1169,13 @@ export async function waitForRevertedMessage(
   revert: () => Promise<void>,
   timeoutMs = 120_000,
 ): Promise<void> {
-  const threadAtom = environmentThreadDetails.threadAtom(threadRef);
-  const initial = appAtomRegistry.get(threadAtom)?.projection;
+  const threadAtom = environmentThreadDetails.stateAtom(threadRef);
+  const readProjection = () => Option.getOrNull(appAtomRegistry.get(threadAtom).data);
+  const initial = readProjection();
   if (!initial?.messages.some((message) => message.id === messageId)) {
     throw new Error("The message to rewind is no longer available.");
   }
+  const messageRunId = initial.messages.find((message) => message.id === messageId)?.runId;
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     let accepted = false;
@@ -1161,17 +1190,13 @@ export async function waitForRevertedMessage(
       else resolve();
     };
     const inspect = () => {
-      const projection = appAtomRegistry.get(threadAtom)?.projection;
-      if (!projection) return;
-      const message = projection.messages.find((candidate) => candidate.id === messageId);
-      const run = projection.runs.find((candidate) => candidate.id === message?.runId);
-      // V2 retains history for audit. A rewind hides the rolled-back runs rather
-      // than deleting messages, so wait on the run outcome, not message removal.
+      const thread = readProjection();
+      if (!thread) return;
       if (
         accepted &&
-        run?.status === "rolled_back" &&
-        projection.runs.every(
-          (candidate) => candidate.ordinal <= turnCount || candidate.status === "rolled_back",
+        thread.runs.some(
+          (run) =>
+            run.id === messageRunId && run.ordinal > turnCount && run.status === "rolled_back",
         )
       )
         finish();
@@ -1299,15 +1324,10 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   );
 }
 
-export function threadShellHasStarted(
-  shell: Pick<ThreadShell, "latestRun" | "latestUserMessageAt" | "runtime"> | null | undefined,
-): boolean {
-  return Boolean(
-    shell &&
-    (shell.latestRun !== null || shell.latestUserMessageAt !== null || shell.runtime !== null),
-  );
-}
-
+// Returning to the window should land the caret in the composer, so the reader can type right
+// away. The exceptions are places where focus is deliberate: another text field, a terminal in
+// the drawer or the right panel, or an open dialog or popup. A focused button outside those is
+// not one of them, so it yields to the composer.
 export function shouldRefocusComposerOnWindowFocus(
   activeElement:
     | (Pick<Element, "tagName" | "closest" | "getAttribute"> & { isContentEditable?: boolean })

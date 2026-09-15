@@ -32,12 +32,6 @@ export interface ThreadRelationshipWalkRow {
   readonly edge: ThreadRelationshipEdge;
 }
 
-/** Delegated tasks have durable backing threads for navigation and history,
- * but those implementation threads do not belong in ordinary thread lists. */
-export function isSubagentThread(thread: Pick<OrchestrationV2ThreadShell, "lineage">): boolean {
-  return thread.lineage.relationshipToParent === "subagent";
-}
-
 export function resolveMergeBackTargetThreadId(
   projection: Pick<OrchestrationV2ThreadProjection, "thread"> | null,
 ): ThreadId | null {
@@ -227,7 +221,7 @@ export function orderWebThreadLineageRows(input: {
     return 2;
   };
 
-  return input.rows.toSorted((left, right) => {
+  return [...input.rows].sort((left, right) => {
     const rankDelta = pinRank(left) - pinRank(right);
     if (rankDelta !== 0) return rankDelta;
     const leftCreatedAt = threadCreatedAtMillis(input.graph.nodes.get(left.threadId));

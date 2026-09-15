@@ -1,4 +1,3 @@
-import { foldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
 import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
@@ -96,10 +95,7 @@ export function resolveServerConfigVersionMismatch(
 export function resolveServerSelfUpdateCapability(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): ServerSelfUpdateCapability | null {
-  const capabilities = serverConfig?.environment.capabilities;
-  return capabilities && supportsFoldUpdates(capabilities)
-    ? (capabilities.serverSelfUpdate ?? null)
-    : null;
+  return serverConfig?.environment.capabilities.serverSelfUpdate ?? null;
 }
 
 /** True when the desktop app supervising this server can be told to update
@@ -107,12 +103,7 @@ export function resolveServerSelfUpdateCapability(
 export function supportsDesktopAppUpdate(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): boolean {
-  const capabilities = serverConfig?.environment.capabilities;
-  return (
-    capabilities !== undefined &&
-    supportsFoldUpdates(capabilities) &&
-    capabilities.desktopAppUpdate === true
-  );
+  return serverConfig?.environment.capabilities.desktopAppUpdate === true;
 }
 
 /** True when the connected server can recover opted-in running turns after
@@ -125,7 +116,7 @@ export function supportsServerUpdateThreadContinuation(
 
 /** The command to hand users whose server cannot update itself. */
 export function manualServerUpdateCommand(targetVersion: string): string {
-  return foldServerCommand(targetVersion);
+  return `npx t3@${targetVersion}`;
 }
 
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {

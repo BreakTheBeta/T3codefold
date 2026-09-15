@@ -1,6 +1,4 @@
-import { ApprovalRequestId } from "@t3tools/contracts";
 import { CheckpointRef, EnvironmentId, MessageId, RunId, ThreadId } from "@t3tools/contracts";
-
 import { act, createRef, useLayoutEffect, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -9,7 +7,7 @@ import { useComposerFocusState } from "./useComposerFocusState";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef } from "@legendapp/list/react";
 
-const activityTestState = vi.hoisted(() => ({ expanded: false }));
+const activityTestState = vi.hoisted(() => ({ expanded: false, expandedRuns: false }));
 
 vi.mock("../DiffWorkerPoolProvider", () => ({
   DiffWorkerPoolProvider: ({ children }: { children?: ReactNode }) => children,
@@ -23,6 +21,9 @@ vi.mock("./MessagesTimeline.logic", async (importOriginal) => {
       input: Parameters<typeof logic.deriveMessagesTimelineRowsWithState>[0],
       previous: Parameters<typeof logic.deriveMessagesTimelineRowsWithState>[1],
     ) {
+      if (activityTestState.expandedRuns) {
+        input = { ...input, expandedRunIds: new Set([RunId.make("run-1")]) };
+      }
       const projection = logic.deriveMessagesTimelineRowsWithState(input, previous);
       if (!activityTestState.expanded) return projection;
       return logic.deriveMessagesTimelineRowsWithState({
@@ -39,6 +40,7 @@ vi.mock("./MessagesTimeline.logic", async (importOriginal) => {
 
 beforeEach(() => {
   activityTestState.expanded = false;
+  activityTestState.expandedRuns = false;
 });
 
 vi.mock("@legendapp/list/react", async () => {
@@ -219,14 +221,14 @@ function buildProps() {
     activeTurnInProgress: false,
     listRef: createRef<LegendListRef | null>(),
     latestRun: null,
-    turnDiffSummaryByAssistantMessageId: new Map(),
+    turnDiffSummaries: [],
     routeThreadKey: "environment-local:thread-1",
     onOpenTurnDiff: () => {},
     onOpenThread: () => {},
     onForkFromRun: async () => {},
     onRollbackCheckpoint: () => {},
-    revertTurnCountByUserMessageId: new Map(),
-    onRevertUserMessage: () => {},
+    supportsConversationRollback: false,
+    onRevertToTurnCount: () => {},
     isRevertingCheckpoint: false,
     openingVideoAttachmentId: null,
     onImageExpand: () => {},
@@ -307,104 +309,51 @@ function buildSnapShotTimelineEntry(previewUrl?: string) {
 }
 
 describe("MessagesTimeline", () => {
-  it("renders previous and next controls with the minimap", () => {
-    const first = buildUserTimelineEntry("First turn");
-    const secondBase = buildUserTimelineEntry("Second turn");
-    const second = {
-      ...secondBase,
-      id: "entry-2",
-      message: {
-        ...secondBase.message,
-        id: MessageId.make("message-2"),
-      },
-    };
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline {...buildProps()} timelineEntries={[first, second]} />,
-    );
-
-    expect(markup).toContain('aria-label="Previous turn"');
-    expect(markup).toContain('aria-label="Next turn"');
-  });
-
-  // Expanding history uses this suite's existing test renderer, deprecated in
-  // React 19. Migrate these interaction tests together when a DOM test setup is added.
-  it.each([{}, { text: "Text-only answer", file: "Answer with a file" }])(
-    "renders attachment-only question history alongside text answers: %j",
-    async (answers) => {
-      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-      vi.stubGlobal("requestAnimationFrame", () => 0);
-      vi.stubGlobal("cancelAnimationFrame", () => {});
-      let renderer: ReactTestRenderer | undefined;
-      try {
-        await act(() => {
-          renderer = create(
-            <MessagesTimeline
-              {...buildProps()}
-              timelineEntries={[
-                {
-                  id: "answer-entry",
-                  kind: "work",
+  it("shows dynamic tool input without cached output when the row is expanded", async () => {
+    activityTestState.expanded = true;
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    let renderer: ReactTestRenderer | undefined;
+    try {
+      await act(() => {
+        renderer = create(
+          <MessagesTimeline
+            {...buildProps()}
+            timelineEntries={[
+              {
+                id: "tool-with-cached-output",
+                kind: "work",
+                createdAt: MESSAGE_CREATED_AT,
+                entry: {
+                  id: "tool-with-cached-output",
                   createdAt: MESSAGE_CREATED_AT,
-                  entry: {
-                    id: "answer-work",
-                    createdAt: MESSAGE_CREATED_AT,
-                    label: "Question answer submitted",
-                    tone: "info",
-                    questionAnswer: {
-                      requestId: ApprovalRequestId.make("question-request"),
-                      answers,
-                      questionTextById: { file: "Provide a spec", image: "Provide a screenshot" },
-                      attachmentsByQuestionId: {
-                        file: [
-                          {
-                            type: "file",
-                            id: "spec",
-                            name: "spec.txt",
-                            mimeType: "text/plain",
-                            sizeBytes: 4,
-                          },
-                        ],
-                        image: [
-                          {
-                            type: "image",
-                            id: "shot",
-                            name: "shot.png",
-                            mimeType: "image/png",
-                            sizeBytes: 4,
-                          },
-                        ],
-                      },
-                    },
+                  label: "Example tool",
+                  toolTitle: "Example tool",
+                  tone: "tool",
+                  itemType: "dynamic_tool",
+                  toolLifecycleStatus: "completed",
+                  toolData: {
+                    input: { query: "KEEP_TOOL_INPUT" },
+                    output: { text: "RAW_CACHED_TOOL_OUTPUT" },
                   },
                 },
-              ]}
-            />,
-          );
-        });
-        // V2 renders one typed question row rather than a legacy activity wrapper.
-        const questionToggle = renderer!.root.find(
-          (node) =>
-            node.props["aria-label"]?.startsWith("Question answer submitted:") &&
-            node.props["aria-expanded"] === false,
+              },
+            ]}
+          />,
         );
-        expect(questionToggle.props["aria-label"]).toContain(
-          Object.values(answers)[0] ?? "spec.txt",
-        );
-        expect(JSON.stringify(renderer!.toJSON())).not.toContain("Provide a spec");
-        await act(() => questionToggle.props.onClick());
-        const markup = JSON.stringify(renderer!.toJSON());
-        expect(markup.match(/Provide a spec/g)).toHaveLength(1);
-        expect(markup).toContain("spec.txt");
-        expect(markup).toContain("Provide a screenshot");
-        expect(markup).toContain("shot.png");
-        for (const answer of Object.values(answers)) expect(markup).toContain(answer);
-        await act(() => questionToggle.props.onClick());
-        expect(JSON.stringify(renderer!.toJSON())).not.toContain("Provide a spec");
-      } finally {
-        await act(() => renderer?.unmount());
-      }
-    },
-  );
+      });
+      const row = renderer!.root.findByProps({ "aria-label": "Example tool" });
+      await act(() => row.props.onClick());
+      const visible = JSON.stringify(renderer!.toJSON());
+      expect(visible).toContain("KEEP_TOOL_INPUT");
+      expect(visible).not.toContain("RAW_CACHED_TOOL_OUTPUT");
+      await act(() => row.props.onClick());
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("KEEP_TOOL_INPUT");
+    } finally {
+      await act(() => renderer?.unmount());
+    }
+  });
 
   it.each([
     { toolLifecycleStatus: "inProgress", isAtEnd: true },
@@ -435,11 +384,12 @@ describe("MessagesTimeline", () => {
         getState: () => ({ isAtEnd: timelineIsAtEnd }),
         getScrollableNode: () => null,
       } as unknown as LegendListRef;
-      let isResting = true;
+      let isResting = false;
+      let composerState: ReturnType<typeof useComposerFocusState> | undefined;
       function ThreadProbe() {
         const composer = useComposerFocusState();
-        useLayoutEffect(() => composer.setIsComposerScrollCollapsed(true), []);
         useLayoutEffect(() => {
+          composerState = composer;
           isResting = shouldUseRestingComposerLayout({
             isExistingThread: true,
             isMobileViewport: false,
@@ -479,6 +429,8 @@ describe("MessagesTimeline", () => {
         await act(() => {
           renderer = create(<ThreadProbe />);
         });
+        // The user scrolled up to read, so the composer is resting.
+        await act(() => composerState!.setIsComposerScrollCollapsed(true));
         const toggle = renderer!.root.findByProps({ "aria-expanded": false });
         await act(() => toggle.props.onClick());
         await flushFrame();
@@ -644,10 +596,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('aria-label="Load earlier activity"');
-    expect(markup).toContain("Load earlier activity");
+    expect(markup).toContain('aria-label="Load earlier turns"');
+    expect(markup).toContain("Load earlier turns");
     expect(markup).toContain("Earlier activity could not be loaded.");
-    expect(markup.indexOf("Load earlier activity")).toBeLessThan(markup.indexOf("Recent activity"));
+    expect(markup.indexOf("Load earlier turns")).toBeLessThan(markup.indexOf("Recent activity"));
   });
 
   it("keeps an empty bounded timeline actionable while earlier history loads", () => {
@@ -664,7 +616,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Loading earlier activity…");
+    expect(markup).toContain("Loading earlier turns…");
     expect(markup).toContain("disabled");
     expect(markup).not.toContain("Send a message to start the conversation.");
   });
@@ -713,22 +665,17 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={
-          new Map([
-            [
-              assistantMessageId,
-              {
-                runId,
-                checkpointTurnCount: 1,
-                checkpointRef: CheckpointRef.make("checkpoint-with-files"),
-                status: "ready",
-                files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
-                assistantMessageId,
-                completedAt: MESSAGE_CREATED_AT,
-              },
-            ],
-          ])
-        }
+        turnDiffSummaries={[
+          {
+            runId,
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.make("checkpoint-with-files"),
+            status: "ready",
+            files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
+            assistantMessageId,
+            completedAt: MESSAGE_CREATED_AT,
+          },
+        ]}
       />,
     );
 
@@ -879,6 +826,38 @@ describe("MessagesTimeline", () => {
     expect(onAnchorReady).toHaveBeenCalledOnce();
     expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
     expect(onAnchorSizeChanged).toHaveBeenCalledWith(secondEntry.message.id, 240);
+  });
+
+  it("renders SnapShot window details after the preview resolves", () => {
+    const onAnchorReady = vi.fn();
+    const firstEntry = buildSnapShotTimelineEntry("data:image/png;base64,iVBORw0KGgo=");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        anchorMessageId={firstEntry.message.id}
+        onAnchorReady={onAnchorReady}
+        contentInsetEndAdjustment={144}
+        timelineEntries={[firstEntry]}
+      />,
+    );
+
+    expect(markup).toContain("Terminal");
+    expect(markup).toContain("t3code — Tests");
+    expect(markup).toContain('src="data:image/png;base64,aWNvbg=="');
+    expect(onAnchorReady).toHaveBeenCalledOnce();
+    expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0);
+  });
+
+  it("does not render SnapShot window details before the preview resolves", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[buildSnapShotTimelineEntry()]} />,
+    );
+
+    expect(markup).toContain("screenshot.png");
+    expect(markup).not.toContain("Terminal");
+    expect(markup).not.toContain("t3code — Tests");
+    expect(markup).not.toContain('src="data:image/png;base64,aWNvbg=="');
+    expect(markup).not.toContain("h-28 w-52 max-w-full");
   });
 
   it("does not reserve end space for a follow-up user message", () => {
@@ -1644,7 +1623,7 @@ describe("MessagesTimeline", () => {
     expect(bareMarkup).not.toContain("Full conversation context");
   });
 
-  it("renders created threads as linked cards outside the work log", async () => {
+  it("renders created threads as lean rows with inline chat links", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1689,7 +1668,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-v2-item-type="thread_created"');
     expect(markup).toContain('aria-label="Open Claude research thread"');
     expect(markup).toContain("Claude research thread");
-    expect(markup).toContain("claude-default · claude-sonnet-4-6");
+    expect(markup).toContain("Open chat");
     expect(markup).not.toContain("Work Log");
   });
 
@@ -1786,7 +1765,8 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('aria-label="Hidden work includes a failure"');
   });
 
-  it("renders live subagent progress on the persistent linked card", async () => {
+  it("keeps live subagent progress available on the inline thread link", async () => {
+    activityTestState.expandedRuns = true;
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1840,7 +1820,8 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("Work Log");
   });
 
-  it("discloses the full Codex subagent result without projecting child events", async () => {
+  it("keeps the completed subagent result on its thread link without a separate disclosure", async () => {
+    activityTestState.expandedRuns = true;
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1886,9 +1867,9 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain('data-v2-item-type="subagent"');
-    expect(markup).toContain('data-v2-subagent-result-disclosure="true"');
-    expect(markup).toContain('data-v2-subagent-result="true"');
-    expect(markup).toContain('aria-label="Show full result for Isolation report"');
+    expect(markup).not.toContain('data-v2-subagent-result-disclosure="true"');
+    expect(markup).not.toContain('data-v2-subagent-result="true"');
+    expect(markup).toContain('aria-label="Open Isolation report"');
     expect(markup).toContain('aria-label="Open Isolation report"');
     expect(markup).toContain("Tests should be isolated.");
     expect(markup).toContain("Result: no shared state.");
@@ -1896,6 +1877,7 @@ describe("MessagesTimeline", () => {
   });
 
   it("keeps live progress when a running subagent streams a partial result", async () => {
+    activityTestState.expandedRuns = true;
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1949,6 +1931,7 @@ describe("MessagesTimeline", () => {
   });
 
   it("shows the streamed result while a subagent runs without progress", async () => {
+    activityTestState.expandedRuns = true;
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2001,6 +1984,7 @@ describe("MessagesTimeline", () => {
   });
 
   it("treats a cancelled subagent result as partial output", async () => {
+    activityTestState.expandedRuns = true;
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2053,6 +2037,7 @@ describe("MessagesTimeline", () => {
   });
 
   it("falls back to progress when a completed subagent result is whitespace-only", async () => {
+    activityTestState.expandedRuns = true;
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline

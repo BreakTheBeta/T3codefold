@@ -29,7 +29,7 @@ import * as ProcessRunner from "../processRunner.ts";
  * package for people who prefer `npx t3` or `npm install -g t3`, and even a
  * CLI installed that way pins an archive when it sets up the service.
  */
-const PINNED_RUNTIME_DIR = "runtime/fold";
+const PINNED_RUNTIME_DIR = "runtime";
 const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);
 const PINNED_RUNTIME_ARCHIVE_FILE = "t3-runtime-archive";
 // Boot-service setup and remote update can construct separate layers. Serialize

@@ -285,13 +285,7 @@ export const make = Effect.gen(function* () {
     }
     return {
       ...prepared,
-      ...(descriptor.orchestrationProtocolVersion === undefined
-        ? { legacyOrchestration: true }
-        : {}),
-      socketUrl:
-        descriptor.orchestrationProtocolVersion === undefined
-          ? prepared.socketUrl
-          : appendOrchestrationProtocol(prepared.socketUrl),
+      socketUrl: appendOrchestrationProtocol(prepared.socketUrl),
     };
   });
 

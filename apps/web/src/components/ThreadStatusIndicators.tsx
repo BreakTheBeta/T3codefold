@@ -4,12 +4,7 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
-import {
-  resolveThreadCurrentPullRequestLink,
-  resolveThreadPullRequestChains,
-  visibleThreadPullRequests,
-  type ThreadPullRequestBadge,
-} from "@t3tools/shared/threadPullRequests";
+
 import { pullRequestDetailToVcsStatus } from "@t3tools/client-runtime/state/pull-requests";
 import {
   resolveEnvironmentMachineKind,
@@ -19,12 +14,24 @@ import {
   type VcsStatusResult,
 } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
-import { FolderGit2Icon, GitPullRequestArrowIcon, LayersIcon, TerminalIcon } from "lucide-react";
-import { useCallback, useMemo, type MouseEvent } from "react";
+import { FolderGit2Icon, TerminalIcon } from "lucide-react";
+import { useCallback, useMemo } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject } from "../state/entities";
+import {
+  resolveThreadCurrentPullRequestLink,
+  resolveThreadPullRequestChains,
+  visibleThreadPullRequests,
+  type ThreadPullRequestBadge,
+} from "@t3tools/shared/threadPullRequests";
+import { GitPullRequestArrowIcon, LayersIcon } from "lucide-react";
+import { type MouseEvent } from "react";
+import { buttonVariants, InlineButton } from "./ui/button";
+import { cn } from "../lib/utils";
+
+import { parseChangeRequestUrl } from "../lib/openPullRequestLink";
 import { useEnvironmentQuery } from "../state/query";
 import { linkedPullRequestDetailAtom, useSharedPullRequestSummary } from "../state/pullRequests";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
@@ -39,12 +46,10 @@ import {
   useSidebarRowSubscriptionLease,
 } from "./Sidebar.logic";
 import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
+
 import type { SidebarThreadSummary } from "../types";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
-import { cn } from "../lib/utils";
-import { parseChangeRequestUrl } from "../lib/openPullRequestLink";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { buttonVariants, InlineButton } from "./ui/button";
 import { pullRequestListLines } from "./pullRequest/pullRequestListLines";
 
 export interface PrStatusIndicator {
@@ -69,6 +74,7 @@ export interface LinkedThreadPullRequestStatus {
   readonly sourceControlProvider: NonNullable<VcsStatusResult["sourceControlProvider"]>;
 }
 
+/** Linked badges use persisted snapshots; only branch and legacy fallbacks lease summary reads. */
 export function useLinkedThreadPullRequest(
   environmentId: EnvironmentId | null,
   linkedPullRequest: ThreadLinkedPullRequest | null | undefined,
@@ -133,7 +139,10 @@ export function linkedPullRequestSnapshotStatus(
   };
 }
 
-export { resolveThreadPullRequestBadge } from "@t3tools/shared/threadPullRequests";
+export {
+  resolveThreadPullRequestBadge,
+  type ThreadPullRequestBadge,
+} from "@t3tools/shared/threadPullRequests";
 
 /** The glyph a row's badge wears: the layers icon for a stack, the pull-request one otherwise. */
 function ThreadPullRequestBadgeIcon({
@@ -834,6 +843,7 @@ export function ThreadRowLeadingStatus({
       lastVisitedAt,
     },
   });
+
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
   const pendingLink =
     pr === null && supportsMultiplePullRequests

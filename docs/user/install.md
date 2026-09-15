@@ -5,9 +5,10 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 
 ## Requirements
 
-Fold's self-contained CLI archives and desktop app include their server runtime.
-The npm-compatible tarball requires Node.js 24. SSH and WSL use the matching
-self-contained CLI archive; provider CLIs may have their own Node.js requirements.
+`npx t3` needs Node.js only to run npm itself; the CLI it installs is a
+self-contained executable. SSH hosts and WSL backends need Node.js 22.16+
+(22.x), 23.11+ (23.x), or 24.10 and later. The native desktop app includes its
+server runtime.
 
 You need an installed, authenticated provider before starting a thread. You can
 launch T3 Code and configure providers afterwards.
@@ -15,11 +16,11 @@ launch T3 Code and configure providers afterwards.
 ## Run without installing
 
 ```bash
-npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
+npx t3@latest
 ```
 
 This starts the server and opens the local web app. Run
-`npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 --help` for command-line options.
+`npx t3@latest --help` for command-line options.
 
 The executable is built for Apple Silicon Macs, Linux, and Windows. There is
 no Intel Mac build of it, because Node cannot produce a single executable for
@@ -28,7 +29,7 @@ on an Intel Mac, build it from source. You need Node.js 24 and `vp` (see
 [Install vp](https://github.com/pingdotgg/t3code#install-vp)):
 
 ```bash
-git clone https://github.com/BreakTheBeta/T3codefold t3code
+git clone https://github.com/pingdotgg/t3code
 cd t3code && vp i && vp run build:desktop
 node apps/server/dist/bin.mjs
 ```
@@ -39,13 +40,20 @@ however you run other Node processes.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases),
-using the asset for your operating system. Upstream package-manager entries install regular T3 Code.
+Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
+or use a package manager:
+
+| Platform           | Install                         |
+| ------------------ | ------------------------------- |
+| Windows            | `winget install T3Tools.T3Code` |
+| macOS              | `brew install --cask t3-code`   |
+| Arch Linux         | `yay -S t3code-bin`             |
+| Arch Linux nightly | `yay -S t3code-nightly-bin`     |
 
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects
-there. Install your provider CLIs inside that distro. T3 Code installs its
+there. Install Node.js and provider CLIs inside that distro. T3 Code installs its
 matching server runtime there automatically; the first launch after an app
 update can take longer.
 
@@ -54,11 +62,11 @@ update can take longer.
 With the desktop app already running on the same machine:
 
 ```bash
-npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 app
+npx t3 app
 ```
 
 This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 app ../my-project`, to open another directory. It requires
+Pass a path, such as `npx t3 app ../my-project`, to open another directory. It requires
 the desktop app, so a standalone server or an SSH session is not enough. If the
 command cannot reach the app, start or update the desktop app and try again.
 
@@ -91,6 +99,7 @@ computer.
 | Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                           |
 | OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                     |
 | Antigravity | Install and sign in with Google from T3 Code's provider settings.                            |
+| Pi          | Install [Pi](https://pi.dev), then run `pi` once to finish its login or API-key setup.       |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
@@ -110,8 +119,8 @@ base URL. Mark secret values as sensitive; after saving, T3 Code does not displa
 their original values.
 
 For provider-specific setup and accounts, see [Codex](./providers-codex.md),
-[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md), and
-[Antigravity](./providers-antigravity.md).
+[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md),
+[Antigravity](./providers-antigravity.md), and [Pi](./providers-pi.md).
 
 ## Next steps
 

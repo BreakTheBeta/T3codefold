@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import { createServerEnvironmentAtoms } from "@t3tools/client-runtime/state/server";
 import { createEnvironmentServerConfigsAtom } from "@t3tools/client-runtime/state/shell";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
@@ -30,6 +30,7 @@ export const serverEnvironment = createServerEnvironmentAtoms(connectionAtomRunt
   initialConfigValueAtom: environmentSession.initialConfigValueAtom,
   environmentThemes: true,
   usageLimitSources: true,
+  usageLimitsCommand: true,
 });
 export const environmentServerConfigsAtom = createEnvironmentServerConfigsAtom({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
@@ -50,7 +51,7 @@ const EMPTY_PRIMARY_SERVER_STATE: PrimaryServerState = {
   welcome: null,
 };
 
-export const primaryServerStateAtom = Atom.make((get): PrimaryServerState => {
+const primaryServerStateAtom = Atom.make((get): PrimaryServerState => {
   const environmentId = get(primaryEnvironmentIdAtom);
   if (environmentId === null) {
     return EMPTY_PRIMARY_SERVER_STATE;
@@ -102,9 +103,8 @@ export const primaryServerProvidersAtom = Atom.make(
     get(primaryServerConfigAtom)?.providers ?? EMPTY_SERVER_PROVIDERS,
 ).pipe(Atom.withLabel("web-primary-server-providers"));
 
-export const primaryServerKeybindingsAtom = Atom.make(
-  (get): ServerConfig["keybindings"] =>
-    get(primaryServerConfigAtom)?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS,
+export const primaryServerKeybindingsAtom = Atom.make((get): ServerConfig["keybindings"] =>
+  mergeWithDefaultKeybindings(get(primaryServerConfigAtom)?.keybindings ?? []),
 ).pipe(Atom.withLabel("web-primary-server-keybindings"));
 
 export const primaryServerAvailableEditorsAtom = Atom.make(

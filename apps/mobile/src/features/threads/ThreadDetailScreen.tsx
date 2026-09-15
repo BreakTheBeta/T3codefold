@@ -1,8 +1,11 @@
-import { PitbossWork } from "./PitbossWork";
+import { useNavigation } from "@react-navigation/native";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
+import type {
+  CodexFeedbackSubmission,
+  EnvironmentThreadStatus,
+} from "@t3tools/client-runtime/state/threads";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
@@ -65,10 +68,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceContentWidth } from "../layout/workspace-content-width";
 
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerAttachment } from "../../lib/composerImages";
 import { CHAT_CONTENT_MAX_WIDTH, type LayoutVariant } from "../../lib/layout";
+import { editPendingThreadMessage } from "../../state/edit-pending-thread-message";
+import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -79,18 +85,16 @@ import type {
   ThreadFeedEntry,
   ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
-import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
-import { ComposerUsageLimits } from "./ComposerUsageLimits";
-import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
-import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
-import { editPendingThreadMessage } from "../../state/edit-pending-thread-message";
-import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { ComposerFeedback } from "./ComposerFeedback";
+import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
+import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
 } from "./floating-working-control";
+import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import {
   derivePendingUserInputMaxHeight,
   ESTIMATED_KEYBOARD_HEIGHT,
@@ -105,7 +109,7 @@ import {
 } from "./ThreadComposer";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { ThreadRelationshipsBanner } from "./ThreadRelationshipsBanner";
-import { ThreadQueueControl } from "./ThreadQueueControl";
+import { useThreadQueuedCount } from "./ThreadQueueControl";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
@@ -115,16 +119,21 @@ export interface ThreadDetailScreenProps {
   readonly screenTone: StatusTone;
   readonly connectionError: string | null;
   readonly environmentLabel: string | null;
+  readonly feedbackSubmissions: ReadonlyArray<CodexFeedbackSubmission>;
+  readonly onDismissFeedback: (id: MessageId) => void;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
   readonly activityRun: ThreadFeedLatestRun | null;
   readonly activeWorkStartedAt: string | null;
   readonly isCompacting: boolean;
+  /**
+   * The server has not created this thread yet. "preparing" runs while the
+   * queued creation is delivered (a worktree may be checking out); "failed"
+   * is a rejected creation whose content went back to the project draft.
+   */
   readonly creationState:
     | { readonly kind: "preparing"; readonly preparingWorktree: boolean }
     | { readonly kind: "failed"; readonly reason: string; readonly onEditTask: () => void }
     | null;
-  readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
-  readonly dispatchingMessageId: MessageId | null;
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: RuntimeRequestId | null;
   readonly activePendingUserInput: PendingUserInput | null;
@@ -144,6 +153,8 @@ export interface ThreadDetailScreenProps {
   readonly projectWorkspaceRoot: string | null;
   readonly threadCwd: string | null;
   readonly selectedThreadQueueCount: number;
+  readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
+  readonly dispatchingMessageId: MessageId | null;
   readonly serverConfig: T3ServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
@@ -175,8 +186,8 @@ export interface ThreadDetailScreenProps {
     questionId: string,
     customAnswer: string,
   ) => void;
-  readonly onDismissUserInput: () => Promise<unknown>;
   readonly onSubmitUserInput: () => Promise<unknown>;
+  readonly onDismissUserInput: () => Promise<unknown>;
   readonly showContent?: boolean;
 }
 
@@ -294,6 +305,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + 44;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  const navigation = useNavigation();
+  const queuedCount = useThreadQueuedCount({
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+  });
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
   const draftMessageRef = useRef(props.draftMessage);
   draftMessageRef.current = props.draftMessage;
@@ -344,8 +360,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         return null;
     }
   })();
-  // One floating pill above the composer: it reads the sync state while
-  // messages load, then the working timer once the feed is settled.
+  // One floating pill above the composer: it reads the connection phase while
+  // disconnected, the sync state while messages load, then the working timer
+  // once the feed is settled.
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
       connectionError: props.connectionError,
@@ -353,20 +370,21 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       environmentLabel: props.environmentLabel,
       onReconnect: props.onReconnectEnvironment,
     });
-    if (connectionStatus !== null) return connectionStatus;
-    if (
-      props.connectionStateLabel !== "connected" ||
-      props.activePendingApproval !== null ||
-      props.activePendingUserInput !== null
-    ) {
+    if (connectionStatus !== null) {
+      return connectionStatus;
+    }
+    if (props.activePendingApproval !== null || props.activePendingUserInput !== null) {
       return null;
     }
-    if (props.creationState?.kind === "preparing")
+    if (props.creationState?.kind === "preparing") {
       return {
         kind: "preparing",
         label: props.creationState.preparingWorktree ? "Setting up worktree…" : "Starting…",
       };
-    if (props.creationState?.kind === "failed") return null;
+    }
+    if (props.creationState?.kind === "failed") {
+      return null;
+    }
     if (threadSyncLabel !== null) {
       return { kind: "syncing", label: threadSyncLabel };
     }
@@ -379,6 +397,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     return null;
   })();
   const showWorkingControl = floatingStatus !== null;
+  // Connection and working status occupy the same space. Keep the feed inset
+  // stable when reconnecting hands off to syncing and then to a running turn.
+  const showFloatingStatus =
+    showWorkingControl ||
+    queuedCount > 0 ||
+    props.connectionStateLabel !== "connected" ||
+    props.queuedMessages.length > 0 ||
+    props.selectedThreadFeed.some(
+      (entry) => "acknowledged" in entry && entry.acknowledged === true,
+    );
   const selectedThreadFeed = props.selectedThreadFeed;
   const hasCompactableConversation =
     selectedThreadFeed.some(
@@ -519,14 +547,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const userInputInsetProgress = useSharedValue(1);
   const userInputCardCoverage = useSharedValue(0);
   const floatingControlCoverage = useSharedValue(
-    showWorkingControl ? FLOATING_WORKING_CONTROL_COVERAGE : 0,
+    showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0,
   );
   useEffect(() => {
     floatingControlCoverage.value = withTiming(
-      showWorkingControl ? FLOATING_WORKING_CONTROL_COVERAGE : 0,
+      showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0,
       { duration: 180, reduceMotion: ReduceMotion.System },
     );
-  }, [floatingControlCoverage, showWorkingControl]);
+  }, [floatingControlCoverage, showFloatingStatus]);
   // Android renders the expanded card in-flow (it cannot hit-test the iOS
   // overlay outside the bar's bounds), so its measured overlay height already
   // includes the card — the coverage extra is iOS-only.
@@ -586,12 +614,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   useEffect(() => {
     const previous = previousWorkingControlStateRef.current;
     const threadChanged = previous.threadKey !== selectedThreadKey;
-    const visibilityChanged = previous.visible !== showWorkingControl;
+    const visibilityChanged = previous.visible !== showFloatingStatus;
     previousWorkingControlStateRef.current = {
       threadKey: selectedThreadKey,
-      visible: showWorkingControl,
+      visible: showFloatingStatus,
     };
-    if ((!threadChanged && !visibilityChanged) || (threadChanged && !showWorkingControl)) {
+    if ((!threadChanged && !visibilityChanged) || (threadChanged && !showFloatingStatus)) {
       return;
     }
     // LegendList applies the larger inset but does not re-anchor short
@@ -599,7 +627,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     // initial load. Re-pin after the finite inset transition; the callback
     // checks follow state again so a user who scrolled up stays put.
     scheduleOverlayRepin(230);
-  }, [scheduleOverlayRepin, selectedThreadKey, showWorkingControl]);
+  }, [scheduleOverlayRepin, selectedThreadKey, showFloatingStatus]);
   const handleToggleUserInputCollapsed = useCallback(() => {
     if (activeUserInputRequestId === null) {
       return;
@@ -663,14 +691,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const lastDispatchedVisitRef = useRef<string | null>(null);
+  const lastVisitDispatchRef = useRef({ threadKey: selectedThreadKey, at: 0 });
   const selectedThreadId = props.selectedThread.id;
   const selectedThreadUpdatedAt = props.selectedThread.updatedAt;
   const selectedThreadLastVisitedAt = props.selectedThread.lastVisitedAt;
+  const selectedThreadCompletedAt = props.selectedThread.latestRun?.completedAt;
   useEffect(() => {
     // Records the server-side visited watermark while the thread is on
     // screen (mirror of web ChatView), so the "Done" marker clears on every
     // device. Field absent → the server predates visited tracking.
-    if (selectedThreadLastVisitedAt === undefined) return;
+    if (!showContent || selectedThreadLastVisitedAt === undefined) return;
     const threadUpdatedAtMs = Date.parse(selectedThreadUpdatedAt);
     if (Number.isNaN(threadUpdatedAtMs)) return;
     const lastVisitedAtMs = selectedThreadLastVisitedAt
@@ -680,17 +710,36 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     // Dedupe per watermark — the effect re-runs before the command echo lands.
     const dispatchKey = `${selectedThreadKey}:${selectedThreadUpdatedAt}`;
     if (lastDispatchedVisitRef.current === dispatchKey) return;
-    lastDispatchedVisitRef.current = dispatchKey;
-    void visitThread({
-      environmentId: props.environmentId,
-      input: { threadId: selectedThreadId, visitedAt: selectedThreadUpdatedAt },
-    });
+    const dispatch = () => {
+      lastDispatchedVisitRef.current = dispatchKey;
+      lastVisitDispatchRef.current = { threadKey: selectedThreadKey, at: Date.now() };
+      void visitThread({
+        environmentId: props.environmentId,
+        input: { threadId: selectedThreadId, visitedAt: selectedThreadUpdatedAt },
+      });
+    };
+    // Completion clears unread state immediately; streaming watermarks use the
+    // same ten-second trailing throttle as web, keeping the newest update.
+    const completedAtMs = selectedThreadCompletedAt ? Date.parse(selectedThreadCompletedAt) : NaN;
+    const hasUnseenCompletion =
+      !Number.isNaN(completedAtMs) &&
+      (Number.isNaN(lastVisitedAtMs) || completedAtMs > lastVisitedAtMs);
+    const previous = lastVisitDispatchRef.current;
+    const elapsed = Date.now() - previous.at;
+    if (previous.threadKey !== selectedThreadKey || hasUnseenCompletion || elapsed >= 10_000) {
+      dispatch();
+      return;
+    }
+    const timer = setTimeout(dispatch, 10_000 - elapsed);
+    return () => clearTimeout(timer);
   }, [
     props.environmentId,
     selectedThreadId,
     selectedThreadKey,
     selectedThreadLastVisitedAt,
+    selectedThreadCompletedAt,
     selectedThreadUpdatedAt,
+    showContent,
     visitThread,
   ]);
 
@@ -705,11 +754,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   useEffect(() => {
     if (
       submittedMessageId === null ||
+      anchorMessageId !== submittedMessageId ||
       lastScrolledSubmittedMessageIdRef.current === submittedMessageId ||
       contentPresentationKind !== "ready" ||
-      !selectedThreadFeed.some(
+      (!selectedThreadFeed.some(
         (entry) => entry.type === "message" && entry.id === submittedMessageId,
-      )
+      ) &&
+        !props.queuedMessages.some((message) => message.messageId === submittedMessageId))
     ) {
       return;
     }
@@ -748,9 +799,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     });
     return () => cancelAnimationFrame(frame);
   }, [
+    anchorMessageId,
     submittedMessageId,
     freeze,
     contentPresentationKind,
+    props.queuedMessages,
     selectedThreadFeed,
     scrollMessageToEnd,
     selectedThreadKey,
@@ -762,10 +815,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       (entry) => entry.type === "message" && entry.message.role === "user",
     );
     const messageId = await props.onSendMessage();
-    if (messageId !== null) clearUsageLimitsFor(selectedThreadKey);
     if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
       return messageId;
     }
+
+    // A sent message makes the snapshot stale; a refused send leaves it in place.
+    clearUsageLimitsFor(targetThreadKey);
 
     setSubmittedMessageId(messageId);
     setAnchorMessageId(
@@ -807,11 +862,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   const collapseComposer = useCallback(() => {
     composerEditorRef.current?.blur();
-  }, []);
-
-  const handleComposeWork = useCallback(() => {
-    setComposerExpanded(true);
-    requestAnimationFrame(() => composerEditorRef.current?.focus());
   }, []);
 
   const handleUseArtifactTemplate = useCallback(
@@ -874,14 +924,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
-      <PitbossWork
-        connected={props.connectionStateLabel === "connected"}
-        environmentId={props.environmentId}
-        threadId={props.selectedThread.id}
-        projectId={props.selectedThread.projectId}
-        modelSelection={props.selectedThread.modelSelection}
-        onComposeWork={handleComposeWork}
-      />
       {showContent ? (
         <BlurTargetView
           ref={feedBlurTarget}
@@ -920,7 +962,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
             contentTopInset={0}
             contentBottomInset={
-              estimatedOverlayHeight + (showWorkingControl ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
+              estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
             }
             contentMaxWidth={contentMaxWidth}
             historyControls={props.historyControls}
@@ -964,23 +1006,29 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             {/* No paddingTop here: the overlay's measured height becomes the
                 list's bottom inset, so any padding above the pill/composer
                 pushes the resting content floor up by the same amount. */}
-            <View
-              ref={composerOverlayRef}
-              onLayout={onComposerLayout}
-              className={Platform.OS === "android" ? "w-full bg-screen" : "w-full"}
-            >
+            <View ref={composerOverlayRef} onLayout={onComposerLayout} className="w-full">
               <FloatingWorkingControl
                 colorScheme={isDarkMode ? "dark" : "light"}
                 status={floatingStatus}
                 showScrollToEnd={showScrollToEndButton}
                 onScrollToEnd={handleScrollToEnd}
+                queuedCount={queuedCount}
+                onOpenQueue={() => {
+                  Keyboard.dismiss();
+                  navigation.navigate("ThreadQueue", {
+                    environmentId: props.environmentId,
+                    threadId: props.selectedThread.id,
+                  });
+                }}
               />
               <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
-                <ThreadQueueControl
-                  environmentId={props.environmentId}
-                  threadId={props.selectedThread.id}
-                />
-
+                {props.feedbackSubmissions.map((submission) => (
+                  <ComposerFeedback
+                    key={submission.id}
+                    submission={submission}
+                    onDismiss={() => props.onDismissFeedback(submission.id)}
+                  />
+                ))}
                 {usageLimitsReport && activeUserInputRequestId === null ? (
                   <Animated.View
                     className="shrink-0 px-4 pb-3"
@@ -1068,16 +1116,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     draftAttachments={props.draftAttachments}
                     placeholder="Ask the repo agent, or run a command…"
                     contentMaxWidth={contentMaxWidth}
-                    connectionError={props.connectionError}
-                    onReconnectEnvironment={props.onReconnectEnvironment}
-                    canStopThread={props.canStopThread}
-                    activeThreadBusy={props.activeThreadBusy}
                     connectionState={props.connectionStateLabel}
                     environmentLabel={props.environmentLabel}
                     selectedThread={props.selectedThread}
                     hasCompactableConversation={hasCompactableConversation && !props.isCompacting}
                     serverConfig={props.serverConfig}
                     queueCount={props.selectedThreadQueueCount}
+                    activeThreadBusy={props.activeThreadBusy}
+                    canStopThread={props.canStopThread}
                     environmentId={props.environmentId}
                     projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
                     // Follow-ups typed during setup wait in the draft: queueing

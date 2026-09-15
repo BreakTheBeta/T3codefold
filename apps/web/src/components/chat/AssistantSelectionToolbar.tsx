@@ -8,7 +8,7 @@ import { QuoteIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  captureAssistantTextSelections,
+  captureAssistantTextSelection,
   type AssistantCitationSourceAnchor,
 } from "~/lib/assistantTextSelection";
 import {
@@ -28,11 +28,9 @@ export function AssistantSelectionToolbar({
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
 }) {
   const [selection, setSelection] = useState<{
+    citation: AssistantCitation;
     position: SelectionActionPoint;
-    citations: Array<{
-      citation: AssistantCitation;
-      sourceAnchor: AssistantCitationSourceAnchor;
-    }>;
+    sourceAnchor: AssistantCitationSourceAnchor;
   } | null>(null);
   const toolbarRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
@@ -50,36 +48,27 @@ export function AssistantSelectionToolbar({
     const clear = () => setSelection(null);
     const update = (pointer: SelectionActionPoint | null) => {
       const nativeSelection = window.getSelection();
-      const captures = captureAssistantTextSelections(viewport, nativeSelection);
-      const citations = captures.flatMap((captured) => {
-        const messageId = captured.source.dataset.assistantCitationSource;
-        if (!messageId) return [];
-        return [
-          {
-            sourceAnchor: { source: captured.source, range: captured.range, viewport },
-            citation: {
-              version: 1 as const,
-              ...threadRef,
-              messageId: MessageId.make(messageId),
-              ...captured.selector,
-            },
-          },
-        ];
-      });
-      if (citations.length === 0 || !nativeSelection || nativeSelection.rangeCount !== 1) {
+      const captured = captureAssistantTextSelection(viewport, nativeSelection);
+      const messageId = captured?.source.dataset.assistantCitationSource;
+      if (!captured || !messageId) {
         clear();
         return;
       }
-      const range = nativeSelection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
+      const rect = captured.range.getBoundingClientRect();
       const viewportRect = viewport.getBoundingClientRect();
       if (rect.bottom < viewportRect.top || rect.top > viewportRect.bottom || rect.width === 0) {
         clear();
         return;
       }
-      const rects = range.getClientRects();
+      const rects = captured.range.getClientRects();
       setSelection({
-        citations,
+        sourceAnchor: { source: captured.source, range: captured.range, viewport },
+        citation: {
+          version: 1,
+          ...threadRef,
+          messageId: MessageId.make(messageId),
+          ...captured.selector,
+        },
         position: resolveSelectionActionPosition({
           bounds: viewportRect,
           selectionRect: rects.item(rects.length - 1) ?? rect,
@@ -126,24 +115,13 @@ export function AssistantSelectionToolbar({
   }, [threadRef, viewport]);
 
   if (!selection) return null;
-  const tooLong = selection.citations.some(
-    ({ citation }) => citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH,
-  );
+  const tooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
   const dismiss = () => {
     actionsRef.current?.cancel();
     setSelection(null);
   };
   const cite = () => {
-    if (
-      tooLong ||
-      // Each insertion uses the same captured composer cursor until React commits. Insert from
-      // the end so the final citations keep their conversation order.
-      !selection.citations
-        .toReversed()
-        .every(({ citation, sourceAnchor }) => onCite(citation, sourceAnchor))
-    ) {
-      return false;
-    }
+    if (tooLong || !onCite(selection.citation, selection.sourceAnchor)) return false;
     window.getSelection()?.removeAllRanges();
     dismiss();
     return true;
@@ -169,11 +147,7 @@ export function AssistantSelectionToolbar({
       }}
     >
       <QuoteIcon aria-hidden="true" className="size-3.5" />
-      {tooLong
-        ? "Shorten selection"
-        : selection.citations.length > 1
-          ? `Cite ${selection.citations.length} selections`
-          : "Cite"}
+      {tooLong ? "Shorten selection" : "Cite"}
     </Button>,
     document.body,
   );

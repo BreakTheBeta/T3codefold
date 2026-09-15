@@ -62,7 +62,6 @@ function DialogPopup({
   className,
   children,
   showCloseButton = true,
-  keepMounted,
   bottomStickOnMobile = true,
   backdropClassName,
   viewportClassName,
@@ -70,14 +69,13 @@ function DialogPopup({
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
-  keepMounted?: boolean;
   bottomStickOnMobile?: boolean;
   backdropClassName?: string;
   viewportClassName?: string;
   variant?: "default" | "media";
 }) {
   return (
-    <DialogPortal keepMounted={keepMounted}>
+    <DialogPortal>
       <DialogBackdrop className={backdropClassName} variant={variant} />
       <DialogViewport
         className={cn(

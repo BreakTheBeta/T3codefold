@@ -15,7 +15,7 @@ export interface McpProviderSessionConfig {
    */
   readonly browserToolsAvailable: boolean;
   /** Capabilities the credential grants ("preview", "device"). */
-  readonly capabilities: ReadonlySet<string>;
+  readonly capabilities?: ReadonlySet<string>;
   /**
    * Set when the session may drive devices. Adapters spread this into the
    * provider subprocess environment so the `agent-device` CLI is on PATH and
@@ -55,25 +55,6 @@ export function clearMcpProviderSession(threadId: ThreadId): void {
   sessionsByThread.delete(threadId);
 }
 
-export function clearAllMcpProviderSessions(): void {
+function clearAllMcpProviderSessions(): void {
   sessionsByThread.clear();
-}
-
-/** Shell agents receive the same revocable, thread-scoped authority as MCP tools. */
-export function workCliEnvironment(threadId: ThreadId): Readonly<Record<string, string>> {
-  const session = readMcpProviderSession(threadId);
-  return session
-    ? { T3_WORK_ENDPOINT: session.endpoint, T3_WORK_AUTHORIZATION: session.authorizationHeader }
-    : {};
-}
-
-/** Apply thread-local tooling over the provider's configured environment. */
-export function providerSessionEnvironment(
-  base: NodeJS.ProcessEnv,
-  threadId: ThreadId,
-): NodeJS.ProcessEnv {
-  return {
-    ...withAgentDeviceEnvironment(base, readMcpProviderSession(threadId)),
-    ...workCliEnvironment(threadId),
-  };
 }

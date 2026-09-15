@@ -231,6 +231,7 @@ export function makeCursorAgentSdkReplayRunner(
 
   const recordFailure = <Error extends CursorAgentSdkReplayError>(error: Error): Error => {
     failure = error;
+    cursorAdvanced.resolve();
     return error;
   };
 
@@ -498,7 +499,7 @@ export function makeCursorAgentSdkReplayRunner(
   };
 }
 
-export function makeCursorAgentSdkReplayLayer(
+function makeCursorAgentSdkReplayLayer(
   transcript: CursorAgentSdkReplayTranscript,
   options?: {
     readonly runner?: CursorAgentSdkRunnerShape;
@@ -560,6 +561,8 @@ function makeReplayServerConfig(
       traceMaxBytes: 10 * 1024 * 1024,
       traceMaxFiles: 10,
       otlpTracesUrl: undefined,
+      otlpProtocol: "http/json",
+      otlpHeaders: undefined,
       otlpMetricsUrl: undefined,
       otlpExportIntervalMs: 10_000,
       otlpServiceName: "t3-server",

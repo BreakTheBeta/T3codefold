@@ -73,20 +73,18 @@ export const shellSnapshotLoaderLayer: Layer.Layer<
     const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
     return ShellSnapshotLoader.of({
       load: (prepared: PreparedConnection) =>
-        prepared.legacyOrchestration === true
-          ? Effect.succeed(Option.none<OrchestrationV2ShellSnapshot>())
-          : fetchEnvironmentShellSnapshot({ prepared, signer, remoteAuthorization }).pipe(
-              Effect.map(Option.some<OrchestrationV2ShellSnapshot>),
-              Effect.provideService(HttpClient.HttpClient, httpClient),
-              Effect.catchCause((cause) =>
-                Effect.logWarning(
-                  "Could not load the environment shell snapshot over HTTP; using the socket snapshot instead.",
-                ).pipe(
-                  Effect.annotateLogs({ cause: Cause.pretty(cause) }),
-                  Effect.as(Option.none<OrchestrationV2ShellSnapshot>()),
-                ),
-              ),
+        fetchEnvironmentShellSnapshot({ prepared, signer, remoteAuthorization }).pipe(
+          Effect.map(Option.some<OrchestrationV2ShellSnapshot>),
+          Effect.provideService(HttpClient.HttpClient, httpClient),
+          Effect.catchCause((cause) =>
+            Effect.logWarning(
+              "Could not load the environment shell snapshot over HTTP; using the socket snapshot instead.",
+            ).pipe(
+              Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+              Effect.as(Option.none<OrchestrationV2ShellSnapshot>()),
             ),
+          ),
+        ),
     });
   }),
 );

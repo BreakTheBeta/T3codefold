@@ -14,7 +14,6 @@ import {
   toSortableTimestamp,
 } from "@t3tools/client-runtime/state/thread-sort";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
-import { isSubagentThread } from "@t3tools/client-runtime/state/thread-relationships";
 import type {
   EnvironmentId,
   ScopedProjectRef,
@@ -99,7 +98,7 @@ export function sortHomeProjectScopes(input: {
   };
 
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null || isSubagentThread(thread)) continue;
+    if (thread.archivedAt !== null) continue;
     recordActivity(
       scopeKeyByProjectRef.get(scopedProjectKey(thread.environmentId, thread.projectId)),
       getThreadSortTimestamp(thread, input.projectSortOrder),
@@ -277,7 +276,7 @@ export function buildHomeThreadGroups(input: {
   }
 
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null || isSubagentThread(thread)) {
+    if (thread.archivedAt !== null) {
       continue;
     }
     if (input.environmentId !== null && thread.environmentId !== input.environmentId) {

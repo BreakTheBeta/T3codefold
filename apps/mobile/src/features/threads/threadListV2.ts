@@ -8,14 +8,14 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
-import { isSubagentThread } from "@t3tools/client-runtime/state/thread-relationships";
 import {
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
 } from "@t3tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ServerConfig } from "@t3tools/contracts";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
@@ -28,12 +28,35 @@ import {
 export { snoozeWakeLabel };
 
 /**
+ * Provider drivers for a row's trailing icon stack, back to front. Instances
+ * missing from the environment's config are skipped, and an unresolved
+ * current provider yields nothing so the row never draws a stale stack.
+ */
+export function resolveThreadListV2ProviderDrivers(
+  thread: Pick<EnvironmentThreadShell, "providerInstanceHistory" | "modelSelection" | "runtime">,
+  providers: ServerConfig["providers"] | undefined,
+): ReadonlyArray<string> {
+  if (providers === undefined) return [];
+  const stack = resolveThreadProviderStack(thread);
+  const drivers = stack.flatMap((instanceId) => {
+    const driver = providers.find((provider) => provider.instanceId === instanceId)?.driver;
+    return driver === undefined ? [] : [driver];
+  });
+  const currentDriver = providers.find(
+    (provider) => provider.instanceId === stack[stack.length - 1],
+  )?.driver;
+  return currentDriver === undefined ? [] : drivers;
+}
+
+/**
  * Thread List v2 model, ported from the web sidebar v2
  * (apps/web/src/components/Sidebar.logic.ts + SidebarV2.tsx).
  *
- * Four visual states, three colors: color is reserved for "act now"
- * (approval), "in motion" (working), and "broken" (failed). Ready is the
- * unlabeled resting state.
+ * Six visual states. Color distinguishes approval, input, active work, and
+ * failures. Ready is the unlabeled resting state; waiting (runtime status "idle") is the agent
+ * parked on open background tasks, grey like working rather than a false Done.
+ * The orchestrator v2 presentation bridge parks runtime at idle when the
+ * post-settlement background roster is nonempty.
  */
 export type ThreadListV2Status = "approval" | "input" | "working" | "waiting" | "failed" | "ready";
 export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
@@ -210,8 +233,8 @@ export function getThreadListV2OrderedSection(input: {
   readonly queuedThreadKeys?: ReadonlySet<string>;
 }): EnvironmentThreadShell[] {
   const threads = input.threads.filter((thread) => {
-    if (isSubagentThread(thread)) return false;
-    if (thread.archivedAt !== null) return false;
+    if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent")
+      return false;
     if (
       (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
       thread.settledOverride === "settled" &&
@@ -422,8 +445,8 @@ export function buildThreadListV2Items(input: {
   const snoozed: EnvironmentThreadShell[] = [];
   let nextSnoozeWakeAt: string | null = null;
   for (const thread of input.threads) {
-    if (isSubagentThread(thread)) continue;
-    // Callers pass live shells. The server stamps settledOverride for the tail.
+    if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent") continue;
+    // The server stamps settledOverride for the tail.
     if (input.environmentId !== null && thread.environmentId !== input.environmentId) continue;
     if (projectKeys !== null && !projectKeys.has(`${thread.environmentId}:${thread.projectId}`)) {
       continue;

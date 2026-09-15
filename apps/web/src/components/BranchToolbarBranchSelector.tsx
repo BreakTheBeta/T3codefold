@@ -15,6 +15,7 @@ import {
   useDeferredValue,
   useEffect,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useOptimistic,
@@ -22,6 +23,7 @@ import {
   useState,
   useTransition,
   type MouseEvent as ReactMouseEvent,
+  type Ref,
 } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
@@ -79,7 +81,12 @@ import {
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
+export interface BranchToolbarBranchSelectorHandle {
+  open: () => void;
+}
+
 interface BranchToolbarBranchSelectorProps {
+  ref?: Ref<BranchToolbarBranchSelectorHandle>;
   className?: string;
   displayMode?: "toolbar" | "panel";
   environmentId: EnvironmentId;
@@ -100,6 +107,7 @@ function toBranchActionErrorMessage(error: unknown): string {
 }
 
 export function BranchToolbarBranchSelector({
+  ref,
   className,
   displayMode = "toolbar",
   environmentId,
@@ -138,7 +146,6 @@ export function BranchToolbarBranchSelector({
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
-
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
   const activeProjectRef = serverThread
@@ -545,6 +552,17 @@ export function BranchToolbarBranchSelector({
     }
   }, []);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: () => {
+        if (isInitialBranchesLoadPending || isBranchActionPending) return;
+        handleOpenChange(true);
+      },
+    }),
+    [handleOpenChange, isBranchActionPending, isInitialBranchesLoadPending],
+  );
+
   const [showTopBranchScrollFade, setShowTopBranchScrollFade] = useState(false);
   const [showBottomBranchScrollFade, setShowBottomBranchScrollFade] = useState(false);
   const fetchNextBranchPage = useCallback(() => {
@@ -803,19 +821,15 @@ export function BranchToolbarBranchSelector({
             <span
               data-composer-label
               className={cn(
-                "min-w-0 max-w-[240px]",
+                "min-w-0 max-w-[240px] truncate",
                 displayMode === "panel"
                   ? "max-w-none flex-1 text-left"
-                  : "group-data-[compact]/composer-context:max-w-0",
+                  : "transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0",
               )}
             >
               <span
                 data-composer-label-motion
-                className={cn(
-                  "block w-full min-w-0 truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-                  displayMode === "toolbar" &&
-                    "max-w-[240px] group-data-[compact]/composer-context:opacity-0",
-                )}
+                className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
               >
                 {triggerLabel}
               </span>
@@ -829,14 +843,14 @@ export function BranchToolbarBranchSelector({
             )}
           </ComboboxTrigger>
         </span>
-        {displayMode === "panel" && displayedPr && displayedPrStatus ? (
+        {displayMode === "panel" && branchPr && displayedPrStatus ? (
           <ThreadDetailsPrRow
             environmentId={environmentId}
-            pr={displayedPr}
+            pr={branchPr}
             status={displayedPrStatus}
             project={activeProject}
             label={panelPrLabel}
-            openAriaLabel={displayedPrStatus.tooltip}
+            openAriaLabel={prUrl ?? "Open pull request"}
             onOpen={(event) => openPrLink(event, displayedPrStatus.url)}
             onActed={() => branchStatusQuery.refresh()}
           />

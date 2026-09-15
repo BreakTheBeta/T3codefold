@@ -7,7 +7,6 @@ import * as React from "react";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
-import { redirectDropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 
 const ComboboxContext = React.createContext<{
   chipsRef: React.RefObject<Element | null> | null;
@@ -32,7 +31,6 @@ function Combobox<Value, Multiple extends boolean | undefined = false>(
 function ComboboxChipsInput({
   className,
   size,
-  onKeyDown,
   ...props
 }: Omit<ComboboxPrimitive.Input.Props, "size"> & {
   size?: "sm" | "default" | "lg" | number;
@@ -49,10 +47,6 @@ function ComboboxChipsInput({
       )}
       data-size={typeof sizeValue === "string" ? sizeValue : undefined}
       data-slot="combobox-chips-input"
-      onKeyDown={(event) => {
-        onKeyDown?.(event);
-        if (!event.defaultPrevented) redirectDropdownNavigationKey(event);
-      }}
       size={typeof sizeValue === "number" ? sizeValue : undefined}
       {...props}
     />
@@ -67,7 +61,6 @@ function ComboboxInput({
   startAddon,
   size,
   unstyled = false,
-  onKeyDown,
   ...props
 }: Omit<ComboboxPrimitive.Input.Props, "size"> & {
   inputClassName?: string;
@@ -101,10 +94,6 @@ function ComboboxInput({
           className,
         )}
         data-slot="combobox-input"
-        onKeyDown={(event) => {
-          onKeyDown?.(event);
-          if (!event.defaultPrevented) redirectDropdownNavigationKey(event);
-        }}
         render={
           <Input
             className={cn("has-disabled:opacity-100", inputClassName)}

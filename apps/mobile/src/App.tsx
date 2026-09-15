@@ -1,4 +1,3 @@
-import { VoiceWorkspaceProvider } from "./features/voice-input/VoiceWorkspaceProvider";
 import { BlurTargetView } from "expo-blur";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
@@ -24,7 +23,6 @@ import { appAtomRegistry } from "./state/atom-registry";
 import { OverlayPortalHost } from "./components/OverlayPortal";
 import { appBlurTargetRef } from "./lib/appBlurTarget";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
-import { LocalAgentNotificationsCoordinator } from "./features/agent-awareness/localNotifications";
 
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 
@@ -40,6 +38,8 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
 
 const appLinking = {
   prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
+  // Keep the compact thread list available beneath a directly opened thread.
+  config: { initialRouteName: "Home" },
   // The Expo dev client launches the app via
   // <scheme>://expo-development-client/?url=<packager> — that URL addresses
   // the launcher, not app navigation. Without this filter it falls through
@@ -96,12 +96,9 @@ function AppContent() {
                 the system is in dark mode. */}
             {/* Blur target for Android dropdown backdrops — see appBlurTarget.ts. */}
             <BlurTargetView ref={appBlurTargetRef} style={{ flex: 1 }}>
-              <VoiceWorkspaceProvider>
-                <IncomingShareProvider>
-                  <LocalAgentNotificationsCoordinator />
-                  <Navigation linking={appLinking} theme={navigationTheme} />
-                </IncomingShareProvider>
-              </VoiceWorkspaceProvider>
+              <IncomingShareProvider>
+                <Navigation linking={appLinking} theme={navigationTheme} />
+              </IncomingShareProvider>
               <ConfirmDialogHost />
               <ThreadArrangementHost />
             </BlurTargetView>

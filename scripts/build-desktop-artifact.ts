@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { foldDesktopFeed } from "@t3tools/shared/foldRelease";
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
@@ -1296,8 +1295,6 @@ export function renderMacPasskeyEntitlements(
     <array>
 ${associatedDomains}
     </array>
-    <key>com.apple.security.device.audio-input</key>
-    <true/>
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
@@ -1784,7 +1781,7 @@ export const preflightMacDesktopBuild = Effect.fn("preflightMacDesktopBuild")(fu
       ),
       lipo:
         arch === "universal"
-          ? desktopBuildProbeSucceeds(ChildProcess.make("xcrun", ["--find", "lipo"]), "lipo")
+          ? desktopBuildProbeSucceeds(ChildProcess.make("lipo", ["-version"]), "lipo")
           : Effect.succeed(true),
     },
     { concurrency: "unbounded" },
@@ -2537,8 +2534,31 @@ export function resolveDesktopRuntimeDependencies(
   );
 }
 
-export const resolveDesktopPublishConfig = (updateChannel: "latest" | "nightly") =>
-  Effect.succeed(foldDesktopFeed(updateChannel));
+export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig")(function* (
+  updateChannel: "latest" | "nightly",
+) {
+  const env = yield* Config.all({
+    updateRepository: Config.string("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
+    githubRepository: Config.string("GITHUB_REPOSITORY").pipe(Config.option),
+  });
+  const rawRepo = (
+    Option.getOrUndefined(env.updateRepository)?.trim() ||
+    Option.getOrUndefined(env.githubRepository)?.trim() ||
+    ""
+  ).trim();
+  if (!rawRepo) return undefined;
+
+  const [owner, repo, ...rest] = rawRepo.split("/");
+  if (!owner || !repo || rest.length > 0) return undefined;
+
+  return {
+    provider: "github",
+    owner,
+    repo,
+    releaseType: updateChannel === "nightly" ? "prerelease" : "release",
+    ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
+  };
+});
 
 export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
   return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
@@ -2649,7 +2669,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
   if (!isDesktopPreviewVersion(version)) {
-    const publishConfig = yield* resolveDesktopPublishConfig(updateChannel);
+    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
     } else if (mockUpdates) {
@@ -2668,16 +2688,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
-      // Both app slices retain these architecture-named prebuilds; their loaders
-      // select the matching binary at runtime, so universal packaging must not lipo them.
-      x64ArchFiles: "**/{*.darwin-{arm64,x64}.node,*darwin-{arm64,x64}/**/*}",
       category: "public.app-category.developer-tools",
       extendInfo: {
-        NSMicrophoneUsageDescription: "Allow T3 Code to talk with Codex.",
         NSScreenCaptureUsageDescription:
           "T3 Code captures the active window when you use the window capture shortcut.",
       },
-
       protocols: [
         {
           name: "T3 Code",

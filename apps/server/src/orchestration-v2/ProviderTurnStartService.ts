@@ -1,5 +1,4 @@
-import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
-import { WorkStore } from "../pitboss/WorkStore.ts";
+import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
   CommandId,
   type OrchestrationV2DomainEvent,
@@ -75,11 +74,9 @@ export const layer: Layer.Layer<
   | ProviderSessionManagerV2
   | RunExecutionServiceV2
   | RuntimePolicyV2
-  | WorkStore
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
-    const workStore = yield* WorkStore;
     const eventSink = yield* EventSinkV2;
     const contextHandoffService = yield* ContextHandoffServiceV2;
     const idAllocator = yield* IdAllocatorV2;
@@ -187,7 +184,10 @@ export const layer: Layer.Layer<
           : yield* Effect.result(
               providerAuth.tryHandlePromptCommand({
                 instanceId: authInstanceId,
-                text: message.text,
+                text: projectComposerContextForProvider({
+                  text: message.text,
+                  records: message.context?.records ?? [],
+                }),
                 hasAttachments: false,
               }),
             );
@@ -369,6 +369,14 @@ export const layer: Layer.Layer<
         ...(existingSessionProjection === undefined
           ? {}
           : { resumeFromSession: existingSessionProjection }),
+        ...(providerThread.nativeThreadRef?.nativeId == null
+          ? {}
+          : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
+        ...(providerThread.nativeMetadata?.itemIdentityVersion === undefined
+          ? {}
+          : {
+              initialProviderItemIdentityVersion: providerThread.nativeMetadata.itemIdentityVersion,
+            }),
       });
       let effectiveHandoffs = handoffs;
       const loadedProviderThread = yield* Effect.gen(function* () {
@@ -406,11 +414,16 @@ export const layer: Layer.Layer<
           });
         }
         if (providerThread.nativeThreadRef === null) {
+          // Hand the run's provider thread to the adapter so it adopts this
+          // row's identity when attaching native state. An adapter that mints
+          // its own row instead leaves two live rows per app thread, and
+          // `activeProviderThreadId` then flaps between them on every update.
           return yield* session.ensureThread({
             threadId: projection.thread.id,
             modelSelection: run.modelSelection,
             runtimePolicy: resolvedRuntimePolicy,
             providerSessionId,
+            existingProviderThread: providerThread,
           });
         }
         const resumed = yield* Effect.result(
@@ -430,6 +443,10 @@ export const layer: Layer.Layer<
           modelSelection: run.modelSelection,
           runtimePolicy: resolvedRuntimePolicy,
           providerSessionId,
+          // The native ref is dropped so the adapter binds a fresh native
+          // session instead of retrying the resume that just failed, while
+          // still adopting this row's identity.
+          existingProviderThread: { ...providerThread, nativeThreadRef: null },
         });
         if (existingResumeFallback !== undefined) {
           return replacement;
@@ -622,15 +639,6 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         canRouteRelatedSubagent(subagent.status),
       );
-      const workPacket =
-        message.text.trim() === "/compact"
-          ? null
-          : yield* workStore.context(projection.thread.id, `turn:${attempt.id}`);
-      const messageText = serializeLegacyContextMessage({
-        text: message.text,
-        records: message.context?.records ?? [],
-      });
-      const workMessage = workPacket === null ? messageText : `${workPacket}\n\n${messageText}`;
       yield* runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,
@@ -693,14 +701,23 @@ export const layer: Layer.Layer<
           messageId: message.id,
           text:
             effectiveHandoffs.length === 0
-              ? workMessage
+              ? projectComposerContextForProvider({
+                  text: message.text,
+                  records: message.context?.records ?? [],
+                })
               : providerMessageWithContextHandoffs({
                   handoffs: effectiveHandoffs,
-                  userText: workMessage,
+                  userText: projectComposerContextForProvider({
+                    text: message.text,
+                    records: message.context?.records ?? [],
+                  }),
                 }),
           attachments: message.attachments,
           createdBy: message.createdBy,
           creationSource: message.creationSource,
+          ...(message.scheduledTaskId === undefined
+            ? {}
+            : { scheduledTaskId: message.scheduledTaskId }),
         },
         modelSelection: run.modelSelection,
         runtimePolicy: resolvedRuntimePolicy,

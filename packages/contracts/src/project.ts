@@ -32,6 +32,8 @@ export const ProjectScript = Schema.Struct({
   command: TrimmedNonEmptyString,
   icon: ProjectScriptIcon,
   runOnWorktreeCreate: Schema.Boolean,
+  /** Start the agent while setup runs unless explicitly disabled. */
+  async: Schema.optional(Schema.Boolean),
   previewUrl: Schema.optional(TrimmedNonEmptyString),
   autoOpenPreview: Schema.optional(Schema.Boolean),
 });
@@ -113,29 +115,39 @@ export const ProjectChange = Schema.Union([
 ]);
 export type ProjectChange = typeof ProjectChange.Type;
 
+export const ProjectCreatePayload = Schema.Struct({
+  title: TrimmedNonEmptyString,
+  workspaceRoot: TrimmedNonEmptyString,
+  createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
+  defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  scripts: Schema.optional(Schema.Array(ProjectScript)),
+});
+export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
+
+export const ProjectUpdatePayload = Schema.Struct({
+  title: Schema.optional(TrimmedNonEmptyString),
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  autoPull: Schema.optional(Schema.Boolean),
+  projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
+  faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  scripts: Schema.optional(Schema.Array(ProjectScript)),
+});
+export type ProjectUpdatePayload = typeof ProjectUpdatePayload.Type;
+
 export const ProjectMutation = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("project.create"),
     commandId: CommandId,
     projectId: ProjectId,
-    title: TrimmedNonEmptyString,
-    workspaceRoot: TrimmedNonEmptyString,
-    createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
-    defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-    scripts: Schema.optional(Schema.Array(ProjectScript)),
+    ...ProjectCreatePayload.fields,
   }),
   Schema.Struct({
     type: Schema.Literal("project.update"),
     commandId: CommandId,
     projectId: ProjectId,
-    title: Schema.optional(TrimmedNonEmptyString),
-    workspaceRoot: Schema.optional(TrimmedNonEmptyString),
-    defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-    autoPull: Schema.optional(Schema.Boolean),
-    projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
-    faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-    defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
-    scripts: Schema.optional(Schema.Array(ProjectScript)),
+    ...ProjectUpdatePayload.fields,
   }),
   Schema.Struct({
     type: Schema.Literal("project.delete"),

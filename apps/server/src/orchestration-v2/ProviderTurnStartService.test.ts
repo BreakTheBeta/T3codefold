@@ -1,4 +1,3 @@
-import { WorkStore } from "../pitboss/WorkStore.ts";
 import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
@@ -118,7 +117,6 @@ it("does not commit running state when inherited background routing cannot be re
         Layer.mock(ProviderAuthService)({ tryHandlePromptCommand: () => Effect.succeed(false) }),
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
-        Layer.mock(WorkStore)({ context: () => Effect.succeed(null) }),
       ),
     ),
   );
@@ -362,7 +360,6 @@ function makeLocalCommandHarness(input: {
         Layer.mock(ProviderAuthService)({ tryHandlePromptCommand }),
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
-        Layer.mock(WorkStore)({ context: () => Effect.succeed(null) }),
       ),
     ),
   );

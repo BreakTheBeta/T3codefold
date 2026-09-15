@@ -1,31 +1,25 @@
-import type { UsageLimitsReport } from "@t3tools/contracts";
-import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
-
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { useAtomValue } from "@effect/atom-react";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
 import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  type EnvironmentId,
+  type MessageId,
+  type ModelSelection,
+  type ProviderInteractionMode,
+  type RuntimeMode,
+  type ServerConfig as T3ServerConfig,
+  type UsageLimitsReport,
 } from "@t3tools/contracts";
 import {
   collectProviderUsageLimits,
   hasProviderUsageLimits,
   isUsageLimitsCommand,
 } from "@t3tools/shared/usageLimits";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { supportsCodexRealtimeVoiceVersion } from "@t3tools/client-runtime/realtime-voice";
-import { useCodexRealtimeVoice } from "../voice-input/useCodexRealtimeVoice";
-import { CodexVoiceControl } from "../voice-input/CodexVoiceControl";
-import { useAtomValue } from "@effect/atom-react";
-import type {
-  EnvironmentId,
-  MessageId,
-  ModelSelection,
-  ProviderInteractionMode,
-  RuntimeMode,
-  ServerConfig as T3ServerConfig,
-} from "@t3tools/contracts";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { ReactNode } from "react";
 import {
@@ -38,25 +32,16 @@ import {
   useState,
   type RefObject,
 } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Keyboard,
-  Platform,
-  Pressable,
-  View,
-  type ViewStyle,
-} from "react-native";
+import { Alert, Keyboard, Platform, Pressable, View, type ViewStyle } from "react-native";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import {
   composerAttachmentUploadBlockReason,
+  composerAttachmentsStillUploading,
   composerAttachmentUploadsAtom,
 } from "../../state/composer-attachment-uploads";
 import Animated, {
   FadeIn,
-  FadeInDown,
   FadeOut,
-  FadeOutDown,
   type LayoutAnimationFunction,
   ReduceMotion,
   useAnimatedStyle,
@@ -116,6 +101,10 @@ import {
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
 import {
+  rememberModelOptions,
+  withRememberedModelOptions,
+} from "../../state/use-model-option-memory";
+import {
   type ExistingThreadSettingsRouteSession,
   useExistingThreadSettingsRoutePresentation,
 } from "./ThreadSettingsSheet";
@@ -137,14 +126,12 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
 export const COMPOSER_EXPANDED_CHROME = 156;
 
 export interface ThreadComposerProps {
-  sendBlockedReason?: string | null;
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerAttachment>;
   readonly placeholder: string;
   readonly contentMaxWidth?: number;
   readonly bottomInset?: number;
   readonly connectionState: RemoteClientConnectionState;
-  readonly connectionError: string | null;
   readonly environmentLabel: string | null;
   /**
    * Message sync phase for the selected thread (drives the status pill):
@@ -160,6 +147,8 @@ export interface ThreadComposerProps {
   readonly canStopThread: boolean;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;
+  /** Why sending is blocked right now (shown as the send button's label), or null. */
+  readonly sendBlockedReason?: string | null;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftMedia: () => Promise<void>;
@@ -168,12 +157,12 @@ export interface ThreadComposerProps {
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onShowUsageLimits: (report: UsageLimitsReport | null) => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  /** `/usage-limits` resolves locally; the host decides where the report shows. Null clears it. */
+  readonly onShowUsageLimits: (report: UsageLimitsReport | null) => void;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
-  readonly onReconnectEnvironment: () => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
   /** Fires on editor focus/blur; hosts use it to vet stale keyboard state. */
   readonly onEditorFocusChange?: (focused: boolean) => void;
@@ -298,77 +287,6 @@ export function ComposerSurface(props: {
   );
 }
 
-type ComposerStatusPillState = {
-  readonly kind: "unavailable" | "reconnecting";
-  readonly label: string;
-};
-
-function composerConnectionStatus(input: {
-  readonly connectionError: string | null;
-  readonly connectionState: RemoteClientConnectionState;
-  readonly environmentLabel: string | null;
-}): ComposerStatusPillState | null {
-  const environmentLabel = input.environmentLabel ?? "Environment";
-
-  switch (input.connectionState) {
-    case "connecting":
-    case "reconnecting":
-      return {
-        kind: "reconnecting",
-        label:
-          input.connectionError === null
-            ? `Reconnecting to ${environmentLabel}...`
-            : `Failed to connect. Retrying ${environmentLabel}...`,
-      };
-    case "offline":
-      return { kind: "unavailable", label: "You are offline" };
-    case "error":
-      return {
-        kind: "unavailable",
-        label: input.connectionError
-          ? `Failed to connect to ${environmentLabel}: ${input.connectionError}`
-          : `Failed to connect to ${environmentLabel}`,
-      };
-    case "available":
-      return { kind: "unavailable", label: `${environmentLabel} is not connected` };
-    case "connected":
-      return null;
-  }
-}
-
-const ComposerConnectionStatusPill = memo(function ComposerConnectionStatusPill(props: {
-  readonly onPress: () => void;
-  readonly status: ComposerStatusPillState;
-}) {
-  const isReconnecting = props.status.kind === "reconnecting";
-  return (
-    <Animated.View
-      className="absolute inset-x-0 bottom-full items-center pb-2"
-      entering={FadeInDown.duration(180)}
-      exiting={FadeOutDown.duration(140)}
-      pointerEvents="box-none"
-    >
-      <Pressable
-        accessibilityRole="button"
-        onPress={props.onPress}
-        className="max-w-full flex-row items-center gap-2 rounded-full bg-card px-3 py-2 shadow-sm active:opacity-70"
-      >
-        {isReconnecting ? (
-          <ActivityIndicator size="small" colorClassName={"accent-icon-muted"} />
-        ) : (
-          <View className="h-2 w-2 rounded-full bg-red-500" />
-        )}
-        <Text
-          className="max-w-[260px] text-sm font-t3-bold leading-snug text-foreground"
-          numberOfLines={1}
-        >
-          {props.status.label}
-        </Text>
-      </Pressable>
-    </Animated.View>
-  );
-});
-
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
   const project = useProject(scopeProjectRef(props.environmentId, props.selectedThread.projectId));
   const { materialYouStyleLayoutActive, themeVariables: materialTheme } =
@@ -402,18 +320,26 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   );
   const showStopAction = !hasContent && props.canStopThread;
 
+  const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
+  const attachmentsUploading =
+    props.connectionState === "connected" &&
+    composerAttachmentsStillUploading({
+      environmentId: props.environmentId,
+      attachments: props.draftAttachments,
+      serverConfig: props.serverConfig,
+      states: uploadStates,
+    });
+  // Every send goes through the outbox; the label says whether it leaves now
+  // or waits (for the connection, an earlier queued message, or an upload).
   const sendLabel =
-    props.connectionState !== "connected" || props.queueCount > 0 ? "Queue" : "Send";
+    props.connectionState !== "connected" || props.queueCount > 0 || attachmentsUploading
+      ? "Queue"
+      : "Send";
   const currentModelSelection = props.selectedThread.modelSelection;
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const modelUnavailable =
     props.connectionState === "connected" &&
     isModelSelectionUnavailable(props.serverConfig, currentModelSelection);
-  const connectionStatus = composerConnectionStatus({
-    connectionError: props.connectionError,
-    connectionState: props.connectionState,
-    environmentLabel: props.environmentLabel,
-  });
   const selectedProviderStatus = useMemo(() => {
     if (!props.serverConfig) return null;
     return (
@@ -472,14 +398,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     selectedProviderStatus,
     hasThread: true,
     hasCompactableConversation: props.hasCompactableConversation,
-    offersUsageLimits: usageLimitsOffered,
-    onUsageLimits:
-      usageLimitsOffered && props.draftAttachments.length === 0 ? openUsageLimits : undefined,
     onChangeDraftMessage: props.onChangeDraftMessage,
     onUpdateInteractionMode:
       selectedProviderStatus?.showInteractionModeToggle === false
         ? undefined
         : props.onUpdateInteractionMode,
+    offersUsageLimits: usageLimitsOffered,
+    // With attachments aboard the pick just inserts the text, so it sends as a prompt.
+    onUsageLimits:
+      usageLimitsOffered && props.draftAttachments.length === 0 ? openUsageLimits : undefined,
   });
   const voiceInput = useVoiceInputController({
     ownerKey: composerOwnerKey,
@@ -488,30 +415,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onChangeDraftMessage: props.onChangeDraftMessage,
     onChangeSelection: composerMenu.onSelectionChange,
   });
-  const codexVoice = useCodexRealtimeVoice({
-    title: props.selectedThread.title,
-    environmentId: props.environmentId,
-    threadId: props.selectedThread.id,
-    enabled:
-      selectedProviderStatus?.driver === "codex" &&
-      props.connectionState === "connected" &&
-      !voiceInput.isBusy,
-  });
-  const codexVoiceActive = codexVoice.status !== "idle" && codexVoice.status !== "error";
-  const codexVoiceControl =
-    selectedProviderStatus?.driver === "codex" ? (
-      <CodexVoiceControl
-        voice={codexVoice}
-        disabled={
-          voiceInput.isBusy ||
-          props.connectionState !== "connected" ||
-          !supportsCodexRealtimeVoiceVersion(selectedProviderStatus.version)
-        }
-      />
-    ) : null;
-  useEffect(() => {
-    if (codexVoice.error) Alert.alert("Codex voice", codexVoice.error);
-  }, [codexVoice.error]);
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
     voiceInput.elapsedSeconds,
@@ -521,7 +424,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const isExpanded = isFocused || settingsSheetPresentation.keepsComposerExpanded;
   const showsCompactDictation = isVoiceInputPresented && !isExpanded;
   const isToolbarVisible = isExpanded || isVoiceInputPresented;
-  const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
   const attachmentBlockReason = composerAttachmentUploadBlockReason({
     environmentId: props.environmentId,
     attachments: props.draftAttachments,
@@ -621,11 +523,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       inFlightThreadIdsRef.current.delete(threadKey);
     }
   }, [
-    openUsageLimits,
-    usageLimitsOffered,
     props.draftMessage,
     props.draftAttachments.length,
     onChangeDraftMessage,
+    openUsageLimits,
+    usageLimitsOffered,
     onSendMessage,
     props.environmentId,
     props.environmentLabel,
@@ -668,10 +570,17 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       providerInstanceId: currentModelSelection.instanceId,
       providerGroups: threadProviderGroups,
       selectedModel: currentModelSelection,
-      onSelectModel: (option) => props.onUpdateModelSelection(option.selection),
+      onSelectModel: (option) =>
+        props.onUpdateModelSelection(withRememberedModelOptions(option.selection)),
       optionDescriptors: providerOptionDescriptors,
-      onUpdateOptionSelections: (options) =>
-        props.onUpdateModelSelection({ ...currentModelSelection, options }),
+      onUpdateOptionSelections: (options) => {
+        rememberModelOptions(
+          currentModelSelection.instanceId,
+          currentModelSelection.model,
+          options ?? [],
+        );
+        props.onUpdateModelSelection({ ...currentModelSelection, options });
+      },
       runtimeMode: currentRuntimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
     }),
@@ -764,13 +673,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               onSelect={composerMenu.onSelect}
             />
           </View>
-        ) : null}
-
-        {connectionStatus ? (
-          <ComposerConnectionStatusPill
-            status={connectionStatus}
-            onPress={props.onReconnectEnvironment}
-          />
         ) : null}
 
         {modelUnavailable ? (
@@ -988,10 +890,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             ) : null}
             {!isExpanded ? (
               <View className="flex-row items-center">
-                {!codexVoiceActive ? codexVoiceControl : null}
                 <ComposerDictationStartAction
                   state={voiceInput.state}
-                  isAvailable={voiceInput.isAvailable && !codexVoiceActive}
+                  isAvailable={voiceInput.isAvailable}
                   onStart={voiceInput.start}
                   onCancel={voiceInput.cancel}
                 />
@@ -1004,7 +905,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : (
                   <ComposerActionButton
-                    accessibilityLabel={attachmentBlockReason ?? sendLabel}
+                    accessibilityLabel={sendBlockedReason ?? sendLabel}
                     icon="arrow.up"
                     variant="primary"
                     disabled={!canSend}
@@ -1042,7 +943,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 paddingTop={0}
                 style={{ gap: 0 }}
               >
-                {isExpanded && !codexVoiceActive ? codexVoiceControl : null}
                 <ComposerDictationCancelAction
                   presentation={voicePresentation}
                   onCancel={voiceInput.cancel}
@@ -1069,7 +969,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         accessibilityLabel="Model and reasoning settings"
                         emphasized
                         iconNode={
-                          <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
+                          <ProviderIcon
+                            iconUrl={currentModelOption?.providerIconUrl}
+                            provider={currentModelOption?.providerDriver}
+                            size={16}
+                          />
                         }
                         label={currentModelOption?.label ?? currentModelSelection.model}
                         maxWidth="100%"
@@ -1082,7 +986,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   <ComposerDictationPrimaryAction
                     state={voiceInput.state}
                     presentation={voicePresentation}
-                    isAvailable={voiceInput.isAvailable && !codexVoiceActive}
+                    isAvailable={voiceInput.isAvailable}
                     onStart={voiceInput.start}
                     onConfirm={voiceInput.stop}
                     onCancel={voiceInput.cancel}
@@ -1096,7 +1000,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     />
                   ) : voicePresentation.showsSend ? (
                     <ComposerActionButton
-                      accessibilityLabel={attachmentBlockReason ?? sendLabel}
+                      accessibilityLabel={sendBlockedReason ?? sendLabel}
                       icon="arrow.up"
                       variant="primary"
                       disabled={!canSend}
@@ -1108,16 +1012,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             </ComposerDictationToolbar>
           </Animated.View>
         </ComposerSurface>
-
-        {/* Queue count */}
-        {props.queueCount > 0 ? (
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
-            <Text className="pt-2 text-xs text-foreground-muted">
-              {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send
-              automatically.
-            </Text>
-          </Animated.View>
-        ) : null}
       </Animated.View>
 
       <VideoPreviewModal source={previewVideo} onRequestClose={closePreview} />

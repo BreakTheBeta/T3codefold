@@ -3,6 +3,7 @@ export * from "./assistantCitations.ts";
 export * from "./composerContext.ts";
 export * from "./composerContextClipboard.ts";
 export * from "./background.ts";
+export * from "./acpRegistry.ts";
 export * from "./auth.ts";
 export * from "./environment.ts";
 export * from "./environmentHttp.ts";
@@ -29,6 +30,7 @@ export * from "./settings.ts";
 export * from "./git.ts";
 export * from "./vcs.ts";
 export * from "./sourceControl.ts";
+export * from "./projectClone.ts";
 export * from "./pullRequest.ts";
 export * from "./orchestration.ts";
 export * from "./orchestrationProject.ts";
@@ -55,12 +57,4 @@ export * from "./scheduledTask.ts";
 export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
-
-export * from "./fleet.ts";
-
-export { UserInputAttachmentAnswerPayload } from "./orchestration.ts";
-
-export * from "./pitboss.ts";
-
-export * from "./pitbossPeer.ts";
 export * from "./worktreeSetup.ts";

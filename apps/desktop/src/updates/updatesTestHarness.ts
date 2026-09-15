@@ -20,7 +20,6 @@ import * as DesktopUpdates from "./DesktopUpdates.ts";
 export const flushCallbacks = Effect.yieldNow;
 
 export interface UpdatesHarnessOptions {
-  readonly resourcesPath?: string;
   readonly checkForUpdates?: Effect.Effect<
     void,
     ElectronUpdater.ElectronUpdaterCheckForUpdatesError
@@ -151,7 +150,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     appVersion: "1.2.3",
     appPath: "/repo",
     isPackaged: true,
-    resourcesPath: options.resourcesPath ?? "/missing/resources",
+    resourcesPath: "/missing/resources",
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(

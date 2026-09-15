@@ -496,12 +496,12 @@ const makeEventStore = Effect.gen(function* () {
   const getAgentReplayStats: OrchestrationEventStoreShape["getAgentReplayStats"] = (input) =>
     sql<{
       readonly eventCount: number;
-      readonly payloadBytes: number;
+      readonly rawPayloadBytes: number;
       readonly hasCreateEvent: number;
     }>`
       SELECT
         COUNT(*) AS "eventCount",
-        COALESCE(SUM(octet_length(payload_json)), 0) AS "payloadBytes",
+        COALESCE(SUM(octet_length(payload_json)), 0) AS "rawPayloadBytes",
         COALESCE(MAX(event_type = 'thread.created'), 0) AS "hasCreateEvent"
       FROM (
         SELECT payload_json, event_type
@@ -518,7 +518,7 @@ const makeEventStore = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("OrchestrationEventStore.getAgentReplayStats:query")),
       Effect.map((rows) => ({
         eventCount: rows[0]?.eventCount ?? 0,
-        payloadBytes: rows[0]?.payloadBytes ?? 0,
+        rawPayloadBytes: rows[0]?.rawPayloadBytes ?? 0,
         hasCreateEvent: (rows[0]?.hasCreateEvent ?? 0) !== 0,
       })),
     );
@@ -587,12 +587,14 @@ const makeEventStore = Effect.gen(function* () {
       }).pipe(
         Stream.runCollect,
         Effect.map((events) => {
-          const last = events.at(-1)?.sequence;
+          const last = events.at(-1);
           return [
             events,
-            last === undefined || events.length < READ_PAGE_SIZE || last >= input.throughSequence
+            last === undefined ||
+            events.length < READ_PAGE_SIZE ||
+            last.sequence >= input.throughSequence
               ? Option.none()
-              : Option.some(last),
+              : Option.some(last.sequence),
           ] as const;
         }),
       ),

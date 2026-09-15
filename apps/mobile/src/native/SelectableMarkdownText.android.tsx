@@ -1,21 +1,20 @@
 import {
   SelectableMarkdownText as T3SelectableMarkdownText,
   type SelectableMarkdownTextProps,
-} from "@t3tools/mobile-markdown-text/renderer/android";
+} from "@t3tools/mobile-markdown-text/renderer";
 
 import { highlightCodeSnippet } from "../features/review/shikiReviewHighlighter";
 
 type MobileSelectableMarkdownTextProps = Omit<SelectableMarkdownTextProps, "highlightCode">;
 
 export type {
-  MarkdownImageRenderer,
   MarkdownImageRequest,
   NativeMarkdownTextStyle,
   SelectableMarkdownSkill,
 } from "@t3tools/mobile-markdown-text/types";
 
-// Android renders the Markdown runs inside one selectable React Native Text
-// tree so selection can span paragraphs, lists, and tables.
+// The renderer falls back to React Native Text outside iOS, so Android can use
+// the same Markdown chunking while retaining native text selection.
 export function hasNativeSelectableMarkdownText(): boolean {
   return true;
 }

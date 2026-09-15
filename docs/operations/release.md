@@ -1,35 +1,5 @@
 # Release Checklist
 
-## Fold releases
-
-Use **Fold server release** or **Fold desktop release** in this fork's GitHub Actions.
-The upstream npm release workflow is disabled on forks. Fold is distributed from
-`BreakTheBeta/T3codefold`, not the npm `t3` package.
-
-The server workflow builds self-contained CLI archives on macOS arm64, Linux
-arm64/x64, and Windows arm64/x64, using upstream's build and packaging scripts.
-It publishes them with `SHA256SUMS` under `fold-server-v<version>`. The
-npm-compatible `t3-<version>.tgz` remains available for older launchers, and the
-selected `fold-server-latest` or `fold-server-nightly` feed retains its `t3.tgz`.
-Never reuse a version for a different commit. Versions published before executable
-archives were introduced must be installed using their npm-compatible tarball.
-
-The desktop workflow publishes the matching server first, then builds Windows,
-macOS universal, and Linux x64 artifacts. It attaches installers to the selected
-`fold-preview-v<version>` release and publishes platform update metadata and assets
-to `fold-desktop-latest` or `fold-desktop-nightly`. Keep the platform-specific YAML
-files with their referenced installers and blockmaps. These feeds are separate
-from Android releases. macOS distribution still requires the maintainer's signing
-and notarization setup for trusted installation and automatic updates. Without those
-credentials, the workflow publishes a manual Mac download and leaves the automatic
-Mac feed unchanged.
-
-Android APKs and the mobile OTA branch continue to use this fork's existing release
-process. OTA updates must match the installed native runtime fingerprint.
-
-The remaining upstream release procedures below describe the upstream workflow;
-use the Fold workflows above for this repository.
-
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
 This document covers the unified release workflow for stable and nightly desktop releases.
@@ -79,6 +49,35 @@ This document covers the unified release workflow for stable and nightly desktop
   - stable releases are aliased to the `latest` hosted app channel
   - nightly releases are aliased to the `nightly` hosted app channel
 - Signing is optional and auto-detected per platform from secrets.
+
+## Pull request macOS previews
+
+Labeling a PR `preview:mac` publishes a signed, notarized Apple Silicon DMG with T3 Connect enabled
+to the rolling `desktop-preview` prerelease, and works for fork PRs. The label is a one-shot request
+for the commit it is applied to: the trusted workflow removes it once the build is in hand, and later
+pushes do not build until a maintainer applies it again. Every signed preview is therefore a
+per-commit maintainer decision, which matters because the result carries the Developer ID signature.
+Vouching a contributor lets their labeled commits be signed; it is not a standing grant. The build is
+split so the Developer ID certificate never shares a job with PR code:
+
+- `.github/workflows/desktop-macos-preview.yml` runs on `pull_request` with no secrets and builds
+  only the JS bundle from the PR (the same `js-bundle` artifact `release.yml` produces).
+- `.github/workflows/desktop-macos-preview-publish.yml` runs on `workflow_run` from `main`. It
+  refuses unless the PR is open, still labeled, its head is the built commit, and the author is a
+  bot, a collaborator, or listed in `.github/VOUCHED.td` (read from the default branch, so a PR cannot vouch
+  for itself). It then packages and signs the bundle through `release-desktop.yml` checked out at
+  `main`, so packaging, native helpers, and the Electron/desktop dependencies come from `main`, not
+  the PR. Only the version and the public T3 Connect identifiers in `.env.example` are read from the
+  PR commit, as data, so the signed app's passkey entitlement matches the bundle. A PR that changes
+  packaging must use the `channel=preview` release train above instead.
+
+Before handing the bundle to the signing runner, the trusted workflow validates its ZIP entries
+and accepts only regular files under `server/dist` and `desktop/dist-electron`, plus the directory
+entries that lead to those roots. The artifact cannot
+overwrite packaging code or installed dependencies. The bundle is copied into the app, never executed,
+on the signing runner. The
+`pull_request_target` cleanup job in the publish workflow removes the download when the PR closes, or
+when the label is removed by hand before a build consumed it, and never checks out PR code.
 
 ## Required release credentials
 
@@ -234,14 +233,27 @@ One-time Vercel dashboard setup:
 
 ## Server self-update release invariant
 
-Every desktop or hosted client release needs matching exact Fold CLI archives and a compatibility tarball
-before users receive that client. The Fold desktop workflow enforces this order.
-For manual releases, run the server workflow first.
+Connected servers update to the client's exact version, not to an npm dist-tag. Every released
+desktop or hosted client version must therefore have a matching `t3@<version>` package available on
+npm before users can receive that client.
 
-Smoke-test the extracted executable's version, web server, and native terminal support, then check
-an isolated service update from the previous version. Verify reconnect and rollback
-when a trial fails. A server that does not advertise Fold's update source must use
-the manual Fold install command; invoking its old updater could install upstream T3.
+The workflow enforces this ordering:
+
+1. `publish_cli` publishes the exact release version to npm, on every channel.
+2. `release` depends on `publish_cli` before exposing desktop artifacts in GitHub Releases.
+3. `deploy_web` depends on `release` before moving the hosted channel to the new client.
+
+Preserve these dependencies when changing the release graph. Publishing a client first would leave
+the **Update server** action targeting a package version that does not exist yet.
+
+For a release smoke test, confirm `npm view t3@<version> version` returns the expected version, then
+connect the new client to a server on the previous version and verify that the update action
+reconnects to the matching server. When the release adds database migrations, verify that the
+remote update applies them and reconnects. A failed trial must restore the database snapshot and
+restart the previous server. If the installed launcher does not support the target protocol,
+verify that the update stops before restart and run `npx t3@<version> service update` once on the
+server machine. Also test the manual or desktop-managed guidance when those environments are
+available.
 
 ## Desktop auto-update notes
 

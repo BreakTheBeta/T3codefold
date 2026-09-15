@@ -46,7 +46,6 @@ export class ProviderDriverError extends Schema.TaggedError<ProviderDriverError>
  */
 export class ProviderWorkspaceMissingError extends Schema.TaggedError<ProviderWorkspaceMissingError>()(
   "ProviderWorkspaceMissingError",
-
   {
     threadId: Schema.String,
     cwd: Schema.String,
@@ -54,18 +53,5 @@ export class ProviderWorkspaceMissingError extends Schema.TaggedError<ProviderWo
 ) {
   override get message(): string {
     return `This thread's workspace folder no longer exists or is not a directory: ${this.cwd}. Restore the folder at this path before retrying.`;
-  }
-}
-
-export class ProviderValidationError extends Schema.TaggedError<ProviderValidationError>()(
-  "ProviderValidationError",
-  {
-    operation: Schema.String,
-    issue: Schema.String,
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {
-  override get message(): string {
-    return `Provider validation failed in ${this.operation}: ${this.issue}`;
   }
 }

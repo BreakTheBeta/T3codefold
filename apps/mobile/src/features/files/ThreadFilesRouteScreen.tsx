@@ -1,4 +1,3 @@
-import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
@@ -204,11 +203,11 @@ function FileContent(props: {
   return (
     <View className="flex-1 bg-sheet">
       {props.truncated ? (
-        <View className="border-b border-adaptive-amber-200-900-a60 bg-adaptive-amber-50-950-a40 px-4 py-2">
-          <Text className="text-2xs font-t3-bold uppercase text-adaptive-amber-700-300">
+        <View className="border-b border-warning-border bg-warning px-4 py-2">
+          <Text className="text-2xs font-t3-bold uppercase text-warning-foreground">
             Partial file
           </Text>
-          <Text className="text-xs leading-snug text-adaptive-amber-800-200">
+          <Text className="text-xs leading-snug text-warning-foreground">
             Preview limited to the first 1 MB of a truncated file.
           </Text>
         </View>
@@ -687,10 +686,6 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
       : null,
   );
   const fileData = fileQuery.data as ProjectReadFileResult | null;
-  useVoiceViewContext(
-    "file",
-    relativePath ? `Path: ${relativePath}\n${fileData?.contents?.slice(0, 2500) ?? ""}` : null,
-  );
 
   const handleSelectFile = useCallback(
     (path: string) => {

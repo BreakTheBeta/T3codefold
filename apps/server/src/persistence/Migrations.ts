@@ -1,7 +1,3 @@
-import Migration0065 from "./Migrations/065_ProjectionThreadMessageContext.ts";
-import Migration0064 from "./Migrations/064_PitbossMail.ts";
-import Migration0063 from "./Migrations/063_PitbossPeers.ts";
-import Migration0062 from "./Migrations/062_Pitboss.ts";
 /**
  * Migration runner with an inline loader.
  *
@@ -14,7 +10,6 @@ import Migration0062 from "./Migrations/062_Pitboss.ts";
 
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -66,18 +61,10 @@ import Migration0046 from "./Migrations/046_RepairAutomaticSettlementTimestamps.
 import Migration0047 from "./Migrations/047_ProjectionProjectIcon.ts";
 import Migration0048 from "./Migrations/048_ProjectionThreadBranchPullRequest.ts";
 import Migration0049 from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
-import Migration0050 from "./Migrations/050_OrchestrationV2.ts";
-import Migration0051 from "./Migrations/051_OrchestrationV2Subagents.ts";
-import Migration0052 from "./Migrations/052_OrchestrationV2Foundation.ts";
-import Migration0053 from "./Migrations/053_OrchestrationV2ProviderSessionBindings.ts";
-import Migration0054 from "./Migrations/054_OrchestrationV2ThreadLaunchWorkflows.ts";
-import Migration0055 from "./Migrations/055_ApplicationEventSource.ts";
-import Migration0056 from "./Migrations/056_OrchestrationV2EffectCancellation.ts";
-import Migration0057 from "./Migrations/057_ScheduledTasks.ts";
-import Migration0058 from "./Migrations/058_LegacyV1ImportState.ts";
-import Migration0059 from "./Migrations/059_ApplicationEventSequenceIndexes.ts";
-import Migration0060 from "./Migrations/060_OrchestrationV2RecoveryIndexes.ts";
-import Migration0061 from "./Migrations/061_OrchestrationV2ShellIndexes.ts";
+import Migration0050 from "./Migrations/050_ProjectionThreadPullRequests.ts";
+import Migration0051 from "./Migrations/051_ProjectionThreadMessageContext.ts";
+import Migration0052 from "./Migrations/052_ProjectionThreadTitleState.ts";
+import Migration0053 from "./Migrations/053_OrchestrationV2.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -139,23 +126,10 @@ export const migrationEntries = [
   [47, "ProjectionProjectIcon", Migration0047],
   [48, "ProjectionThreadBranchPullRequest", Migration0048],
   [49, "ProjectionThreadsActiveOrderKey", Migration0049],
-  [50, "OrchestrationV2", Migration0050],
-  [51, "OrchestrationV2Subagents", Migration0051],
-  [52, "OrchestrationV2Foundation", Migration0052],
-  [53, "OrchestrationV2ProviderSessionBindings", Migration0053],
-  [54, "OrchestrationV2ThreadLaunchWorkflows", Migration0054],
-  [55, "ApplicationEventSource", Migration0055],
-  [56, "OrchestrationV2EffectCancellation", Migration0056],
-  [57, "ScheduledTasks", Migration0057],
-  [58, "LegacyV1ImportState", Migration0058],
-  [59, "ApplicationEventSequenceIndexes", Migration0059],
-  [60, "OrchestrationV2RecoveryIndexes", Migration0060],
-  [61, "OrchestrationV2ShellIndexes", Migration0061],
-  [62, "Pitboss", Migration0062],
-  [63, "PitbossPeers", Migration0063],
-  [64, "PitbossMail", Migration0064],
-  // Upstream migration 51 follows Fold's already-shipped 50–64; their ids must stay stable.
-  [65, "ProjectionThreadMessageContext", Migration0065],
+  [50, "ProjectionThreadPullRequests", Migration0050],
+  [51, "ProjectionThreadMessageContext", Migration0051],
+  [52, "ProjectionThreadTitleState", Migration0052],
+  [53, "OrchestrationV2", Migration0053],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -175,30 +149,6 @@ const makeMigrationLoader = (throughId?: number) =>
  */
 const run = Migrator.make({});
 
-const repairUpstreamMigration50Collision = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  const trackingTable = yield* sql<{ readonly name: string }>`
-    SELECT name FROM sqlite_master
-    WHERE type = 'table' AND name = 'effect_sql_migrations'
-  `;
-  if (trackingTable.length === 0) return;
-  const migration = yield* sql<{ readonly name: string }>`
-    SELECT name FROM effect_sql_migrations WHERE migration_id = 50
-  `;
-  if (migration[0]?.name !== "ProjectionThreadPullRequests") return;
-
-  const v2Table = yield* sql<{ readonly name: string }>`
-    SELECT name FROM sqlite_master
-    WHERE type = 'table' AND name = 'orchestration_v2_events'
-  `;
-  if (v2Table.length === 0) yield* Migration0050;
-  yield* sql`
-    UPDATE effect_sql_migrations
-    SET name = 'OrchestrationV2'
-    WHERE migration_id = 50
-  `;
-});
-
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
 }
@@ -216,7 +166,6 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
-  yield* repairUpstreamMigration50Collision;
   const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0

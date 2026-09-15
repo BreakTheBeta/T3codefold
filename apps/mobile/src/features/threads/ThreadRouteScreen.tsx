@@ -20,10 +20,10 @@ import {
 } from "@t3tools/shared/projectScripts";
 import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useWorkspaceState } from "../../state/workspace";
 import { restoredNewTaskDraftKey } from "../../state/new-task-draft-key";
 import { clearPendingThreadCreationOutcome } from "../../state/pending-thread-creation";
 import { recoverFailedThreadDraft } from "../../state/recover-failed-thread-draft";
-import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
 import { dismissGitActionResult, useGitActionProgress } from "../../state/use-vcs-action-state";
 import { vcsEnvironment } from "../../state/vcs";
@@ -57,7 +57,6 @@ import {
   stagePendingTerminalLaunch,
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
-import { ThreadTerminalRouteScreen } from "../terminal/ThreadTerminalRouteScreen";
 import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetailScreen";
 import {
   ThreadGitControls,
@@ -80,7 +79,6 @@ import {
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
-import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
 import { ThreadFileNavigatorPane } from "../files/thread-file-navigator-pane";
 import {
   ThreadInspectorContentStack,
@@ -90,7 +88,6 @@ import {
 interface ThreadInspectorSelection {
   readonly routeThreadIdentity: string | null;
   readonly mode: ThreadInspectorMode;
-  readonly terminalId?: string | null;
 }
 
 type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
@@ -144,7 +141,6 @@ function ThreadUnavailableScreen() {
 
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   const { state: workspaceState } = useWorkspaceState();
-  useFoldWorkspaceAndroidBack();
   const { connectionState } = useRemoteConnectionStatus();
   const { selectedThread } = useThreadSelection();
   const params = props.route.params;
@@ -204,7 +200,6 @@ function ThreadRouteContent(
     toggleAuxiliaryPane,
     togglePrimarySidebar,
   } = useAdaptiveWorkspaceLayout();
-  useFoldWorkspaceAndroidBack();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
   const {
@@ -220,14 +215,6 @@ function ThreadRouteContent(
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
-  const dismissUserInput = useAtomCommand(threadEnvironment.dismissUserInput, "dismiss question");
-  const handleDismissUserInput = useCallback(async () => {
-    if (!selectedThread || requests.activePendingUserInput?.responseMode !== "message") return;
-    await dismissUserInput({
-      environmentId: selectedThread.environmentId,
-      input: { threadId: selectedThread.id, requestId: requests.activePendingUserInput.requestId },
-    });
-  }, [dismissUserInput, selectedThread, requests.activePendingUserInput]);
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
   const loadEarlierHistory = useAtomCommand(threadEnvironment.loadEarlierHistory, {
     label: "load earlier thread history",
@@ -272,11 +259,6 @@ function ThreadRouteContent(
     }
     return null;
   })();
-  const inspectorTerminalId =
-    inspectorSelection?.routeThreadIdentity === routeThreadIdentity &&
-    inspectorSelection.mode === "terminal"
-      ? inspectorSelection.terminalId
-      : null;
   useEffect(() => {
     if (
       fileInspector.supported &&
@@ -398,22 +380,9 @@ function ThreadRouteContent(
       });
       return;
     }
-    if (inspectorMode === "git" && panes.auxiliaryPaneVisible) {
-      toggleAuxiliaryPane();
-      return;
-    }
     setInspectorSelection({ routeThreadIdentity, mode: "git" });
     showAuxiliaryPane("inspector");
-  }, [
-    fileInspector.supported,
-    inspectorMode,
-    navigation,
-    panes.auxiliaryPaneVisible,
-    routeThreadIdentity,
-    selectedThread,
-    showAuxiliaryPane,
-    toggleAuxiliaryPane,
-  ]);
+  }, [fileInspector.supported, navigation, routeThreadIdentity, selectedThread, showAuxiliaryPane]);
   const handleOpenFilesInspector = useCallback(() => {
     if (selectedThread === null || selectedThreadCwd === null) {
       return;
@@ -425,27 +394,19 @@ function ThreadRouteContent(
       });
       return;
     }
-    const nextMode = props.renderInspector === undefined ? "files" : "route";
-    if (inspectorMode === nextMode && panes.auxiliaryPaneVisible) {
-      toggleAuxiliaryPane();
-      return;
-    }
     setInspectorSelection({
       routeThreadIdentity,
-      mode: nextMode,
+      mode: props.renderInspector === undefined ? "files" : "route",
     });
     showAuxiliaryPane("inspector");
   }, [
     fileInspector.supported,
-    inspectorMode,
     navigation,
-    panes.auxiliaryPaneVisible,
     props.renderInspector,
     routeThreadIdentity,
     selectedThread,
     selectedThreadCwd,
     showAuxiliaryPane,
-    toggleAuxiliaryPane,
   ]);
   const inspectorToggleActionRef = useRef({
     inspectorMode,
@@ -522,22 +483,6 @@ function ThreadRouteContent(
     () => props.renderInspector?.(inspectorHeaderInset),
     [inspectorHeaderInset, props.renderInspector],
   );
-  const TerminalInspector = useCallback(
-    () =>
-      selectedThread !== null ? (
-        <ThreadTerminalRouteScreen
-          presentation="inspector"
-          route={{
-            params: {
-              environmentId: String(selectedThread.environmentId),
-              threadId: String(selectedThread.id),
-              ...(inspectorTerminalId ? { terminalId: inspectorTerminalId } : {}),
-            },
-          }}
-        />
-      ) : null,
-    [inspectorTerminalId, selectedThread],
-  );
   const renderInspectorStack = useCallback(
     () =>
       inspectorMode === null ? null : (
@@ -546,17 +491,9 @@ function ThreadRouteContent(
           Git={GitInspector}
           mode={inspectorMode}
           Route={props.renderInspector ? RouteInspector : undefined}
-          Terminal={TerminalInspector}
         />
       ),
-    [
-      FilesInspector,
-      GitInspector,
-      RouteInspector,
-      TerminalInspector,
-      inspectorMode,
-      props.renderInspector,
-    ],
+    [FilesInspector, GitInspector, RouteInspector, inspectorMode, props.renderInspector],
   );
   const activeInspectorRenderer = inspectorMode === null ? undefined : renderInspectorStack;
   // Hand the inspector to the workspace so it renders beside the navigator,
@@ -592,37 +529,13 @@ function ThreadRouteContent(
         return;
       }
 
-      if (Platform.OS === "android" && fileInspector.supported) {
-        if (inspectorMode === "terminal" && panes.auxiliaryPaneVisible) {
-          toggleAuxiliaryPane();
-          return;
-        }
-        setInspectorSelection({
-          routeThreadIdentity,
-          mode: "terminal",
-          terminalId: nextTerminalId,
-        });
-        showAuxiliaryPane("inspector");
-        return;
-      }
-
       void navigation.navigate("ThreadTerminal", {
         environmentId: String(selectedThread.environmentId),
         threadId: String(selectedThread.id),
         ...(nextTerminalId ? { terminalId: nextTerminalId } : {}),
       });
     },
-    [
-      fileInspector.supported,
-      inspectorMode,
-      navigation,
-      panes.auxiliaryPaneVisible,
-      routeThreadIdentity,
-      selectedThread,
-      selectedThreadProject?.workspaceRoot,
-      showAuxiliaryPane,
-      toggleAuxiliaryPane,
-    ],
+    [navigation, selectedThread, selectedThreadProject?.workspaceRoot],
   );
 
   const handleOpenNewTerminal = useCallback(() => {
@@ -639,13 +552,12 @@ function ThreadRouteContent(
     const nextId = nextOpenTerminalId({
       listedTerminalIds: terminalMenuSessions.map((session) => session.terminalId),
     });
-    handleOpenTerminal(nextId);
-  }, [
-    handleOpenTerminal,
-    selectedThread,
-    selectedThreadProject?.workspaceRoot,
-    terminalMenuSessions,
-  ]);
+    void navigation.navigate("ThreadTerminal", {
+      environmentId: String(selectedThread.environmentId),
+      threadId: String(selectedThread.id),
+      terminalId: nextId,
+    });
+  }, [navigation, selectedThread, selectedThreadProject?.workspaceRoot, terminalMenuSessions]);
 
   const handleRunProjectScript = useCallback(
     async (script: ProjectScript) => {
@@ -702,10 +614,14 @@ function ThreadRouteContent(
         worktreePath: preferredWorktreePath,
       });
 
-      handleOpenTerminal(targetTerminalId);
+      void navigation.navigate("ThreadTerminal", {
+        environmentId: String(selectedThread.environmentId),
+        threadId: String(selectedThread.id),
+        terminalId: targetTerminalId,
+      });
     },
     [
-      handleOpenTerminal,
+      navigation,
       selectedThread,
       selectedThreadDetailWorktreePath,
       selectedThreadProject,
@@ -791,13 +707,6 @@ function ThreadRouteContent(
     if (Platform.OS !== "android") return [];
 
     const actions: AndroidHeaderAction[] = [];
-    if (layout.usesSplitView) {
-      actions.push({
-        accessibilityLabel: panes.primarySidebarVisible ? "Maximize chat" : "Show thread sidebar",
-        icon: panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left",
-        onPress: togglePrimarySidebar,
-      });
-    }
     if (props.onReturnToThread) {
       actions.push({
         accessibilityLabel: "Return to chat",
@@ -806,45 +715,41 @@ function ThreadRouteContent(
       });
     }
     if (selectedThreadCwd !== null) {
-      const selected =
-        (inspectorMode === "files" || inspectorMode === "route") && panes.auxiliaryPaneVisible;
       actions.push({
-        accessibilityLabel: selected ? "Close files" : "Open files",
+        accessibilityLabel: "Open files",
         icon: "folder",
         onPress: handleOpenFilesInspector,
-        selected,
       });
     }
     if (selectedThreadProject?.workspaceRoot) {
-      const selected = inspectorMode === "terminal" && panes.auxiliaryPaneVisible;
       actions.push({
-        accessibilityLabel: selected ? "Close terminal" : "Open terminal",
+        accessibilityLabel: "Open terminal",
         icon: "terminal",
         onPress: () => handleOpenTerminal(null),
-        selected,
       });
     }
-    const gitSelected = inspectorMode === "git" && panes.auxiliaryPaneVisible;
     actions.push({
-      accessibilityLabel: gitSelected ? "Close git controls" : "Open git controls",
+      accessibilityLabel: "Open git controls",
       icon: "point.topleft.down.curvedto.point.bottomright.up",
       onPress: handleOpenGitInspector,
-      selected: gitSelected,
     });
+    if (fileInspector.supported && selectedThreadCwd !== null) {
+      actions.push({
+        accessibilityLabel: "Toggle inspector",
+        icon: "sidebar.right",
+        onPress: handleToggleInspector,
+      });
+    }
     return actions;
   }, [
     fileInspector.supported,
     handleOpenFilesInspector,
     handleOpenTerminal,
     handleOpenGitInspector,
-    inspectorMode,
-    layout.usesSplitView,
-    panes.primarySidebarVisible,
-    panes.auxiliaryPaneVisible,
+    handleToggleInspector,
     props.onReturnToThread,
     selectedThreadCwd,
     selectedThreadProject?.workspaceRoot,
-    togglePrimarySidebar,
   ]);
 
   const handleEditFailedCreation = useCallback(async () => {
@@ -877,9 +782,11 @@ function ThreadRouteContent(
       }),
     );
   }, [navigation, routeThreadIdentity, selectedThreadCreation, selectedThreadProject]);
+  const awaitingBootstrapTurn =
+    selectedThreadDetail?.runs.some((run) => run.status === "preparing") ?? false;
   const creationState = ((): ThreadDetailScreenProps["creationState"] => {
     if (selectedThreadCreation === null) {
-      return null;
+      return awaitingBootstrapTurn ? { kind: "preparing", preparingWorktree: true } : null;
     }
     if (selectedThreadCreation.outcome?.kind === "failed") {
       return {
@@ -918,6 +825,9 @@ function ThreadRouteContent(
     return <OpeningThreadLoadingScreen />;
   }
 
+  // A queued creation renders as ready content: its prompt is the whole
+  // conversation until the server creates the thread. The subscription's
+  // not-found error for that window is expected, not a load failure.
   const contentPresentation =
     creationState !== null
       ? { kind: "ready" as const }
@@ -953,13 +863,13 @@ function ThreadRouteContent(
           screenTone={connectionTone(routeConnectionState)}
           connectionError={routeConnectionError}
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
+          feedbackSubmissions={composer.feedbackSubmissions}
+          onDismissFeedback={composer.dismissFeedback}
           selectedThreadFeed={composer.selectedThreadFeed}
           activityRun={composer.selectedThreadActivityRun}
           activeWorkStartedAt={composer.activeWorkStartedAt}
           isCompacting={composer.isCompacting}
           creationState={creationState}
-          queuedMessages={composer.selectedThreadQueuedMessages}
-          dispatchingMessageId={composer.dispatchingQueuedMessageId}
           activePendingApproval={requests.activePendingApproval}
           respondingApprovalId={requests.respondingApprovalId}
           activePendingUserInput={requests.activePendingUserInput}
@@ -977,6 +887,8 @@ function ThreadRouteContent(
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           threadCwd={selectedThreadCwd}
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
+          queuedMessages={composer.selectedThreadQueuedMessages}
+          dispatchingMessageId={composer.dispatchingQueuedMessageId}
           layoutVariant={layout.variant}
           usesAutomaticContentInsets={usesNativeHeaderGlass}
           onOpenConnectionEditor={handleOpenConnectionEditor}
@@ -997,7 +909,7 @@ function ThreadRouteContent(
           onSelectUserInputOption={requests.onSelectUserInputOption}
           onChangeUserInputCustomAnswer={requests.onChangeUserInputCustomAnswer}
           onSubmitUserInput={requests.onSubmitUserInput}
-          onDismissUserInput={handleDismissUserInput}
+          onDismissUserInput={requests.onDismissUserInput}
         />
       </View>
     </>

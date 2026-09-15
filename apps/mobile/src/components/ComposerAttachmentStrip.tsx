@@ -227,8 +227,7 @@ function ComposerAttachmentContent(props: ComposerAttachmentThumbnailProps) {
   // What it *is* decides how it presents, the same way videos are already recognised below.
   if (attachment.type === "image" || imageMimeType(attachment) !== null) {
     // A pasted-text marker does not fit the snapshot source a picture carries.
-    const { source: _droppedSource, ...rest } =
-      attachment.type === "file" ? attachment : { ...attachment, source: undefined };
+    const { source: _droppedSource, ...rest } = attachment;
     return (
       <ComposerImageAttachment
         {...props}

@@ -6,6 +6,7 @@ import { EnvironmentId, ThreadId, type SidebarProjectGroupingMode } from "@t3too
 import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
+  CommonActions,
   NavigationContext,
   NavigationRouteContext,
   StackActions,
@@ -41,7 +42,7 @@ import {
 } from "../../lib/layout";
 import {
   resolveThreadSelectionNavigationAction,
-  shouldRestorePrimarySidebar,
+  resolveThreadSelectionOverlayState,
 } from "../../lib/adaptive-navigation";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { mobilePreferencesAtom } from "../../state/preferences";
@@ -66,6 +67,7 @@ interface AdaptiveWorkspaceContextValue {
   readonly panes: WorkspacePaneLayout;
   readonly fileInspector: FileInspectorPaneLayout;
   readonly primarySidebarSearchQuery: string;
+  readonly selectThread: (thread: EnvironmentThreadShell) => void;
   readonly activateAuxiliaryPaneRole: (role: WorkspaceAuxiliaryPaneRole) => () => void;
   /**
    * Route screens hand their inspector pane content to the workspace so it
@@ -99,6 +101,7 @@ const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
   panes: compactPanes,
   fileInspector: compactFileInspector,
   primarySidebarSearchQuery: "",
+  selectThread: () => undefined,
   activateAuxiliaryPaneRole: () => () => undefined,
   registerWorkspaceInspector: () => () => undefined,
   setPrimarySidebarSearchQuery: () => undefined,
@@ -201,6 +204,7 @@ export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefi
 export function AdaptiveWorkspaceLayout(props: {
   readonly children: ReactNode;
   readonly pathname: string;
+  readonly workspaceRouteKey: string | undefined;
 }) {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   if (!AsyncResult.isSuccess(preferencesResult)) {
@@ -224,6 +228,7 @@ function AdaptiveWorkspaceLayoutContent(
   props: {
     readonly children: ReactNode;
     readonly pathname: string;
+    readonly workspaceRouteKey: string | undefined;
   } & {
     readonly projectGroupingMode: SidebarProjectGroupingMode;
   },
@@ -248,14 +253,6 @@ function AdaptiveWorkspaceLayoutContent(
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
   const baseLayout = useMemo(() => deriveLayout({ width, height }), [height, width]);
   const layout = baseLayout;
-  useEffect(() => {
-    if (!shouldRestorePrimarySidebar({ usesSplitView: layout.usesSplitView, pathname })) {
-      return;
-    }
-    setPrimarySidebarPreferredVisible(true);
-    setFileInspectorPreferredVisible(false);
-    setFocusedAuxiliaryPaneRole(null);
-  }, [layout.usesSplitView, pathname]);
   // In split layouts the sidebar IS the thread list — it renders on every
   // route, including Home (which shows an empty-detail pane instead of the
   // compact list).
@@ -419,35 +416,6 @@ function AdaptiveWorkspaceLayoutContent(
     },
     [auxiliaryPaneRole],
   );
-  const contextValue = useMemo(
-    () => ({
-      layout,
-      panes,
-      fileInspector,
-      primarySidebarSearchQuery,
-      activateAuxiliaryPaneRole,
-      registerWorkspaceInspector,
-      setPrimarySidebarSearchQuery,
-      showAuxiliaryPane,
-      toggleAuxiliaryPane,
-      togglePrimarySidebar,
-      setAuxiliaryPaneWidth,
-    }),
-    [
-      activateAuxiliaryPaneRole,
-      fileInspector,
-      layout,
-      panes,
-      primarySidebarSearchQuery,
-      registerWorkspaceInspector,
-      showAuxiliaryPane,
-      setPrimarySidebarSearchQuery,
-      setAuxiliaryPaneWidth,
-      toggleAuxiliaryPane,
-      togglePrimarySidebar,
-    ],
-  );
-
   const handleOpenSettings = useCallback(() => {
     navigation.navigate("SettingsSheet", {
       screen: "SettingsContent",
@@ -537,6 +505,17 @@ function AdaptiveWorkspaceLayoutContent(
         usesSplitView: layout.usesSplitView,
         pathname,
       });
+      const overlayState = resolveThreadSelectionOverlayState({
+        state: navigation.getState(),
+        workspaceRouteKey: props.workspaceRouteKey,
+        action: navigationAction,
+        params,
+      });
+      if (overlayState !== null) {
+        setFileInspectorPreferredVisible(false);
+        navigation.dispatch(CommonActions.reset(overlayState));
+        return;
+      }
       if (navigationAction === "set-params") {
         const nextThreadKey = scopedThreadKey(thread.environmentId, thread.id);
         if (nextThreadKey === selectedThreadKey) {
@@ -553,7 +532,38 @@ function AdaptiveWorkspaceLayoutContent(
       }
       navigation.navigate("Thread", params);
     },
-    [layout.usesSplitView, pathname, navigation, selectedThreadKey],
+    [layout.usesSplitView, pathname, navigation, selectedThreadKey, props.workspaceRouteKey],
+  );
+
+  const contextValue = useMemo(
+    () => ({
+      layout,
+      panes,
+      fileInspector,
+      primarySidebarSearchQuery,
+      selectThread: handleSelectThread,
+      activateAuxiliaryPaneRole,
+      registerWorkspaceInspector,
+      setPrimarySidebarSearchQuery,
+      showAuxiliaryPane,
+      toggleAuxiliaryPane,
+      togglePrimarySidebar,
+      setAuxiliaryPaneWidth,
+    }),
+    [
+      activateAuxiliaryPaneRole,
+      fileInspector,
+      handleSelectThread,
+      layout,
+      panes,
+      primarySidebarSearchQuery,
+      registerWorkspaceInspector,
+      showAuxiliaryPane,
+      setPrimarySidebarSearchQuery,
+      setAuxiliaryPaneWidth,
+      toggleAuxiliaryPane,
+      togglePrimarySidebar,
+    ],
   );
 
   return (

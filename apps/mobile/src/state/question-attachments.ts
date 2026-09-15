@@ -1,4 +1,4 @@
-import type { RuntimeRequestId, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { appAtomRegistry } from "./atom-registry";
 
@@ -11,7 +11,7 @@ export function questionAttachmentDraftPrefix(
 export function questionAttachmentDraftKey(
   environmentId: EnvironmentId,
   threadId: ThreadId,
-  requestId: RuntimeRequestId,
+  requestId: string,
   questionId: string,
 ): string {
   return `${questionAttachmentDraftPrefix(environmentId, threadId)}${encodeURIComponent(JSON.stringify([requestId, questionId]))}`;

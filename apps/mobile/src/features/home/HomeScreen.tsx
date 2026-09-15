@@ -1,4 +1,4 @@
-import { PitbossPins } from "../threads/PitbossWork";
+import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
 import { createThreadMovePlanner } from "../threads/threadOrder";
 import {
@@ -38,6 +38,7 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadSearch } from "../../state/queries";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { environmentServerConfigsAtom } from "../../state/server";
@@ -55,11 +56,11 @@ import {
   ThreadListV2SettledShelfHeader,
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
-import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
 import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
   buildThreadListV2ListItems,
+  resolveThreadListV2ProviderDrivers,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
@@ -202,7 +203,7 @@ function deriveEmptyState(props: {
 
   return {
     title: "No threads yet",
-    detail: "Create a task to start a new coding session in one of your connected projects.",
+    detail: "Create a task to start a new coding runtime in one of your connected projects.",
     loading: false,
   };
 }
@@ -776,6 +777,11 @@ export function HomeScreen(props: HomeScreenProps) {
     [settledShelfExpanded, snoozedShelfExpanded, threadListV2Layout, v2PendingTasks],
   );
 
+  useThreadJumpShortcuts(
+    threadListV2Enabled ? threadListV2Items : listLayout.items,
+    props.onSelectThread,
+  );
+
   const renderV2Item = useCallback(
     ({ item, index }: { readonly item: ThreadListV2ListItem; readonly index: number }) => {
       const nextItem = threadListV2Items[index + 1];
@@ -829,6 +835,13 @@ export function HomeScreen(props: HomeScreenProps) {
       const thread = item.item.thread;
       const movePlanner = item.item.pinned ? threadMovePlanners.pinned : threadMovePlanners.active;
       const movedId = `${thread.environmentId}:${thread.id}`;
+      const provider = serverConfigs
+        .get(thread.environmentId)
+        ?.providers.find(
+          (candidate) =>
+            candidate.instanceId ===
+            (thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId),
+        );
       return (
         <ThreadListV2Row
           onNewThreadOnBranch={props.onNewThreadOnBranch}
@@ -846,7 +859,12 @@ export function HomeScreen(props: HomeScreenProps) {
           projectTitle={v2ProjectTitleByProjectKey.get(
             scopedProjectKey(thread.environmentId, thread.projectId),
           )}
+          providerDrivers={resolveThreadListV2ProviderDrivers(
+            thread,
+            serverConfigs.get(thread.environmentId)?.providers,
+          )}
           providerInstance={resolveThreadProviderInstance(serverConfigs, thread)}
+          providerIconUrl={provider?.iconUrl}
           environmentLabel={
             Object.keys(props.savedConnectionsById).length > 1
               ? (props.savedConnectionsById[thread.environmentId]?.environmentLabel ?? null)
@@ -1116,12 +1134,7 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  const listHeader = (
-    <>
-      {Platform.OS === "ios" ? null : <HomeTopContentSpacer />}
-      <PitbossPins environments={props.environments} />
-    </>
-  );
+  const listHeader = Platform.OS === "ios" ? null : <HomeTopContentSpacer />;
 
   // Project scoping lives in the header filter menu (no inline chip row on
   // mobile — the menu is the one filter surface).
@@ -1141,7 +1154,7 @@ export function HomeScreen(props: HomeScreenProps) {
         detail="Choose another environment or create a new task."
       />
     ) : (
-      <EmptyState title="No threads yet" detail="Create a task to start a new coding session." />
+      <EmptyState title="No threads yet" detail="Create a task to start a new coding runtime." />
     )
   ) : null;
   // Use the v2 project scope for its empty state. Snoozed threads need no

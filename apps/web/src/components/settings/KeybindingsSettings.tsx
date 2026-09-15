@@ -26,7 +26,7 @@ import {
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
 } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -1334,11 +1334,13 @@ export function KeybindingsSettingsPanel() {
   // fan out to every connected environment in the selection, so one
   // shortcut change reaches each machine the user runs T3 Code on.
   const { environment: primaryEnvironment, connectedEnvironments } = useSettingsScope();
-  const keybindings = primaryEnvironment?.serverConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const serverKeybindings = primaryEnvironment?.serverConfig?.keybindings;
+  const keybindings = useMemo(
+    () => mergeWithDefaultKeybindings(serverKeybindings ?? []),
+    [serverKeybindings],
+  );
   const keybindingsConfigPath = primaryEnvironment?.serverConfig?.keybindingsConfigPath ?? null;
   const availableEditors = primaryEnvironment?.serverConfig?.availableEditors ?? [];
-  const voiceControls =
-    primaryEnvironment?.serverConfig?.environment.capabilities.realtimeVoiceControls === true;
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
   });
@@ -1354,20 +1356,8 @@ export function KeybindingsSettingsPanel() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [savingCommand, setSavingCommand] = useState<KeybindingCommand | null>(null);
   const [isAddingBinding, setIsAddingBinding] = useState(false);
-  const rows = useMemo(
-    () =>
-      buildKeybindingRows(keybindings, query).filter(
-        (row) => voiceControls || !row.command.startsWith("voice."),
-      ),
-    [keybindings, query, voiceControls],
-  );
-  const commandOptions = useMemo(
-    () =>
-      buildKeybindingCommandOptions(keybindings).filter(
-        (command) => voiceControls || !command.startsWith("voice."),
-      ),
-    [keybindings, voiceControls],
-  );
+  const rows = useMemo(() => buildKeybindingRows(keybindings, query), [keybindings, query]);
+  const commandOptions = useMemo(() => buildKeybindingCommandOptions(keybindings), [keybindings]);
   const whenVariables = useMemo(() => buildWhenVariableOptions(), []);
 
   useEffect(() => {

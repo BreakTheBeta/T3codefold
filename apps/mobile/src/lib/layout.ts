@@ -1,6 +1,5 @@
 import { scaledTypographyLineHeight } from "./appearancePreferences";
 import { MOBILE_TYPOGRAPHY } from "./typography";
-import { constrainFoldablePaneWidth } from "./foldable-pane-layout";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -48,7 +47,7 @@ export function deriveThreadWorkLogSizing(input: {
 export const AUXILIARY_PANE_MIN_WIDTH = 260;
 export const AUXILIARY_PANE_MAX_WIDTH = 480;
 const AUXILIARY_PANE_DEFAULT_MAX_WIDTH = 320;
-const FILE_INSPECTOR_MIN_VIEWPORT_WIDTH = SPLIT_LAYOUT_MIN_WIDTH;
+const FILE_INSPECTOR_MIN_VIEWPORT_WIDTH = 820;
 const FILE_INSPECTOR_MIN_MAIN_WIDTH = 560;
 
 export type LayoutVariant = "compact" | "split";
@@ -130,7 +129,7 @@ export function deriveWorkspacePaneLayout(input: {
     : 0;
 
   if (auxiliaryPaneRole === "inspector") {
-    let fileInspector = deriveFileInspectorPaneLayout({
+    const fileInspector = deriveFileInspectorPaneLayout({
       layout: input.layout,
       viewportWidth,
       preferredWidth: input.auxiliaryPanePreferredWidth,
@@ -144,14 +143,6 @@ export function deriveWorkspacePaneLayout(input: {
       input.layout.listPaneWidth !== null &&
       viewportWidth - input.layout.listPaneWidth - fileInspector.width <
         FILE_INSPECTOR_MIN_MAIN_WIDTH;
-    if (primarySidebarSuppressedByAuxiliary) {
-      fileInspector = deriveFileInspectorPaneLayout({
-        layout: input.layout,
-        viewportWidth,
-        preferredWidth: input.auxiliaryPanePreferredWidth ?? fileInspector.width ?? undefined,
-        reservedLeadingWidth: 0,
-      });
-    }
     const primarySidebarVisible =
       preferredPrimarySidebarVisible && !primarySidebarSuppressedByAuxiliary;
     const primarySidebarWidth = primarySidebarVisible ? (input.layout.listPaneWidth ?? 0) : 0;
@@ -208,7 +199,7 @@ export function deriveFileInspectorPaneLayout(input: {
   return {
     supported,
     width: supported
-      ? constrainFoldablePaneWidth({
+      ? constrainAuxiliaryPaneWidth({
           preferredWidth:
             input.preferredWidth ??
             clamp(

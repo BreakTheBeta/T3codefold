@@ -1,4 +1,3 @@
-import { useVoiceViewContext } from "../voice/VoiceWorkspaceProvider";
 import { Spinner } from "~/components/ui/spinner";
 import type {
   ChatFileAttachment,
@@ -947,10 +946,6 @@ export default function FilePreviewPanel({
     cwd,
     relativePath,
     attachment === undefined && !isMedia && !isPdf,
-  );
-  useVoiceViewContext(
-    "file",
-    relativePath ? `Path: ${relativePath}\n${file.data?.contents?.slice(0, 2500) ?? ""}` : null,
   );
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   const showExplorer = shouldShowFileExplorer({

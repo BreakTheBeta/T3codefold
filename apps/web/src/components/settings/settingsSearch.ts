@@ -294,18 +294,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["automatically open diff pull request pr right panel agent completion"],
   },
   {
-    id: "cite-selection",
-    title: "Show Cite on text selection",
-    to: "/settings/general",
-    searchTerms: ["citation quote bubble popup highlight assistant text selection"],
-  },
-  {
-    id: "vim-keyboard-mode",
-    title: "Vim keyboard mode",
-    to: "/settings/general",
-    searchTerms: ["vim vimium zed keyboard modal navigation normal insert visual hjkl"],
-  },
-  {
     id: "skills-in-slash-menu",
     title: "Show skills in slash menu",
     to: "/settings/general",
@@ -746,7 +734,6 @@ const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id,
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
   "/settings/projects": "project",
   "/settings/general": null,
-  "/settings/scheduled-tasks": null,
   "/settings/appearance": null,
   "/settings/snap-shot": null,
   // Keybindings fan out to the selection; Providers shows the representative
@@ -756,6 +743,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/connections": "connections",
+  "/settings/scheduled-tasks": null,
   "/settings/archived": "project-defaults",
 };
 

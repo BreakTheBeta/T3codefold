@@ -88,8 +88,8 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       assert.equal(paths.entryPath, path.join(paths.versionDir, "t3"));
       assert.deepEqual(pinnedRuntimeCommand(paths), { command: paths.entryPath, args: [] });
       assert.deepEqual(requests, [
-        `https://releases.example/download/fold-server-v${version}/SHA256SUMS`,
-        `https://releases.example/download/fold-server-v${version}/${archiveName}`,
+        `https://releases.example/download/v${version}/SHA256SUMS`,
+        `https://releases.example/download/v${version}/${archiveName}`,
       ]);
       assert.deepEqual(commands, ["tar"]);
       assert.equal(yield* fs.readFileString(paths.sentinelPath), `${version}\n`);
@@ -117,7 +117,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       assert.instanceOf(error, PinnedRuntimeInstallError);
       assert.equal(error.step, "verifying the t3 release archive checksum");
       assert.deepEqual(commands, []);
-      assert.deepEqual(yield* fs.readDirectory(path.join(baseDir, "runtime/fold", "versions")), []);
+      assert.deepEqual(yield* fs.readDirectory(path.join(baseDir, "runtime", "versions")), []);
     }),
   );
 
@@ -269,7 +269,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
 
       yield* Deferred.await(started);
       yield* Fiber.interrupt(install);
-      const versionsDir = path.join(baseDir, "runtime/fold", "versions");
+      const versionsDir = path.join(baseDir, "runtime", "versions");
       assert.deepEqual(yield* fs.readDirectory(versionsDir), []);
     }),
   );
