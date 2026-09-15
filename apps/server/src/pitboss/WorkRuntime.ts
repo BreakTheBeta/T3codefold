@@ -49,10 +49,20 @@ export const layer = Layer.effectDiscard(
       const pending = yield* store.effects();
       for (const effect of pending) {
         const current = yield* store.read();
-        if (["create-lead", "lead-status", "assign"].includes(effect.kind) && current.role?.paused)
+        const leadStatusAction =
+          effect.kind === "lead-status" ? yield* decodeAction(effect.payload_json) : undefined;
+        if (
+          current.role?.paused &&
+          (effect.kind === "create-lead" ||
+            effect.kind === "assign" ||
+            (leadStatusAction?.type === "lead-status" && leadStatusAction.status === "active"))
+        )
           continue;
-        if (effect.kind === "create-lead" || effect.kind === "lead-status") {
-          const action = yield* decodeAction(effect.payload_json);
+        if (
+          effect.kind === "create-lead" ||
+          (leadStatusAction?.type === "lead-status" && leadStatusAction.status === "active")
+        ) {
+          const action = leadStatusAction ?? (yield* decodeAction(effect.payload_json));
           const target =
             action.type === "create-lead" || action.type === "lead-status"
               ? action.leadId
@@ -68,6 +78,20 @@ export const layer = Layer.effectDiscard(
               ),
           );
           if (busy.some(Boolean)) continue;
+        }
+        if (leadStatusAction?.type === "lead-status" && leadStatusAction.status === "active") {
+          const lead = activeLeads(current).find((entry) => entry.id === leadStatusAction.leadId);
+          if (lead) {
+            const thread = yield* threads
+              .getProjectThread({ projectId: lead.projectId, threadId: lead.threadId })
+              .pipe(
+                Effect.map((projection) => projection),
+                Effect.catch((error) =>
+                  isMissingThread(error) ? Effect.succeed(undefined) : Effect.fail(error),
+                ),
+              );
+            if (thread && latestActiveRun(thread)) continue;
+          }
         }
         const result = yield* Effect.result(
           Effect.gen(function* () {
@@ -174,20 +198,42 @@ export const layer = Layer.effectDiscard(
                 });
             }
             if (action.type === "create-lead" || action.type === "lead-status") {
-              const lead = activeLeads(state).find((entry) => entry.id === action.leadId);
+              const lead = state.leads?.find((entry) => entry.id === action.leadId);
               if (!lead) return;
               const existing =
                 action.type === "lead-status"
                   ? yield* threads
                       .getProjectThread({ projectId: lead.projectId, threadId: lead.threadId })
                       .pipe(
-                        Effect.map(() => true),
+                        Effect.map((projection) => projection),
                         Effect.catch((error) =>
-                          isMissingThread(error) ? Effect.succeed(false) : Effect.fail(error),
+                          isMissingThread(error) ? Effect.succeed(undefined) : Effect.fail(error),
                         ),
                       )
-                  : false;
-              if (existing) return;
+                  : undefined;
+              if (action.type === "lead-status" && action.status === "dormant") {
+                const run = existing && latestActiveRun(existing);
+                if (run)
+                  yield* threads.interruptThread({
+                    projectId: lead.projectId,
+                    threadId: lead.threadId,
+                    runId: run.id,
+                    commandId: CommandId.make(`${effect.operation_id}:stop`),
+                    reason: "Project lead was made dormant",
+                  });
+                return;
+              }
+              if (!activeLeads(state).some((entry) => entry.id === lead.id)) return;
+              if (existing) {
+                if (action.type === "lead-status" && action.runtimeMode !== undefined)
+                  yield* threads.dispatch({
+                    type: "thread.runtime-mode.set",
+                    commandId: CommandId.make(`${effect.operation_id}:permissions`),
+                    threadId: lead.threadId,
+                    runtimeMode: action.runtimeMode,
+                  });
+                return;
+              }
               yield* launch.launch({
                 commandId: CommandId.make(effect.operation_id),
                 threadId: lead.threadId,
@@ -198,7 +244,8 @@ export const layer = Layer.effectDiscard(
                   attachments: [],
                 },
                 modelSelection: lead.model,
-                runtimeMode: state.role?.brief.workerRuntimeMode ?? "approval-required",
+                runtimeMode:
+                  lead.runtimeMode ?? state.role?.brief.workerRuntimeMode ?? "approval-required",
                 interactionMode: "default",
                 workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
                 createdBy: "agent",

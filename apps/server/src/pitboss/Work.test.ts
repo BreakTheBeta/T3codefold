@@ -6,6 +6,7 @@ import {
   ProjectId,
   ThreadId,
   type PitbossBrief,
+  type PitbossAction,
 } from "@t3tools/contracts";
 import { decide, emptyWork, observeAttempt, readyTasks, managerView } from "./Work.ts";
 
@@ -391,6 +392,126 @@ it("lets GLaDOS choose a configured worker and thinking level without automatic 
   state = observeAttempt(state, "retry", last.id, "stopped", "Stopped");
   run({ type: "reopen", taskId: "retry" });
   expect(() => run({ type: "assign", taskId: "retry" })).toThrow(/not ready/);
+});
+
+it("snapshots explicit worker permissions while preserving legacy defaults and remote home limits", () => {
+  let state = elect();
+  const run = (action: PitbossAction, actor: Parameters<typeof decide>[2] = { type: "user" }) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`runtime-${state.revision}`),
+        expectedRevision: state.revision,
+        authorityGeneration: state.role?.generation,
+        action,
+      },
+      actor,
+      "2026-09-15T00:00:00Z",
+    );
+  };
+  const create = (taskId: string) =>
+    run({
+      type: "create",
+      taskId,
+      projectId,
+      title: taskId,
+      outcome: "Works",
+      criteria: "Evidence",
+      verifyCommand: "test",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+  create("explicit");
+  run({ type: "assign", taskId: "explicit", runtimeMode: "full-access" });
+  expect(state.tasks[0]?.attempts[0]?.runtimeMode).toBe("full-access");
+  state = {
+    ...state,
+    tasks: state.tasks.map((task) =>
+      task.id === "explicit"
+        ? {
+            ...task,
+            status: "done" as const,
+            attempts: task.attempts.map((attempt) => ({ ...attempt, state: "stopped" as const })),
+          }
+        : task,
+    ),
+  };
+  create("legacy");
+  run({ type: "assign", taskId: "legacy" });
+  expect(state.tasks[1]?.attempts[0]?.runtimeMode).toBe("approval-required");
+  state = {
+    ...state,
+    role: {
+      ...state.role!,
+      brief: { ...state.role!.brief, workerRuntimeMode: "full-access" as const },
+    },
+    tasks: state.tasks.map((task) =>
+      task.id === "legacy"
+        ? {
+            ...task,
+            status: "done" as const,
+            attempts: task.attempts.map((attempt) => ({ ...attempt, state: "stopped" as const })),
+          }
+        : task,
+    ),
+  };
+  create("downgraded");
+  run({ type: "assign", taskId: "downgraded", runtimeMode: "approval-required" });
+  expect(state.tasks[2]?.attempts[0]?.runtimeMode).toBe("approval-required");
+
+  const remote = {
+    ...state,
+    sourceAuthorities: [
+      {
+        scope: "shared",
+        self: EnvironmentId.make("home"),
+        coordinator: EnvironmentId.make("coordinator"),
+        homeEnvironmentId: EnvironmentId.make("home"),
+        peerId: "coordinator-peer",
+        proposalId: "approved",
+      },
+    ],
+    role: {
+      ...state.role!,
+      brief: { ...state.role!.brief, workerRuntimeMode: "approval-required" as const },
+    },
+    tasks: state.tasks.map((task) =>
+      task.id === "legacy"
+        ? {
+            ...task,
+            source: {
+              kind: "vikunja" as const,
+              tenantId: "tenant",
+              itemId: "item",
+              scope: "shared",
+              key: "#1",
+              url: "http://tracker/tasks/1",
+              status: "Open",
+              priority: "1",
+              observedAt: "2026-09-15T00:00:00Z",
+            },
+          }
+        : task,
+    ),
+  };
+  expect(() =>
+    decide(
+      remote,
+      {
+        commandId: CommandId.make("remote-full"),
+        expectedRevision: remote.revision,
+        action: { type: "assign", taskId: "legacy", runtimeMode: "full-access" },
+      },
+      {
+        type: "peer",
+        environmentId: EnvironmentId.make("coordinator"),
+        scope: "shared",
+        proposalId: "approved",
+      },
+      "2026-09-15T00:00:00Z",
+    ),
+  ).toThrow(/task home's worker permissions/);
 });
 
 it("admits ten workers while enforcing the saved concurrent worker limit", () => {

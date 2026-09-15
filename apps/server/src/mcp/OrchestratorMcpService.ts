@@ -46,6 +46,7 @@ import {
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
   type RuntimeMode,
+  isRuntimeModeBroaderThan,
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
   type ServerProvider,
@@ -403,19 +404,6 @@ function canExposeTaskRunResult(run: OrchestrationV2Run | undefined): run is Orc
   );
 }
 
-function runtimeModeRank(mode: RuntimeMode): number {
-  switch (mode) {
-    case "approval-required":
-      return 0;
-    case "auto-accept-edits":
-      return 1;
-    case "auto":
-      return 2;
-    case "full-access":
-      return 3;
-  }
-}
-
 function interactionModeRank(mode: ProviderInteractionMode): number {
   return mode === "plan" ? 0 : 1;
 }
@@ -425,7 +413,7 @@ export function resolveRuntimeMode(
   requested: OrchestratorMcpRuntimeMode | undefined,
 ): Effect.Effect<RuntimeMode, OrchestratorMcpFailure> {
   const resolved = requested === undefined || requested === "inherit" ? parentMode : requested;
-  return runtimeModeRank(resolved) > runtimeModeRank(parentMode)
+  return isRuntimeModeBroaderThan(resolved, parentMode)
     ? Effect.fail(
         failure(
           "runtime_mode_escalation_denied",

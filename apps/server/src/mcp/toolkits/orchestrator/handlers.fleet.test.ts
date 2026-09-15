@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import {
+  CommandId,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -11,6 +12,7 @@ import * as Layer from "effect/Layer";
 import { FleetRouter } from "../../FleetRouter.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 import { OrchestratorMcpService } from "../../OrchestratorMcpService.ts";
+import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import { handlers } from "./handlers.ts";
 const environmentId = EnvironmentId.make("source");
 const remote = EnvironmentId.make("destination");
@@ -33,7 +35,10 @@ const capabilities: OrchestratorMcpCapabilitiesResult = {
     maxBatchThreads: 10,
   },
 };
-const setup = (invoke: FleetRouter["Service"]["invoke"]) =>
+const setup = (
+  invoke: FleetRouter["Service"]["invoke"],
+  runtimeMode: OrchestratorMcpCapabilitiesResult["runtimeMode"] = capabilities.runtimeMode,
+) =>
   Layer.mergeAll(
     Layer.succeed(McpInvocationContext, {
       environmentId,
@@ -44,7 +49,7 @@ const setup = (invoke: FleetRouter["Service"]["invoke"]) =>
       issuedAt: 0,
     }),
     Layer.mock(OrchestratorMcpService)({
-      capabilities: () => Effect.succeed(capabilities),
+      capabilities: () => Effect.succeed({ ...capabilities, runtimeMode }),
       listThreads: () =>
         Effect.succeed({
           projectId: ProjectId.make("local-project"),
@@ -56,6 +61,41 @@ const setup = (invoke: FleetRouter["Service"]["invoke"]) =>
     }),
     Layer.mock(FleetRouter)({ invoke }),
   );
+it.effect("passes the authenticated caller runtime mode to durable work launches", () =>
+  Effect.gen(function* () {
+    const calls: Array<Parameters<WorkStore["Service"]["command"]>> = [];
+    const work = Layer.mock(WorkStore)({
+      command: (...args) => {
+        calls.push(args);
+        return Effect.succeed({ revision: 0, role: null, tasks: [], messages: [] });
+      },
+    });
+    yield* handlers
+      .work_command({
+        commandId: CommandId.make("full-access-lead"),
+        expectedRevision: 0,
+        action: {
+          type: "create-lead",
+          leadId: "lead",
+          projectId: ProjectId.make("project"),
+          charter: "Own the project",
+          model: { instanceId: ProviderInstanceId.make("codex"), model: "model" },
+          maxWorkers: 1,
+          runtimeMode: "full-access",
+        },
+      })
+      .pipe(
+        Effect.provide(
+          Layer.merge(
+            setup(() => Effect.die("must not route"), "full-access"),
+            work,
+          ),
+        ),
+      );
+    assert.deepEqual(calls[0]?.[2], { runtimeMode: "full-access" });
+    assert.deepEqual(calls[0]?.[1], { type: "agent", threadId });
+  }),
+);
 it.effect(
   "routes a main-task handoff with source policy and keeps provider defaults destination-local",
   () =>
