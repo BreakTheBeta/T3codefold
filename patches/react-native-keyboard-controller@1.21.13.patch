@@ -867,3 +867,78 @@ index 833acbe78f1b1245251ddd3431d6546decdd0ade..8f7c10cb6ab392f10df4ca43549b89c2
    );
  }
  
+diff --git a/android/src/main/java/com/reactnativekeyboardcontroller/listeners/KeyboardAnimationCallback.kt b/android/src/main/java/com/reactnativekeyboardcontroller/listeners/KeyboardAnimationCallback.kt
+--- a/android/src/main/java/com/reactnativekeyboardcontroller/listeners/KeyboardAnimationCallback.kt
++++ b/android/src/main/java/com/reactnativekeyboardcontroller/listeners/KeyboardAnimationCallback.kt
+@@ -2,6 +2,7 @@
+
+ import android.view.View
+ import android.view.ViewTreeObserver.OnGlobalFocusChangeListener
++import android.view.ViewTreeObserver.OnWindowFocusChangeListener
+ import android.widget.EditText
+ import androidx.core.graphics.Insets
+ import androidx.core.view.OnApplyWindowInsetsListener
+@@ -118,6 +119,29 @@
+         }
+       }
+     }
++  // Android can drop onEnd when the activity loses its window during an IME
++  // animation. Reconcile from native insets once the window returns; otherwise
++  // isTransitioning suppresses inset recovery and every keyboard consumer keeps
++  // the interrupted frame (including newly mounted sticky views).
++  private val reconcileWindowInsets =
++    Runnable {
++      if (!view.hasWindowFocus() || isSuspended) return@Runnable
++      val insets = ViewCompat.getRootWindowInsets(view) ?: return@Runnable
++      val height = getCurrentKeyboardHeight(insets)
++      val visible = insets.isVisible(WindowInsetsCompat.Type.ime())
++      if (isTransitioning || prevKeyboardHeight != height || isKeyboardVisible != visible) {
++        syncKeyboardPosition(height, visible)
++      }
++    }
++  private val windowFocusListener =
++    OnWindowFocusChangeListener { hasFocus ->
++      view.removeCallbacks(reconcileWindowInsets)
++      if (hasFocus) {
++        ViewCompat.requestApplyInsets(view)
++        view.post(reconcileWindowInsets)
++      }
++    }
++
+   internal var layoutObserver: FocusedInputObserver? = null
+
+   init {
+@@ -128,6 +152,7 @@
+
+     layoutObserver = FocusedInputObserver(view = view, eventPropagationView = eventPropagationView, context = context)
+     view.viewTreeObserver.addOnGlobalFocusChangeListener(focusListener)
++    view.viewTreeObserver.addOnWindowFocusChangeListener(windowFocusListener)
+   }
+
+   /**
+@@ -385,10 +410,16 @@
+     // update internal state
+     isKeyboardVisible = isVisible ?: isKeyboardVisible()
+     prevKeyboardHeight = keyboardHeight
++    persistentKeyboardHeight = keyboardHeight
+     isTransitioning = false
+     duration = 0
+     pendingStartEvent = null
+
++    // JS visibility/height caches subscribe to will-show, not did-show.
++    // Keep those caches in step with the native animation values on recovery.
++    if (isKeyboardVisible) {
++      context.emitEvent("KeyboardController::keyboardWillShow", getEventParams(keyboardHeight))
++    }
+     context.emitEvent(
+       "KeyboardController::" + if (!isKeyboardVisible) "keyboardDidHide" else "keyboardDidShow",
+       getEventParams(keyboardHeight),
+@@ -417,6 +448,8 @@
+
+   fun destroy() {
+     pendingStartEvent = null
++    view.removeCallbacks(reconcileWindowInsets)
++    view.viewTreeObserver.removeOnWindowFocusChangeListener(windowFocusListener)
+     view.viewTreeObserver.removeOnGlobalFocusChangeListener(focusListener)
+     layoutObserver?.destroy()
+   }
