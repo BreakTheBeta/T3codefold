@@ -516,6 +516,10 @@ export function decide(
           ? {
               ...entry,
               leadId: target?.id,
+              ownershipRevision:
+                entry.leadId === target?.id
+                  ? entry.ownershipRevision
+                  : (entry.ownershipRevision ?? 0) + 1,
               // A mirrored task's revision belongs to its fixed home. Local ownership must not
               // make the next forwarded command appear stale there.
               revision: entry.homeEnvironmentId ? entry.revision : entry.revision + 1,

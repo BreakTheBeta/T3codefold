@@ -53,7 +53,7 @@ interface WakeRecipient {
   readonly projectId: typeof ProjectId.Type;
   readonly threadId: typeof ThreadId.Type;
   readonly generation: number;
-  readonly leadId?: string;
+  readonly leadId?: string | undefined;
 }
 function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
   const messages = inboxFor(state, recipient.leadId).filter((message) => !message.acknowledged);
@@ -64,7 +64,7 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
       ),
     ).length < (state.role?.brief.maxWorkers ?? 0);
   const owned = state.tasks.filter((task) => taskLead(state, task)?.id === recipient.leadId);
-  const ready = available ? readyTasks(state).filter((task) => owned.includes(task)) : [];
+  const ready = readyTasks(state).filter((task) => owned.includes(task));
   const reviews = owned.filter((task) => {
     const attempt = task.attempts.at(-1);
     return (
@@ -74,7 +74,11 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
     );
   });
   const owner = recipient.leadId ? `project lead ${recipient.leadId}` : "GLaDOS";
-  const events: Array<{ readonly key: string; readonly text: string }> = [];
+  const events: Array<{
+    readonly key: string;
+    readonly text: string;
+    readonly deliverable: boolean;
+  }> = [];
   for (const message of messages) {
     const task = state.tasks.find((entry) => entry.id === message.taskId);
     const attempt = task?.attempts.find((entry) => entry.threadId === message.threadId);
@@ -95,21 +99,26 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
             ? "Inspect the reported evidence; a finished turn is not an accepted result."
             : "Inspect the update and act only if its recorded state requires it.";
     events.push({
-      key: `message:${message.id}`,
+      key: task
+        ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}`
+        : `message:${message.id}`,
       text: `${eventKind} · ${subject}: ${message.text.slice(0, 600)} Next: ${next}`,
+      deliverable: true,
     });
   }
   for (const task of reviews) {
     const attempt = task.attempts.at(-1)!;
     events.push({
-      key: `review:${task.id}:${task.revision}:${attempt.id}:${attempt.state}`,
+      key: `review:${task.id}:owner:${task.ownershipRevision ?? 0}:${attempt.id}:${attempt.state}`,
       text: `Worker ${attempt.state} · task ${task.id} · attempt ${attempt.id} · owner ${owner} · task status ${task.status}. Next: inspect thread ${attempt.threadId}, then record review, rework, or a concrete blocker; do not accept the turn itself as evidence.`,
+      deliverable: true,
     });
   }
   for (const task of ready)
     events.push({
-      key: `ready:${task.id}:${task.revision}`,
+      key: `ready:${task.id}:owner:${task.ownershipRevision ?? 0}:${task.revision}`,
       text: `Newly ready · task ${task.id} · attempt none · owner ${owner} · task status ${task.status}. Next: assign a managed worker or record the condition that blocks assignment.`,
+      deliverable: available,
     });
   return events;
 }
@@ -123,9 +132,11 @@ export const layer = Layer.effectDiscard(
     let lastLeadId: string | undefined;
     const processWake = Effect.fn("WorkRuntime.processWake")(function* (effect: WorkEffect) {
       const intent = yield* decodeWake(effect.payload_json);
+      const finish = (keys: ReadonlyArray<string>) =>
+        store.finishWake(effect.operation_id, encodeWake({ ...intent, keys }));
       const state = yield* store.read();
       if (!state.role) {
-        yield* store.finishWake(effect.operation_id);
+        yield* finish([]);
         return;
       }
       if (state.role.paused) return;
@@ -146,20 +157,22 @@ export const layer = Layer.effectDiscard(
             generation: state.role.generation,
           };
       const current = recipient ? wakeEvents(state, recipient) : [];
-      const currentByKey = new Map(current.map((event) => [event.key, event.text]));
-      const lines = intent.keys.flatMap((key) => {
-        const text = currentByKey.get(key);
-        return text ? [text] : [];
+      const currentByKey = new Map(current.map((event) => [event.key, event]));
+      const matched = intent.keys.flatMap((key) => {
+        const event = currentByKey.get(key);
+        return event ? [event] : [];
       });
       if (
         !recipient ||
         recipient.id !== intent.recipientId ||
         recipient.generation !== intent.generation ||
-        lines.length === 0
+        matched.length === 0
       ) {
-        yield* store.finishWake(effect.operation_id);
+        yield* finish([]);
         return;
       }
+      const deliverable = matched.filter((event) => event.deliverable);
+      if (deliverable.length === 0) return;
       const thread = yield* Effect.result(
         threads.getProjectThread({ projectId: recipient.projectId, threadId: recipient.threadId }),
       );
@@ -174,7 +187,7 @@ export const layer = Layer.effectDiscard(
           threadId: recipient.threadId,
           commandId: CommandId.make(effect.operation_id),
           messageId: MessageId.make(effect.operation_id),
-          text: ["Managed work changed:", ...lines].join("\n"),
+          text: ["Managed work changed:", ...deliverable.map((event) => event.text)].join("\n"),
           attachments: [],
           mode: "queue",
           createdBy: "system",
@@ -185,7 +198,7 @@ export const layer = Layer.effectDiscard(
         yield* store.retryEffect(effect.operation_id, String(delivered.failure));
         return;
       }
-      yield* store.finishWake(effect.operation_id);
+      yield* finish(deliverable.map((event) => event.key));
     });
     const drain = Effect.fn("WorkRuntime.drain")(function* () {
       const pending = yield* store.effects();
@@ -551,7 +564,7 @@ export const layer = Layer.effectDiscard(
         if (recipient.leadId && wokeLead) continue;
         const recorded = new Set(yield* store.wakeKeys(recipient.id, recipient.generation));
         const events = wakeEvents(state, recipient)
-          .filter((event) => !recorded.has(event.key))
+          .filter((event) => event.deliverable && !recorded.has(event.key))
           .slice(0, 8);
         if (!events.length) continue;
         const thread = yield* threads.getProjectThread({

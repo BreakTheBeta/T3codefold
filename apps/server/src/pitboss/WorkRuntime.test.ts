@@ -3,6 +3,7 @@ import {
   CommandId,
   PitbossAction,
   EventId,
+  EnvironmentId,
   MessageId,
   NodeId,
   ProjectId,
@@ -34,6 +35,7 @@ import { WorkStore, layer as storeLayer } from "./WorkStore.ts";
 import { layer as runtime } from "./WorkRuntime.ts";
 
 const decodeAction = Schema.decodeUnknownSync(Schema.fromJsonString(PitbossAction));
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const time = DateTime.makeUnsafe("2026-09-11T00:00:00Z");
 const model = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-luna" };
 const a = ProjectId.make("A"),
@@ -109,6 +111,7 @@ const harness = Effect.gen(function* () {
   }> = [];
   const sendAttempts: string[] = [];
   let failNextSend = false;
+  let failAllSends = false;
   const interrupted: ThreadId[] = [];
   let deferInterrupt = false;
   const failLaunch = new Set<ThreadId>();
@@ -210,7 +213,7 @@ const harness = Effect.gen(function* () {
       sendToThread: (input) =>
         Effect.gen(function* () {
           sendAttempts.push(input.commandId);
-          if (failNextSend) {
+          if (failAllSends || failNextSend) {
             failNextSend = false;
             return yield* new OrchestratorProjectionError({
               threadId: input.threadId,
@@ -276,6 +279,9 @@ const harness = Effect.gen(function* () {
     sendAttempts,
     failNextSend: () => {
       failNextSend = true;
+    },
+    failAllSends: () => {
+      failAllSends = true;
     },
     interrupted,
     deferInterrupt: () => {
@@ -346,6 +352,43 @@ it.effect("wakes once for a failed managed attempt and leaves recovery explicit"
       `Worker failed · task failed-attempt · attempt ${attempt.id} · owner GLaDOS · task status blocked`,
     );
     h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("does not redeliver an unchanged failed-attempt review after coordinator review", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "stable-review",
+      projectId: a,
+      title: "Stable review",
+      outcome: "Review the failed attempt once",
+      criteria: "One review wake",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "stable-review" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    yield* h.store.updateAttempt("stable-review", attempt.id, "failed", "Provider failed");
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({
+      type: "review",
+      taskId: "stable-review",
+      attemptId: attempt.id,
+      criteriaVersion: 1,
+      candidate: "commit:failed-candidate",
+      verdict: "fail",
+      summary: "Diagnostics confirm the same failed attempt.",
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
     yield* h.drain();
     expect(h.sent).toEqual([boss]);
   }).pipe(Effect.provide(services)),
@@ -509,6 +552,89 @@ it.effect(
       expect((yield* h.store.read()).revision).toBe(revision);
     }).pipe(Effect.provide(services)),
 );
+it.effect("delivers a ready obligation after capacity is temporarily unavailable", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const create = (taskId: string) =>
+      h.command({
+        type: "create",
+        taskId,
+        projectId: a,
+        title: taskId,
+        outcome: "Complete managed work",
+        criteria: "Report evidence",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree" as const, baseRef: "HEAD" },
+      });
+    yield* create("deferred-ready");
+    h.failNextSend();
+    yield* h.drain();
+    expect(h.sent).toEqual([]);
+    for (const taskId of ["capacity-one", "capacity-two"]) {
+      yield* create(taskId);
+      yield* h.command({ type: "assign", taskId });
+    }
+    yield* h.drain();
+    expect(h.sent).toEqual([]);
+    const occupied = yield* h.store.read();
+    for (const task of occupied.tasks.filter((entry) => entry.id.startsWith("capacity-")))
+      yield* h.store.updateAttempt(task.id, task.attempts[0]!.id, "stopped", "Capacity freed");
+    yield* h.drain();
+    expect(h.sentMessages.some((message) => message.text.includes("task deferred-ready"))).toBe(
+      true,
+    );
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("runs later assignment effects behind a full page of deferred wakes", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "wake-source",
+      projectId: a,
+      title: "Wake source",
+      outcome: "Remain ready",
+      criteria: "Wake eventually delivers",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    const readyTask = (yield* h.store.read()).tasks[0]!;
+    const key = `ready:${readyTask.id}:owner:0:${readyTask.revision}`;
+    h.failAllSends();
+    for (let index = 0; index < 20; index++)
+      yield* h.store.queueWake(
+        `deferred-wake-${index}`,
+        encodeJson({
+          recipientId: "glados",
+          projectId: a,
+          threadId: boss,
+          generation: 1,
+          keys: [key],
+        }),
+      );
+    yield* h.command({
+      type: "create",
+      taskId: "later-launch",
+      projectId: a,
+      title: "Later launch",
+      outcome: "Launch despite deferred wakes",
+      criteria: "Managed thread starts",
+      verifyCommand: "",
+      priority: 2,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "later-launch" });
+    yield* h.drain();
+    const later = (yield* h.store.read()).tasks.find((task) => task.id === "later-launch")!;
+    expect(h.launched).toContain(later.attempts[0]!.threadId);
+  }).pipe(Effect.provide(services)),
+);
 it.effect("delivers unresolved decisions and genuinely new readiness once each", () =>
   Effect.gen(function* () {
     const h = yield* harness;
@@ -565,6 +691,74 @@ it.effect("delivers unresolved decisions and genuinely new readiness once each",
       "Newly ready · task newly-ready · attempt none · owner GLaDOS · task status queued",
     );
     expect(h.sentMessages[1]?.text).not.toContain("decision · task decision-task");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("redelivers a mirrored task obligation when ownership returns to a prior manager", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const home = EnvironmentId.make("remote-home");
+    const coordinator = EnvironmentId.make("coordinator");
+    yield* h.store.importSources(
+      {
+        id: "remote-source",
+        kind: "linear",
+        baseUrl: "https://tracker.invalid",
+        tenantId: "team",
+        remoteProjectId: "project",
+        projectId: a,
+        enabled: true,
+      },
+      [
+        {
+          title: "Mirrored task",
+          outcome: "Remain ready across ownership changes",
+          source: {
+            kind: "linear",
+            tenantId: "team",
+            itemId: "remote-one",
+            scope: "remote-scope",
+            key: "REMOTE-1",
+            url: "https://tracker.invalid/REMOTE-1",
+            status: "Open",
+            priority: "1",
+            observedAt: "2026-09-11T00:00:00.000Z",
+          },
+        },
+      ],
+    );
+    const imported = (yield* h.store.read()).tasks[0]!;
+    const remoteScope = imported.source!.scope!;
+    yield* h.store.setSourceAuthority({
+      scope: remoteScope,
+      self: coordinator,
+      coordinator,
+      homeEnvironmentId: home,
+      peerId: "remote-peer",
+      proposalId: "approved-remote-scope",
+    });
+    yield* h.store.mirrorTask(home, {
+      ...imported,
+      revision: imported.revision + 1,
+      status: "queued",
+      note: "Ready at its fixed home",
+    });
+    for (const message of (yield* h.store.read()).messages.filter((entry) => !entry.acknowledged))
+      yield* h.command({ type: "acknowledge", messageId: message.id });
+    const leadA = yield* h.lead("lead-a", a);
+    for (const effect of yield* h.store.effects())
+      if (effect.kind === "create-lead") yield* h.store.finishEffect(effect.operation_id);
+    h.projections.set(leadA.threadId, projection(leadA.threadId, a));
+    const homeRevision = (yield* h.store.read()).tasks[0]!.revision;
+    for (const lead of [leadA, null, leadA]) {
+      h.projections.set(leadA.threadId, projection(leadA.threadId, a));
+      h.projections.set(boss, projection(boss, a));
+      yield* h.command({ type: "manage-task", taskId: imported.id, leadId: lead?.id ?? null });
+      yield* h.drain();
+    }
+    expect(h.sent).toEqual([leadA.threadId, boss, leadA.threadId]);
+    const returned = (yield* h.store.read()).tasks[0]!;
+    expect(returned.revision).toBe(homeRevision);
+    expect(returned.ownershipRevision).toBe(3);
   }).pipe(Effect.provide(services)),
 );
 it.effect("launches leads and workers as ordinary managed threads in independent worktrees", () =>
