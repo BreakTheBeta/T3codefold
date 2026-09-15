@@ -59,6 +59,7 @@ export const ProviderAdapterV2TurnMessage = Schema.Struct({
   attachments: Schema.Array(ChatAttachment),
   createdBy: OrchestrationV2ConversationMessage.fields.createdBy,
   creationSource: OrchestrationV2ConversationMessage.fields.creationSource,
+  scheduledTaskId: OrchestrationV2ConversationMessage.fields.scheduledTaskId,
 });
 export type ProviderAdapterV2TurnMessage = typeof ProviderAdapterV2TurnMessage.Type;
 
@@ -375,6 +376,10 @@ export interface ProviderAdapterV2OpenSessionInput {
   readonly modelSelection: ModelSelection;
   readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
   readonly resumeFromSession?: OrchestrationV2ProviderSession;
+  /** Native thread to activate while an eager adapter opens its provider process. */
+  readonly initialNativeThreadId?: string;
+  /** Preserves provider item identity across eager activation of a persisted thread. */
+  readonly initialProviderItemIdentityVersion?: 2;
 }
 
 export interface ProviderAdapterV2EnsureThreadInput {

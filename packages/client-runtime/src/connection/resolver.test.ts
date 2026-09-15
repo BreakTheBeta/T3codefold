@@ -1,9 +1,4 @@
 import {
-  GitHubRoutingPermissions,
-  gitHubRoutingConnectionKey,
-  makeGitHubRoutingPermissions,
-} from "./githubRoutingPermissions.ts";
-import {
   EnvironmentId,
   ORCHESTRATION_PROTOCOL_VERSION,
   type DesktopSshEnvironmentTarget,
@@ -38,6 +33,11 @@ import {
 } from "./model.ts";
 import * as ConnectionProfileStore from "./profileStore.ts";
 import { remoteHttpClientLayer } from "../rpc/http.ts";
+import {
+  GitHubRoutingPermissions,
+  gitHubRoutingConnectionKey,
+  makeGitHubRoutingPermissions,
+} from "./githubRoutingPermissions.ts";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-1");
 const ENDPOINT = {
@@ -88,13 +88,11 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
   );
   const credentials = new Map(options?.credentials ?? []);
 
-  const profileStore =
-    options?.profileStore ??
-    ConnectionProfileStore.ConnectionProfileStore.of({
-      get: (connectionId) => Effect.succeed(Option.fromNullishOr(profiles.get(connectionId))),
-      put: (profile) => Effect.sync(() => void profiles.set(profile.connectionId, profile)),
-      remove: (connectionId) => Effect.sync(() => void profiles.delete(connectionId)),
-    });
+  const profileStore = ConnectionProfileStore.ConnectionProfileStore.of({
+    get: (connectionId) => Effect.succeed(Option.fromNullishOr(profiles.get(connectionId))),
+    put: (profile) => Effect.sync(() => void profiles.set(profile.connectionId, profile)),
+    remove: (connectionId) => Effect.sync(() => void profiles.delete(connectionId)),
+  });
   const credentialStore = ConnectionCredentialStore.ConnectionCredentialStore.of({
     get: (connectionId) => Effect.succeed(Option.fromNullishOr(credentials.get(connectionId))),
     put: (connectionId, credential) =>
@@ -164,7 +162,10 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
           capabilities: { repositoryIdentity: true },
         }),
       )) satisfies typeof fetch),
-    Layer.succeed(ConnectionProfileStore.ConnectionProfileStore, profileStore),
+    Layer.succeed(
+      ConnectionProfileStore.ConnectionProfileStore,
+      options?.profileStore ?? profileStore,
+    ),
     Layer.succeed(ConnectionCredentialStore.ConnectionCredentialStore, credentialStore),
     Layer.succeed(
       ClientCapabilities.PrimaryEnvironmentAuth,

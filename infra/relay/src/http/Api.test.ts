@@ -1,3 +1,12 @@
+import * as HttpServer from "effect/unstable/http/HttpServer";
+import {
+  RelayClientAuth,
+  RelayClientPrincipal,
+  type RelayClientDeviceRecord,
+} from "@t3tools/contracts/relay";
+import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
+import * as RelayTokens from "../auth/RelayTokens.ts";
+import * as Devices from "../agentActivity/Devices.ts";
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -18,17 +27,13 @@ import * as Etag from "effect/unstable/http/Etag";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
-import * as HttpServer from "effect/unstable/http/HttpServer";
 import * as HttpApi from "effect/unstable/httpapi/HttpApi";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import { EnvironmentId } from "@t3tools/contracts";
 import {
-  RelayApi,
-  RelayClientAuth,
-  RelayClientPrincipal,
   RelayEnvironmentAuth,
   RelayEnvironmentPrincipal,
-  type RelayClientDeviceRecord,
+  RelayApi,
 } from "@t3tools/contracts/relay";
 
 import {
@@ -52,9 +57,6 @@ import * as RelayDb from "../db.ts";
 import * as EnvironmentCredentials from "../environments/EnvironmentCredentials.ts";
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
 import * as ManagedEndpointProvider from "../environments/ManagedEndpointProvider.ts";
-import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
-import * as RelayTokens from "../auth/RelayTokens.ts";
-import * as Devices from "../agentActivity/Devices.ts";
 import * as AgentActivityPublisher from "../agentActivity/AgentActivityPublisher.ts";
 import * as EnvironmentPublishSignatures from "../environments/EnvironmentPublishSignatures.ts";
 

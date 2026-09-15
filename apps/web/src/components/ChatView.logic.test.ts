@@ -1,17 +1,9 @@
-import { makeThreadProjectionFixture } from "../test-fixtures";
-import { OrchestrationV2Run, OrchestrationV2ConversationMessage } from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
+import { findRecordedWorktreeSetup, resolveVisibleWorktreeSetup } from "./ChatView.logic";
 import {
   recallCheckoutIsRepo,
   rememberCheckoutIsRepo,
   threadShellHasStarted,
 } from "./ChatView.logic";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import {
-  useRightPanelStore,
-  pullRequestSurface,
-  selectActiveRightPanelSurface,
-} from "../rightPanelStore";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   ProviderDriverKind,
@@ -21,6 +13,7 @@ import { deriveProviderInstanceEntries, NO_PROVIDER_MODEL_SELECTION } from "../p
 import type { RightPanelSurface } from "../rightPanelStore";
 import {
   EnvironmentId,
+  EventId,
   MessageId,
   ProjectId,
   ProviderInstanceId,
@@ -60,9 +53,9 @@ import {
   codexArtifactTemplatePromptToAppend,
   shouldDockDraftHeroForSubmission,
   shouldReleaseTimelineAnchorForToolActivity,
-  observeProactivePanelUserChoice,
-  shouldRetargetThreadPullRequestPanel,
+  shouldRefocusComposerOnWindowFocus,
   shouldOpenProactivePullRequest,
+  shouldRetargetThreadPullRequestPanel,
   shouldOpenProactiveTurnDiff,
   shouldRenderPreviewMiniPlayer,
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
@@ -72,6 +65,7 @@ import {
   createLocalDispatchSnapshot,
   deriveCommittedServerUserMessageIds,
   deriveComposerSendState,
+  deriveLockedProvider,
   dismissBranchMismatchForSession,
   getStartedThreadModelChangeBlockReason,
   hasEnvironmentReconnectWarningGraceElapsed,
@@ -85,7 +79,6 @@ import {
   resolveSendEnvMode,
   startNewThreadForProject,
   shouldShowBranchMismatchBanner,
-  shouldShowComposerContextStrip,
   shouldShowPlanFollowUpPrompt,
   shouldWriteThreadErrorToCurrentServerThread,
   toolGroupConsumesUpwardNavigation,
@@ -245,8 +238,6 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     runtimeMode: "full-access",
     interactionMode: "default",
     runtime: null,
-    messages: [],
-    proposedPlans: [],
     createdAt: now,
     updatedAt: now,
     archivedAt: null,
@@ -384,60 +375,10 @@ describe("resolveThreadMetadataUpdateForNextTurn", () => {
   });
 });
 
-describe("shouldShowComposerContextStrip", () => {
-  it("shows git context while composing a new thread", () => {
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: true,
-        isGitRepo: true,
-        hasActiveProject: true,
-        persistInActiveThreads: false,
-      }),
-    ).toBe(true);
-  });
-
-  it("keeps git context in an active thread only when requested", () => {
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: false,
-        isGitRepo: true,
-        hasActiveProject: true,
-        persistInActiveThreads: true,
-      }),
-    ).toBe(true);
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: false,
-        isGitRepo: true,
-        hasActiveProject: true,
-        persistInActiveThreads: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("hides git context without a git-backed project", () => {
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: true,
-        isGitRepo: false,
-        hasActiveProject: true,
-        persistInActiveThreads: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: true,
-        isGitRepo: true,
-        hasActiveProject: false,
-        persistInActiveThreads: true,
-      }),
-    ).toBe(false);
-  });
-});
 describe("deriveComposerSendState", () => {
   it("treats expired terminal pills as non-sendable content", () => {
     const state = deriveComposerSendState({
-      prompt: "\uFFFC",
+      prompt: "[Terminal 1](t3-context://v1/terminal/ctx-expired)",
       imageCount: 0,
       terminalContexts: [
         {
@@ -461,7 +402,7 @@ describe("deriveComposerSendState", () => {
 
   it("keeps text sendable while excluding expired terminal pills", () => {
     const state = deriveComposerSendState({
-      prompt: `yoo \uFFFC waddup`,
+      prompt: `yoo [Terminal 1](t3-context://v1/terminal/ctx-expired) waddup`,
       imageCount: 0,
       terminalContexts: [
         {
@@ -1102,14 +1043,14 @@ describe("floating browser preview", () => {
 });
 
 describe("proactive panels", () => {
-  it("opens a pull request on entry or after a new link appears", () => {
+  it("opens an existing pull request on entry and follows newly observed links", () => {
     expect(shouldOpenProactivePullRequest(undefined, "project:repo:42")).toBe(true);
     expect(shouldOpenProactivePullRequest(null, "project:repo:42")).toBe(true);
     expect(shouldOpenProactivePullRequest("project:repo:42", "project:repo:42")).toBe(false);
     expect(shouldOpenProactivePullRequest("project:repo:42", null)).toBe(false);
   });
 
-  it("opens the diff on entry or when the observed running turn settles", () => {
+  it("opens a completed diff on entry or when the observed running turn settles", () => {
     const turnId = RunId.make("turn-1");
     expect(
       shouldOpenProactiveTurnDiff({
@@ -1553,6 +1494,103 @@ describe("resolveComposerProviderSelection", () => {
     ])[0]!;
   }
 
+  function importedThread(instanceId: ProviderInstanceId) {
+    return makeThread({
+      modelSelection: { instanceId, model: "default" },
+      itemCount: 1,
+    });
+  }
+
+  it.each([
+    ["claudeAgent", "claude_work"],
+    ["codex", "codex_work"],
+    ["ollama", "local_models"],
+  ])("keeps imported %s history selectable through its custom instance", (driver, instanceId) => {
+    const importedEntry = entry(driver, instanceId);
+    const entries = [entry(driver === "codex" ? "claudeAgent" : "codex"), importedEntry];
+    const thread = importedThread(importedEntry.instanceId);
+    const lockedProvider = deriveLockedProvider({
+      thread,
+      selectedProvider: entries[0]!.instanceId,
+      threadProvider: thread.modelSelection.instanceId,
+      providers: entries.map((entry) => entry.snapshot),
+    });
+
+    expect(thread.runtime).toBeNull();
+    expect(lockedProvider).toBe(driver);
+    expect(
+      resolveComposerProviderSelection({
+        entries,
+        candidateInstanceIds: [thread.modelSelection.instanceId],
+        lockedProvider,
+        lockedInstanceId: thread.modelSelection.instanceId,
+      }).selectedProviderEntry?.instanceId,
+    ).toBe(importedEntry.instanceId);
+  });
+
+  it("keeps the session driver authoritative over instance and draft selections", () => {
+    const selected = entry("claudeAgent", "claude_work");
+    const sessionEntry = entry("ollama", "local_models");
+    const thread = importedThread(selected.instanceId);
+
+    expect(
+      deriveLockedProvider({
+        thread: {
+          ...thread,
+          runtime: {
+            ...readySession,
+            providerName: sessionEntry.driverKind,
+            providerInstanceId: sessionEntry.instanceId,
+          },
+        },
+        selectedProvider: selected.instanceId,
+        threadProvider: thread.modelSelection.instanceId,
+        providers: [selected.snapshot, sessionEntry.snapshot],
+      }),
+    ).toBe(sessionEntry.driverKind);
+  });
+
+  it.each(["missing", "disabled"] as const)(
+    "does not move imported history to another driver when its instance is %s",
+    (state) => {
+      const imported = entry("claudeAgent", "claude_work", { enabled: false });
+      const other = entry("codex");
+      const entries = state === "missing" ? [other] : [other, imported];
+      const thread = importedThread(imported.instanceId);
+      const lockedProvider = deriveLockedProvider({
+        thread,
+        selectedProvider: other.instanceId,
+        threadProvider: thread.modelSelection.instanceId,
+        providers: entries.map((entry) => entry.snapshot),
+      });
+
+      expect(lockedProvider).not.toBeNull();
+      expect(
+        resolveComposerProviderSelection({
+          entries,
+          candidateInstanceIds: [other.instanceId, imported.instanceId],
+          lockedProvider,
+          lockedInstanceId: imported.instanceId,
+        }).selectedProviderEntry,
+      ).toBeUndefined();
+    },
+  );
+
+  it("leaves a new draft free to select a different driver", () => {
+    const original = entry("claudeAgent", "claude_work");
+    const selected = entry("codex", "codex_work");
+    expect(
+      deriveLockedProvider({
+        thread: makeThread({
+          modelSelection: { instanceId: original.instanceId, model: "default" },
+        }),
+        selectedProvider: selected.instanceId,
+        threadProvider: original.instanceId,
+        providers: [original.snapshot, selected.snapshot],
+      }),
+    ).toBeNull();
+  });
+
   it("uses the custom instance's capability instead of the default instance", () => {
     const defaultEntry = entry("antigravity", "antigravity", {
       showInteractionModeToggle: true,
@@ -1873,131 +1911,49 @@ describe("proactive completed diff guard", () => {
   });
 });
 
-describe("proactive panel user choices", () => {
-  it("keeps a manual PR selection made after following a replacement while loading", () => {
-    useRightPanelStore.setState({
-      byThreadKey: {},
-      userActionRevisionByThreadKey: {},
-      threadPanelVisibilityByThreadKey: {},
-    });
-    const ref = scopeThreadRef(EnvironmentId.make("env-1"), ThreadId.make("thread-1"));
-    const panels = useRightPanelStore.getState();
-    const oldPr = pullRequestSurface({
-      projectId: "project-1",
-      repository: "owner/repo",
-      number: 1,
-    });
-    const replacement = pullRequestSurface({ ...oldPr, number: 2 });
-    const turnId = RunId.make("turn-1");
-    panels.openPullRequest(ref, oldPr);
-    const loading = observeProactivePanelUserChoice(null, {
-      threadKey: "env-1:thread-1",
-      runningTurnId: turnId,
-      userActionRevision: panels.getUserActionRevision(ref),
-    });
-    expect(panels.openProactive(ref, replacement, loading.userActionRevision)).toBe(true);
+describe("shouldRefocusComposerOnWindowFocus", () => {
+  function element(
+    tagName: string,
+    options?: { editable?: boolean; role?: string; within?: string },
+  ) {
+    return {
+      tagName,
+      isContentEditable: options?.editable ?? false,
+      getAttribute: (name: string) => (name === "role" ? (options?.role ?? null) : null),
+      closest: (selector: string) =>
+        options?.within !== undefined && selector.includes(options.within) ? ({} as Element) : null,
+    };
+  }
 
-    panels.activateSurface(ref, oldPr.id);
-    const loaded = observeProactivePanelUserChoice(loading, {
-      threadKey: loading.threadKey,
-      runningTurnId: turnId,
-      userActionRevision: panels.getUserActionRevision(ref),
-    });
-    expect(panels.openProactive(ref, replacement, loaded.userActionRevision)).toBe(false);
-    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, ref)).toEqual(
-      oldPr,
-    );
-    expect(shouldOpenProactivePullRequest(loaded.targetKey, "owner/repo:2")).toBe(true);
-    expect(
-      shouldOpenProactiveTurnDiff({
-        previousRunningTurnId: loaded.runningTurnId,
-        runningTurnId: null,
-        settledTurnId: turnId,
-        turnCompleted: true,
-      }),
-    ).toBe(true);
+  it("refocuses when nothing or the body holds focus", () => {
+    expect(shouldRefocusComposerOnWindowFocus(null)).toBe(true);
+    expect(shouldRefocusComposerOnWindowFocus(element("BODY"))).toBe(true);
   });
 
-  it.each(["idle", "loading", "observed"] as const)(
-    "captures a new turn's choice once with initial state %s",
-    (initialState) => {
-      useRightPanelStore.setState({
-        byThreadKey: {},
-        userActionRevisionByThreadKey: {},
-        threadPanelVisibilityByThreadKey: {},
-      });
-      const ref = scopeThreadRef(EnvironmentId.make("env-1"), ThreadId.make("thread-1"));
-      const panels = useRightPanelStore.getState();
-      const firstTurn = RunId.make("turn-1");
-      const nextTurn = RunId.make("turn-2");
-      const initial = observeProactivePanelUserChoice(null, {
-        threadKey: "env-1:thread-1",
-        runningTurnId: initialState === "idle" ? null : firstTurn,
-        userActionRevision: panels.getUserActionRevision(ref),
-      });
-      panels.openFile(ref, "src/first.ts");
-      const loadingNextTurn = observeProactivePanelUserChoice(
-        {
-          ...initial,
-          ...(initialState === "observed" ? { runningTurnId: firstTurn, targetKey: null } : {}),
-        },
-        {
-          threadKey: initial.threadKey,
-          runningTurnId: nextTurn,
-          userActionRevision: panels.getUserActionRevision(ref),
-        },
-      );
-      expect(
-        panels.openProactive(ref, { id: "diff", kind: "diff" }, loadingNextTurn.userActionRevision),
-      ).toBe(true);
+  it("refocuses away from a plain button, such as a pull request tab", () => {
+    expect(shouldRefocusComposerOnWindowFocus(element("BUTTON"))).toBe(true);
+  });
 
-      panels.openFile(ref, "src/second.ts");
-      const loaded = observeProactivePanelUserChoice(loadingNextTurn, {
-        threadKey: initial.threadKey,
-        runningTurnId: nextTurn,
-        userActionRevision: panels.getUserActionRevision(ref),
-      });
-      expect(
-        panels.openProactive(ref, { id: "diff", kind: "diff" }, loaded.userActionRevision),
-      ).toBe(false);
-      expect(
-        selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, ref)?.id,
-      ).toBe("file:src/second.ts");
-    },
-  );
+  it("leaves other text fields alone", () => {
+    expect(shouldRefocusComposerOnWindowFocus(element("INPUT"))).toBe(false);
+    expect(shouldRefocusComposerOnWindowFocus(element("TEXTAREA"))).toBe(false);
+    expect(shouldRefocusComposerOnWindowFocus(element("DIV", { editable: true }))).toBe(false);
+    expect(shouldRefocusComposerOnWindowFocus(element("DIV", { role: "textbox" }))).toBe(false);
+  });
 
-  it("follows a changed server PR link without replacing an unrelated open panel", () => {
-    const previous = {
-      projectId: ProjectId.make("project-1"),
-      repository: "pingdotgg/t3code",
-      number: 42,
-      url: "https://github.com/pingdotgg/t3code/pull/42",
-    };
-    const current = {
-      ...previous,
-      number: 43,
-      url: "https://github.com/pingdotgg/t3code/pull/43",
-    };
-    const surface = {
-      id: "pull-request:previous",
-      kind: "pull-request",
-      projectId: previous.projectId,
-      repository: "PingDotGG/T3Code",
-      number: previous.number,
-    } satisfies RightPanelSurface;
+  it.each(["IFRAME", "WEBVIEW"])("leaves a focused %s preview alone", (tagName) => {
+    expect(shouldRefocusComposerOnWindowFocus(element(tagName))).toBe(false);
+  });
 
-    expect(shouldRetargetThreadPullRequestPanel(previous, current, surface)).toBe(true);
-    expect(shouldRetargetThreadPullRequestPanel(previous, previous, surface)).toBe(false);
-    expect(shouldRetargetThreadPullRequestPanel(previous, null, surface)).toBe(false);
+  it("leaves a focused terminal alone in the drawer and the right panel", () => {
     expect(
-      shouldRetargetThreadPullRequestPanel(previous, current, { ...surface, number: 99 }),
+      shouldRefocusComposerOnWindowFocus(element("BUTTON", { within: "data-terminal-owner" })),
     ).toBe(false);
-    expect(
-      shouldRetargetThreadPullRequestPanel(previous, current, {
-        ...surface,
-        projectId: "another-project",
-      }),
-    ).toBe(false);
+  });
+
+  it("leaves focus inside a dialog or popup alone", () => {
+    expect(shouldRefocusComposerOnWindowFocus(element("BUTTON", { within: "dialog" }))).toBe(false);
+    expect(shouldRefocusComposerOnWindowFocus(element("BUTTON", { within: "-popup" }))).toBe(false);
   });
 });
 
@@ -2034,12 +1990,19 @@ describe("threadShellHasStarted", () => {
     ).toBe(true);
   });
 
-  it("counts a thread with a live session and nothing else", () => {
+  it("counts a thread with a live runtime and nothing else", () => {
     expect(
       threadShellHasStarted({
         latestRun: null,
         latestUserMessageAt: null,
-        runtime: {} as NonNullable<Parameters<typeof threadShellHasStarted>[0]>["runtime"],
+        runtime: {
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          status: "starting",
+          providerName: "codex",
+          activeRunId: null,
+          lastError: null,
+          updatedAt: now,
+        },
       }),
     ).toBe(true);
   });
@@ -2052,194 +2015,166 @@ describe("threadShellHasStarted", () => {
   });
 });
 
-describe("rewind draft recovery", () => {
-  const message = {
-    id: MessageId.make("rewound-message"),
-    role: "user" as const,
-    text: "edit this question",
-    runId: RunId.make("rewound-turn"),
-    createdAt: now,
-    updatedAt: now,
-    streaming: false,
+it("follows a changed server PR link without replacing an unrelated open panel", () => {
+  const previous = {
+    projectId: ProjectId.make("project-1"),
+    repository: "pingdotgg/t3code",
+    number: 42,
+    url: "https://github.com/pingdotgg/t3code/pull/42",
   };
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
-
-  const makeRewindThread = (rolledBack = false) => {
-    const projection = makeThreadProjectionFixture();
-    const run = Schema.decodeUnknownSync(OrchestrationV2Run)({
-      id: message.runId,
-      threadId,
-      ordinal: 1,
-      providerInstanceId: "codex",
-      modelSelection: { instanceId: "codex", model: "test" },
-      providerThreadId: null,
-      userMessageId: message.id,
-      rootNodeId: null,
-      activeAttemptId: null,
-      status: rolledBack ? "rolled_back" : "completed",
-      requestedAt: DateTime.makeUnsafe(now),
-      startedAt: DateTime.makeUnsafe(now),
-      completedAt: DateTime.makeUnsafe(now),
-      checkpointId: null,
-      contextHandoffId: null,
-    });
-    const storedMessage = Schema.decodeUnknownSync(OrchestrationV2ConversationMessage)({
-      ...message,
-      createdAt: DateTime.makeUnsafe(now),
-      updatedAt: DateTime.makeUnsafe(now),
-      threadId,
-      nodeId: null,
-      attachments: [],
-      createdBy: "user",
-      creationSource: "web",
-    });
-    return { environmentId, projection: { ...projection, messages: [storedMessage], runs: [run] } };
+  const current = {
+    ...previous,
+    number: 43,
+    url: "https://github.com/pingdotgg/t3code/pull/43",
   };
+  const surface = {
+    id: "pull-request:previous",
+    kind: "pull-request",
+    projectId: previous.projectId,
+    repository: "PingDotGG/T3Code",
+    number: previous.number,
+  } satisfies RightPanelSurface;
 
-  it("waits past command acceptance until V2 marks the retained message's run rolled back", async () => {
-    const atom = Atom.make(makeRewindThread());
-    vi.spyOn(environmentThreadDetails, "threadAtom").mockReturnValue(atom);
-    let accepted = false;
-    const result = waitForRevertedMessage({ environmentId, threadId }, message.id, 0, async () => {
-      accepted = true;
-    });
-    let completed = false;
-    void result.then(() => {
-      completed = true;
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(accepted).toBe(true);
-    expect(completed).toBe(false);
-    appAtomRegistry.set(atom, makeRewindThread(true));
-    await result;
-    expect(appAtomRegistry.get(atom).projection.messages).toHaveLength(1);
-  });
-
-  it("rejects failed command acceptance without restoring a draft", async () => {
-    const atom = Atom.make(makeRewindThread());
-    vi.spyOn(environmentThreadDetails, "threadAtom").mockReturnValue(atom);
-    await expect(
-      waitForRevertedMessage({ environmentId, threadId }, message.id, 0, async () => {
-        throw new Error("Native history unavailable");
-      }),
-    ).rejects.toThrow("Native history unavailable");
-  });
-
-  it("bounds waits when a provider never finishes", async () => {
-    vi.useFakeTimers();
-    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
-    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
-    const atom = Atom.make(makeRewindThread());
-    vi.spyOn(environmentThreadDetails, "threadAtom").mockReturnValue(atom);
-    const result = waitForRevertedMessage(
-      { environmentId, threadId },
-      message.id,
-      0,
-      async () => {},
-      20,
-    );
-    const timeoutIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 20);
-    const rewindTimeout = setTimeoutSpy.mock.results[timeoutIndex]?.value;
-    expect(rewindTimeout).toBeDefined();
-    const rejection = expect(result).rejects.toThrow("Timed out waiting");
-    await vi.advanceTimersByTimeAsync(20);
-    await rejection;
-    expect(clearTimeoutSpy).toHaveBeenCalledWith(rewindTimeout);
-  });
-
-  it("copies attachment bytes before rewind into a fresh file", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("original bytes"));
-    vi.stubGlobal("fetch", fetchMock);
-    const files = await prepareRevertedMessageAttachments({
-      message: {
-        ...message,
-        attachments: [
-          {
-            type: "file",
-            id: "old-attachment",
-            name: "notes.txt",
-            mimeType: "text/plain",
-            sizeBytes: 14,
-          },
-        ],
-      },
-      environmentId,
-      httpBaseUrl: "https://server.test",
-      createAssetUrl: async () =>
-        AsyncResult.success({ relativeUrl: "/asset/signed", expiresAt: Date.now() + 60_000 }),
-    });
-    expect(files[0]).toBeInstanceOf(File);
-    expect(files[0]?.name).toBe("notes.txt");
-    expect(await files[0]?.text()).toBe("original bytes");
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://server.test/asset/signed");
-  });
+  expect(shouldRetargetThreadPullRequestPanel(previous, current, surface)).toBe(true);
+  expect(shouldRetargetThreadPullRequestPanel(previous, previous, surface)).toBe(false);
+  expect(shouldRetargetThreadPullRequestPanel(previous, null, surface)).toBe(false);
+  expect(shouldRetargetThreadPullRequestPanel(previous, current, { ...surface, number: 99 })).toBe(
+    false,
+  );
+  expect(
+    shouldRetargetThreadPullRequestPanel(previous, current, {
+      ...surface,
+      projectId: "another-project",
+    }),
+  ).toBe(false);
 });
 
-describe("restorePlanFollowUpComposer", () => {
-  it("writes back every field a cleared plan follow-up composer held", () => {
-    const snapshot = {
-      prompt: "Follow up on the plan",
-      terminalContexts: [
-        {
-          id: "terminal-1",
-          threadId: ThreadId.make("thread-1"),
-          createdAt: "2026-09-11T00:00:00.000Z",
-          terminalId: "main",
-          terminalLabel: "Main",
-          lineStart: 1,
-          lineEnd: 2,
-          text: "output",
-        },
-      ],
-      reviewComments: [
-        {
-          id: "review-1",
-          sectionId: "file:a.ts",
-          sectionTitle: "File comment",
-          filePath: "a.ts",
-          startIndex: 0,
-          endIndex: 0,
-          rangeLabel: "L1",
-          text: "look here",
-          diff: "",
-        },
-      ],
-      previewAnnotations: [],
+describe("worktree setup visibility", () => {
+  const stage = (
+    id: "fetch" | "checkout" | "submodules" | "setup-script" | "agent",
+    status: "done" | "running" | "failed" | "pending",
+  ) => ({
+    id,
+    status,
+    startedAt: now,
+    endedAt: status === "running" || status === "pending" ? null : now,
+    percent: null,
+    detail: null,
+    tail: [],
+  });
+  const base = {
+    threadId,
+    phase: "running" as const,
+    startedAt: now,
+    endedAt: null,
+    branch: "feature",
+    baseRef: "main",
+    worktreePath: null,
+    setupScript: null,
+    stages: [stage("checkout", "running"), stage("agent", "pending")],
+    error: null,
+    sequence: 1,
+  };
+  const settledDone = {
+    ...base,
+    phase: "done" as const,
+    endedAt: now,
+    stages: [stage("checkout", "done"), stage("setup-script", "done"), stage("agent", "done")],
+  };
+
+  it("reads the settled snapshot back from the thread's activities", () => {
+    const activities = [
+      { kind: "setup-script.started", payload: {} },
+      { kind: "worktree-setup", payload: settledDone },
+      { kind: "worktree-setup", payload: { not: "a snapshot" } },
+    ];
+    expect(findRecordedWorktreeSetup(activities, threadId)).toEqual(settledDone);
+    expect(findRecordedWorktreeSetup(activities, ThreadId.make("other"))).toBeNull();
+  });
+
+  it("shows a running setup and hides a clean one once the turn started", () => {
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: base,
+        recorded: null,
+        turnStarted: false,
+        isWorking: true,
+      }),
+    ).toEqual(base);
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: null,
+        recorded: settledDone,
+        turnStarted: false,
+        isWorking: true,
+      }),
+    ).toEqual(settledDone);
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: null,
+        recorded: settledDone,
+        turnStarted: true,
+        isWorking: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps a failed script visible for the running turn and a failed setup always", () => {
+    const scriptFailed = {
+      ...settledDone,
+      stages: [stage("checkout", "done"), stage("setup-script", "failed"), stage("agent", "done")],
     };
-    const writePrompt = vi.fn();
-    const writeTerminalContexts = vi.fn();
-    const writeReviewComments = vi.fn();
-    const writePreviewAnnotations = vi.fn();
-    const resetCursor = vi.fn();
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: null,
+        recorded: scriptFailed,
+        turnStarted: true,
+        isWorking: true,
+      }),
+    ).toEqual(scriptFailed);
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: null,
+        recorded: scriptFailed,
+        turnStarted: true,
+        isWorking: false,
+      }),
+    ).toBeNull();
+    const failed = { ...settledDone, phase: "failed" as const, error: "git exploded" };
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: null,
+        recorded: failed,
+        turnStarted: true,
+        isWorking: false,
+      }),
+    ).toEqual(failed);
+  });
 
-    restorePlanFollowUpComposer({
-      snapshot,
-      writePrompt,
-      writeTerminalContexts,
-      writeReviewComments,
-      writePreviewAnnotations,
-      resetCursor,
-    });
-
-    expect(writePrompt).toHaveBeenCalledTimes(1);
-    expect(writePrompt).toHaveBeenCalledWith("Follow up on the plan");
-    expect(writeTerminalContexts).toHaveBeenCalledTimes(1);
-    expect(writeTerminalContexts).toHaveBeenCalledWith(snapshot.terminalContexts);
-    expect(writeReviewComments).toHaveBeenCalledTimes(1);
-    expect(writeReviewComments).toHaveBeenCalledWith(snapshot.reviewComments);
-    expect(writePreviewAnnotations).toHaveBeenCalledTimes(1);
-    expect(writePreviewAnnotations).toHaveBeenCalledWith(snapshot.previewAnnotations);
-    expect(resetCursor).toHaveBeenCalledTimes(1);
-    expect(resetCursor).toHaveBeenCalledWith({
-      cursor: expect.any(Number),
-      prompt: "Follow up on the plan",
-      detectTrigger: true,
-    });
+  it("prefers whichever snapshot is newer by sequence", () => {
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: { ...base, sequence: 3 },
+        recorded: { ...settledDone, sequence: 7 },
+        turnStarted: false,
+        isWorking: false,
+      }),
+    ).toEqual({ ...settledDone, sequence: 7 });
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: { ...settledDone, sequence: 9 },
+        recorded: { ...base, sequence: 1 },
+        turnStarted: false,
+        isWorking: false,
+      }),
+    ).toEqual({ ...settledDone, sequence: 9 });
+    expect(
+      resolveVisibleWorktreeSetup({
+        live: base,
+        recorded: null,
+        turnStarted: false,
+        isWorking: false,
+      }),
+    ).toEqual(base);
   });
 });

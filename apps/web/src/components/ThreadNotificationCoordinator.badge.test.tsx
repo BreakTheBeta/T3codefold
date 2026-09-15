@@ -1,6 +1,5 @@
-import * as DateTime from "effect/DateTime";
-import { v2ThreadShell } from "./notificationTestFixtures";
 import { EnvironmentId } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -65,17 +64,73 @@ const thread = {
   archivedAt: null as string | null,
   hasPendingApprovals: false,
   hasPendingUserInput: false,
-  session: null,
+  session: null as { status: string } | null,
   latestTurn: { turnId: "turn", state: "running", completedAt: null as string | null },
 };
 let renderer: ReactTestRenderer | undefined;
 let focused = false;
 let visibility = "visible";
 
+const SHELL_NOW = DateTime.makeUnsafe("2026-09-13T07:00:00.000Z");
+
+function toV2ThreadShell(input: typeof thread) {
+  const latestTurn = input.latestTurn;
+  return {
+    id: input.id,
+    projectId: "project",
+    title: input.title,
+    providerInstanceId: "codex",
+    modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    activeProviderThreadId: null,
+    lineage: {
+      rootThreadId: input.id,
+      parentThreadId: null,
+      relationshipToParent: null,
+    },
+    forkedFrom: null,
+    createdBy: "user",
+    creationSource: "web",
+    latestRunId: latestTurn.turnId,
+    activeRunId: null,
+    status:
+      latestTurn.state === "completed"
+        ? "completed"
+        : latestTurn.state === "error" || input.session?.status === "error"
+          ? "failed"
+          : "running",
+    pendingRuntimeRequest: input.hasPendingUserInput
+      ? { id: "request-1", kind: "user_input", createdAt: SHELL_NOW }
+      : input.hasPendingApprovals
+        ? { id: "request-1", kind: "command", createdAt: SHELL_NOW }
+        : null,
+    latestVisibleMessage: null,
+    latestUserMessageAt: null,
+    hasActionableProposedPlan: false,
+    itemCount: 0,
+    visibleItemCount: 0,
+    createdAt: SHELL_NOW,
+    updatedAt: SHELL_NOW,
+    latestRunRequestedAt: SHELL_NOW,
+    latestRunStartedAt: SHELL_NOW,
+    latestRunCompletedAt: latestTurn.completedAt
+      ? DateTime.makeUnsafe(latestTurn.completedAt)
+      : undefined,
+    archivedAt: input.archivedAt ? DateTime.makeUnsafe(input.archivedAt) : null,
+    settledOverride: null,
+    settledAt: null,
+    lastVisitedAt: null,
+    deletedAt: null,
+  };
+}
+
 function shell(overrides: Partial<typeof thread> = {}) {
   return {
     status: "live",
-    snapshot: Option.some({ threads: [v2Shell({ ...thread, ...overrides })] }),
+    snapshot: Option.some({ threads: [toV2ThreadShell({ ...thread, ...overrides })] }),
   };
 }
 function complete(environment = "one", completedAt = "2026-09-13T08:00:00Z") {
@@ -262,35 +317,3 @@ it("badges background failures with in-app notifications enabled", async () => {
   expect(state.badge).toHaveBeenLastCalledWith(1);
   expect(state.toast).not.toHaveBeenCalled();
 });
-
-function v2Shell(input: {
-  id: string;
-  title: string;
-  archivedAt: string | null;
-  hasPendingApprovals: boolean;
-  hasPendingUserInput: boolean;
-  session: { status: string } | null;
-  latestTurn: { turnId: string; state: string; completedAt: string | null };
-}) {
-  return {
-    ...v2ThreadShell,
-    id: input.id,
-    title: input.title,
-    status:
-      input.session?.status === "error" || input.latestTurn.state === "error"
-        ? "failed"
-        : input.latestTurn.state === "completed"
-          ? "completed"
-          : "running",
-    latestRunId: input.latestTurn.turnId,
-    latestRunCompletedAt: input.latestTurn.completedAt
-      ? DateTime.makeUnsafe(input.latestTurn.completedAt)
-      : null,
-    archivedAt: input.archivedAt ? DateTime.makeUnsafe(input.archivedAt) : null,
-    pendingRuntimeRequest: input.hasPendingApprovals
-      ? { kind: "tool_approval" }
-      : input.hasPendingUserInput
-        ? { kind: "user_input" }
-        : null,
-  };
-}

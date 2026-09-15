@@ -1,4 +1,3 @@
-import { UserInputAttachments } from "@t3tools/contracts";
 import {
   CheckpointId,
   CheckpointScopeId,
@@ -76,7 +75,6 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     requestId: RuntimeRequestId,
     decision: Schema.optional(ProviderApprovalDecision),
     answers: Schema.optional(ProviderUserInputAnswers),
-    attachmentsByQuestionId: Schema.optional(UserInputAttachments),
   }),
   Schema.Struct({
     type: Schema.Literal("provider-thread.rollback"),

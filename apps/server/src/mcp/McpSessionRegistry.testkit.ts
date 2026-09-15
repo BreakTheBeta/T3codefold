@@ -16,7 +16,6 @@ export const layer = Layer.succeed(
           providerInstanceId,
           endpoint: "http://127.0.0.1/mcp",
           authorizationHeader: `Bearer mcp-test:${threadId}`,
-          capabilities: new Set(["preview", "orchestration", "worktree", "pull-requests"]),
           browserToolsAvailable: true,
         },
       }),

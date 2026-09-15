@@ -45,8 +45,6 @@ export function SelectableMarkdownText(props: SelectableMarkdownTextProps) {
     [props.fileContextMenu, props.onFileContextMenuAction],
   );
 
-  // Images need the upstream rich-block renderer. Text-only documents stay in
-  // one native Text tree so Android can select across every Markdown block.
   if (content.hasImage) {
     return <RichSelectableMarkdownText {...props} />;
   }

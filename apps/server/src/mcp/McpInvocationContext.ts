@@ -8,11 +8,11 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
-export const ALL_MCP_CAPABILITIES = [
+const ALL_MCP_CAPABILITIES = [
   "preview",
-  "device",
   "orchestration",
   "worktree",
+  "device",
   "pull-requests",
 ] as const;
 export type McpCapability = (typeof ALL_MCP_CAPABILITIES)[number];
@@ -31,6 +31,7 @@ export class McpInvocationContext extends Context.Service<
   McpInvocationScope
 >()("t3/mcp/McpInvocationContext") {}
 
+/** The error a missing capability surfaces as; preview keeps its own so the broker can route it. */
 export type McpCapabilityError<C extends McpCapability> = C extends "preview"
   ? PreviewAutomationUnavailableError
   : McpCapabilityUnavailableError;
@@ -56,5 +57,6 @@ export const requireMcpCapability = <const C extends McpCapability>(
   Effect.flatMap(McpInvocationContext, (invocation) =>
     invocation.capabilities.has(capability)
       ? Effect.succeed(invocation)
-      : Effect.fail(missingCapability(invocation, capability) as McpCapabilityError<C>),
+      : // The conditional type narrows what the literal argument decided at runtime.
+        Effect.fail(missingCapability(invocation, capability) as McpCapabilityError<C>),
   ).pipe(Effect.withSpan("mcp.requireCapability"));

@@ -45,7 +45,7 @@ it("reports the installed service version and host paths", () => {
 it("gives a direct repair command for a stale service", () => {
   assert.include(
     formatServiceStatus({ ...status, current: false }, "0.0.29"),
-    "Next: Run `t3 service install` to repair it.",
+    "Next: Run `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v0.0.29/t3-0.0.29.tgz t3 service update`.",
   );
 });
 
@@ -64,8 +64,10 @@ it("explains an incomplete nightly installation and keeps repair on its installe
   expect(output).toContain("last login session ends");
   expect(output).toContain('sudo loginctl enable-linger "$(id -un)"');
   expect(output).toContain("[service-stopped]");
-  expect(output).toContain("Run `t3 service install` to repair it.");
-  expect(output).not.toContain("npx");
+  expect(output).toContain(
+    "npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v0.0.32-nightly.1/t3-0.0.32-nightly.1.tgz t3 service update",
+  );
+  expect(output).not.toContain("t3@latest");
 });
 
 it("points an older service at a repair, never at npx", () => {
@@ -73,8 +75,12 @@ it("points an older service at a repair, never at npx", () => {
     { ...status, current: false, installedVersion: "0.0.28" },
     "0.0.29",
   );
-  expect(output).toContain("Run `t3 service install` to repair it.");
-  expect(output).not.toContain("npx");
+  expect(output).toContain(
+    "npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v0.0.29/t3-0.0.29.tgz t3 service update",
+  );
+  expect(output).not.toContain(
+    "npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v0.0.28/t3-0.0.28.tgz t3 service update",
+  );
 });
 
 it("explains where the service is supported", () => {
@@ -91,8 +97,14 @@ it("reports a newer installed service and tells the CLI to catch up to it", () =
   );
 
   assert.include(output, "t3@0.0.32-nightly.1 (newer than this t3@0.0.31 CLI)");
-  assert.include(output, "Run `t3 update 0.0.32-nightly.1` to match it");
-  assert.notInclude(output, "npx");
+  assert.include(
+    output,
+    "npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v0.0.32-nightly.1/t3-0.0.32-nightly.1.tgz t3 service update",
+  );
+  assert.notInclude(
+    output,
+    "npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 service update",
+  );
 });
 
 const newerServiceStatus = { ...status, current: false, installedVersion: "999.0.0" };

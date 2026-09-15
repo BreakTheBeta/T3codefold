@@ -2672,12 +2672,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // select the matching binary at runtime, so universal packaging must not lipo them.
       x64ArchFiles: "**/{*.darwin-{arm64,x64}.node,*darwin-{arm64,x64}/**/*}",
       category: "public.app-category.developer-tools",
-      extendInfo: {
-        NSMicrophoneUsageDescription: "Allow T3 Code to talk with Codex.",
-        NSScreenCaptureUsageDescription:
-          "T3 Code captures the active window when you use the window capture shortcut.",
-      },
-
+      extendInfo: { NSMicrophoneUsageDescription: "Allow T3 Code to talk with Codex." },
       protocols: [
         {
           name: "T3 Code",

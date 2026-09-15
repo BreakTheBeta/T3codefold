@@ -12,7 +12,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 
 export interface CreatedPullRequestKey {
@@ -61,22 +61,22 @@ export const linkCreatedPullRequest = <E>(input: {
   readonly threadId: ThreadId;
   readonly result: Pick<GitRunStackedActionResult, "pr">;
   readonly commandId: Effect.Effect<CommandId, E>;
-}): Effect.Effect<
-  void,
-  never,
-  ThreadManagementService.ThreadManagementService | ProjectionSnapshotQuery.ProjectionSnapshotQuery
-> =>
+}): Effect.Effect<void, never, OrchestratorV2 | ProjectionSnapshotQuery.ProjectionSnapshotQuery> =>
   Effect.gen(function* () {
-    const threadManagement = yield* ThreadManagementService.ThreadManagementService;
-    const snapshot = yield* threadManagement.getShellSnapshot();
-    const thread = snapshot.threads.find((candidate) => candidate.id === input.threadId);
-    if (thread === undefined) return;
-    const projects = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-    const project = Option.getOrUndefined(yield* projects.getProjectShellById(thread.projectId));
+    const engine = yield* OrchestratorV2;
+
+    const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+    const thread = yield* engine
+      .getThreadShell(input.threadId)
+      .pipe(Effect.map(Option.fromNullishOr));
+    if (Option.isNone(thread)) return;
+    const project = Option.getOrUndefined(
+      yield* snapshots.getProjectShellById(thread.value.projectId),
+    );
     const key = createdPullRequestKey(input.result, project);
     if (key === null) return;
     const commandId = yield* input.commandId;
-    yield* threadManagement
+    yield* engine
       .dispatch({
         type: "thread.pull-request.link",
         commandId,
@@ -84,7 +84,7 @@ export const linkCreatedPullRequest = <E>(input: {
         ...key,
         source: "created",
       })
-      .pipe(Effect.catchTags({ OrchestratorDispatchError: () => Effect.void }));
+      .pipe(Effect.asVoid);
   }).pipe(
     Effect.withSpan("linkCreatedPullRequest"),
     Effect.catchCause((cause) =>

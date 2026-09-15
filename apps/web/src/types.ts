@@ -13,6 +13,7 @@ import type {
   ProviderInteractionMode,
   RunId,
   RuntimeMode,
+  ScheduledTaskId,
 } from "@t3tools/contracts";
 import type {
   EnvironmentProject,
@@ -87,7 +88,7 @@ export function isBrowserPreviewAttachment(attachment: ChatFileAttachment): bool
 }
 
 export interface ChatMessage {
-  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
+  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
   readonly id: MessageId;
   readonly role: "user" | "assistant" | "system";
   readonly text: string;
@@ -96,6 +97,7 @@ export interface ChatMessage {
   readonly streaming: boolean;
   readonly createdBy?: OrchestrationV2Actor;
   readonly creationSource?: OrchestrationV2CreationSource;
+  readonly scheduledTaskId?: ScheduledTaskId;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly inputIntent?: OrchestrationV2UserMessageInputIntent | undefined;

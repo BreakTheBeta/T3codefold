@@ -5,9 +5,6 @@ thread, so you can watch an agent verify mobile work and tap the device
 yourself. Agents get the same device through `device_*` tools and the
 `agent-device` command line, which T3 Code sets up for them.
 
-Cursor agent sessions do not currently support device control. Use another
-provider for agent-driven device verification; the Device panel remains available.
-
 ## Open a device
 
 Open the right panel in a project thread and choose **Device**. On first use,

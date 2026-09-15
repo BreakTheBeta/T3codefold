@@ -14,6 +14,7 @@ import {
   type OrchestrationV2TurnItem,
   ProjectId,
   RunId,
+  type ScheduledTaskId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -64,7 +65,6 @@ export function existingThreadIdsForCommand(
 ): ReadonlyArray<ThreadId> {
   switch (command.type) {
     case "thread.create":
-    case "thread.history.import":
       return [];
     // Read-state commands only rewrite the thread payload's visited/unread
     // watermark; they never touch messages, so they do not need the imported
@@ -103,6 +103,7 @@ export interface ThreadManagementSendInput {
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
   readonly messageId: MessageId;
+  readonly scheduledTaskId?: ScheduledTaskId;
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly modelSelection?: ModelSelection;
@@ -345,7 +346,7 @@ export function latestActiveRun(
     .toSorted((left, right) => right.ordinal - left.ordinal)[0];
 }
 
-export function latestSteerableRun(
+function latestSteerableRun(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2Run | undefined {
   return projection.runs
@@ -521,6 +522,7 @@ const make = Effect.gen(function* () {
         commandId: input.commandId,
         threadId: input.threadId,
         messageId: input.messageId,
+        ...(input.scheduledTaskId === undefined ? {} : { scheduledTaskId: input.scheduledTaskId }),
         text: input.text,
         attachments: input.attachments,
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),

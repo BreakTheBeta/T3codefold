@@ -14,7 +14,8 @@ export function dropdownNavigationKey(event: {
     event.altKey ||
     event.metaKey ||
     event.shiftKey ||
-    (event.isComposing ?? event.nativeEvent?.isComposing)
+    event.isComposing ||
+    event.nativeEvent?.isComposing
   ) {
     return null;
   }

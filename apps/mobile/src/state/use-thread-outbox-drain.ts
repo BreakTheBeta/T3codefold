@@ -826,10 +826,10 @@ export function useThreadOutboxDrain(): void {
             text: queuedMessage.text,
             attachments: queuedMessage.attachments,
           }),
-          dispatchMode: "start",
           runtimeMode: sendSettings.runtimeMode,
           interactionMode: sendSettings.interactionMode,
           createdAt: queuedMessage.createdAt,
+          dispatchMode: "start",
         },
       });
       const failure = reportFailure(deliveryResult, "start-turn");

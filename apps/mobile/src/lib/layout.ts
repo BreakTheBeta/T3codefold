@@ -1,6 +1,5 @@
 import { scaledTypographyLineHeight } from "./appearancePreferences";
 import { MOBILE_TYPOGRAPHY } from "./typography";
-import { constrainFoldablePaneWidth } from "./foldable-pane-layout";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -50,6 +49,11 @@ export const AUXILIARY_PANE_MAX_WIDTH = 480;
 const AUXILIARY_PANE_DEFAULT_MAX_WIDTH = 320;
 const FILE_INSPECTOR_MIN_VIEWPORT_WIDTH = SPLIT_LAYOUT_MIN_WIDTH;
 const FILE_INSPECTOR_MIN_MAIN_WIDTH = 560;
+export const RESIZABLE_PANE_COMPACT_WIDTH = 72;
+const STABLE_FORM_SHEET_MAX_HEIGHT = 720;
+const STABLE_FORM_SHEET_VERTICAL_MARGIN = 64;
+const STABLE_FORM_SHEET_MIN_DETENT = 0.62;
+const STABLE_FORM_SHEET_MAX_DETENT = 0.92;
 
 export type LayoutVariant = "compact" | "split";
 
@@ -208,7 +212,7 @@ export function deriveFileInspectorPaneLayout(input: {
   return {
     supported,
     width: supported
-      ? constrainFoldablePaneWidth({
+      ? constrainAuxiliaryPaneWidth({
           preferredWidth:
             input.preferredWidth ??
             clamp(
@@ -217,6 +221,9 @@ export function deriveFileInspectorPaneLayout(input: {
               AUXILIARY_PANE_DEFAULT_MAX_WIDTH,
             ),
           availableWidth: availableContentWidth,
+          minimumMainWidth: RESIZABLE_PANE_COMPACT_WIDTH,
+          minimumPaneWidth: RESIZABLE_PANE_COMPACT_WIDTH,
+          maximumPaneWidth: Number.POSITIVE_INFINITY,
         })
       : null,
   };
@@ -229,6 +236,9 @@ export function deriveFileInspectorPaneLayout(input: {
 export function constrainAuxiliaryPaneWidth(input: {
   readonly preferredWidth: number;
   readonly availableWidth: number;
+  readonly minimumMainWidth?: number;
+  readonly minimumPaneWidth?: number;
+  readonly maximumPaneWidth?: number;
 }): number {
   const safePreferredWidth = Number.isFinite(input.preferredWidth)
     ? input.preferredWidth
@@ -236,11 +246,23 @@ export function constrainAuxiliaryPaneWidth(input: {
   const availableWidth = Number.isFinite(input.availableWidth)
     ? Math.max(0, input.availableWidth)
     : 0;
+  const minimumMainWidth = Number.isFinite(input.minimumMainWidth)
+    ? Math.max(0, input.minimumMainWidth ?? FILE_INSPECTOR_MIN_MAIN_WIDTH)
+    : FILE_INSPECTOR_MIN_MAIN_WIDTH;
+  const minimumPaneWidth = Number.isFinite(input.minimumPaneWidth)
+    ? Math.max(0, input.minimumPaneWidth ?? AUXILIARY_PANE_MIN_WIDTH)
+    : AUXILIARY_PANE_MIN_WIDTH;
+  const maximumPaneWidth =
+    input.maximumPaneWidth === Number.POSITIVE_INFINITY
+      ? Number.POSITIVE_INFINITY
+      : Number.isFinite(input.maximumPaneWidth)
+        ? Math.max(minimumPaneWidth, input.maximumPaneWidth ?? AUXILIARY_PANE_MAX_WIDTH)
+        : AUXILIARY_PANE_MAX_WIDTH;
   const maxWidth = Math.max(
-    AUXILIARY_PANE_MIN_WIDTH,
-    Math.min(AUXILIARY_PANE_MAX_WIDTH, availableWidth - FILE_INSPECTOR_MIN_MAIN_WIDTH),
+    minimumPaneWidth,
+    Math.min(maximumPaneWidth, availableWidth - minimumMainWidth),
   );
-  return clamp(Math.round(safePreferredWidth), AUXILIARY_PANE_MIN_WIDTH, maxWidth);
+  return clamp(Math.round(safePreferredWidth), minimumPaneWidth, maxWidth);
 }
 
 export function deriveCenteredContentHorizontalPadding(input: {

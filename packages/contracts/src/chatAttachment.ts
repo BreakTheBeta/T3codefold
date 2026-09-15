@@ -2,12 +2,12 @@ import * as Schema from "effect/Schema";
 
 import {
   IsoDateTime,
-  PositiveInt,
-  TrimmedString,
   MessageId,
   NonNegativeInt,
+  PositiveInt,
   ThreadId,
   TrimmedNonEmptyString,
+  TrimmedString,
 } from "./baseSchemas.ts";
 
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
@@ -104,6 +104,7 @@ const SnapShotAccessibilityWire = Schema.Union([
     root: SnapShotAccessibilityNode,
   }),
 ]);
+
 export const SnapShotAccessibility = SnapShotAccessibilityWire.check(
   Schema.makeFilter((accessibility: typeof SnapShotAccessibilityWire.Type) => {
     if (accessibility.format === "flat-text") return undefined;
@@ -149,8 +150,8 @@ export const ChatImageAttachment = Schema.Struct({
   id: ChatAttachmentId,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100), Schema.isPattern(/^image\//i)),
-  source: Schema.optional(SnapShotSource),
   sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES)),
+  source: Schema.optional(SnapShotSource),
 });
 export type ChatImageAttachment = typeof ChatImageAttachment.Type;
 
@@ -159,7 +160,6 @@ export type PastedTextAttachmentSource = typeof PastedTextAttachmentSource.Type;
 
 export const ChatFileAttachment = Schema.Struct({
   type: Schema.Literal("file"),
-  source: Schema.optional(PastedTextAttachmentSource),
   id: ChatAttachmentId,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
@@ -167,6 +167,10 @@ export const ChatFileAttachment = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
     Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_FILE_BYTES),
   ),
+  /** Clipboard text folded by a client. Providers keep these path-only so the
+      agent can inspect the file selectively instead of eagerly spending the
+      same context the fold is intended to preserve. */
+  source: Schema.optional(PastedTextAttachmentSource),
 });
 export type ChatFileAttachment = typeof ChatFileAttachment.Type;
 
@@ -201,6 +205,7 @@ export const UploadChatImageAttachment = Schema.Struct({
   dataUrl: TrimmedNonEmptyString.check(
     Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_IMAGE_DATA_URL_CHARS),
   ),
+  source: Schema.optional(SnapShotSource),
 });
 export type UploadChatImageAttachment = typeof UploadChatImageAttachment.Type;
 
@@ -233,11 +238,3 @@ export class PersistChatAttachmentsError extends Schema.TaggedError<PersistChatA
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}
-
-export const UserInputAttachments = Schema.Record(
-  Schema.String,
-  Schema.Array(Schema.Union([ChatImageAttachment, ChatFileAttachment])).pipe(
-    Schema.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS)),
-  ),
-);
-export type UserInputAttachments = typeof UserInputAttachments.Type;
