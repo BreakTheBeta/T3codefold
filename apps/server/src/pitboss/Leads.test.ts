@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import { expect, it } from "@effect/vitest";
 import {
   CommandId,
+  EnvironmentId,
   isPitbossLeadActive,
   ProjectId,
   ProviderInstanceId,
@@ -124,6 +125,109 @@ it("persists Terra project context and routes two Luna workers through its owner
   expect(inboxFor(f.state).some((m) => m.text === "Which empty state?")).toBe(false);
   expect(replayJournal(f.journal)).toEqual(f.state);
   expect(leadView(f.state, f.lead.threadId)?.tasks).toHaveLength(2);
+});
+
+it("lets a lead coordinate only work already assigned to an approved remote task home", () => {
+  const f = fixture();
+  f.task("remote-ui");
+  const coordinator = EnvironmentId.make("coordinator");
+  const home = EnvironmentId.make("build-home");
+  const shared = {
+    ...f.state,
+    sourceAuthorities: [
+      {
+        scope: "shared-ui",
+        self: coordinator,
+        coordinator,
+        homeEnvironmentId: home,
+        peerId: "build-peer",
+        proposalId: "approved-proposal",
+      },
+    ],
+    tasks: f.state.tasks.map((task) => ({
+      ...task,
+      source: {
+        kind: "linear" as const,
+        tenantId: "team",
+        itemId: "issue-1",
+        scope: "shared-ui",
+        key: "UI-1",
+        url: "https://tracker.invalid/UI-1",
+        status: "Open",
+        priority: "1",
+        observedAt: "2026-09-11T00:00:00.000Z",
+      },
+      homeEnvironmentId: home,
+    })),
+  };
+  const manage = {
+    commandId: CommandId.make("manage-remote"),
+    expectedRevision: shared.revision,
+    authorityGeneration: shared.role?.generation,
+    action: { type: "manage-task" as const, taskId: "remote-ui", leadId: f.lead.id },
+  };
+  expect(() =>
+    decide(
+      { ...shared, sourceAuthorities: [] },
+      manage,
+      { type: "agent", threadId: boss },
+      "2026-09-11T00:00:00.000Z",
+    ),
+  ).toThrow(/approved fixed-home authority/);
+  expect(() =>
+    decide(
+      {
+        ...shared,
+        role: {
+          ...shared.role!,
+          brief: { ...shared.role!.brief, managedPeerIds: [] },
+        },
+      },
+      manage,
+      { type: "agent", threadId: boss },
+      "2026-09-11T00:00:00.000Z",
+    ),
+  ).toThrow(/approved fixed-home authority/);
+  const managed = decide(
+    shared,
+    manage,
+    { type: "agent", threadId: boss },
+    "2026-09-11T00:00:00.000Z",
+  );
+  const view = leadView(managed, f.lead.threadId)!;
+  expect(view.tasks[0]?.homeEnvironmentId).toBe(home);
+  expect(view.sourceAuthorities).toEqual(shared.sourceAuthorities);
+  const downgraded = {
+    ...managed,
+    role: { ...managed.role!, brief: { ...managed.role!.brief, managedPeerIds: [] } },
+  };
+  expect(leadView(downgraded, f.lead.threadId)?.sourceAuthorities).toEqual([]);
+  expect(() =>
+    decide(
+      downgraded,
+      {
+        commandId: CommandId.make("lead-after-peer-downgrade"),
+        expectedRevision: downgraded.revision,
+        authorityGeneration: downgraded.leads?.[0]?.generation,
+        action: { type: "assign", taskId: "remote-ui" },
+      },
+      { type: "agent", threadId: f.lead.threadId },
+      "2026-09-11T00:00:00.000Z",
+    ),
+  ).toThrow(/outside this lead's scope/);
+  const queued = decide(
+    managed,
+    {
+      commandId: CommandId.make("lead-remote-assign"),
+      expectedRevision: managed.revision,
+      authorityGeneration: managed.leads?.[0]?.generation,
+      action: { type: "assign", taskId: "remote-ui" },
+    },
+    { type: "agent", threadId: f.lead.threadId },
+    "2026-09-11T00:00:00.000Z",
+  );
+  expect(queued.tasks[0]?.pendingOperationId).toBe("lead-remote-assign");
+  expect(queued.tasks[0]?.attempts).toEqual([]);
 });
 
 it("fences a dormant lead and preserves workers, context and question routing", () => {

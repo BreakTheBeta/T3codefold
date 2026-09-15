@@ -10,6 +10,7 @@ import {
   RunId,
   ThreadId,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2Run,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -95,6 +96,7 @@ const harness = Effect.gen(function* () {
     [boss, projection(boss, a)],
   ]);
   const launched: ThreadId[] = [];
+  const launches: OrchestrationV2ThreadLaunchInput[] = [];
   const launchModes: string[] = [];
   const permissionModes: string[] = [];
   let failPermissions = false;
@@ -136,6 +138,7 @@ const harness = Effect.gen(function* () {
         Effect.gen(function* () {
           const id = input.threadId!;
           launched.push(id);
+          launches.push(input);
           launchModes.push(input.runtimeMode);
           if (failLaunch.has(id))
             return yield* new ThreadLaunchError({
@@ -240,6 +243,7 @@ const harness = Effect.gen(function* () {
     store,
     projections,
     launched,
+    launches,
     launchModes,
     permissionModes,
     failPermissions: () => {
@@ -257,6 +261,45 @@ const harness = Effect.gen(function* () {
   };
 });
 const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
+it.effect("launches leads and workers as ordinary managed threads in independent worktrees", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const lead = yield* h.lead("managed", a);
+    yield* h.drain();
+    expect(h.launches[0]).toMatchObject({
+      threadId: lead.threadId,
+      projectId: a,
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    yield* h.command({
+      type: "create",
+      taskId: "managed-worker",
+      projectId: a,
+      title: "Managed worker",
+      outcome: "Implement the bounded change",
+      criteria: "Focused proof passes",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "manage-task", taskId: "managed-worker", leadId: lead.id });
+    yield* h.command({ type: "assign", taskId: "managed-worker" });
+    yield* h.drain();
+    const state = yield* h.store.read();
+    const attempt = state.tasks.find((task) => task.id === "managed-worker")!.attempts[0]!;
+    expect(h.launches[1]).toMatchObject({
+      threadId: attempt.threadId,
+      projectId: a,
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    expect(attempt.threadId).not.toBe(lead.threadId);
+  }).pipe(Effect.provide(services)),
+);
 it.effect(
   "a missing failed lead does not occupy the coordinator slot, and can be retried after restart",
   () =>

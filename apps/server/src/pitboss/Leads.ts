@@ -37,6 +37,22 @@ export function inboxFor(state: PitbossSnapshot, leadId?: string) {
 export function leadView(state: PitbossSnapshot, threadId: ThreadId): PitbossSnapshot | undefined {
   const lead = activeLeads(state).find((lead) => lead.threadId === threadId);
   if (!lead) return;
+  const tasks = state.tasks.filter(
+    (task) => task.leadId === lead.id && task.projectId === lead.projectId,
+  );
+  const sourceAuthorities = (state.sourceAuthorities ?? []).filter(
+    (authority) =>
+      !!authority.peerId &&
+      !!authority.proposalId &&
+      authority.coordinator === authority.self &&
+      (state.role?.brief.managedPeerIds === undefined ||
+        state.role.brief.managedPeerIds.includes(authority.peerId)) &&
+      tasks.some(
+        (task) =>
+          task.source?.scope === authority.scope &&
+          task.homeEnvironmentId === authority.homeEnvironmentId,
+      ),
+  );
   return {
     ...state,
     verificationRecipes: (state.verificationRecipes ?? []).filter(
@@ -49,15 +65,15 @@ export function leadView(state: PitbossSnapshot, threadId: ThreadId): PitbossSna
             ...state.role.brief,
             priorities: lead.charter,
             projectIds: [lead.projectId],
-            managedPeerIds: [],
+            managedPeerIds: sourceAuthorities.flatMap((authority) =>
+              authority.peerId ? [authority.peerId] : [],
+            ),
           },
         }
       : null,
     leads: [lead],
-    tasks: state.tasks.filter(
-      (task) => task.leadId === lead.id && task.projectId === lead.projectId,
-    ),
+    tasks,
     messages: inboxFor(state, lead.id),
-    sourceAuthorities: [],
+    sourceAuthorities,
   };
 }

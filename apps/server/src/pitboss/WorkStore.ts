@@ -335,6 +335,9 @@ export const layer = Layer.effect(
               const mirrored = {
                 ...task,
                 projectId: local.projectId,
+                // Project-lead ownership is local to this coordinator. The task home owns the
+                // execution contract and revision, but cannot appoint a lead in another environment.
+                leadId: local.leadId,
                 homeEnvironmentId: sender,
                 homeRevision: task.revision,
                 pendingOperationId: local.pendingOperationId,
