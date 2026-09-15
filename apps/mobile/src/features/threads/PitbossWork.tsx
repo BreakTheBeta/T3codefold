@@ -468,7 +468,10 @@ export function PitbossWork(props: {
                           <View className="gap-3">
                             <Text className="text-xs text-muted-foreground">
                               {projectName(task.projectId)} ·{" "}
-                              {task.leadId ? `Project lead ${task.leadId}` : "Managed by GLaDOS"}
+                              {task.leadId ? `Project lead ${task.leadId}` : "Managed by GLaDOS"} ·{" "}
+                              {task.homeEnvironmentId
+                                ? `Task home ${task.homeEnvironmentId}`
+                                : "This environment"}
                             </Text>
                             <Text className="text-xl font-semibold">{task.title}</Text>
                             <Text className="text-xs text-muted-foreground">
@@ -861,7 +864,7 @@ export function PitbossWork(props: {
                                       serverConfigs.has(
                                         task.homeEnvironmentId ?? props.environmentId,
                                       )
-                                        ? `Worker ${attempt.generation} · ${attempt.state}`
+                                        ? `Worker ${attempt.generation} · ${attempt.state}${attempt.workspacePath ? ` · ${attempt.workspacePath}` : ""}`
                                         : "Connect task home first",
                                       () => {
                                         setVisible(false);
@@ -910,9 +913,19 @@ export function PitbossWork(props: {
                           {lead.model.model} · up to {lead.maxWorkers} shared workers
                         </Text>
                         <Text className="text-sm">{lead.charter}</Text>
+                        <Text className="text-xs text-muted-foreground">
+                          {projectName(lead.projectId)} · this environment · thread {lead.threadId}
+                        </Text>
                         <Text className="text-sm">
                           Context v{lead.contextRevision}: {lead.context || "Not recorded yet"}
                         </Text>
+                        {button("Open lead thread", () => {
+                          setVisible(false);
+                          navigation.navigate("Thread", {
+                            environmentId: props.environmentId,
+                            threadId: lead.threadId,
+                          });
+                        })}
                         {role?.brief.projectIds.includes(lead.projectId) &&
                           button(
                             active ? "Return to GLaDOS" : "Reactivate lead",

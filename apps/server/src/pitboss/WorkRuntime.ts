@@ -8,14 +8,17 @@ import {
   PitbossAction,
   PitbossForwardIntent,
   PitbossError,
+  ProjectId,
+  ThreadId,
   type PitbossSnapshot,
 } from "@t3tools/contracts";
+import * as NodeCrypto from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
-import { WorkStore } from "./WorkStore.ts";
+import { WorkStore, type WorkEffect } from "./WorkStore.ts";
 import { readyTasks, workContext } from "./Work.ts";
 import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
 import {
@@ -28,6 +31,15 @@ import {
 const encodeWake = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeForward = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossForwardIntent));
 const decodeAction = Schema.decodeUnknownEffect(Schema.fromJsonString(PitbossAction));
+const WakeIntent = Schema.Struct({
+  recipientId: Schema.String,
+  leadId: Schema.optional(Schema.String),
+  projectId: ProjectId,
+  threadId: ThreadId,
+  generation: Schema.Number,
+  keys: Schema.Array(Schema.String),
+});
+const decodeWake = Schema.decodeUnknownEffect(Schema.fromJsonString(WakeIntent));
 const isProjectionMissing = Schema.is(ProjectionStoreThreadNotFoundError);
 const isManagementMissing = Schema.is(ThreadManagementThreadNotFoundError);
 const isProjectionError = Schema.is(OrchestratorProjectionError);
@@ -36,6 +48,80 @@ function isMissingThread(error: unknown): boolean {
   if (isProjectionMissing(error) || isManagementMissing(error)) return true;
   return (isProjectionError(error) || isManagementError(error)) && isMissingThread(error.cause);
 }
+interface WakeRecipient {
+  readonly id: string;
+  readonly projectId: typeof ProjectId.Type;
+  readonly threadId: typeof ThreadId.Type;
+  readonly generation: number;
+  readonly leadId?: string | undefined;
+}
+function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
+  const messages = inboxFor(state, recipient.leadId).filter((message) => !message.acknowledged);
+  const available =
+    state.tasks.filter((task) =>
+      task.attempts.some((attempt) =>
+        ["pending", "running", "submitted", "stop_requested"].includes(attempt.state),
+      ),
+    ).length < (state.role?.brief.maxWorkers ?? 0);
+  const owned = state.tasks.filter((task) => taskLead(state, task)?.id === recipient.leadId);
+  const ready = readyTasks(state).filter((task) => owned.includes(task));
+  const reviews = owned.filter((task) => {
+    const attempt = task.attempts.at(-1);
+    return (
+      !!attempt &&
+      ["stopped", "failed"].includes(attempt.state) &&
+      ["active", "verifying", "blocked"].includes(task.status)
+    );
+  });
+  const owner = recipient.leadId ? `project lead ${recipient.leadId}` : "GLaDOS";
+  const events: Array<{
+    readonly key: string;
+    readonly text: string;
+    readonly deliverable: boolean;
+  }> = [];
+  for (const message of messages) {
+    const task = state.tasks.find((entry) => entry.id === message.taskId);
+    const attempt = task?.attempts.find((entry) => entry.threadId === message.threadId);
+    const eventKind = task?.decisions?.some(
+      (decision) => decision.id === message.id && decision.answer === undefined,
+    )
+      ? "decision"
+      : message.kind;
+    const subject = task
+      ? `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`
+      : `portfolio · owner ${owner}`;
+    const next =
+      eventKind === "question"
+        ? "Answer within the charter or record a user decision."
+        : eventKind === "decision"
+          ? "Resolve the recorded decision before resuming this task."
+          : message.kind === "result"
+            ? "Inspect the reported evidence; a finished turn is not an accepted result."
+            : "Inspect the update and act only if its recorded state requires it.";
+    events.push({
+      key: task
+        ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}`
+        : `message:${message.id}`,
+      text: `${eventKind} · ${subject}: ${message.text.slice(0, 600)} Next: ${next}`,
+      deliverable: true,
+    });
+  }
+  for (const task of reviews) {
+    const attempt = task.attempts.at(-1)!;
+    events.push({
+      key: `review:${task.id}:owner:${task.ownershipRevision ?? 0}:${attempt.id}:${attempt.state}`,
+      text: `Worker ${attempt.state} · task ${task.id} · attempt ${attempt.id} · owner ${owner} · task status ${task.status}. Next: inspect thread ${attempt.threadId}, then record review, rework, or a concrete blocker; do not accept the turn itself as evidence.`,
+      deliverable: true,
+    });
+  }
+  for (const task of ready)
+    events.push({
+      key: `ready:${task.id}:owner:${task.ownershipRevision ?? 0}:${task.revision}`,
+      text: `Newly ready · task ${task.id} · attempt none · owner ${owner} · task status ${task.status}. Next: assign a managed worker or record the condition that blocks assignment.`,
+      deliverable: available,
+    });
+  return events;
+}
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const store = yield* WorkStore;
@@ -43,11 +129,84 @@ export const layer = Layer.effectDiscard(
     const threads = yield* ThreadManagementService;
     const launch = yield* ThreadLaunchService;
     const drainLock = yield* Semaphore.make(1);
-    const handledWakes = new Map<string, string>();
     let lastLeadId: string | undefined;
+    const processWake = Effect.fn("WorkRuntime.processWake")(function* (effect: WorkEffect) {
+      const intent = yield* decodeWake(effect.payload_json);
+      const finish = (keys: ReadonlyArray<string>) =>
+        store.finishWake(effect.operation_id, encodeWake({ ...intent, keys }));
+      const state = yield* store.read();
+      if (!state.role) {
+        yield* finish([]);
+        return;
+      }
+      if (state.role.paused) return;
+      const recipient: WakeRecipient | undefined = intent.leadId
+        ? activeLeads(state)
+            .filter((lead) => lead.id === intent.leadId)
+            .map((lead) => ({
+              id: lead.id,
+              projectId: lead.projectId,
+              threadId: lead.threadId,
+              generation: lead.generation,
+              leadId: lead.id,
+            }))[0]
+        : {
+            id: "glados",
+            projectId: state.role.projectId,
+            threadId: state.role.threadId,
+            generation: state.role.generation,
+          };
+      const current = recipient ? wakeEvents(state, recipient) : [];
+      const currentByKey = new Map(current.map((event) => [event.key, event]));
+      const matched = intent.keys.flatMap((key) => {
+        const event = currentByKey.get(key);
+        return event ? [event] : [];
+      });
+      if (
+        !recipient ||
+        recipient.id !== intent.recipientId ||
+        recipient.generation !== intent.generation ||
+        matched.length === 0
+      ) {
+        yield* finish([]);
+        return;
+      }
+      const deliverable = matched.filter((event) => event.deliverable);
+      if (deliverable.length === 0) return;
+      const thread = yield* Effect.result(
+        threads.getProjectThread({ projectId: recipient.projectId, threadId: recipient.threadId }),
+      );
+      if (thread._tag === "Success" && latestActiveRun(thread.success)) return;
+      if (thread._tag === "Failure") {
+        yield* store.retryEffect(effect.operation_id, String(thread.failure));
+        return;
+      }
+      const delivered = yield* Effect.result(
+        threads.sendToThread({
+          projectId: recipient.projectId,
+          threadId: recipient.threadId,
+          commandId: CommandId.make(effect.operation_id),
+          messageId: MessageId.make(effect.operation_id),
+          text: ["Managed work changed:", ...deliverable.map((event) => event.text)].join("\n"),
+          attachments: [],
+          mode: "queue",
+          createdBy: "system",
+          creationSource: "server",
+        }),
+      );
+      if (delivered._tag === "Failure") {
+        yield* store.retryEffect(effect.operation_id, String(delivered.failure));
+        return;
+      }
+      yield* finish(deliverable.map((event) => event.key));
+    });
     const drain = Effect.fn("WorkRuntime.drain")(function* () {
       const pending = yield* store.effects();
       for (const effect of pending) {
+        if (effect.kind === "wake") {
+          yield* processWake(effect);
+          continue;
+        }
         const current = yield* store.read();
         const leadStatusAction =
           effect.kind === "lead-status" ? yield* decodeAction(effect.payload_json) : undefined;
@@ -378,12 +537,6 @@ export const layer = Layer.effectDiscard(
           ),
         ),
       );
-      const available =
-        state.tasks.filter((task) =>
-          task.attempts.some((attempt) =>
-            ["pending", "running", "submitted", "stop_requested"].includes(attempt.state),
-          ),
-        ).length < role.brief.maxWorkers;
       const recipients = [
         {
           id: "glados",
@@ -409,44 +562,38 @@ export const layer = Layer.effectDiscard(
       let wokeLead = false;
       for (const recipient of recipients) {
         if (recipient.leadId && wokeLead) continue;
-        const messages = inboxFor(state, recipient.leadId).filter(
-          (message) => !message.acknowledged,
-        );
-        const ready = available
-          ? readyTasks(state).filter((task) => taskLead(state, task)?.id === recipient.leadId)
-          : [];
-        if (!messages.length && !ready.length) continue;
-        // Relevant input, not unrelated portfolio chatter, determines whether another turn is useful.
-        const signature = encodeWake([
-          recipient.generation,
-          messages.map((m) => m.id),
-          ready.map((t) => [t.id, t.revision]),
-          state.tasks
-            .filter((t) => taskLead(state, t)?.id === recipient.leadId && t.status === "verifying")
-            .map((t) => [t.id, t.revision]),
-        ]);
-        if (handledWakes.get(recipient.id) === signature) continue;
+        const recorded = new Set(yield* store.wakeKeys(recipient.id, recipient.generation));
+        const events = wakeEvents(state, recipient)
+          .filter((event) => event.deliverable && !recorded.has(event.key))
+          .slice(0, 8);
+        if (!events.length) continue;
         const thread = yield* threads.getProjectThread({
           projectId: recipient.projectId,
           threadId: recipient.threadId,
         });
         if (latestActiveRun(thread)) continue;
-        yield* threads.sendToThread({
+        const operationId = `pitboss:wake:${NodeCrypto.createHash("sha256")
+          .update(
+            encodeWake([recipient.id, recipient.generation, events.map((event) => event.key)]),
+          )
+          .digest("hex")}`;
+        const intent = {
+          recipientId: recipient.id,
+          ...(recipient.leadId ? { leadId: recipient.leadId } : {}),
           projectId: recipient.projectId,
           threadId: recipient.threadId,
-          commandId: CommandId.make(
-            `pitboss:wake:${recipient.id}:${recipient.generation}:${state.revision}`,
-          ),
-          messageId: MessageId.make(
-            `pitboss:wake:${recipient.id}:${recipient.generation}:${state.revision}`,
-          ),
-          text: "Review current work and unresolved messages with work_read. Pending user decisions park only their tasks. Continue independent assignments, reviews and reports; acknowledge messages after handling them, but never treat acknowledgement as user approval. When no actionable work remains, end the turn; do not poll.",
-          attachments: [],
-          mode: "queue",
-          createdBy: "agent",
-          creationSource: "mcp",
-        });
-        handledWakes.set(recipient.id, signature);
+          generation: recipient.generation,
+          keys: events.map((event) => event.key),
+        };
+        const queued = yield* store.queueWake(operationId, encodeWake(intent));
+        if (queued)
+          yield* processWake({
+            operation_id: operationId,
+            kind: "wake",
+            payload_json: encodeWake(intent),
+            attempts: 0,
+            error: null,
+          });
         if (recipient.leadId) {
           wokeLead = true;
           lastLeadId = recipient.leadId;
