@@ -226,6 +226,7 @@ export type PitbossDecision = typeof PitbossDecision.Type;
 
 export const PitbossTask = Schema.Struct({
   proposedVerificationRecipe: Schema.optional(PitbossVerificationRecipe),
+  reworkRequestedAt: Schema.optional(Schema.String),
   decisions: Schema.optional(Schema.Array(PitbossDecision).check(Schema.isMaxLength(20))),
   verificationProfileId: Schema.optional(Schema.NullOr(Id)),
   verification: Schema.optional(PitbossVerification),
@@ -504,6 +505,10 @@ export function pitbossTaskNextAction(
     return attempt.state === "submitted" || attempt.state === "stop_requested"
       ? "await-writer"
       : "working";
+
+  // Reopen preserves evidence for audit, so explicit rework intent must outrank that old result.
+  // Assign consumes the intent before starting the replacement writer.
+  if (task.status === "queued" && task.reworkRequestedAt) return "assign";
 
   const evidence = task.evidence.at(-1);
   if (evidence) {
