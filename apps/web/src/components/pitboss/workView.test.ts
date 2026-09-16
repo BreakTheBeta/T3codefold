@@ -133,5 +133,24 @@ describe("GLaDOS work discovery", () => {
         },
       }),
     ).toBe("Approve verification setup");
+    const reviewed = {
+      ...retained,
+      criteriaVersion: 1,
+      evidence: [
+        {
+          ...retained.evidence[0]!,
+          provenance: "coordinator_review" as const,
+          verdict: "pass" as const,
+        },
+      ],
+    };
+    expect(nextActionLabel({ ...state, tasks: [reviewed] }, reviewed)).toBe(
+      "Accept reviewed result",
+    );
+    const failed = {
+      ...reviewed,
+      evidence: [{ ...reviewed.evidence[0]!, verdict: "fail" as const }],
+    };
+    expect(nextActionLabel({ ...state, tasks: [failed] }, failed)).toBe("Recover or close");
   });
 });

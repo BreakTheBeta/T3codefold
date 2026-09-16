@@ -475,6 +475,7 @@ export type PitbossTaskNextAction =
   | "verify"
   | "review"
   | "recover"
+  | "accept"
   | "assign"
   | "working";
 
@@ -510,13 +511,24 @@ export function pitbossTaskNextAction(
     // coordinator review re-attests that candidate; assigning another implementation would race
     // the retained result and lose useful work.
     if (evidence.criteriaVersion !== task.criteriaVersion) return "review";
+    if (evidence.provenance === "coordinator_review" && evidence.verdict !== "pass")
+      return "recover";
     const recipe = selectedRecipe;
     if (recipe && recipe.enabled !== false) {
-      if (["pending", "running"].includes(task.verification?.state ?? ""))
+      const run = task.verification;
+      const verificationMatches =
+        !!run &&
+        run.candidate === evidence.candidate &&
+        run.attemptId === evidence.attemptId &&
+        run.criteriaVersion === task.criteriaVersion &&
+        (run.recipe.profileId ?? "default") === (recipe.profileId ?? "default") &&
+        run.recipe.projectId === recipe.projectId &&
+        run.recipe.version === recipe.version;
+      if (verificationMatches && ["pending", "running"].includes(run.state))
         return "await-verification";
       if (!hasCurrentVerification(task, recipe, evidence.candidate, now)) return "verify";
     }
-    if (evidence.provenance === "coordinator_review") return null;
+    if (evidence.provenance === "coordinator_review") return "accept";
     return "review";
   }
 
@@ -542,6 +554,8 @@ export function pitbossTaskNextActionLabel(action: PitbossTaskNextAction | null)
       return "Review retained result";
     case "recover":
       return "Recover or close";
+    case "accept":
+      return "Accept reviewed result";
     case "assign":
       return "Ready to assign";
     case "working":

@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
   CommandId,
+  pitbossTaskNextAction,
   ProviderInstanceId,
   ProjectId,
   ThreadId,
@@ -118,6 +119,157 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
   };
   run({ type: "accept", taskId: "task", evidenceId, note: "Inspected candidate and check result" });
   expect(state.tasks[0]!.status).toBe("done");
+});
+
+it("derives recovery and explicit acceptance from coordinator review verdicts", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`review-next-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-10T00:00:00.000Z",
+    );
+  };
+  run({
+    type: "create",
+    taskId: "review-next",
+    projectId,
+    title: "Review next action",
+    outcome: "Expose the review verdict obligation",
+    criteria: "Coordinator review is explicit",
+    verifyCommand: "",
+    priority: 10,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  run({ type: "assign", taskId: "review-next" });
+  const attempt = state.tasks[0]!.attempts[0]!;
+  state = observeAttempt(state, "review-next", attempt.id, "stopped", "Worker stopped");
+  const review = (verdict: "pass" | "fail" | "inconclusive", suffix: string) =>
+    run({
+      type: "review",
+      taskId: "review-next",
+      attemptId: attempt.id,
+      criteriaVersion: state.tasks[0]!.criteriaVersion,
+      candidate: `commit:${suffix.repeat(40)}`,
+      verdict,
+      summary: `${verdict} coordinator review`,
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+  review("fail", "a");
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+  review("inconclusive", "b");
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+  review("pass", "c");
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("accept");
+});
+
+it("does not await verification captured for a replaced candidate", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`stale-verification-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-10T00:00:00.000Z",
+    );
+  };
+  run({
+    type: "create",
+    taskId: "stale-verification",
+    projectId,
+    title: "Stale verification",
+    outcome: "Verify the current candidate",
+    criteria: "Verification matches its subject",
+    verifyCommand: "vp test run focused.test.ts",
+    priority: 10,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  run({
+    type: "verification-recipe",
+    selectForTaskId: "stale-verification",
+    recipe: {
+      profileId: "focused",
+      mode: "commit",
+      projectId,
+      version: 1,
+      name: "Focused checks",
+      doctor: "command -v vp",
+      verify: "vp test run focused.test.ts",
+      cleanup: "",
+      timeoutSeconds: 60,
+      artifacts: [],
+    },
+  });
+  run({ type: "assign", taskId: "stale-verification" });
+  const task = state.tasks[0]!;
+  const attempt = task.attempts[0]!;
+  run({
+    type: "submit",
+    taskId: task.id,
+    attemptId: attempt.id,
+    criteriaVersion: task.criteriaVersion,
+    candidate: `commit:${"a".repeat(40)}`,
+    verdict: "pass",
+    summary: "Candidate A",
+    command: "vp test run focused.test.ts",
+    artifactUrls: [],
+  });
+  state = observeAttempt(state, task.id, attempt.id, "stopped", "Worker stopped");
+  run({ type: "verify", taskId: task.id, evidenceId: state.tasks[0]!.evidence.at(-1)!.id });
+  state = {
+    ...state,
+    tasks: state.tasks.map((entry) =>
+      entry.id !== task.id
+        ? entry
+        : {
+            ...entry,
+            evidence: [
+              ...entry.evidence,
+              {
+                ...entry.evidence.at(-1)!,
+                id: "replacement-review",
+                candidate: `commit:${"b".repeat(40)}`,
+                provenance: "coordinator_review" as const,
+                summary: "Candidate B replaced candidate A during recovery",
+              },
+            ],
+          },
+    ),
+  };
+  expect(state.tasks[0]!.verification).toMatchObject({
+    state: "pending",
+    candidate: `commit:${"a".repeat(40)}`,
+  });
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
+  state = {
+    ...state,
+    verificationRecipes: state.verificationRecipes!.map((recipe) => ({ ...recipe, version: 2 })),
+    tasks: state.tasks.map((entry) => ({ ...entry, evidence: [entry.evidence[0]!] })),
+  };
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
+  state = {
+    ...state,
+    tasks: state.tasks.map((entry) => ({
+      ...entry,
+      criteriaVersion: entry.criteriaVersion + 1,
+      evidence: [
+        { ...entry.evidence[0]!, criteriaVersion: entry.evidence[0]!.criteriaVersion + 1 },
+      ],
+    })),
+  };
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
 });
 
 it.each([false, true])(
