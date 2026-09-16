@@ -19,7 +19,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import Migration0062 from "../persistence/Migrations/062_Pitboss.ts";
 import {
   emptyProjection,
   ProjectionStoreThreadNotFoundError,
@@ -293,7 +294,10 @@ const harness = Effect.gen(function* () {
     lead,
   };
 });
-const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
+const database = Layer.effectDiscard(Migration0062).pipe(
+  Layer.provideMerge(NodeSqliteClient.layerMemory()),
+);
+const services = storeLayer.pipe(Layer.provide(database));
 it.effect(
   "does not wake GLaDOS again when its no-op turn leaves the same task ready across restart",
   () =>
