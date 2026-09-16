@@ -23,6 +23,9 @@ export function TaskDecisionCard({
       ? undefined
       : task.decisions?.find((decision) => decision.answer === undefined);
   if (!pending) return null;
+  const proposal = task.proposedVerificationRecipe;
+  const proposalDigest = task.proposedVerificationDigest;
+  const approvesProposal = task.proposedVerificationDecisionId === pending.id;
   const submit = (value: string) => {
     if (value.trim())
       void command({
@@ -50,6 +53,23 @@ export function TaskDecisionCard({
         for later.
       </p>
       <div className="flex flex-wrap gap-2">
+        {proposal && proposalDigest && approvesProposal && (
+          <Button
+            size="sm"
+            disabled={busy || !!task.homeEnvironmentId}
+            onClick={() =>
+              void command({
+                type: "approve-verification",
+                taskId: task.id,
+                decisionId: pending.id,
+                proposalVersion: proposal.version,
+                proposalDigest,
+              })
+            }
+          >
+            Approve and save evidence profile
+          </Button>
+        )}
         {pending.options.map((option) => (
           <Button
             key={option}
@@ -62,6 +82,12 @@ export function TaskDecisionCard({
           </Button>
         ))}
       </div>
+      {proposal && approvesProposal && (
+        <p className="text-xs text-muted-foreground">
+          Only “Approve and save evidence profile” saves the exact proposed checks. Other choices
+          and written replies answer the decision without changing proof requirements.
+        </p>
+      )}
       <label className="block text-sm">
         Your direction
         <textarea

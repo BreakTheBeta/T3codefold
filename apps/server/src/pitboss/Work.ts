@@ -1,4 +1,5 @@
 import { activeLeads, inboxFor, leadView, taskLead } from "./Leads.ts";
+import * as NodeCrypto from "node:crypto";
 import {
   PitbossError,
   hasCurrentVerification,
@@ -11,6 +12,7 @@ import {
   type PitbossSnapshot,
   type PitbossTask,
   type PitbossAttempt,
+  type PitbossVerificationRecipe,
 } from "@t3tools/contracts";
 
 export type WorkActor =
@@ -25,6 +27,20 @@ export type WorkActor =
 export const importedCriteria =
   "Review this source item and set explicit acceptance criteria before activating it.";
 export const emptyWork: PitbossSnapshot = { revision: 0, role: null, tasks: [], messages: [] };
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
+/** Stable content identity used to fence approval to the proposal the user reviewed. */
+export function verificationRecipeDigest(recipe: PitbossVerificationRecipe) {
+  return NodeCrypto.createHash("sha256").update(stableJson(recipe)).digest("hex");
+}
 function fail(message: string, code: PitbossError["code"] = "invalid"): never {
   throw new PitbossError({ code, message });
 }
@@ -197,7 +213,15 @@ export function decide(
       command.authorityGeneration === state.role.generation);
   const automaticVerification =
     manager && actor.type === "agent" && state.role?.brief.verificationMode === "automatic";
-  const userActions = ["activate-home", "elect", "dismiss", "brief", "pause", "resolve-decision"];
+  const userActions = [
+    "activate-home",
+    "elect",
+    "dismiss",
+    "brief",
+    "pause",
+    "resolve-decision",
+    "approve-verification",
+  ];
   if (
     (userActions.includes(action.type) ||
       (action.type === "verification-recipe" && !automaticVerification)) &&
@@ -329,7 +353,12 @@ export function decide(
         const matches =
           (task.verificationProfileId ?? "default") === (action.recipe.profileId ?? "default") &&
           task.verificationProfileId !== null;
-        const { proposedVerificationRecipe, ...rest } = task;
+        const {
+          proposedVerificationRecipe,
+          proposedVerificationDigest: _proposedVerificationDigest,
+          proposedVerificationDecisionId: _proposedVerificationDecisionId,
+          ...rest
+        } = task;
         const removesProposal =
           proposedVerificationRecipe &&
           (proposedVerificationRecipe.profileId ?? "default") ===
@@ -720,6 +749,18 @@ export function decide(
         existing.outcome !== action.outcome ||
         existing.verifyCommand !== action.verifyCommand);
     const task: PitbossTask = {
+      proposedVerificationRecipe:
+        existing?.projectId === action.projectId ? existing.proposedVerificationRecipe : undefined,
+      proposedVerificationDigest:
+        existing?.projectId === action.projectId ? existing.proposedVerificationDigest : undefined,
+      proposedVerificationDecisionId:
+        existing?.projectId === action.projectId
+          ? existing.proposedVerificationDecisionId
+          : undefined,
+      approvedVerificationProposal:
+        existing?.projectId === action.projectId
+          ? existing.approvedVerificationProposal
+          : undefined,
       decisions: existing?.decisions,
       verificationProfileId:
         existing?.projectId === action.projectId ? existing.verificationProfileId : undefined,
@@ -785,11 +826,97 @@ export function decide(
           ? {
               ...task,
               proposedVerificationRecipe: action.recipe,
+              proposedVerificationDigest: verificationRecipeDigest(action.recipe),
+              proposedVerificationDecisionId: (() => {
+                const pending = task.decisions?.filter((decision) => decision.answer === undefined);
+                return pending?.length === 1 ? pending[0]!.id : undefined;
+              })(),
               revision: task.revision + 1,
               updatedAt: now,
             }
           : task,
       ),
+    };
+  }
+  if (action.type === "approve-verification") {
+    const approved = existing.approvedVerificationProposal;
+    if (
+      approved?.decisionId === action.decisionId &&
+      approved.version === action.proposalVersion &&
+      approved.digest === action.proposalDigest
+    )
+      return state;
+    if (existing.homeEnvironmentId) fail("Approve verification at the task home.");
+    const proposal = existing.proposedVerificationRecipe;
+    if (
+      !proposal ||
+      proposal.version !== action.proposalVersion ||
+      existing.proposedVerificationDigest !== action.proposalDigest ||
+      verificationRecipeDigest(proposal) !== action.proposalDigest
+    )
+      fail(
+        "The verification proposal changed. Review the current proposal before approving.",
+        "conflict",
+      );
+    if (existing.proposedVerificationDecisionId !== action.decisionId)
+      fail("This decision is not linked to the current verification proposal.", "conflict");
+    const decision = existing.decisions?.find((entry) => entry.id === action.decisionId);
+    if (!decision || decision.answer !== undefined)
+      fail("The linked verification decision was already resolved or superseded.", "conflict");
+    const saved = decide(
+      state,
+      {
+        ...command,
+        action: {
+          type: "verification-recipe",
+          recipe: proposal,
+          selectForTaskId: existing.id,
+        },
+      },
+      actor,
+      now,
+      legacyReplay,
+    );
+    return {
+      ...saved,
+      tasks: saved.tasks.map((task) =>
+        task.id === existing.id
+          ? {
+              ...task,
+              approvedVerificationProposal: {
+                decisionId: decision.id,
+                profileId: proposal.profileId,
+                version: proposal.version,
+                digest: action.proposalDigest,
+              },
+              decisions: task.decisions!.map((entry) =>
+                entry.id === decision.id
+                  ? {
+                      ...entry,
+                      answer: "Approved verification setup",
+                      resolvedAt: now,
+                    }
+                  : entry,
+              ),
+              status: existing.status,
+              note: existing.note,
+            }
+          : task,
+      ),
+      messages: [
+        ...saved.messages.map((entry) =>
+          entry.id === decision.id ? { ...entry, acknowledged: true } : entry,
+        ),
+        {
+          id: command.commandId,
+          taskId: existing.id,
+          threadId: null,
+          kind: "progress",
+          text: `User approved verification recipe v${proposal.version} (${action.proposalDigest}). Reconcile the retained candidate against the saved proof requirements.`,
+          createdAt: now,
+          acknowledged: false,
+        },
+      ],
     };
   }
   const latest = existing.attempts.at(-1);
@@ -808,7 +935,7 @@ export function decide(
   let messages = state.messages;
   if (
     task.decisions?.some((decision) => decision.answer === undefined) &&
-    !["resolve-decision", "report", "cancel"].includes(action.type) &&
+    !["resolve-decision", "approve-verification", "report", "cancel"].includes(action.type) &&
     !(action.type === "reopen" && task.status === "cancelled")
   )
     fail(
@@ -841,6 +968,9 @@ export function decide(
             : attempt,
         ),
         note: "Waiting for your decision. Other work continues.",
+        ...(task.proposedVerificationRecipe && !task.proposedVerificationDecisionId
+          ? { proposedVerificationDecisionId: command.commandId }
+          : {}),
       };
       messages = [
         ...messages,
@@ -922,7 +1052,11 @@ export function decide(
       const recipe = verificationRecipeForTask(state, task);
       const evidence = task.evidence.at(-1);
       if (!recipe || recipe.enabled === false)
-        fail("Ask the user to approve a project verification recipe first.");
+        fail(
+          task.proposedVerificationRecipe
+            ? "The proposed verification recipe is not saved. Use the explicit user approval action before verification."
+            : "No approved verification recipe is selected for this task.",
+        );
       if (
         !evidence ||
         evidence.id !== action.evidenceId ||
@@ -1320,7 +1454,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
       `Project leads: ${JSON.stringify(state.leads ?? [])}`,
       state.role?.brief.verificationMode === "automatic"
         ? "Automatic verification setup is enabled. Inspect the project and its available capabilities, then use propose-verification {taskId,recipe} to save and select concrete readiness, verification, cleanup and artifact settings for unattempted work. Do this yourself; do not ask the user to fill forms or assign routine workers. Use a task-specific profile when an existing profile is already used by attempted work. Do not weaken evidence: changing proof after attempts still requires the user. Missing tools or hardware are inconclusive, not a reason to substitute weaker proof. Ask only for an actual product decision, unavailable capability or authority beyond the brief. Pending decisions park only their task; continue independent work."
-        : "Setup recovery: distinguish missing saved configuration from missing tools/hardware and product decisions. For missing verification, inspect the project and propose concrete readiness, verification, cleanup and artifact settings with propose-verification {taskId,recipe}. The client presents them for user-owned review and saving. A proposal is not approved configuration; full discretion or continue in chat does not save it. Reuse a pending proposal instead of asking the same question repeatedly. Continue useful inspection and unrelated approved work. Never weaken evidence to bypass missing capabilities. Create and assign bounded workers within the saved brief without asking again for routine delegation.",
+        : "Setup recovery: distinguish missing saved configuration from missing executables or hardware, and both from an actual verification failure. For missing verification, inspect the project and propose concrete readiness, verification, cleanup and artifact settings with propose-verification {taskId,recipe}. Request one explicit linked user decision, then wait for the client to send approve-verification with that decision ID and the exact stored proposal version/digest. A proposal is not approved configuration; free text, vague consent, full discretion or continue in chat does not save it. Reuse a pending proposal instead of asking the same question repeatedly. Continue useful inspection and unrelated approved work. Never weaken evidence to bypass missing capabilities. Create and assign bounded workers within the saved brief without asking again for routine delegation.",
       "Chat is the primary work interface. When the user describes an outcome or refines a request, create or update the durable tasks yourself: fill in the outcome, acceptance criteria, dependencies, workspace and verification plan from the conversation and project evidence. Keep the user-facing work view current through work_command. Do not ask the user to enter routine task fields, author recipes or assign workers. Explain meaningful assumptions briefly and proceed within the saved brief. Ask only when an actual decision or a change beyond saved authority is required. Respect manual verification review when selected; prepare its fields yourself. Never claim a task or result exists until the command succeeds.",
       "Own recovery before escalating: inspect worker questions and launch/check receipts, distinguish a failing solution from unavailable infrastructure, and answer routine choices within the brief. Preserve partial files. Stop and confirm the previous writer before rework/reopen/assign; named worktree retries automatically retain the latest stopped workspace, or use resumeAttemptId for a specific stopped candidate. Keep the existing verification contract and attempt limits. Never repeatedly retry the same forbidden action, spend unlimited attempts, or turn missing hardware into weaker proof. Request a user decision only for a concrete choice or capability you cannot resolve; include the evidence and a recommendation. Do not forward raw worker questions or ask for permissions already saved. Continue unrelated ready work while a task waits.",
       `Brief: ${JSON.stringify(state.role.brief)}`,

@@ -69,6 +69,11 @@ export function VerificationCard({
   command: (action: PitbossAction) => Promise<boolean>;
 }) {
   const proposal = task.proposedVerificationRecipe;
+  const proposalDigest = task.proposedVerificationDigest;
+  const proposalDecision = task.decisions?.find(
+    (decision) =>
+      decision.id === task.proposedVerificationDecisionId && decision.answer === undefined,
+  );
   const proposedSaved =
     proposal &&
     recipes.some(
@@ -98,15 +103,35 @@ export function VerificationCard({
               ? "The proof requirements would change after work started. Review the change before it applies."
               : "Review the prepared checks and save to continue."}
           </p>
-          <Button
-            size="sm"
-            onClick={() => {
-              setCreating(true);
-              setEditing(true);
-            }}
-          >
-            Review proposed settings
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {proposalDigest && proposalDecision && (
+              <Button
+                size="sm"
+                disabled={busy || !!task.homeEnvironmentId}
+                onClick={() =>
+                  void command({
+                    type: "approve-verification",
+                    taskId: task.id,
+                    decisionId: proposalDecision.id,
+                    proposalVersion: proposal.version,
+                    proposalDigest,
+                  })
+                }
+              >
+                Approve and save exact proposal
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setCreating(true);
+                setEditing(true);
+              }}
+            >
+              Review proposed settings
+            </Button>
+          </div>
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">

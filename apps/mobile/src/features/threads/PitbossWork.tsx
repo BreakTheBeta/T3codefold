@@ -516,13 +516,37 @@ export function PitbossWork(props: {
                                     "No captured files"}
                                 </Text>
                                 {button(
-                                  "Save evidence profile",
-                                  () =>
-                                    void command({
-                                      type: "verification-recipe",
-                                      recipe: task.proposedVerificationRecipe!,
-                                      selectForTaskId: task.id,
-                                    }),
+                                  task.proposedVerificationDigest &&
+                                    task.decisions?.some(
+                                      (decision) =>
+                                        decision.id === task.proposedVerificationDecisionId &&
+                                        decision.answer === undefined,
+                                    )
+                                    ? "Approve and save exact proposal"
+                                    : "Save evidence profile",
+                                  () => {
+                                    const decision = task.decisions?.find(
+                                      (entry) =>
+                                        entry.id === task.proposedVerificationDecisionId &&
+                                        entry.answer === undefined,
+                                    );
+                                    void command(
+                                      task.proposedVerificationDigest && decision
+                                        ? {
+                                            type: "approve-verification",
+                                            taskId: task.id,
+                                            decisionId: decision.id,
+                                            proposalVersion:
+                                              task.proposedVerificationRecipe!.version,
+                                            proposalDigest: task.proposedVerificationDigest,
+                                          }
+                                        : {
+                                            type: "verification-recipe",
+                                            recipe: task.proposedVerificationRecipe!,
+                                            selectForTaskId: task.id,
+                                          },
+                                    );
+                                  },
                                   !!task.homeEnvironmentId,
                                 )}
                               </View>
@@ -545,6 +569,29 @@ export function PitbossWork(props: {
                                       This decision pauses this outcome. Independent work can
                                       continue.
                                     </Text>
+                                    {task.proposedVerificationRecipe &&
+                                      task.proposedVerificationDigest &&
+                                      task.proposedVerificationDecisionId === decision.id && (
+                                        <View className="gap-2">
+                                          {button(
+                                            "Approve and save evidence profile",
+                                            () =>
+                                              void command({
+                                                type: "approve-verification",
+                                                taskId: task.id,
+                                                decisionId: decision.id,
+                                                proposalVersion:
+                                                  task.proposedVerificationRecipe!.version,
+                                                proposalDigest: task.proposedVerificationDigest!,
+                                              }),
+                                            !!task.homeEnvironmentId,
+                                          )}
+                                          <Text className="text-xs text-muted-foreground">
+                                            Other choices and written replies do not change proof
+                                            requirements.
+                                          </Text>
+                                        </View>
+                                      )}
                                     {decision.options.map((option) => (
                                       <View key={option}>
                                         {button(
