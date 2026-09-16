@@ -83,6 +83,10 @@ export class WorkStore extends Context.Service<
     subscribe: () => Stream.Stream<PitbossSnapshot, PitbossError>;
     changes: Stream.Stream<void>;
     effects: () => Effect.Effect<ReadonlyArray<WorkEffect>, PitbossError>;
+    wakeKeys: (recipientId: string, generation: number) => Effect.Effect<string[], PitbossError>;
+    queueWake: (id: string, payloadJson: string) => Effect.Effect<boolean, PitbossError>;
+    retryEffect: (id: string, error: string) => Effect.Effect<void, PitbossError>;
+    finishWake: (id: string, payloadJson: string) => Effect.Effect<void, PitbossError>;
     finishEffect: (id: string, error?: string) => Effect.Effect<void, PitbossError>;
     updateAttempt: (
       taskId: string,
@@ -335,6 +339,10 @@ export const layer = Layer.effect(
               const mirrored = {
                 ...task,
                 projectId: local.projectId,
+                // Project-lead ownership is local to this coordinator. The task home owns the
+                // execution contract and revision, but cannot appoint a lead in another environment.
+                leadId: local.leadId,
+                ownershipRevision: local.ownershipRevision,
                 homeEnvironmentId: sender,
                 homeRevision: task.revision,
                 pendingOperationId: local.pendingOperationId,
@@ -398,7 +406,44 @@ export const layer = Layer.effect(
           }),
         ),
       effects: () =>
-        sql<WorkEffect>`SELECT operation_id, kind, payload_json, attempts, error FROM pitboss_effects WHERE state = 'pending' ORDER BY rowid LIMIT 20`.pipe(
+        Effect.all({
+          operations: sql<WorkEffect>`SELECT operation_id, kind, payload_json, attempts, error FROM pitboss_effects WHERE state = 'pending' AND kind <> 'wake' ORDER BY rowid LIMIT 20`,
+          wakes: sql<WorkEffect>`SELECT operation_id, kind, payload_json, attempts, error FROM pitboss_effects WHERE state = 'pending' AND kind = 'wake' ORDER BY rowid LIMIT 20`,
+        }).pipe(
+          Effect.map(({ operations, wakes }) => [...operations, ...wakes]),
+          Effect.mapError(unavailable),
+        ),
+      wakeKeys: (recipientId, generation) =>
+        sql<{ readonly key: string }>`SELECT DISTINCT json_each.value AS key
+          FROM pitboss_effects, json_each(json_extract(pitboss_effects.payload_json, '$.keys'))
+          WHERE pitboss_effects.kind = 'wake'
+            AND json_extract(pitboss_effects.payload_json, '$.recipientId') = ${recipientId}
+            AND json_extract(pitboss_effects.payload_json, '$.generation') = ${generation}`.pipe(
+          Effect.map((rows) => rows.map((row) => row.key)),
+          Effect.mapError(unavailable),
+        ),
+      queueWake: (id, payloadJson) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const existing = yield* sql<{
+                readonly state: string;
+              }>`SELECT state FROM pitboss_effects WHERE operation_id = ${id}`;
+              if (existing[0]) return false;
+              yield* sql`INSERT INTO pitboss_effects (operation_id, kind, payload_json) VALUES (${id}, 'wake', ${payloadJson})`;
+              return true;
+            }),
+          )
+          .pipe(Effect.mapError(unavailable)),
+      retryEffect: (id, error) =>
+        sql`UPDATE pitboss_effects SET attempts = attempts + 1, error = ${error} WHERE operation_id = ${id} AND state = 'pending'`.pipe(
+          Effect.asVoid,
+          Effect.mapError(unavailable),
+        ),
+      finishWake: (id, payloadJson) =>
+        sql`UPDATE pitboss_effects SET state = 'done', payload_json = ${payloadJson}, attempts = attempts + 1, error = NULL WHERE operation_id = ${id} AND kind = 'wake'`.pipe(
+          Effect.tap(() => PubSub.publish(notifications, undefined)),
+          Effect.asVoid,
           Effect.mapError(unavailable),
         ),
       finishEffect: (id, error) =>

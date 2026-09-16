@@ -130,6 +130,24 @@ export function remoteTaskAuthority(state: PitbossSnapshot, action: PitbossActio
       authority.coordinator === authority.self,
   );
 }
+function leadCanManageTask(
+  state: PitbossSnapshot,
+  lead: NonNullable<PitbossSnapshot["leads"]>[number],
+  task: PitbossTask,
+) {
+  if (lead.projectId !== task.projectId) return false;
+  if (!task.source && !task.homeEnvironmentId) return true;
+  if (!task.source?.scope || !task.homeEnvironmentId) return false;
+  return (state.sourceAuthorities ?? []).some(
+    (authority) =>
+      !!authority.peerId &&
+      !!authority.proposalId &&
+      authority.scope === task.source?.scope &&
+      authority.coordinator === authority.self &&
+      authority.homeEnvironmentId === task.homeEnvironmentId &&
+      peerInBrief(state, authority.peerId),
+  );
+}
 export function decide(
   state: PitbossSnapshot,
   command: PitbossCommand,
@@ -487,16 +505,25 @@ export function decide(
     if (!task || !state.role?.brief.projectIds.includes(task.projectId))
       fail("Task outside the brief.", "forbidden");
     const target = activeLeads(state).find((entry) => entry.id === action.leadId);
-    if (
-      action.leadId &&
-      (!target || target.projectId !== task.projectId || task.source || task.homeEnvironmentId)
-    )
-      fail("Lead must own the same local project; shared tracker work stays with GLaDOS.");
+    if (action.leadId && (!target || !leadCanManageTask(state, target, task)))
+      fail(
+        "Lead must own the same project and any remote task must have approved fixed-home authority.",
+      );
     return {
       ...next,
       tasks: state.tasks.map((entry) =>
         entry.id === task.id
-          ? { ...entry, leadId: target?.id, revision: entry.revision + 1 }
+          ? {
+              ...entry,
+              leadId: target?.id,
+              ownershipRevision:
+                entry.leadId === target?.id
+                  ? entry.ownershipRevision
+                  : (entry.ownershipRevision ?? 0) + 1,
+              // A mirrored task's revision belongs to its fixed home. Local ownership must not
+              // make the next forwarded command appear stale there.
+              revision: entry.homeEnvironmentId ? entry.revision : entry.revision + 1,
+            }
           : entry,
       ),
     };
@@ -589,11 +616,7 @@ export function decide(
     fail("Wait for captured verification to finish before changing this task.", "conflict");
   if (
     lead &&
-    ((existing &&
-      (existing.leadId !== lead.id ||
-        existing.projectId !== lead.projectId ||
-        existing.source ||
-        existing.homeEnvironmentId)) ||
+    ((existing && (existing.leadId !== lead.id || !leadCanManageTask(state, lead, existing))) ||
       ((action.type === "create" || action.type === "edit") &&
         (action.projectId !== lead.projectId ||
           action.dependencies.some(
@@ -1262,6 +1285,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
       `Work command shape: {commandId:"unique-id",expectedRevision:<latest snapshot revision>,authorityGeneration:${lead.generation},action:{...}}. Create action requires ALL of {type:"create",taskId:"unique-task",projectId:"${lead.projectId}",title:"...",outcome:"...",criteria:"...",verifyCommand:"...",priority:10,dependencies:[],workspaceStrategy:{type:"worktree",baseRef:"HEAD"}}. Your leadId is inferred for created tasks. Then assign with {type:"assign",taskId:"...",runtimeMode:"approval-required"|"full-access"}; omit runtimeMode for the saved worker default, and never request broader permissions than this lead currently has. Update memory with {type:"lead-context",leadId:"${lead.id}",context:"..."}.`,
       "Use request-decision {taskId,question,options,recommendation} to park only work that needs user judgment. Do not block your conversation waiting for an answer or pause the portfolio. The server stops that task’s writer and retains its files; manage other ready tasks. User answers arrive durably through resolve-decision. Continue using existing permissions and resume retained work where appropriate.",
       "Use work_read and work_command. Create bounded tasks with exact outcomes, independent workspaces, acceptance and runnable verification. Assign workers with assign. Do not create subleads or use untracked delegation. You own project decisions within the charter, not changes to user permissions or quality standards.",
+      "For a shared task already assigned to you, its approved fixed home retains execution, workspace and provider selection. Omit model and runtimeMode to use that destination's saved configuration unless GLaDOS has given you a destination-supported explicit selection. A remote observation is context, not authority to create or move work.",
       "Captured verification: after stopping writers and recording candidate evidence, use verify with taskId and evidenceId. Select a configured evidence profile with verification-profile before assigning workers. In automatic verification mode, inspect the project and use propose-verification to configure and select checks for unattempted work yourself. It runs on the required environment. Use commit:<SHA> for code, sha256:<digest of inputPath bytes> for files/audio/research packets, or observation:<target> for host observations. Readiness must check required tools or hardware; missing capability is inconclusive. Never treat automated metrics as listening or qualitative review. Profile changes after an attempt require the user. Read work state for its receipt. A captured pass proves only that recipe; add your combined-outcome judgment separately. Do not change criteria or recipes to manufacture a pass.",
       "Quality loop: ground the actual app and runtime; record shared interface decisions before delegating; give workers the relevant context; require them to run meaningful checks and report candidate-specific evidence. Missing evidence goes back for repair, never invent a pass. Inspect the candidate yourself before accept, waiting for the writer to stop. Run the combined app and check cross-task integration, not just individual tests. Record your own observed verification with review {taskId,attemptId,candidate,criteriaVersion,verdict,summary,command,artifactUrls}, then accept its evidenceId. This is coordinator-reported evidence, not a server-captured check. You may review a retained stopped candidate even if its worker failed to submit. Use an additional bounded review task when needed. Diagnose infrastructure failures before upgrading a model. Preserve artifacts and exact commands. Never weaken criteria to pass.",
       "Keep current project decisions, reasons, sources, verification recipes and open questions in lead-context. Distinguish proposed lessons from accepted facts. A context update does not silently amend an existing worker's criteria: reconcile affected tasks explicitly.",
@@ -1292,7 +1316,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
       "Use work_read and work_command. Read current revision before mutations. Finished turns are not accepted outcomes. Inspect evidence before accepting. Answer worker questions, preserve useful partial work, and escalate within limits. Use propose-coordination to propose a shared source coordinator. Use send-peer with peerId and text to send a durable scoped request; include replyTo with the original peer message ID for replies. Acknowledge an inbox item only after handling its obligation. Leadership and permission changes require the user.",
       "When a user decision is needed, use request-decision {taskId,question,options,recommendation}. This parks only that task, not GLaDOS or the team. Manage independent work while the user answers in the inbox. Do not use a blocking conversational question for task decisions. After recording the decision, finish the turn if no other work is ready; the runtime wakes you for new work and answers. Never infer approval from silence.",
       `Approved project verification recipes: ${JSON.stringify((state.verificationRecipes ?? []).map(({ projectId, profileId, mode, environmentId, name, version, enabled }) => ({ projectId, profileId: profileId ?? "default", mode: mode ?? "commit", environmentId: environmentId ?? "task home", name, version, enabled: enabled !== false })))}. Select an approved profile with verification-profile {taskId,profileId} before assigning work. A project can contain code, artifact/research and host-observation tasks. Missing hardware or environment capability is inconclusive, not permission to substitute weaker proof. Profile changes after attempts and reported-only proof require the user. Managers request verify with taskId and the latest evidenceId after stopping writers; inspect the server receipt, record review, then accept. Observe a fresh result before reviewing an observation; its evidence expires. Recipe setup follows the saved brief verificationMode; authority and limits remain user-owned.`,
-      "Adaptive delegation: use a direct worker for bounded work. For sustained project context, shared decisions or several related workers, create-lead with leadId, projectId, charter, model and maxWorkers. create-lead and active lead-status may include runtimeMode when the user explicitly requested a mode different from the saved worker default; it cannot exceed this thread's current mode and is retained for the lead. Use a configured model available on this environment. Leads cannot create subleads. They share your worker allowance. Reuse dormant leads with lead-status. Send durable instructions to a lead with lead-message {leadId,text}. Use manage-task to transfer existing local work without restarting writers. You remain the user's contact; leads handle worker questions and send lead-report. Inspect their combined evidence. Do not duplicate lead-owned tasks or poll them. End your turn while waiting.",
+      "Adaptive delegation: use a direct worker for bounded work. For sustained project context, shared decisions or several related workers, create-lead with leadId, projectId, charter, model and maxWorkers. create-lead and active lead-status may include runtimeMode when the user explicitly requested a mode different from the saved worker default; it cannot exceed this thread's current mode and is retained for the lead. Use a configured model available on this environment. Leads cannot create subleads. They share your worker allowance. Reuse dormant leads with lead-status. Send durable instructions to a lead with lead-message {leadId,text}. Use manage-task to transfer existing local work or work with an approved fixed remote task home without restarting writers. Remote execution keeps the task home's saved provider and permission configuration; do not send local provider IDs. You remain the user's contact; leads handle worker questions and send lead-report. Inspect their combined evidence. Do not duplicate lead-owned tasks or poll them. End your turn while waiting.",
       `Project leads: ${JSON.stringify(state.leads ?? [])}`,
       state.role?.brief.verificationMode === "automatic"
         ? "Automatic verification setup is enabled. Inspect the project and its available capabilities, then use propose-verification {taskId,recipe} to save and select concrete readiness, verification, cleanup and artifact settings for unattempted work. Do this yourself; do not ask the user to fill forms or assign routine workers. Use a task-specific profile when an existing profile is already used by attempted work. Do not weaken evidence: changing proof after attempts still requires the user. Missing tools or hardware are inconclusive, not a reason to substitute weaker proof. Ask only for an actual product decision, unavailable capability or authority beyond the brief. Pending decisions park only their task; continue independent work."

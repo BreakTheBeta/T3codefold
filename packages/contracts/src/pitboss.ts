@@ -230,6 +230,7 @@ export const PitbossTask = Schema.Struct({
   verificationProfileId: Schema.optional(Schema.NullOr(Id)),
   verification: Schema.optional(PitbossVerification),
   leadId: Schema.optional(Id),
+  ownershipRevision: Schema.optional(Version),
   pendingOperationId: Schema.optional(Id),
   homeEnvironmentId: Schema.optional(EnvironmentId),
   homeRevision: Schema.optional(Version),

@@ -259,20 +259,53 @@ it.effect(
         yield* b.peer.execute({ type: "approve", peerId: "a", proposalId: successor.id });
         yield* b.peer.execute({ type: "sync", peerId: "a" });
         expect((yield* b.store.read()).sourceAuthorities?.[0]?.homeEnvironmentId).toBe("env-a");
+        const beforeLead = yield* b.store.read();
+        yield* b.store.command(
+          {
+            commandId: CommandId.make("create-remote-coordinator-lead"),
+            expectedRevision: beforeLead.revision,
+            authorityGeneration: beforeLead.role?.generation,
+            action: {
+              type: "create-lead",
+              leadId: "shared-lead",
+              projectId: beforeLead.tasks[0]!.projectId,
+              charter: "Coordinate the approved shared task",
+              model: beforeLead.role!.brief.workerModel,
+              maxWorkers: 1,
+            },
+          },
+          { type: "agent", threadId: beforeLead.role!.threadId },
+          { runtimeMode: "full-access" },
+        );
+        const beforeManage = yield* b.store.read();
+        yield* b.store.command(
+          {
+            commandId: CommandId.make("manage-remote-task"),
+            expectedRevision: beforeManage.revision,
+            authorityGeneration: beforeManage.role?.generation,
+            action: { type: "manage-task", taskId: taskB.taskId, leadId: "shared-lead" },
+          },
+          { type: "agent", threadId: beforeManage.role!.threadId },
+          { runtimeMode: "full-access" },
+        );
         const beforeForward = yield* b.store.read();
+        const lead = beforeForward.leads![0]!;
         yield* b.store.command(
           {
             commandId: CommandId.make("forward-assignment"),
             expectedRevision: beforeForward.revision,
+            authorityGeneration: lead.generation,
             action: { type: "assign", taskId: taskB.taskId },
           },
-          { type: "user" },
+          { type: "agent", threadId: lead.threadId },
+          { runtimeMode: "full-access" },
         );
         expect((yield* b.store.read()).tasks[0]?.pendingOperationId).toBe("forward-assignment");
         const intent = (yield* b.store.effects()).find((effect) => effect.kind === "forward")!;
         const forwarded = decodeForward(intent.payload_json).message;
         if (forwarded.operation?.type !== "command")
           return yield* Effect.die("Expected a task command intent");
+        expect(forwarded.operation.action).toEqual({ type: "assign", taskId: taskB.taskId });
         yield* b.peer.send("a", forwarded);
         yield* b.peer.send("a", forwarded);
         yield* b.peer.execute({ type: "sync", peerId: "a" });
@@ -286,6 +319,7 @@ it.effect(
         yield* a.peer.execute({ type: "sync", peerId: "b" });
         expect((yield* b.store.read()).tasks[0]?.homeEnvironmentId).toBe("env-a");
         expect((yield* b.store.read()).tasks[0]?.attempts).toHaveLength(2);
+        expect((yield* b.store.read()).tasks[0]?.leadId).toBe("shared-lead");
         yield* b.peer.send("a", {
           ...forwarded,
           id: "stale-control",

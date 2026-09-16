@@ -450,6 +450,9 @@ export function PitbossPanel(props: {
                       {active ? "Return to GLaDOS" : "Reactivate"}
                     </Button>
                   </div>
+                  <p className="mt-1 break-all text-xs text-muted-foreground">
+                    {projectName(lead.projectId)} · this environment · thread {lead.threadId}
+                  </p>
                   <p className="mt-2 line-clamp-2 text-sm">{lead.charter}</p>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {tasks.filter((task) => task.status === "done").length} / {tasks.length}{" "}
@@ -789,6 +792,11 @@ export function PitbossPanel(props: {
                 />
                 <p className="mt-2 text-xs text-muted-foreground">
                   {projectName(selected.projectId)} ·{" "}
+                  {selected.leadId ? `Project lead ${selected.leadId}` : "Managed by GLaDOS"} ·{" "}
+                  {selected.homeEnvironmentId
+                    ? `Task home ${selected.homeEnvironmentId}`
+                    : "This environment"}
+                  {" · "}
                   {evidenceKind(verificationRecipeForTask(state, selected))}
                 </p>
                 <p className="my-3 whitespace-pre-wrap text-sm leading-relaxed">
@@ -877,7 +885,9 @@ export function PitbossPanel(props: {
                         <span>
                           Attempt {attempt.generation} · {attempt.model.model} · {attempt.state}
                           {" · "}
-                          {attempt.runtimeMode?.replaceAll("-", " ") ?? "permissions: open worker"}
+                          {attempt.runtimeMode?.replaceAll("-", " ") ??
+                            "permissions: legacy saved default"}
+                          {attempt.workspacePath ? ` · ${attempt.workspacePath}` : ""}
                         </span>
                         <Button
                           size="sm"

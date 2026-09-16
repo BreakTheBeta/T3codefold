@@ -3,6 +3,7 @@ import {
   CommandId,
   PitbossAction,
   EventId,
+  EnvironmentId,
   MessageId,
   NodeId,
   ProjectId,
@@ -10,6 +11,7 @@ import {
   RunId,
   ThreadId,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2Run,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -33,6 +35,7 @@ import { WorkStore, layer as storeLayer } from "./WorkStore.ts";
 import { layer as runtime } from "./WorkRuntime.ts";
 
 const decodeAction = Schema.decodeUnknownSync(Schema.fromJsonString(PitbossAction));
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const time = DateTime.makeUnsafe("2026-09-11T00:00:00Z");
 const model = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-luna" };
 const a = ProjectId.make("A"),
@@ -95,10 +98,20 @@ const harness = Effect.gen(function* () {
     [boss, projection(boss, a)],
   ]);
   const launched: ThreadId[] = [];
+  const launches: OrchestrationV2ThreadLaunchInput[] = [];
   const launchModes: string[] = [];
   const permissionModes: string[] = [];
   let failPermissions = false;
   const sent: ThreadId[] = [];
+  const sentMessages: Array<{
+    readonly threadId: ThreadId;
+    readonly text: string;
+    readonly createdBy: string;
+    readonly creationSource: string;
+  }> = [];
+  const sendAttempts: string[] = [];
+  let failNextSend = false;
+  let failAllSends = false;
   const interrupted: ThreadId[] = [];
   let deferInterrupt = false;
   const failLaunch = new Set<ThreadId>();
@@ -136,6 +149,7 @@ const harness = Effect.gen(function* () {
         Effect.gen(function* () {
           const id = input.threadId!;
           launched.push(id);
+          launches.push(input);
           launchModes.push(input.runtimeMode);
           if (failLaunch.has(id))
             return yield* new ThreadLaunchError({
@@ -197,8 +211,22 @@ const harness = Effect.gen(function* () {
             );
       },
       sendToThread: (input) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          sendAttempts.push(input.commandId);
+          if (failAllSends || failNextSend) {
+            failNextSend = false;
+            return yield* new OrchestratorProjectionError({
+              threadId: input.threadId,
+              cause: "fixture wake delivery failure",
+            });
+          }
           sent.push(input.threadId);
+          sentMessages.push({
+            threadId: input.threadId,
+            text: input.text,
+            createdBy: input.createdBy,
+            creationSource: input.creationSource,
+          });
           const run = running(input.threadId);
           const p = { ...projections.get(input.threadId)!, runs: [run] };
           projections.set(input.threadId, p);
@@ -240,12 +268,21 @@ const harness = Effect.gen(function* () {
     store,
     projections,
     launched,
+    launches,
     launchModes,
     permissionModes,
     failPermissions: () => {
       failPermissions = true;
     },
     sent,
+    sentMessages,
+    sendAttempts,
+    failNextSend: () => {
+      failNextSend = true;
+    },
+    failAllSends: () => {
+      failAllSends = true;
+    },
     interrupted,
     deferInterrupt: () => {
       deferInterrupt = true;
@@ -257,6 +294,512 @@ const harness = Effect.gen(function* () {
   };
 });
 const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
+it.effect(
+  "does not wake GLaDOS again when its no-op turn leaves the same task ready across restart",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.command({
+        type: "create",
+        taskId: "ready-once",
+        projectId: a,
+        title: "Ready once",
+        outcome: "Assign this managed task",
+        criteria: "Worker reports once",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      });
+      yield* h.drain();
+      expect(h.sent).toEqual([boss]);
+      const unchangedRevision = (yield* h.store.read()).revision;
+      h.projections.set(boss, projection(boss, a));
+      const unrelated = ThreadId.make("unrelated-worker");
+      h.projections.set(unrelated, { ...projection(unrelated, b), runs: [running(unrelated)] });
+      yield* h.drain();
+      expect((yield* h.store.read()).revision).toBe(unchangedRevision);
+      expect(h.sent).toEqual([boss]);
+    }).pipe(Effect.provide(services)),
+);
+it.effect("wakes once for a failed managed attempt and leaves recovery explicit", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "failed-attempt",
+      projectId: a,
+      title: "Failed attempt",
+      outcome: "Recover the managed failure",
+      criteria: "A later attempt returns evidence",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "failed-attempt" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    yield* h.store.updateAttempt(
+      "failed-attempt",
+      attempt.id,
+      "failed",
+      "Provider exited before producing evidence",
+    );
+    yield* h.drain();
+    expect((yield* h.store.read()).tasks[0]?.status).toBe("blocked");
+    expect(h.sentMessages[0]?.text).toContain(
+      `Worker failed · task failed-attempt · attempt ${attempt.id} · owner GLaDOS · task status blocked`,
+    );
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("does not redeliver an unchanged failed-attempt review after coordinator review", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "stable-review",
+      projectId: a,
+      title: "Stable review",
+      outcome: "Review the failed attempt once",
+      criteria: "One review wake",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "stable-review" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    yield* h.store.updateAttempt("stable-review", attempt.id, "failed", "Provider failed");
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({
+      type: "review",
+      taskId: "stable-review",
+      attemptId: attempt.id,
+      criteriaVersion: 1,
+      candidate: "commit:failed-candidate",
+      verdict: "fail",
+      summary: "Diagnostics confirm the same failed attempt.",
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("wakes once for a submitted result without accepting the finished turn", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "submitted-result",
+      projectId: a,
+      title: "Submitted result",
+      outcome: "Return a candidate",
+      criteria: "Review the candidate",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "submitted-result" });
+    yield* h.drain();
+    const assigned = (yield* h.store.read()).tasks[0]!;
+    const attempt = assigned.attempts[0]!;
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("submit-result"),
+        expectedRevision: (yield* h.store.read()).revision,
+        action: {
+          type: "submit",
+          taskId: assigned.id,
+          attemptId: attempt.id,
+          criteriaVersion: assigned.criteriaVersion,
+          candidate: "commit:abc123",
+          verdict: "pass",
+          summary: "Focused test passed",
+          command: "vp test run focused.test.ts",
+          artifactUrls: [],
+        },
+      },
+      { type: "agent", threadId: attempt.threadId },
+    );
+    const worker = h.projections.get(attempt.threadId)!;
+    h.projections.set(attempt.threadId, {
+      ...worker,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    yield* h.drain();
+    const submitted = (yield* h.store.read()).tasks[0]!;
+    expect(submitted.status).toBe("verifying");
+    expect(submitted.acceptedEvidenceId).toBeNull();
+    expect(h.sentMessages[0]?.text).toContain(
+      `result · task submitted-result · attempt ${attempt.id} · owner GLaDOS`,
+    );
+    expect(h.sentMessages[0]?.text).toContain("finished turn is not an accepted result");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("does not offer managed work again while its persisted writer is running", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "linked-writer",
+      projectId: a,
+      title: "Linked writer",
+      outcome: "Run in its managed thread",
+      criteria: "Return evidence",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "linked-writer" });
+    yield* h.drain();
+    const task = (yield* h.store.read()).tasks[0]!;
+    expect(task.status).toBe("active");
+    expect(task.attempts[0]?.state).toBe("running");
+    expect(h.sent).toEqual([]);
+    yield* h.drain();
+    expect(h.sent).toEqual([]);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("wakes once with an honest review action when a worker finishes without a result", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "unfinished-result",
+      projectId: a,
+      title: "Unfinished result",
+      outcome: "Return verified evidence",
+      criteria: "Evidence is reviewed",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "unfinished-result" });
+    yield* h.drain();
+    const before = (yield* h.store.read()).tasks[0]!;
+    const attempt = before.attempts[0]!;
+    const worker = h.projections.get(attempt.threadId)!;
+    h.projections.set(attempt.threadId, {
+      ...worker,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    yield* h.drain();
+    const after = (yield* h.store.read()).tasks[0]!;
+    expect(after.status).toBe("blocked");
+    expect(after.acceptedEvidenceId).toBeNull();
+    expect(after.attempts[0]?.state).toBe("stopped");
+    expect(h.sent).toEqual([boss]);
+    expect(h.sentMessages[0]).toMatchObject({
+      threadId: boss,
+      createdBy: "system",
+      creationSource: "server",
+    });
+    expect(h.sentMessages[0]?.text).toContain(
+      `Worker stopped · task unfinished-result · attempt ${attempt.id} · owner GLaDOS · task status blocked`,
+    );
+    expect(h.sentMessages[0]?.text).toContain("do not accept the turn itself as evidence");
+    expect(h.sentMessages[0]?.text).not.toContain("work_read");
+    expect(h.sentMessages[0]?.text).not.toContain("Pending user decisions");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
+it.effect(
+  "retries a durable wake after restart without changing work or duplicating delivery",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.command({
+        type: "create",
+        taskId: "retry-wake",
+        projectId: a,
+        title: "Retry wake",
+        outcome: "Deliver one actionable wake",
+        criteria: "One delivery",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      });
+      const revision = (yield* h.store.read()).revision;
+      h.failNextSend();
+      yield* h.drain();
+      expect(h.sent).toEqual([]);
+      const pending = (yield* h.store.effects()).filter((effect) => effect.kind === "wake");
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.attempts).toBe(1);
+      expect((yield* h.store.read()).revision).toBe(revision);
+      yield* h.drain();
+      expect(h.sent).toEqual([boss]);
+      expect(h.sendAttempts).toHaveLength(2);
+      expect(new Set(h.sendAttempts).size).toBe(1);
+      expect((yield* h.store.effects()).filter((effect) => effect.kind === "wake")).toEqual([]);
+      expect((yield* h.store.read()).revision).toBe(revision);
+    }).pipe(Effect.provide(services)),
+);
+it.effect("delivers a ready obligation after capacity is temporarily unavailable", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const create = (taskId: string) =>
+      h.command({
+        type: "create",
+        taskId,
+        projectId: a,
+        title: taskId,
+        outcome: "Complete managed work",
+        criteria: "Report evidence",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree" as const, baseRef: "HEAD" },
+      });
+    yield* create("deferred-ready");
+    h.failNextSend();
+    yield* h.drain();
+    expect(h.sent).toEqual([]);
+    for (const taskId of ["capacity-one", "capacity-two"]) {
+      yield* create(taskId);
+      yield* h.command({ type: "assign", taskId });
+    }
+    yield* h.drain();
+    expect(h.sent).toEqual([]);
+    const occupied = yield* h.store.read();
+    for (const task of occupied.tasks.filter((entry) => entry.id.startsWith("capacity-")))
+      yield* h.store.updateAttempt(task.id, task.attempts[0]!.id, "stopped", "Capacity freed");
+    yield* h.drain();
+    expect(h.sentMessages.some((message) => message.text.includes("task deferred-ready"))).toBe(
+      true,
+    );
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("runs later assignment effects behind a full page of deferred wakes", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "wake-source",
+      projectId: a,
+      title: "Wake source",
+      outcome: "Remain ready",
+      criteria: "Wake eventually delivers",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    const readyTask = (yield* h.store.read()).tasks[0]!;
+    const key = `ready:${readyTask.id}:owner:0:${readyTask.revision}`;
+    h.failAllSends();
+    for (let index = 0; index < 20; index++)
+      yield* h.store.queueWake(
+        `deferred-wake-${index}`,
+        encodeJson({
+          recipientId: "glados",
+          projectId: a,
+          threadId: boss,
+          generation: 1,
+          keys: [key],
+        }),
+      );
+    yield* h.command({
+      type: "create",
+      taskId: "later-launch",
+      projectId: a,
+      title: "Later launch",
+      outcome: "Launch despite deferred wakes",
+      criteria: "Managed thread starts",
+      verifyCommand: "",
+      priority: 2,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "later-launch" });
+    yield* h.drain();
+    const later = (yield* h.store.read()).tasks.find((task) => task.id === "later-launch")!;
+    expect(h.launched).toContain(later.attempts[0]!.threadId);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("delivers unresolved decisions and genuinely new readiness once each", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "decision-task",
+      projectId: a,
+      title: "Decision task",
+      outcome: "Follow the recorded choice",
+      criteria: "Choice is resolved",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "decision-task" });
+    yield* h.drain();
+    yield* h.command({
+      type: "request-decision",
+      taskId: "decision-task",
+      question: "Choose the retained format?",
+      options: ["A", "B"],
+      recommendation: "A",
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+    expect(h.sentMessages[0]?.text).toContain("decision · task decision-task");
+    expect(h.sentMessages[0]?.text).toContain("Resolve the recorded decision");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+    const decision = (yield* h.store.read()).tasks[0]!.decisions![0]!;
+    yield* h.command({
+      type: "resolve-decision",
+      taskId: "decision-task",
+      decisionId: decision.id,
+      answer: "A",
+    });
+    yield* h.command({
+      type: "create",
+      taskId: "newly-ready",
+      projectId: a,
+      title: "Newly ready",
+      outcome: "Start after the decision",
+      criteria: "Managed worker starts",
+      verifyCommand: "",
+      priority: 2,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss, boss]);
+    expect(h.sentMessages[1]?.text).toContain(
+      "Newly ready · task newly-ready · attempt none · owner GLaDOS · task status queued",
+    );
+    expect(h.sentMessages[1]?.text).not.toContain("decision · task decision-task");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("redelivers a mirrored task obligation when ownership returns to a prior manager", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const home = EnvironmentId.make("remote-home");
+    const coordinator = EnvironmentId.make("coordinator");
+    yield* h.store.importSources(
+      {
+        id: "remote-source",
+        kind: "linear",
+        baseUrl: "https://tracker.invalid",
+        tenantId: "team",
+        remoteProjectId: "project",
+        projectId: a,
+        enabled: true,
+      },
+      [
+        {
+          title: "Mirrored task",
+          outcome: "Remain ready across ownership changes",
+          source: {
+            kind: "linear",
+            tenantId: "team",
+            itemId: "remote-one",
+            scope: "remote-scope",
+            key: "REMOTE-1",
+            url: "https://tracker.invalid/REMOTE-1",
+            status: "Open",
+            priority: "1",
+            observedAt: "2026-09-11T00:00:00.000Z",
+          },
+        },
+      ],
+    );
+    const imported = (yield* h.store.read()).tasks[0]!;
+    const remoteScope = imported.source!.scope!;
+    yield* h.store.setSourceAuthority({
+      scope: remoteScope,
+      self: coordinator,
+      coordinator,
+      homeEnvironmentId: home,
+      peerId: "remote-peer",
+      proposalId: "approved-remote-scope",
+    });
+    yield* h.store.mirrorTask(home, {
+      ...imported,
+      revision: imported.revision + 1,
+      status: "queued",
+      note: "Ready at its fixed home",
+    });
+    for (const message of (yield* h.store.read()).messages.filter((entry) => !entry.acknowledged))
+      yield* h.command({ type: "acknowledge", messageId: message.id });
+    const leadA = yield* h.lead("lead-a", a);
+    for (const effect of yield* h.store.effects())
+      if (effect.kind === "create-lead") yield* h.store.finishEffect(effect.operation_id);
+    h.projections.set(leadA.threadId, projection(leadA.threadId, a));
+    const homeRevision = (yield* h.store.read()).tasks[0]!.revision;
+    for (const lead of [leadA, null, leadA]) {
+      h.projections.set(leadA.threadId, projection(leadA.threadId, a));
+      h.projections.set(boss, projection(boss, a));
+      yield* h.command({ type: "manage-task", taskId: imported.id, leadId: lead?.id ?? null });
+      yield* h.drain();
+    }
+    expect(h.sent).toEqual([leadA.threadId, boss, leadA.threadId]);
+    const returned = (yield* h.store.read()).tasks[0]!;
+    expect(returned.revision).toBe(homeRevision);
+    expect(returned.ownershipRevision).toBe(3);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("launches leads and workers as ordinary managed threads in independent worktrees", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const lead = yield* h.lead("managed", a);
+    yield* h.drain();
+    expect(h.launches[0]).toMatchObject({
+      threadId: lead.threadId,
+      projectId: a,
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    yield* h.command({
+      type: "create",
+      taskId: "managed-worker",
+      projectId: a,
+      title: "Managed worker",
+      outcome: "Implement the bounded change",
+      criteria: "Focused proof passes",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "manage-task", taskId: "managed-worker", leadId: lead.id });
+    yield* h.command({ type: "assign", taskId: "managed-worker" });
+    yield* h.drain();
+    const state = yield* h.store.read();
+    const attempt = state.tasks.find((task) => task.id === "managed-worker")!.attempts[0]!;
+    expect(h.launches[1]).toMatchObject({
+      threadId: attempt.threadId,
+      projectId: a,
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    expect(attempt.threadId).not.toBe(lead.threadId);
+  }).pipe(Effect.provide(services)),
+);
 it.effect(
   "a missing failed lead does not occupy the coordinator slot, and can be retried after restart",
   () =>
