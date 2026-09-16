@@ -1,6 +1,13 @@
 import { isUserWorkMessage } from "@t3tools/contracts";
 import { WorkInspector } from "./WorkInspector";
-import { evidenceKind, filterWork, needsAttention, workFilters, type WorkFilter } from "./workView";
+import {
+  evidenceKind,
+  filterWork,
+  needsAttention,
+  nextActionLabel,
+  workFilters,
+  type WorkFilter,
+} from "./workView";
 import { CreateHome } from "./CreateHome";
 import { TaskDecisionCard } from "./TaskDecisionCard";
 import { VerificationCard, VerificationArtifact } from "./VerificationCard";
@@ -376,6 +383,7 @@ export function PitbossPanel(props: {
                     )}
                     <span className={`text-xs ${statusClass[task.status]}`}>
                       {statusLabel[task.status]}
+                      {nextActionLabel(state, task) ? ` · ${nextActionLabel(state, task)}` : ""}
                     </span>
                     <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                       {task.note || task.outcome}
@@ -771,6 +779,9 @@ export function PitbossPanel(props: {
                     </h3>
                     <p className={`text-xs ${statusClass[selected.status]}`}>
                       {statusLabel[selected.status]}
+                      {nextActionLabel(state, selected)
+                        ? ` · ${nextActionLabel(state, selected)}`
+                        : ""}
                     </p>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => setSelectedId(null)}>

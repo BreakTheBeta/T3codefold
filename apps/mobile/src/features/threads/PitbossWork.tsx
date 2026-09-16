@@ -423,7 +423,7 @@ export function PitbossWork(props: {
                         >
                           <Text className="text-xs text-muted-foreground">
                             {item.task
-                              ? `${projectName(item.task.projectId)} · ${gladosWorkStatus(item.task)}`
+                              ? `${projectName(item.task.projectId)} · ${gladosWorkStatus(item.task, state)}`
                               : `GLaDOS · ${item.message.kind}`}
                           </Text>
                           <Text className="font-semibold" numberOfLines={2}>
@@ -475,7 +475,7 @@ export function PitbossWork(props: {
                             </Text>
                             <Text className="text-xl font-semibold">{task.title}</Text>
                             <Text className="text-xs text-muted-foreground">
-                              {gladosWorkKind(task, state)} · {gladosWorkStatus(task)}
+                              {gladosWorkKind(task, state)} · {gladosWorkStatus(task, state)}
                             </Text>
                             {task.proposedVerificationRecipe && (
                               <View className="rounded-xl border border-primary p-3">

@@ -3,6 +3,8 @@ import {
   workNeedsUserInput,
   isUserWorkMessage,
   hasCurrentVerification,
+  pitbossTaskNextAction,
+  pitbossTaskNextActionLabel,
   type PitbossAction,
   type PitbossBrief,
   type PitbossMessage,
@@ -155,7 +157,9 @@ export function gladosWorkKind(task: PitbossTask, state: PitbossSnapshot) {
       : "Code";
 }
 
-export function gladosWorkStatus(task: PitbossTask) {
+export function gladosWorkStatus(task: PitbossTask, state?: PitbossSnapshot) {
+  const next = state && pitbossTaskNextActionLabel(pitbossTaskNextAction(state, task));
+  if (next) return next;
   switch (task.status) {
     case "done":
       return "Delivered";

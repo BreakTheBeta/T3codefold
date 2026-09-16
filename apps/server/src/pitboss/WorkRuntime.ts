@@ -10,6 +10,7 @@ import {
   PitbossError,
   ProjectId,
   ThreadId,
+  pitbossTaskNextAction,
   type PitbossSnapshot,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
@@ -64,24 +65,27 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
       ),
     ).length < (state.role?.brief.maxWorkers ?? 0);
   const owned = state.tasks.filter((task) => taskLead(state, task)?.id === recipient.leadId);
-  const ready = readyTasks(state).filter((task) => owned.includes(task));
-  const reviews = owned.filter((task) => {
-    const attempt = task.attempts.at(-1);
-    return (
-      !!attempt &&
-      ["stopped", "failed"].includes(attempt.state) &&
-      ["active", "verifying", "blocked"].includes(task.status)
-    );
-  });
+  const assignable = new Set(
+    readyTasks(state)
+      .filter((task) => owned.includes(task))
+      .map((task) => task.id),
+  );
   const owner = recipient.leadId ? `project lead ${recipient.leadId}` : "GLaDOS";
   const events: Array<{
     readonly key: string;
+    readonly obligationKey: string;
     readonly text: string;
     readonly deliverable: boolean;
   }> = [];
-  for (const message of messages) {
+  const obligationKey = (task: (typeof state.tasks)[number], action: string) => {
+    const attempt = task.attempts.at(-1);
+    return `task:${task.id}:owner:${task.ownershipRevision ?? 0}:attempt:${attempt?.id ?? "none"}:action:${action}`;
+  };
+  // Prefer the newest changed context when several durable messages describe one obligation.
+  for (const message of messages.toReversed()) {
     const task = state.tasks.find((entry) => entry.id === message.taskId);
     const attempt = task?.attempts.find((entry) => entry.threadId === message.threadId);
+    const action = task ? pitbossTaskNextAction(state, task) : null;
     const eventKind = task?.decisions?.some(
       (decision) => decision.id === message.id && decision.answer === undefined,
     )
@@ -90,36 +94,56 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
     const subject = task
       ? `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`
       : `portfolio · owner ${owner}`;
-    const next =
+    const resultText =
+      action === "await-writer"
+        ? `Result submitted · ${subject}: ${message.text.slice(0, 600)} Changed: candidate evidence was recorded without accepting it. Next: wait for the worker to stop, then run the required verification.`
+        : action === "verify"
+          ? `Result ready for verification · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: run the approved verification, then review its receipt.`
+          : `Result ready for review · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: inspect the reported evidence and record review; do not accept the stopped turn itself.`;
+    const progressText =
+      task && task.evidence.length > 0 && action === "review"
+        ? `Task updated · ${subject}: ${message.text.slice(0, 600)} Changed: the recorded update preserved the retained result. Next: review the retained candidate against the current criteria before verification.`
+        : `progress · ${subject}: ${message.text.slice(0, 600)} Next: inspect the update and act only if its recorded state requires it.`;
+    const text =
       eventKind === "question"
-        ? "Answer within the charter or record a user decision."
+        ? `question · ${subject}: ${message.text.slice(0, 600)} Next: answer within the charter or record a user decision.`
         : eventKind === "decision"
-          ? "Resolve the recorded decision before resuming this task."
+          ? `decision · ${subject}: ${message.text.slice(0, 600)} Next: Resolve the recorded decision before resuming this task.`
           : message.kind === "result"
-            ? "Inspect the reported evidence; a finished turn is not an accepted result."
-            : "Inspect the update and act only if its recorded state requires it.";
+            ? resultText
+            : progressText;
+    const obligation = task ? obligationKey(task, action ?? eventKind) : `message:${message.id}`;
     events.push({
       key: task
-        ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}`
+        ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}:action:${action ?? eventKind}`
         : `message:${message.id}`,
-      text: `${eventKind} · ${subject}: ${message.text.slice(0, 600)} Next: ${next}`,
+      obligationKey: obligation,
+      text,
       deliverable: true,
     });
   }
-  for (const task of reviews) {
-    const attempt = task.attempts.at(-1)!;
+  for (const task of owned) {
+    const action = pitbossTaskNextAction(state, task);
+    const attempt = task.attempts.at(-1);
+    if (!action || !["assign", "verify", "review", "recover"].includes(action)) continue;
+    if (action === "assign" && !assignable.has(task.id)) continue;
+    const key = obligationKey(task, action);
+    const subject = `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`;
+    const text =
+      action === "assign"
+        ? `Ready to assign · ${subject}. Changed: prerequisites are satisfied and no retained result needs review. Next: assign a managed worker or record the condition that blocks assignment.`
+        : action === "verify"
+          ? `Verification needed · ${subject}. Changed: a stopped candidate has current evidence and an approved profile. Next: run the approved verification; do not assign duplicate implementation work.`
+          : action === "review"
+            ? `Result ready for review · ${subject}. Changed: a stopped candidate is retained. Next: inspect it and record current review before verification or acceptance; do not assign duplicate implementation work.`
+            : `Recovery needed · ${subject}. Changed: the worker ${attempt?.state ?? "stopped"} without acceptable evidence. Next: inspect the retained thread, then rework or cancel with an honest superseded reason; do not invent evidence for historical work.`;
     events.push({
-      key: `review:${task.id}:owner:${task.ownershipRevision ?? 0}:${attempt.id}:${attempt.state}`,
-      text: `Worker ${attempt.state} · task ${task.id} · attempt ${attempt.id} · owner ${owner} · task status ${task.status}. Next: inspect thread ${attempt.threadId}, then record review, rework, or a concrete blocker; do not accept the turn itself as evidence.`,
-      deliverable: true,
+      key,
+      obligationKey: key,
+      text,
+      deliverable: action !== "assign" || available,
     });
   }
-  for (const task of ready)
-    events.push({
-      key: `ready:${task.id}:owner:${task.ownershipRevision ?? 0}:${task.revision}`,
-      text: `Newly ready · task ${task.id} · attempt none · owner ${owner} · task status ${task.status}. Next: assign a managed worker or record the condition that blocks assignment.`,
-      deliverable: available,
-    });
   return events;
 }
 export const layer = Layer.effectDiscard(
@@ -198,7 +222,11 @@ export const layer = Layer.effectDiscard(
         yield* store.retryEffect(effect.operation_id, String(delivered.failure));
         return;
       }
-      yield* finish(deliverable.map((event) => event.key));
+      yield* finish(
+        deliverable.flatMap((event) =>
+          event.key === event.obligationKey ? [event.key] : [event.key, event.obligationKey],
+        ),
+      );
     });
     const drain = Effect.fn("WorkRuntime.drain")(function* () {
       const pending = yield* store.effects();
@@ -563,8 +591,14 @@ export const layer = Layer.effectDiscard(
       for (const recipient of recipients) {
         if (recipient.leadId && wokeLead) continue;
         const recorded = new Set(yield* store.wakeKeys(recipient.id, recipient.generation));
+        const obligations = new Set<string>();
         const events = wakeEvents(state, recipient)
           .filter((event) => event.deliverable && !recorded.has(event.key))
+          .filter((event) => {
+            if (obligations.has(event.obligationKey)) return false;
+            obligations.add(event.obligationKey);
+            return true;
+          })
           .slice(0, 8);
         if (!events.length) continue;
         const thread = yield* threads.getProjectThread({

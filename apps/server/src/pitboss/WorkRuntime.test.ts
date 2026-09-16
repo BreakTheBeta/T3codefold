@@ -33,6 +33,7 @@ import { ThreadLaunchService, ThreadLaunchError } from "../orchestration-v2/Thre
 import { PeerService } from "./PeerService.ts";
 import { WorkStore, layer as storeLayer } from "./WorkStore.ts";
 import { layer as runtime } from "./WorkRuntime.ts";
+import { readyTasks } from "./Work.ts";
 
 const decodeAction = Schema.decodeUnknownSync(Schema.fromJsonString(PitbossAction));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -322,6 +323,40 @@ it.effect(
       expect(h.sent).toEqual([boss]);
     }).pipe(Effect.provide(services)),
 );
+it.effect("does not re-wake the same assign obligation for an unrelated task revision", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "stable-assign-obligation",
+      projectId: a,
+      title: "Stable assign obligation",
+      outcome: "Assign once",
+      criteria: "Worker returns evidence",
+      verifyCommand: "",
+      priority: 10,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({
+      type: "edit",
+      taskId: "stable-assign-obligation",
+      projectId: a,
+      title: "Stable assign obligation",
+      outcome: "Assign once",
+      criteria: "Worker returns evidence",
+      verifyCommand: "",
+      priority: 11,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
 it.effect("wakes once for a failed managed attempt and leaves recovery explicit", () =>
   Effect.gen(function* () {
     const h = yield* harness;
@@ -349,7 +384,7 @@ it.effect("wakes once for a failed managed attempt and leaves recovery explicit"
     yield* h.drain();
     expect((yield* h.store.read()).tasks[0]?.status).toBe("blocked");
     expect(h.sentMessages[0]?.text).toContain(
-      `Worker failed · task failed-attempt · attempt ${attempt.id} · owner GLaDOS · task status blocked`,
+      `Recovery needed · task failed-attempt · attempt ${attempt.id} · owner GLaDOS`,
     );
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
@@ -393,7 +428,7 @@ it.effect("does not redeliver an unchanged failed-attempt review after coordinat
     expect(h.sent).toEqual([boss]);
   }).pipe(Effect.provide(services)),
 );
-it.effect("wakes once for a submitted result without accepting the finished turn", () =>
+it.effect("changes a submitted result from await-writer to review after the worker drains", () =>
   Effect.gen(function* () {
     const h = yield* harness;
     yield* h.command({
@@ -430,6 +465,14 @@ it.effect("wakes once for a submitted result without accepting the finished turn
       },
       { type: "agent", threadId: attempt.threadId },
     );
+    yield* h.drain();
+    expect(h.sentMessages[0]?.text).toContain(
+      `Result submitted · task submitted-result · attempt ${attempt.id} · owner GLaDOS`,
+    );
+    expect(h.sentMessages[0]?.text).toContain(
+      "Next: wait for the worker to stop, then run the required verification.",
+    );
+    h.projections.set(boss, projection(boss, a));
     const worker = h.projections.get(attempt.threadId)!;
     h.projections.set(attempt.threadId, {
       ...worker,
@@ -439,14 +482,113 @@ it.effect("wakes once for a submitted result without accepting the finished turn
     const submitted = (yield* h.store.read()).tasks[0]!;
     expect(submitted.status).toBe("verifying");
     expect(submitted.acceptedEvidenceId).toBeNull();
-    expect(h.sentMessages[0]?.text).toContain(
-      `result · task submitted-result · attempt ${attempt.id} · owner GLaDOS`,
+    expect(h.sentMessages[1]?.text).toContain(
+      `Result ready for review · task submitted-result · attempt ${attempt.id} · owner GLaDOS`,
     );
-    expect(h.sentMessages[0]?.text).toContain("finished turn is not an accepted result");
+    expect(h.sentMessages[1]?.text).toContain(
+      "Next: inspect the reported evidence and record review; do not accept the stopped turn itself.",
+    );
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
-    expect(h.sent).toEqual([boss]);
+    expect(h.sent).toEqual([boss, boss]);
   }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "does not offer a retained result for duplicate assignment after setup approval resolves its decision",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.command({
+        type: "create",
+        taskId: "approved-retained-result",
+        projectId: a,
+        title: "Approved retained result",
+        outcome: "Verify the retained candidate",
+        criteria: "Captured verification and review",
+        verifyCommand: "vp test run focused.test.ts",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      });
+      yield* h.command({ type: "assign", taskId: "approved-retained-result" });
+      yield* h.drain();
+      const assigned = (yield* h.store.read()).tasks[0]!;
+      const attempt = assigned.attempts[0]!;
+      yield* h.store.command(
+        {
+          commandId: CommandId.make("retained-submit"),
+          expectedRevision: (yield* h.store.read()).revision,
+          action: {
+            type: "submit",
+            taskId: assigned.id,
+            attemptId: attempt.id,
+            criteriaVersion: assigned.criteriaVersion,
+            candidate: `commit:${"a".repeat(40)}`,
+            verdict: "pass",
+            summary: "Candidate retained while setup is approved",
+            command: "vp test run focused.test.ts",
+            artifactUrls: [],
+          },
+        },
+        { type: "agent", threadId: attempt.threadId },
+      );
+      yield* h.command({
+        type: "request-decision",
+        taskId: assigned.id,
+        question: "Approve the proposed verification setup?",
+        options: ["Approve", "Revise"],
+        recommendation: "Approve",
+      });
+      yield* h.command({
+        type: "propose-verification",
+        taskId: assigned.id,
+        recipe: {
+          profileId: "focused",
+          mode: "commit",
+          environmentId: EnvironmentId.make("verification-host"),
+          effects: "observe",
+          enabled: true,
+          projectId: a,
+          version: 1,
+          name: "Focused code checks",
+          doctor: "command -v vp",
+          verify: "vp test run focused.test.ts",
+          cleanup: "",
+          timeoutSeconds: 60,
+          artifacts: [],
+        },
+      });
+      yield* h.drain();
+      const parked = (yield* h.store.read()).tasks[0]!;
+      expect(parked.attempts[0]?.state).toBe("stopped");
+      h.projections.set(boss, projection(boss, a));
+      yield* h.command({
+        type: "verification-recipe",
+        selectForTaskId: assigned.id,
+        recipe: parked.proposedVerificationRecipe!,
+      });
+      const configured = (yield* h.store.read()).tasks[0]!;
+      yield* h.command({
+        type: "resolve-decision",
+        taskId: configured.id,
+        decisionId: configured.decisions![0]!.id,
+        answer: "Approve",
+      });
+      yield* h.drain();
+      const approved = (yield* h.store.read()).tasks[0]!;
+      expect(approved.status).toBe("queued");
+      expect(approved.proposedVerificationRecipe).toBeUndefined();
+      expect(readyTasks(yield* h.store.read())).toEqual([]);
+      expect(h.sentMessages.at(-1)?.text).toContain(
+        "Changed: the recorded update preserved the retained result.",
+      );
+      expect(h.sentMessages.at(-1)?.text).toContain(
+        "Next: review the retained candidate against the current criteria before verification.",
+      );
+      expect(h.sentMessages.at(-1)?.text).not.toContain("Newly ready");
+      expect(h.sentMessages.at(-1)?.text).not.toContain("assign a managed worker");
+    }).pipe(Effect.provide(services)),
 );
 it.effect("does not offer managed work again while its persisted writer is running", () =>
   Effect.gen(function* () {
@@ -509,9 +651,11 @@ it.effect("wakes once with an honest review action when a worker finishes withou
       creationSource: "server",
     });
     expect(h.sentMessages[0]?.text).toContain(
-      `Worker stopped · task unfinished-result · attempt ${attempt.id} · owner GLaDOS · task status blocked`,
+      `Recovery needed · task unfinished-result · attempt ${attempt.id} · owner GLaDOS`,
     );
-    expect(h.sentMessages[0]?.text).toContain("do not accept the turn itself as evidence");
+    expect(h.sentMessages[0]?.text).toContain(
+      "Next: inspect the retained thread, then rework or cancel with an honest superseded reason; do not invent evidence for historical work.",
+    );
     expect(h.sentMessages[0]?.text).not.toContain("work_read");
     expect(h.sentMessages[0]?.text).not.toContain("Pending user decisions");
     h.projections.set(boss, projection(boss, a));
@@ -688,7 +832,7 @@ it.effect("delivers unresolved decisions and genuinely new readiness once each",
     yield* h.drain();
     expect(h.sent).toEqual([boss, boss]);
     expect(h.sentMessages[1]?.text).toContain(
-      "Newly ready · task newly-ready · attempt none · owner GLaDOS · task status queued",
+      "Ready to assign · task newly-ready · attempt none · owner GLaDOS",
     );
     expect(h.sentMessages[1]?.text).not.toContain("decision · task decision-task");
   }).pipe(Effect.provide(services)),
