@@ -170,6 +170,74 @@ it("derives recovery and explicit acceptance from coordinator review verdicts", 
   expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("accept");
 });
 
+it.each(["fail", "inconclusive"] as const)(
+  "makes explicit rework assignable after a %s review without discarding evidence",
+  (verdict) => {
+    let state = elect();
+    const run = (action: Parameters<typeof decide>[1]["action"]) => {
+      state = decide(
+        state,
+        {
+          commandId: CommandId.make(`explicit-rework-${state.revision}`),
+          expectedRevision: state.revision,
+          action,
+        },
+        { type: "user" },
+        `2026-09-10T00:00:${String(state.revision).padStart(2, "0")}.000Z`,
+      );
+    };
+    run({
+      type: "create",
+      taskId: "explicit-rework",
+      projectId,
+      title: "Explicit rework",
+      outcome: "Repair the retained candidate",
+      criteria: "Replacement evidence passes",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 10,
+      dependencies: [],
+      workspaceStrategy: {
+        type: "existing_worktree",
+        worktreePath: "/tmp/explicit-rework",
+      },
+    });
+    run({ type: "assign", taskId: "explicit-rework" });
+    const first = state.tasks[0]!.attempts[0]!;
+    state = observeAttempt(
+      state,
+      "explicit-rework",
+      first.id,
+      "stopped",
+      "Candidate retained",
+      "/tmp/explicit-rework",
+    );
+    run({
+      type: "review",
+      taskId: "explicit-rework",
+      attemptId: first.id,
+      criteriaVersion: state.tasks[0]!.criteriaVersion,
+      candidate: `commit:${"a".repeat(40)}`,
+      verdict,
+      summary: `${verdict} retained candidate`,
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+    expect(readyTasks(state)).toEqual([]);
+    run({ type: "rework", taskId: "explicit-rework", note: "Repair retained candidate" });
+    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+    run({ type: "reopen", taskId: "explicit-rework" });
+    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("assign");
+    expect(readyTasks(state).map((task) => task.id)).toEqual(["explicit-rework"]);
+    const retainedEvidence = state.tasks[0]!.evidence;
+    run({ type: "assign", taskId: "explicit-rework", resumeAttemptId: first.id });
+    expect(state.tasks[0]!.reworkRequestedAt).toBeUndefined();
+    expect(state.tasks[0]!.evidence).toEqual(retainedEvidence);
+    expect(state.tasks[0]!.attempts.at(-1)?.workspacePath).toBe("/tmp/explicit-rework");
+    expect(readyTasks(state)).toEqual([]);
+  },
+);
+
 it("does not await verification captured for a replaced candidate", () => {
   let state = elect();
   const run = (action: Parameters<typeof decide>[1]["action"]) => {

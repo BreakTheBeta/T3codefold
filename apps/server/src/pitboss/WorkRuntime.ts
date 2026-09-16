@@ -89,6 +89,7 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
       evidence?.criteriaVersion ?? null,
       evidence?.verdict ?? null,
       evidence?.provenance ?? null,
+      task.reworkRequestedAt ?? null,
       task.verificationProfileId ?? null,
       recipe?.profileId ?? null,
       recipe?.version ?? null,
@@ -156,7 +157,9 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
     const subject = `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`;
     const text =
       action === "assign"
-        ? `Ready to assign · ${subject}. Changed: prerequisites are satisfied and no retained result needs review. Next: assign a managed worker or record the condition that blocks assignment.`
+        ? task.reworkRequestedAt
+          ? `Rework ready · ${subject}. Changed: an explicit rework request reopened the retained candidate. Next: assign a managed worker with resumeAttemptId ${attempt?.id ?? "none"}; the prior evidence remains historical and is not accepted.`
+          : `Ready to assign · ${subject}. Changed: prerequisites are satisfied and no retained result needs review. Next: assign a managed worker or record the condition that blocks assignment.`
         : action === "verify"
           ? `Verification needed · ${subject}. Changed: a stopped candidate has current evidence and an approved profile. Next: run the approved verification; do not assign duplicate implementation work.`
           : action === "review"

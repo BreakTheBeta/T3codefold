@@ -446,6 +446,96 @@ it.effect("wakes once for each changed failed review and not again after restart
     expect(h.sent).toEqual([boss, boss, boss]);
   }).pipe(Effect.provide(services)),
 );
+it.effect("resumes a retained candidate after explicit rework and reopen", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "retained-rework",
+      projectId: a,
+      title: "Retained rework",
+      outcome: "Repair the retained candidate",
+      criteria: "Replacement evidence passes",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: {
+        type: "existing_worktree",
+        worktreePath: "/tmp/retained-rework",
+      },
+    });
+    yield* h.command({ type: "assign", taskId: "retained-rework" });
+    yield* h.drain();
+    const first = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    yield* h.store.updateAttempt(
+      "retained-rework",
+      first.id,
+      "stopped",
+      "Candidate retained for review",
+      "/tmp/retained-rework",
+    );
+    yield* h.command({
+      type: "review",
+      taskId: "retained-rework",
+      attemptId: first.id,
+      criteriaVersion: 1,
+      candidate: `commit:${"a".repeat(40)}`,
+      verdict: "inconclusive",
+      summary: "The retained candidate needs another implementation pass.",
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    yield* h.command({
+      type: "rework",
+      taskId: "retained-rework",
+      note: "Repair the inconclusive candidate in its retained workspace.",
+    });
+    yield* h.command({ type: "reopen", taskId: "retained-rework" });
+    expect(readyTasks(yield* h.store.read()).map((task) => task.id)).toEqual(["retained-rework"]);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sentMessages.at(-1)?.text).toContain(
+      `Rework ready · task retained-rework · attempt ${first.id} · owner GLaDOS`,
+    );
+    expect(h.sentMessages.at(-1)?.text).toContain(`resumeAttemptId ${first.id}`);
+    yield* h.command({
+      type: "assign",
+      taskId: "retained-rework",
+      resumeAttemptId: first.id,
+    });
+    yield* h.drain();
+    const resumed = (yield* h.store.read()).tasks[0]!;
+    const second = resumed.attempts.at(-1)!;
+    expect(second.id).not.toBe(first.id);
+    expect(second.workspacePath).toBe("/tmp/retained-rework");
+    expect(resumed.evidence).toHaveLength(1);
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("retained-rework-submit"),
+        expectedRevision: (yield* h.store.read()).revision,
+        action: {
+          type: "submit",
+          taskId: resumed.id,
+          attemptId: second.id,
+          criteriaVersion: resumed.criteriaVersion,
+          candidate: `commit:${"b".repeat(40)}`,
+          verdict: "pass",
+          summary: "Replacement candidate is ready for verification.",
+          command: "vp test run focused.test.ts",
+          artifactUrls: [],
+        },
+      },
+      { type: "agent", threadId: second.threadId },
+    );
+    const submitted = (yield* h.store.read()).tasks[0]!;
+    expect(submitted.attempts.map((attempt) => attempt.state)).toEqual(["stopped", "submitted"]);
+    expect(submitted.evidence.map((evidence) => evidence.verdict)).toEqual([
+      "inconclusive",
+      "pass",
+    ]);
+    expect(submitted.acceptedEvidenceId).toBeNull();
+  }).pipe(Effect.provide(services)),
+);
 it.effect("changes a submitted result from await-writer to review after the worker drains", () =>
   Effect.gen(function* () {
     const h = yield* harness;

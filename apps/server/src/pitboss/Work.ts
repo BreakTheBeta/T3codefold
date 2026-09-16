@@ -723,6 +723,7 @@ export function decide(
         existing.verifyCommand !== action.verifyCommand);
     const task: PitbossTask = {
       decisions: existing?.decisions,
+      reworkRequestedAt: existing?.reworkRequestedAt,
       verificationProfileId:
         existing?.projectId === action.projectId ? existing.verificationProfileId : undefined,
       verification: existing?.projectId === action.projectId ? existing.verification : undefined,
@@ -1068,6 +1069,7 @@ export function decide(
       }
       task = {
         ...task,
+        reworkRequestedAt: undefined,
         status: "active",
         note: "Dispatch pending",
         attempts: [
@@ -1239,6 +1241,7 @@ export function decide(
     case "cancel":
       task = {
         ...task,
+        reworkRequestedAt: action.type === "rework" ? now : undefined,
         status: action.type === "cancel" ? "cancelled" : "blocked",
         note: action.note,
         acceptedEvidenceId: null,
