@@ -182,6 +182,46 @@ it.effect("treats empty non-open change request listing output as no results", (
   }),
 );
 
+it.effect("forwards explicit repositories through publication reads", () =>
+  Effect.gen(function* () {
+    let listInput: Parameters<GitHubCli.GitHubCli["Service"]["listOpenPullRequests"]>[0] | null =
+      null;
+    let defaultInput: Parameters<GitHubCli.GitHubCli["Service"]["getDefaultBranch"]>[0] | null =
+      null;
+    const provider = yield* makeProvider({
+      listOpenPullRequests: (input) => {
+        listInput = input;
+        return Effect.succeed([]);
+      },
+      getDefaultBranch: (input) => {
+        defaultInput = input;
+        return Effect.succeed("main");
+      },
+    });
+
+    yield* provider.listChangeRequests({
+      cwd: "/repo",
+      repository: "BreakTheBeta/T3codefold",
+      headSelector: "fix/fork-publication-target",
+      state: "open",
+    });
+    yield* provider.getDefaultBranch({
+      cwd: "/repo",
+      repository: "BreakTheBeta/T3codefold",
+    });
+
+    expect(listInput).toEqual({
+      cwd: "/repo",
+      repository: "BreakTheBeta/T3codefold",
+      headSelector: "fix/fork-publication-target",
+    });
+    expect(defaultInput).toEqual({
+      cwd: "/repo",
+      repository: "BreakTheBeta/T3codefold",
+    });
+  }),
+);
+
 it.effect("creates GitHub PRs through provider-neutral input names", () =>
   Effect.gen(function* () {
     let createInput: Parameters<GitHubCli.GitHubCli["Service"]["createPullRequest"]>[0] | null =
