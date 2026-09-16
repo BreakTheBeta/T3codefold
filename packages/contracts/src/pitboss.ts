@@ -227,6 +227,16 @@ export type PitbossDecision = typeof PitbossDecision.Type;
 export const PitbossTask = Schema.Struct({
   proposedVerificationRecipe: Schema.optional(PitbossVerificationRecipe),
   reworkRequestedAt: Schema.optional(Schema.String),
+  proposedVerificationDigest: Schema.optional(Id),
+  proposedVerificationDecisionId: Schema.optional(Id),
+  approvedVerificationProposal: Schema.optional(
+    Schema.Struct({
+      decisionId: Id,
+      profileId: Schema.optional(Id),
+      version: Version,
+      digest: Id,
+    }),
+  ),
   decisions: Schema.optional(Schema.Array(PitbossDecision).check(Schema.isMaxLength(20))),
   verificationProfileId: Schema.optional(Schema.NullOr(Id)),
   verification: Schema.optional(PitbossVerification),
@@ -309,6 +319,13 @@ export const PitbossAction = Schema.Union([
     taskId: Id,
     decisionId: Id,
     answer: TrimmedNonEmptyString.check(Schema.isMaxLength(4000)),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("approve-verification"),
+    taskId: Id,
+    decisionId: Id,
+    proposalVersion: Version,
+    proposalDigest: Id,
   }),
   Schema.Struct({
     type: Schema.Literal("verification-profile"),

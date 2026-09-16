@@ -8,17 +8,24 @@ import {
   type PitbossAction,
   type PitbossSnapshot,
 } from "@t3tools/contracts";
-import { decide, emptyWork, workContext } from "./Work.ts";
+import {
+  decide,
+  emptyWork,
+  observeAttempt,
+  verificationRecipeDigest,
+  workContext,
+} from "./Work.ts";
 import { replayJournal } from "./WorkJournal.ts";
 
 function fixture(verificationMode?: "automatic" | "user-approved") {
   let state: PitbossSnapshot = emptyWork;
+  let commandSequence = 0;
   const history: string[] = [];
   const projectId = ProjectId.make("project");
   const boss = { type: "agent" as const, threadId: ThreadId.make("boss") };
   const act = (action: PitbossAction, actor: Parameters<typeof decide>[2] = { type: "user" }) => {
     const input = {
-      commandId: CommandId.make(`command-${state.revision}`),
+      commandId: CommandId.make(`command-${commandSequence++}`),
       expectedRevision: state.revision,
       authorityGeneration: state.role?.generation,
       action,
@@ -26,6 +33,26 @@ function fixture(verificationMode?: "automatic" | "user-approved") {
     const now = "2026-09-14T00:00:00Z";
     state = decide(state, input, actor, now);
     history.push(JSON.stringify({ type: "command", version: 2, input, actor, now }));
+  };
+  const stopAttempt = (taskId: string, attemptId: string) => {
+    state = observeAttempt(
+      state,
+      taskId,
+      attemptId,
+      "stopped",
+      "Retained candidate",
+      "/retained/task",
+    );
+    history.push(
+      JSON.stringify({
+        type: "attempt",
+        taskId,
+        attemptId,
+        status: "stopped",
+        detail: "Retained candidate",
+        workspacePath: "/retained/task",
+      }),
+    );
   };
   act({
     type: "elect",
@@ -67,6 +94,7 @@ function fixture(verificationMode?: "automatic" | "user-approved") {
   };
   return {
     act,
+    stopAttempt,
     recipe,
     boss,
     history,
@@ -118,6 +146,129 @@ it("saving and selecting setup retains the pending user decision and its answer 
   f.act({ type: "assign", taskId: "task" }, f.boss);
   expect(f.state.tasks[0]!.decisions![0]!.answer).toBe("B");
   expect(replayJournal(f.history)).toEqual(f.state);
+});
+it("atomically approves the exact proposed setup and linked decision without changing retained work", () => {
+  const f = fixture();
+  f.act({ type: "assign", taskId: "task" });
+  const attempt = f.state.tasks[0]!.attempts[0]!;
+  f.act(
+    {
+      type: "submit",
+      taskId: "task",
+      attemptId: attempt.id,
+      candidate: `commit:${"a".repeat(40)}`,
+      criteriaVersion: 1,
+      verdict: "pass",
+      summary: "Candidate is retained for captured verification",
+      command: "node --test",
+      artifactUrls: [],
+    },
+    { type: "agent", threadId: attempt.threadId },
+  );
+  f.act(
+    {
+      type: "request-decision",
+      taskId: "task",
+      question: "Approve the repaired verification setup?",
+      options: ["Approve", "Reject"],
+      recommendation: "Approve",
+    },
+    { type: "agent", threadId: attempt.threadId },
+  );
+  const decision = f.state.tasks[0]!.decisions![0]!;
+  f.stopAttempt("task", attempt.id);
+  f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
+  const before = f.state.tasks[0]!;
+  f.act({
+    type: "approve-verification",
+    taskId: "task",
+    decisionId: decision.id,
+    proposalVersion: f.recipe.version,
+    proposalDigest: verificationRecipeDigest(f.recipe),
+  });
+  const approved = f.state.tasks[0]!;
+  expect(verificationRecipeForTask(f.state, approved)).toEqual(f.recipe);
+  expect(approved.proposedVerificationRecipe).toBeUndefined();
+  expect(approved.decisions![0]!.answer).toBe("Approved verification setup");
+  expect(approved.approvedVerificationProposal).toEqual({
+    decisionId: decision.id,
+    profileId: "behavior",
+    version: 1,
+    digest: verificationRecipeDigest(f.recipe),
+  });
+  expect(approved.status).toBe(before.status);
+  expect(approved.attempts).toEqual(before.attempts);
+  expect(approved.evidence).toEqual(before.evidence);
+  expect(approved.evidence).toHaveLength(1);
+  expect(replayJournal(f.history)).toEqual(f.state);
+});
+
+it("rejects stale, wrong-task and agent proposal approvals and treats an exact duplicate as a no-op", () => {
+  const f = fixture();
+  f.act(
+    {
+      type: "request-decision",
+      taskId: "task",
+      question: "Approve setup?",
+      options: ["Approve", "Reject"],
+      recommendation: "Approve",
+    },
+    f.boss,
+  );
+  const decision = f.state.tasks[0]!.decisions![0]!;
+  f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
+  const approval = {
+    type: "approve-verification" as const,
+    taskId: "task",
+    decisionId: decision.id,
+    proposalVersion: f.recipe.version,
+    proposalDigest: verificationRecipeDigest(f.recipe),
+  };
+  expect(() => f.act({ ...approval, proposalDigest: "stale" })).toThrow(/proposal changed/);
+  expect(() => f.act({ ...approval, taskId: "missing" })).toThrow(/Task not found/);
+  expect(() => f.act(approval, f.boss)).toThrow(/Only the user/);
+  f.act(approval);
+  const approved = f.state;
+  f.act(approval);
+  expect(f.state).toBe(approved);
+  const successor = { ...f.recipe, version: 2, verify: "node --test repaired.test.ts" };
+  f.act({ type: "propose-verification", taskId: "task", recipe: successor }, f.boss);
+  const withSuccessor = f.state;
+  f.act(approval);
+  expect(f.state).toBe(withSuccessor);
+  expect(verificationRecipeForTask(f.state, f.state.tasks[0]!)?.version).toBe(1);
+  expect(f.state.tasks[0]!.proposedVerificationRecipe).toEqual(successor);
+  expect(replayJournal(f.history)).toEqual(f.state);
+});
+
+it("rejects an unlinked or already rejected proposal decision", () => {
+  const f = fixture();
+  f.act(
+    {
+      type: "request-decision",
+      taskId: "task",
+      question: "Approve setup?",
+      options: ["Approve", "Reject"],
+      recommendation: "Approve",
+    },
+    f.boss,
+  );
+  const linked = f.state.tasks[0]!.decisions![0]!;
+  f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
+  const approval = {
+    type: "approve-verification" as const,
+    taskId: "task",
+    proposalVersion: f.recipe.version,
+    proposalDigest: verificationRecipeDigest(f.recipe),
+  };
+  expect(() => f.act({ ...approval, decisionId: "unrelated-decision" })).toThrow(/not linked/);
+  f.act({
+    type: "resolve-decision",
+    taskId: "task",
+    decisionId: linked.id,
+    answer: "Reject",
+  });
+  expect(() => f.act({ ...approval, decisionId: linked.id })).toThrow(/already resolved/);
 });
 it("refuses to change a running worker's proof contract through setup approval", () => {
   const f = fixture();
