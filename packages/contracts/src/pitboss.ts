@@ -467,6 +467,90 @@ export type PitbossSourceRequest = typeof PitbossSourceRequest.Type;
 
 export type PitbossSourcesResult = typeof PitbossSourcesResult.Type;
 
+export type PitbossTaskNextAction =
+  | "setup"
+  | "decision"
+  | "await-writer"
+  | "await-verification"
+  | "verify"
+  | "review"
+  | "recover"
+  | "assign"
+  | "working";
+
+/**
+ * Status records lifecycle history; this derives the concrete obligation without weakening the
+ * evidence boundary. In particular, a retained result is never made assignable just because a
+ * setup decision moved its task back to queued.
+ */
+export function pitbossTaskNextAction(
+  state: PitbossSnapshot,
+  task: PitbossTask,
+  // Pure callers can pin observation time; UI callers use wall time for expiring observations.
+  // @effect-diagnostics-next-line globalDate:off
+  now = Date.now(),
+): PitbossTaskNextAction | null {
+  if (["done", "cancelled"].includes(task.status)) return null;
+  if (task.proposedVerificationRecipe) return "setup";
+  if (task.decisions?.some((decision) => decision.answer === undefined)) return "decision";
+  if (task.pendingOperationId) return "working";
+  const selectedRecipe = verificationRecipeForTask(state, task);
+  if (task.verificationProfileId && (!selectedRecipe || selectedRecipe.enabled === false))
+    return "setup";
+
+  const attempt = task.attempts.at(-1);
+  if (attempt && ["pending", "running", "submitted", "stop_requested"].includes(attempt.state))
+    return attempt.state === "submitted" || attempt.state === "stop_requested"
+      ? "await-writer"
+      : "working";
+
+  const evidence = task.evidence.at(-1);
+  if (evidence) {
+    // A profile approval can advance the proof contract while preserving the candidate. A fresh
+    // coordinator review re-attests that candidate; assigning another implementation would race
+    // the retained result and lose useful work.
+    if (evidence.criteriaVersion !== task.criteriaVersion) return "review";
+    const recipe = selectedRecipe;
+    if (recipe && recipe.enabled !== false) {
+      if (["pending", "running"].includes(task.verification?.state ?? ""))
+        return "await-verification";
+      if (!hasCurrentVerification(task, recipe, evidence.candidate, now)) return "verify";
+    }
+    if (evidence.provenance === "coordinator_review") return null;
+    return "review";
+  }
+
+  if (attempt && ["stopped", "failed"].includes(attempt.state))
+    return task.status === "queued" ? "assign" : "recover";
+  if (task.status === "blocked" || task.status === "verifying") return "recover";
+  return task.status === "queued" ? "assign" : "working";
+}
+
+export function pitbossTaskNextActionLabel(action: PitbossTaskNextAction | null) {
+  switch (action) {
+    case "setup":
+      return "Approve verification setup";
+    case "decision":
+      return "Resolve decision";
+    case "await-writer":
+      return "Waiting for worker to finish";
+    case "await-verification":
+      return "Verification in progress";
+    case "verify":
+      return "Run verification";
+    case "review":
+      return "Review retained result";
+    case "recover":
+      return "Recover or close";
+    case "assign":
+      return "Ready to assign";
+    case "working":
+      return "In progress";
+    default:
+      return null;
+  }
+}
+
 /** User attention is a concrete decision or setup review, not every operational blocker. */
 export function workNeedsUserInput(
   task: Pick<PitbossTask, "status" | "decisions" | "proposedVerificationRecipe">,

@@ -3,6 +3,7 @@ import {
   PitbossError,
   hasCurrentVerification,
   isRuntimeModeBroaderThan,
+  pitbossTaskNextAction,
   verificationRecipeForTask,
   ThreadId,
   type EnvironmentId,
@@ -98,6 +99,7 @@ export function readyTasks(state: PitbossSnapshot, peerScope?: string): Readonly
         !task.pendingOperationId &&
         state.role!.brief.projectIds.includes(task.projectId) &&
         !hasUnresolvedWriter(task) &&
+        pitbossTaskNextAction(state, task) === "assign" &&
         task.attempts.length < state.role!.brief.maxAttempts &&
         !(state.sourceAuthorities ?? []).some(
           (authority) =>
@@ -1298,6 +1300,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
             id: task.id,
             title: task.title,
             status: task.status,
+            nextAction: pitbossTaskNextAction(input, task),
             revision: task.revision,
           })),
       )}`,
@@ -1340,6 +1343,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
             id: task.id,
             title: task.title,
             status: task.status,
+            nextAction: pitbossTaskNextAction(state, task),
             homeEnvironmentId: task.homeEnvironmentId,
             revision: task.revision,
             criteriaVersion: task.criteriaVersion,
