@@ -119,6 +119,7 @@ export const make = Effect.gen(function* () {
         return github
           .listOpenPullRequests({
             cwd: input.cwd,
+            ...(input.repository === undefined ? {} : { repository: input.repository }),
             headSelector: input.headSelector,
             ...(input.limit !== undefined ? { limit: input.limit } : {}),
           })
@@ -148,6 +149,7 @@ export const make = Effect.gen(function* () {
           args: [
             "pr",
             "list",
+            ...(input.repository === undefined ? [] : ["--repo", input.repository]),
             "--head",
             input.headSelector,
             "--state",
@@ -311,19 +313,24 @@ export const make = Effect.gen(function* () {
         ),
       ),
     getDefaultBranch: (input) =>
-      github.getDefaultBranch(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "github",
-              operation: "getDefaultBranch",
-              command: error.command,
-              cwd: input.cwd,
-              detail: error.detail,
-              cause: error,
-            }),
+      github
+        .getDefaultBranch({
+          cwd: input.cwd,
+          ...(input.repository === undefined ? {} : { repository: input.repository }),
+        })
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "getDefaultBranch",
+                command: error.command,
+                cwd: input.cwd,
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
         ),
-      ),
     checkoutChangeRequest: (input) =>
       github.checkoutPullRequest(input).pipe(
         Effect.mapError(

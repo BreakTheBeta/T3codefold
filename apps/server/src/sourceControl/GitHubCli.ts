@@ -299,6 +299,7 @@ export class GitHubCli extends Context.Service<
 
     readonly listOpenPullRequests: (input: {
       readonly cwd: string;
+      readonly repository?: string;
       readonly headSelector: string;
       readonly limit?: number;
     }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
@@ -330,6 +331,7 @@ export class GitHubCli extends Context.Service<
 
     readonly getDefaultBranch: (input: {
       readonly cwd: string;
+      readonly repository?: string;
     }) => Effect.Effect<string | null, GitHubCliError>;
 
     readonly checkoutPullRequest: (input: {
@@ -446,6 +448,7 @@ export const make = Effect.gen(function* () {
         args: [
           "pr",
           "list",
+          ...(input.repository === undefined ? [] : ["--repo", input.repository]),
           "--head",
           input.headSelector,
           "--state",
@@ -585,7 +588,15 @@ export const make = Effect.gen(function* () {
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
-        args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        args: [
+          "repo",
+          "view",
+          ...(input.repository === undefined ? [] : [input.repository]),
+          "--json",
+          "defaultBranchRef",
+          "--jq",
+          ".defaultBranchRef.name",
+        ],
       }).pipe(
         Effect.map((value) => {
           const trimmed = value.stdout.trim();

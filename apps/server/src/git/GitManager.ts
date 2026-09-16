@@ -67,6 +67,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import type { SourceControlProvider as SourceControlProviderService } from "../sourceControl/SourceControlProvider.ts";
 import { detectPrTemplate } from "../sourceControl/PrTemplateDetection.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
 
@@ -1596,10 +1597,12 @@ export const make = Effect.gen(function* () {
       | "headRepositoryOwnerLogin"
       | "isCrossRepository"
     >,
+    repository?: string,
   ) {
     for (const headSelector of headContext.headSelectors) {
       const pullRequests = yield* (yield* sourceControlProvider(cwd)).listChangeRequests({
         cwd,
+        ...(repository === undefined ? {} : { repository }),
         headSelector,
         state: "open",
         limit: 1,
@@ -1750,6 +1753,8 @@ export const make = Effect.gen(function* () {
     branch: string,
     upstreamRef: string | null,
     headContext: Pick<BranchHeadContext, "isCrossRepository" | "remoteName">,
+    provider: SourceControlProviderService["Service"],
+    repository?: string,
   ) {
     const configured = yield* gitCore.readConfigValue(cwd, `branch.${branch}.gh-merge-base`);
     if (configured) return configured;
@@ -1763,10 +1768,12 @@ export const make = Effect.gen(function* () {
       }
     }
 
-    const defaultFromProvider = yield* sourceControlProvider(cwd).pipe(
-      Effect.flatMap((provider) => provider.getDefaultBranch({ cwd })),
-      Effect.orElseSucceed(() => null),
-    );
+    const defaultFromProvider = yield* provider
+      .getDefaultBranch({
+        cwd,
+        ...(repository === undefined ? {} : { repository }),
+      })
+      .pipe(Effect.orElseSucceed(() => null));
     if (defaultFromProvider) {
       return defaultFromProvider;
     }
@@ -2000,7 +2007,31 @@ export const make = Effect.gen(function* () {
       upstreamRef: details.upstreamRef,
     });
 
-    const existing = yield* findOpenPr(cwd, headContext);
+    const publicationRepository =
+      provider.kind === "github" ? headContext.targetRepositoryNameWithOwner : null;
+    if (provider.kind === "github" && publicationRepository === null) {
+      return yield* new GitManagerError({
+        operation: "runPrStep",
+        cwd,
+        detail:
+          "Cannot create a GitHub pull request because origin does not identify an unambiguous owner/repository target.",
+      });
+    }
+    if (publicationRepository !== null) {
+      const validated = yield* provider.getRepositoryCloneUrls({
+        cwd,
+        repository: publicationRepository,
+      });
+      if (validated.nameWithOwner.toLowerCase() !== publicationRepository.toLowerCase()) {
+        return yield* new GitManagerError({
+          operation: "runPrStep",
+          cwd,
+          detail: `Cannot create a GitHub pull request because ${publicationRepository} resolved as ${validated.nameWithOwner}.`,
+        });
+      }
+    }
+
+    const existing = yield* findOpenPr(cwd, headContext, publicationRepository ?? undefined);
     if (existing) {
       return {
         status: "opened_existing" as const,
@@ -2012,15 +2043,14 @@ export const make = Effect.gen(function* () {
       };
     }
 
-    const baseBranch = yield* resolveBaseBranch(cwd, branch, details.upstreamRef, headContext);
-    if (provider.kind === "github" && headContext.targetRepositoryNameWithOwner === null) {
-      return yield* new GitManagerError({
-        operation: "runPrStep",
-        cwd,
-        detail:
-          "Cannot create a GitHub pull request because origin does not identify an unambiguous owner/repository target.",
-      });
-    }
+    const baseBranch = yield* resolveBaseBranch(
+      cwd,
+      branch,
+      details.upstreamRef,
+      headContext,
+      provider,
+      publicationRepository ?? undefined,
+    );
     yield* emit({
       kind: "phase_started",
       phase: "pr",
@@ -2084,7 +2114,7 @@ export const make = Effect.gen(function* () {
       })
       .pipe(Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))));
 
-    const created = yield* findOpenPr(cwd, headContext);
+    const created = yield* findOpenPr(cwd, headContext, publicationRepository ?? undefined);
     if (!created) {
       return {
         status: "created" as const,
