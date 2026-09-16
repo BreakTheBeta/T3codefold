@@ -9,7 +9,7 @@ import {
   type PitbossBrief,
   type PitbossAction,
 } from "@t3tools/contracts";
-import { decide, emptyWork, observeAttempt, readyTasks, managerView } from "./Work.ts";
+import { decide, emptyWork, observeAttempt, readyTasks, managerView, workContext } from "./Work.ts";
 
 const projectId = ProjectId.make("project");
 const threadId = ThreadId.make("boss");
@@ -84,6 +84,7 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
   });
   run({ type: "assign", taskId: "task" });
   const attempt = state.tasks[0]!.attempts[0]!;
+  expect(workContext(state, attempt.threadId)).toContain("pass it explicitly with --repo");
   run(
     {
       type: "submit",

@@ -215,6 +215,7 @@ interface BranchHeadContext {
   remoteName: string | null;
   headRemoteUrlKey: string | null;
   targetRemoteUrlKey: string | null;
+  targetRepositoryNameWithOwner: string | null;
   headRepositoryNameWithOwner: string | null;
   headRepositoryOwnerLogin: string | null;
   isCrossRepository: boolean;
@@ -1438,6 +1439,7 @@ export const make = Effect.gen(function* () {
         remoteRepository.remoteUrlKey ??
         (remoteName === null ? originRepository.remoteUrlKey : null),
       targetRemoteUrlKey: originRepository.remoteUrlKey,
+      targetRepositoryNameWithOwner: originRepository.repositoryNameWithOwner,
       headRepositoryNameWithOwner: remoteRepository.repositoryNameWithOwner,
       headRepositoryOwnerLogin: remoteRepository.ownerLogin,
       isCrossRepository,
@@ -2011,6 +2013,14 @@ export const make = Effect.gen(function* () {
     }
 
     const baseBranch = yield* resolveBaseBranch(cwd, branch, details.upstreamRef, headContext);
+    if (provider.kind === "github" && headContext.targetRepositoryNameWithOwner === null) {
+      return yield* new GitManagerError({
+        operation: "runPrStep",
+        cwd,
+        detail:
+          "Cannot create a GitHub pull request because origin does not identify an unambiguous owner/repository target.",
+      });
+    }
     yield* emit({
       kind: "phase_started",
       phase: "pr",
@@ -2059,6 +2069,14 @@ export const make = Effect.gen(function* () {
     yield* provider
       .createChangeRequest({
         cwd,
+        ...(headContext.targetRepositoryNameWithOwner === null
+          ? {}
+          : {
+              target: {
+                refName: baseBranch,
+                repository: headContext.targetRepositoryNameWithOwner,
+              },
+            }),
         baseRefName: baseBranch,
         headSelector: headContext.preferredHeadSelector,
         title: generated.title,
