@@ -31,6 +31,18 @@ it.live(
         Path.join(root, "verify.cjs"),
         'const assert=require("node:assert/strict"); assert.equal(require("./app.cjs").add(2,3),5); require("node:fs").writeFileSync("proof.txt","2+3=5");',
       );
+      const bin = Path.join(root, "node_modules", ".bin");
+      yield* Fs.makeDirectory(bin, { recursive: true });
+      const fixtureTool = Path.join(
+        bin,
+        platform === "win32" ? "fixture-verification-tool.cmd" : "fixture-verification-tool",
+      );
+      const candidateTool =
+        platform === "win32"
+          ? '@if not "%NODE_ENV%"=="test" exit /b 9\r\n'
+          : '#!/bin/sh\n[ "$NODE_ENV" = test ]\n';
+      yield* Fs.writeFileString(fixtureTool, candidateTool);
+      if (platform !== "win32") yield* Fs.chmod(fixtureTool, 0o755);
       yield* git(["add", "."]);
       yield* git([
         "-c",
@@ -78,17 +90,9 @@ it.live(
         ),
       ).toBe("2+3=5");
       expect((yield* git(["status", "--porcelain"])).stdout).toBe("");
-      const bin = Path.join(root, "node_modules", ".bin");
-      yield* Fs.makeDirectory(bin, { recursive: true });
-      const fixtureTool = Path.join(
-        bin,
-        platform === "win32" ? "fixture-verification-tool.cmd" : "fixture-verification-tool",
-      );
       yield* Fs.writeFileString(
         fixtureTool,
-        platform === "win32"
-          ? '@if not "%NODE_ENV%"=="test" exit /b 9\r\n'
-          : '#!/bin/sh\n[ "$NODE_ENV" = test ]\n',
+        platform === "win32" ? "@exit /b 19\r\n" : "#!/bin/sh\nexit 19\n",
       );
       if (platform !== "win32") yield* Fs.chmod(fixtureTool, 0o755);
       const explicitTestRuntime = yield* run({
@@ -161,6 +165,7 @@ it.live(
       const Path = yield* Paths.Path;
       const config = yield* ServerConfig;
       const runner = yield* VerificationRunner;
+      const platform = yield* HostProcessPlatform;
       const root = yield* Fs.makeTempDirectoryScoped({ prefix: "verification-nongit-" });
       const environmentId = EnvironmentId.make("test-environment");
       yield* Fs.makeDirectory(Path.dirname(config.environmentIdPath), { recursive: true });
@@ -202,6 +207,23 @@ it.live(
           },
         });
       const yieldNow = yield* DateTime.now;
+      const sourceBin = Path.join(root, "node_modules", ".bin");
+      yield* Fs.makeDirectory(sourceBin, { recursive: true });
+      const sourceOnlyTool = Path.join(
+        sourceBin,
+        platform === "win32" ? "source-only-artifact-tool.cmd" : "source-only-artifact-tool",
+      );
+      yield* Fs.writeFileString(
+        sourceOnlyTool,
+        platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+      );
+      if (platform !== "win32") yield* Fs.chmod(sourceOnlyTool, 0o755);
+      const isolatedArtifactPath = yield* run({
+        doctor: "source-only-artifact-tool",
+        artifacts: [],
+      });
+      expect(isolatedArtifactPath.verdict).toBe("inconclusive");
+      expect(isolatedArtifactPath.summary).toContain("executable is unavailable");
       const research = yield* run();
       expect(research.verdict).toBe("pass");
       expect(research.subjectDigest).toBe(hash(packet));
