@@ -11,6 +11,7 @@ import {
   ProjectId,
   ThreadId,
   pitbossTaskNextAction,
+  verificationRecipeForTask,
   type PitbossSnapshot,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
@@ -79,11 +80,31 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
   }> = [];
   const obligationKey = (task: (typeof state.tasks)[number], action: string) => {
     const attempt = task.attempts.at(-1);
-    return `task:${task.id}:owner:${task.ownershipRevision ?? 0}:attempt:${attempt?.id ?? "none"}:action:${action}`;
+    const evidence = task.evidence.at(-1);
+    const recipe = verificationRecipeForTask(state, task);
+    const subject = encodeWake([
+      task.criteriaVersion,
+      evidence?.id ?? null,
+      evidence?.candidate ?? null,
+      evidence?.criteriaVersion ?? null,
+      evidence?.verdict ?? null,
+      evidence?.provenance ?? null,
+      task.verificationProfileId ?? null,
+      recipe?.profileId ?? null,
+      recipe?.version ?? null,
+      task.verification?.id ?? null,
+      task.verification?.candidate ?? null,
+      task.verification?.criteriaVersion ?? null,
+      task.verification?.recipe.profileId ?? null,
+      task.verification?.recipe.version ?? null,
+    ]);
+    const identity = NodeCrypto.createHash("sha256").update(subject).digest("hex");
+    return `task:${task.id}:owner:${task.ownershipRevision ?? 0}:attempt:${attempt?.id ?? "none"}:action:${action}:subject:${identity}`;
   };
   // Prefer the newest changed context when several durable messages describe one obligation.
   for (const message of messages.toReversed()) {
     const task = state.tasks.find((entry) => entry.id === message.taskId);
+    if (task && ["done", "cancelled"].includes(task.status)) continue;
     const attempt = task?.attempts.find((entry) => entry.threadId === message.threadId);
     const action = task ? pitbossTaskNextAction(state, task) : null;
     const eventKind = task?.decisions?.some(
@@ -99,7 +120,11 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
         ? `Result submitted · ${subject}: ${message.text.slice(0, 600)} Changed: candidate evidence was recorded without accepting it. Next: wait for the worker to stop, then run the required verification.`
         : action === "verify"
           ? `Result ready for verification · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: run the approved verification, then review its receipt.`
-          : `Result ready for review · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: inspect the reported evidence and record review; do not accept the stopped turn itself.`;
+          : action === "accept"
+            ? `Acceptance needed · ${subject}: ${message.text.slice(0, 600)} Changed: the latest coordinator review passed for the current candidate and proof contract. Next: explicitly accept it or record why more work is required.`
+            : action === "recover"
+              ? `Recovery needed · ${subject}: ${message.text.slice(0, 600)} Changed: the latest review did not establish acceptable evidence. Next: rework or cancel with an honest superseded reason.`
+              : `Result ready for review · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: inspect the reported evidence and record review; do not accept the stopped turn itself.`;
     const progressText =
       task && task.evidence.length > 0 && action === "review"
         ? `Task updated · ${subject}: ${message.text.slice(0, 600)} Changed: the recorded update preserved the retained result. Next: review the retained candidate against the current criteria before verification.`
@@ -125,7 +150,7 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
   for (const task of owned) {
     const action = pitbossTaskNextAction(state, task);
     const attempt = task.attempts.at(-1);
-    if (!action || !["assign", "verify", "review", "recover"].includes(action)) continue;
+    if (!action || !["assign", "verify", "review", "recover", "accept"].includes(action)) continue;
     if (action === "assign" && !assignable.has(task.id)) continue;
     const key = obligationKey(task, action);
     const subject = `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`;
@@ -136,7 +161,9 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
           ? `Verification needed · ${subject}. Changed: a stopped candidate has current evidence and an approved profile. Next: run the approved verification; do not assign duplicate implementation work.`
           : action === "review"
             ? `Result ready for review · ${subject}. Changed: a stopped candidate is retained. Next: inspect it and record current review before verification or acceptance; do not assign duplicate implementation work.`
-            : `Recovery needed · ${subject}. Changed: the worker ${attempt?.state ?? "stopped"} without acceptable evidence. Next: inspect the retained thread, then rework or cancel with an honest superseded reason; do not invent evidence for historical work.`;
+            : action === "accept"
+              ? `Acceptance needed · ${subject}. Changed: the latest coordinator review passed for the current candidate and proof contract. Next: inspect that review and explicitly accept or record why more work is required.`
+              : `Recovery needed · ${subject}. Changed: the latest retained result is not acceptable evidence. Next: inspect the retained thread, then rework or cancel with an honest superseded reason; do not invent evidence for historical work.`;
     events.push({
       key,
       obligationKey: key,
