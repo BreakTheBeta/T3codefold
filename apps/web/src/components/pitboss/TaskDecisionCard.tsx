@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { PitbossAction, PitbossTask } from "@t3tools/contracts";
+import {
+  verificationProposalApprovalAction,
+  type PitbossAction,
+  type PitbossTask,
+} from "@t3tools/contracts";
 import { Button } from "../ui/button";
 
 export function TaskDecisionCard({
@@ -23,9 +27,8 @@ export function TaskDecisionCard({
       ? undefined
       : task.decisions?.find((decision) => decision.answer === undefined);
   if (!pending) return null;
-  const proposal = task.proposedVerificationRecipe;
-  const proposalDigest = task.proposedVerificationDigest;
-  const approvesProposal = task.proposedVerificationDecisionId === pending.id;
+  const proposalApproval = verificationProposalApprovalAction(task);
+  const approvesProposal = proposalApproval?.decisionId === pending.id;
   const submit = (value: string) => {
     if (value.trim())
       void command({
@@ -53,19 +56,11 @@ export function TaskDecisionCard({
         for later.
       </p>
       <div className="flex flex-wrap gap-2">
-        {proposal && proposalDigest && approvesProposal && (
+        {proposalApproval && approvesProposal && (
           <Button
             size="sm"
             disabled={busy || !!task.homeEnvironmentId}
-            onClick={() =>
-              void command({
-                type: "approve-verification",
-                taskId: task.id,
-                decisionId: pending.id,
-                proposalVersion: proposal.version,
-                proposalDigest,
-              })
-            }
+            onClick={() => void command(proposalApproval)}
           >
             Approve and save evidence profile
           </Button>
@@ -82,7 +77,7 @@ export function TaskDecisionCard({
           </Button>
         ))}
       </div>
-      {proposal && approvesProposal && (
+      {proposalApproval && approvesProposal && (
         <p className="text-xs text-muted-foreground">
           Only “Approve and save evidence profile” saves the exact proposed checks. Other choices
           and written replies answer the decision without changing proof requirements.

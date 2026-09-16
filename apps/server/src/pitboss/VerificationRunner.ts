@@ -60,9 +60,19 @@ export const layer = Layer.effect(
               : Path.join(temporary, "checkout");
           const sourceRoot = yield* Fs.realPath(input.root);
           const pathSeparator = platform === "win32" ? ";" : ":";
-          const verificationPath = [Path.join(sourceRoot, "node_modules", ".bin"), process.env.PATH]
-            .filter(Boolean)
-            .join(pathSeparator);
+          const commitEnvironment =
+            mode === "commit"
+              ? {
+                  NODE_ENV: "test",
+                  PATH: [
+                    Path.join(checkout, "node_modules", ".bin"),
+                    Path.join(sourceRoot, "node_modules", ".bin"),
+                    process.env.PATH,
+                  ]
+                    .filter(Boolean)
+                    .join(pathSeparator),
+                }
+              : {};
           const digest = (bytes: Uint8Array) =>
             NodeCrypto.createHash("sha256").update(bytes).digest("hex");
           const inputFile = Effect.fn("VerificationRunner.input")(function* (
@@ -104,8 +114,7 @@ export const layer = Layer.effect(
               outputMode: "truncate",
               env: {
                 ...process.env,
-                ...(mode === "commit" ? { NODE_ENV: "test" } : {}),
-                PATH: verificationPath,
+                ...commitEnvironment,
                 T3_VERIFICATION_ID: input.verification.id,
                 T3_VERIFICATION_CANDIDATE: candidate,
                 T3_VERIFICATION_MODE: mode,

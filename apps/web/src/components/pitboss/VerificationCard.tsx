@@ -2,6 +2,7 @@ import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialo
 import { useId, useState } from "react";
 import {
   hasCurrentVerification,
+  verificationProposalApprovalAction,
   type EnvironmentId,
   type PitbossAction,
   type PitbossTask,
@@ -69,11 +70,7 @@ export function VerificationCard({
   command: (action: PitbossAction) => Promise<boolean>;
 }) {
   const proposal = task.proposedVerificationRecipe;
-  const proposalDigest = task.proposedVerificationDigest;
-  const proposalDecision = task.decisions?.find(
-    (decision) =>
-      decision.id === task.proposedVerificationDecisionId && decision.answer === undefined,
-  );
+  const proposalApproval = verificationProposalApprovalAction(task);
   const proposedSaved =
     proposal &&
     recipes.some(
@@ -104,19 +101,11 @@ export function VerificationCard({
               : "Review the prepared checks and save to continue."}
           </p>
           <div className="flex flex-wrap gap-2">
-            {proposalDigest && proposalDecision && (
+            {proposalApproval && (
               <Button
                 size="sm"
                 disabled={busy || !!task.homeEnvironmentId}
-                onClick={() =>
-                  void command({
-                    type: "approve-verification",
-                    taskId: task.id,
-                    decisionId: proposalDecision.id,
-                    proposalVersion: proposal.version,
-                    proposalDigest,
-                  })
-                }
+                onClick={() => void command(proposalApproval)}
               >
                 Approve and save exact proposal
               </Button>

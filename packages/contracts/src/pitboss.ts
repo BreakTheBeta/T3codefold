@@ -441,6 +441,52 @@ export const PitbossAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("acknowledge"), messageId: Id }),
 ]);
 export type PitbossAction = typeof PitbossAction.Type;
+type VerificationProposalTask = Pick<
+  PitbossTask,
+  | "id"
+  | "proposedVerificationRecipe"
+  | "proposedVerificationDigest"
+  | "proposedVerificationDecisionId"
+  | "decisions"
+>;
+type VerificationProposalApprovalAction = Extract<
+  PitbossAction,
+  { readonly type: "approve-verification" }
+>;
+
+/** Returns an atomic action only when the task carries the complete persisted approval identity. */
+export function verificationProposalApprovalAction(
+  task: VerificationProposalTask,
+): VerificationProposalApprovalAction | undefined {
+  const recipe = task.proposedVerificationRecipe;
+  const digest = task.proposedVerificationDigest;
+  const decision = task.decisions?.find(
+    (entry) => entry.id === task.proposedVerificationDecisionId && entry.answer === undefined,
+  );
+  if (!recipe || !digest || !decision) return undefined;
+  return {
+    type: "approve-verification",
+    taskId: task.id,
+    decisionId: decision.id,
+    proposalVersion: recipe.version,
+    proposalDigest: digest,
+  };
+}
+
+/** Legacy proposals remain explicit manual saves; missing identity never becomes inferred consent. */
+export function verificationProposalSaveAction(
+  task: VerificationProposalTask,
+): PitbossAction | undefined {
+  const approval = verificationProposalApprovalAction(task);
+  if (approval) return approval;
+  if (task.proposedVerificationDigest || task.proposedVerificationDecisionId) return undefined;
+  if (!task.proposedVerificationRecipe) return undefined;
+  return {
+    type: "verification-recipe",
+    recipe: task.proposedVerificationRecipe,
+    selectForTaskId: task.id,
+  };
+}
 export const PitbossCommand = Schema.Struct({
   commandId: CommandId,
   expectedRevision: Version,
