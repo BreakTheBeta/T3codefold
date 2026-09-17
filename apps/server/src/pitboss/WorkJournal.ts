@@ -7,6 +7,7 @@ import {
   PitbossSourceAuthority,
   PitbossCommand,
   PitbossTask,
+  MessageId,
   ThreadId,
   type PitbossSnapshot,
 } from "@t3tools/contracts";
@@ -26,7 +27,10 @@ const Entry = Schema.Union([
     version: Schema.optional(Schema.Literal(2)),
     input: PitbossCommand,
     actor: Schema.Union([
-      Schema.Struct({ type: Schema.Literal("user") }),
+      Schema.Struct({
+        type: Schema.Literal("user"),
+        sourceMessageId: Schema.optional(MessageId),
+      }),
       Schema.Struct({ type: Schema.Literal("agent"), threadId: ThreadId }),
       Schema.Struct({
         type: Schema.Literal("peer"),
