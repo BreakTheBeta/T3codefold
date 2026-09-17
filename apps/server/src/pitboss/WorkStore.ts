@@ -357,7 +357,7 @@ export const layer = Layer.effect(
               const message = {
                 id,
                 taskId: task.id,
-                threadId: state.role?.threadId ?? null,
+                threadId: null,
                 kind: "progress" as const,
                 text: `Task home ${sender}: ${task.title} is ${task.status}. ${task.note}`.slice(
                   0,
@@ -466,7 +466,7 @@ export const layer = Layer.effect(
                     ?.id ??
                   state.messages.find((entry) => entry.id === id)?.taskId ??
                   null,
-                threadId: state.role?.threadId ?? null,
+                threadId: null,
                 kind: "question" as const,
                 text: `Work delivery needs attention: ${error}`.slice(0, 16000),
                 createdAt: DateTime.formatIso(yield* DateTime.now),

@@ -323,6 +323,141 @@ it.effect(
       expect(h.sent).toEqual([boss]);
     }).pipe(Effect.provide(services)),
 );
+it.effect("does not echo a coordinator's own task report back as a wake", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "self-report",
+      projectId: a,
+      title: "Self report",
+      outcome: "Keep the coordinator informed",
+      criteria: "No echo wake",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+    h.projections.set(boss, projection(boss, a));
+    const state = yield* h.store.read();
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("self-report-message"),
+        expectedRevision: state.revision,
+        authorityGeneration: state.role!.generation,
+        action: {
+          type: "report",
+          taskId: "self-report",
+          kind: "progress",
+          text: "I recorded this update myself.",
+        },
+      },
+      { type: "agent", threadId: boss },
+    );
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("delivers distinct worker questions once and preserves them across restart", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "distinct-questions",
+      projectId: a,
+      title: "Distinct questions",
+      outcome: "Ask independent questions",
+      criteria: "Both questions are delivered",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "distinct-questions" });
+    yield* h.drain();
+    const task = (yield* h.store.read()).tasks[0]!;
+    const worker = task.attempts[0]!.threadId;
+    for (const [id, text] of [
+      ["question-one", "Should the first edge case retain history?"],
+      ["question-two", "Should the second edge case restore history?"],
+    ] as const) {
+      const state = yield* h.store.read();
+      yield* h.store.command(
+        {
+          commandId: CommandId.make(id),
+          expectedRevision: state.revision,
+          action: { type: "report", taskId: task.id, kind: "question", text },
+        },
+        { type: "agent", threadId: worker },
+      );
+    }
+    yield* h.drain();
+    expect(h.sentMessages).toHaveLength(1);
+    expect(h.sentMessages[0]?.text).toContain("first edge case");
+    expect(h.sentMessages[0]?.text).toContain("second edge case");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.store.rebuild();
+    yield* h.drain();
+    expect(h.sentMessages).toHaveLength(1);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("wakes for a new question after an acknowledged progress report", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "question-after-progress",
+      projectId: a,
+      title: "Question after progress",
+      outcome: "Report then ask",
+      criteria: "The new question remains visible",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "question-after-progress" });
+    yield* h.drain();
+    const task = (yield* h.store.read()).tasks[0]!;
+    const worker = task.attempts[0]!.threadId;
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("acknowledged-progress"),
+        expectedRevision: (yield* h.store.read()).revision,
+        action: {
+          type: "report",
+          taskId: task.id,
+          kind: "progress",
+          text: "The baseline is complete.",
+        },
+      },
+      { type: "agent", threadId: worker },
+    );
+    yield* h.drain();
+    expect(h.sentMessages.at(-1)?.text).toContain("baseline is complete");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({ type: "acknowledge", messageId: "acknowledged-progress" });
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("new-question"),
+        expectedRevision: (yield* h.store.read()).revision,
+        action: {
+          type: "report",
+          taskId: task.id,
+          kind: "question",
+          text: "Which retained proof should I use?",
+        },
+      },
+      { type: "agent", threadId: worker },
+    );
+    yield* h.store.rebuild();
+    yield* h.drain();
+    expect(h.sentMessages).toHaveLength(2);
+    expect(h.sentMessages.at(-1)?.text).toContain("Which retained proof should I use?");
+  }).pipe(Effect.provide(services)),
+);
 it.effect("does not re-wake the same assign obligation for an unrelated task revision", () =>
   Effect.gen(function* () {
     const h = yield* harness;
@@ -1568,4 +1703,73 @@ it.effect("drains a writer and launches one retained revision from one managed c
     expect(task.attempts.map((attempt) => attempt.state)).toEqual(["stopped", "running"]);
     expect(h.launched).toHaveLength(2);
   }).pipe(Effect.provide(services)),
+);
+it.effect(
+  "parks a managed revision with one actionable failure when its workspace is occupied",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.command({
+        type: "create",
+        taskId: "blocked-revision",
+        projectId: a,
+        title: "Blocked revision",
+        outcome: "Retain the candidate",
+        criteria: "Surface the workspace conflict",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "existing_worktree", worktreePath: "/tmp/shared-revision" },
+      });
+      yield* h.command({ type: "assign", taskId: "blocked-revision" });
+      yield* h.drain();
+      const retained = (yield* h.store.read()).tasks.find(
+        (task) => task.id === "blocked-revision",
+      )!;
+      h.projections.set(retained.attempts[0]!.threadId, {
+        ...h.projections.get(retained.attempts[0]!.threadId)!,
+        runs: [
+          {
+            ...running(retained.attempts[0]!.threadId),
+            status: "completed",
+            completedAt: time,
+          },
+        ],
+      });
+      yield* h.drain();
+      yield* h.command({
+        type: "create",
+        taskId: "workspace-owner",
+        projectId: a,
+        title: "Workspace owner",
+        outcome: "Own the shared workspace",
+        criteria: "Remain the sole writer",
+        verifyCommand: "",
+        priority: 2,
+        dependencies: [],
+        workspaceStrategy: { type: "existing_worktree", worktreePath: "/tmp/shared-revision" },
+      });
+      yield* h.command({ type: "assign", taskId: "workspace-owner" });
+      yield* h.command({
+        type: "revise-result",
+        taskId: "blocked-revision",
+        note: "Repair the retained candidate",
+      });
+      yield* h.drain();
+      let state = yield* h.store.read();
+      const blocked = state.tasks.find((task) => task.id === "blocked-revision")!;
+      expect(blocked.status).toBe("blocked");
+      expect(blocked.revisionRequest).toBeUndefined();
+      expect(blocked.note).toContain("Another task owns that workspace");
+      expect(
+        state.messages.filter((message) => message.id.endsWith(":blocked-message")),
+      ).toHaveLength(1);
+      h.projections.set(boss, projection(boss, a));
+      yield* h.store.rebuild();
+      yield* h.drain();
+      state = yield* h.store.read();
+      expect(
+        state.messages.filter((message) => message.id.endsWith(":blocked-message")),
+      ).toHaveLength(1);
+    }).pipe(Effect.provide(services)),
 );

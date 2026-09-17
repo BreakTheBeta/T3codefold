@@ -15,6 +15,7 @@ import {
   type PitbossSnapshot,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -58,7 +59,9 @@ interface WakeRecipient {
   readonly leadId?: string | undefined;
 }
 function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
-  const messages = inboxFor(state, recipient.leadId).filter((message) => !message.acknowledged);
+  const messages = inboxFor(state, recipient.leadId).filter(
+    (message) => !message.acknowledged && message.threadId !== recipient.threadId,
+  );
   const available =
     state.tasks.filter((task) =>
       task.attempts.some((attempt) =>
@@ -138,7 +141,15 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
           : message.kind === "result"
             ? resultText
             : progressText;
-    const obligation = task ? obligationKey(task, action ?? eventKind) : `message:${message.id}`;
+    // Questions and decisions are independent obligations even when they concern the same task.
+    // Results and progress still coalesce around the task's current next action, so repeated status
+    // reports cannot keep waking a coordinator whose obligation did not change.
+    const obligation =
+      eventKind === "question" || eventKind === "decision"
+        ? `message:${message.id}`
+        : task
+          ? obligationKey(task, action ?? eventKind)
+          : `message:${message.id}`;
     events.push({
       key: task
         ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}:action:${action ?? eventKind}`
@@ -661,6 +672,36 @@ export const layer = Layer.effectDiscard(
           state = yield* store.read();
           break;
         }
+        const detail = `Managed revision could not start: ${assigned.failure.message}`;
+        const parked = yield* Effect.result(
+          store.command(
+            {
+              commandId: CommandId.make(`${request.id}:blocked`),
+              expectedRevision: state.revision,
+              ...(actor.type === "agent"
+                ? {
+                    authorityGeneration:
+                      lead?.generation ??
+                      (state.role?.threadId === actor.threadId ? state.role.generation : undefined),
+                  }
+                : {}),
+              action: { type: "rework", taskId: task.id, note: detail },
+            },
+            actor,
+          ),
+        );
+        if (parked._tag === "Failure") continue;
+        yield* store.receiveMessage({
+          id: `${request.id}:blocked-message`,
+          taskId: task.id,
+          threadId: null,
+          kind: "question",
+          text: `${detail}. Correct the saved model, permissions, workspace, or ownership before retrying.`,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+          acknowledged: false,
+        });
+        state = yield* store.read();
+        break;
       }
       const role = state.role;
       if (!role || role.paused) return;
