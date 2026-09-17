@@ -4,6 +4,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  verificationProposalApprovalAction,
   verificationRecipeForTask,
   type PitbossAction,
   type PitbossSnapshot,
@@ -111,9 +112,7 @@ it("a manager can propose concrete setup but conversation and proposals never be
   expect(() =>
     f.act({ type: "verification-recipe", recipe: f.recipe, selectForTaskId: "task" }, f.boss),
   ).toThrow(/Only the user/);
-  expect(workContext(f.state, f.boss.threadId)).toContain(
-    "full discretion or continue in chat does not save it",
-  );
+  expect(workContext(f.state, f.boss.threadId)).toContain("Approve verification for task <taskId>");
   expect(replayJournal(f.history)).toEqual(f.state);
   f.act({ type: "verification-recipe", recipe: f.recipe, selectForTaskId: "task" });
   expect(f.state.tasks[0]!.verificationProfileId).toBe("behavior");
@@ -269,6 +268,31 @@ it("rejects an unlinked or already rejected proposal decision", () => {
     answer: "Reject",
   });
   expect(() => f.act({ ...approval, decisionId: linked.id })).toThrow(/already resolved/);
+});
+it("requires a fresh linked decision after a pending proposal changes", () => {
+  const f = fixture();
+  f.act(
+    {
+      type: "request-decision",
+      taskId: "task",
+      question: "Approve setup?",
+      options: ["Approve", "Reject"],
+      recommendation: "Approve",
+    },
+    f.boss,
+  );
+  f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
+  expect(f.state.tasks[0]?.proposedVerificationDecisionId).toBeDefined();
+  f.act(
+    {
+      type: "propose-verification",
+      taskId: "task",
+      recipe: { ...f.recipe, version: 2, verify: "node --test replacement.test.ts" },
+    },
+    f.boss,
+  );
+  expect(f.state.tasks[0]?.proposedVerificationDecisionId).toBeUndefined();
+  expect(verificationProposalApprovalAction(f.state.tasks[0]!)).toBeUndefined();
 });
 it("refuses to change a running worker's proof contract through setup approval", () => {
   const f = fixture();

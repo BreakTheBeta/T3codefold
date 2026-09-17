@@ -5,6 +5,7 @@ import { remapComposerContextAttachments } from "@t3tools/shared/composerContext
 import { PeerService } from "./pitboss/PeerService.ts";
 import { SourceService } from "./pitboss/SourceService.ts";
 import { WorkStore } from "./pitboss/WorkStore.ts";
+import { applyConversationApproval } from "./pitboss/ConversationApproval.ts";
 import { PitbossError } from "@t3tools/contracts";
 import { keybindingsForVoiceClient } from "@t3tools/shared/keybindings";
 import {
@@ -1443,7 +1444,7 @@ const makeWsRpcLayer = (
                         claimed.attachments,
                       ),
                     };
-              return yield* startup
+              const result = yield* startup
                 .enqueueCommand(
                   threadManagement.dispatch(
                     ThreadManagementService.withCreationProvenance(effectiveCommand, {
@@ -1459,6 +1460,21 @@ const makeWsRpcLayer = (
                       : releaseClaimedAttachments(claimed.claimedPaths),
                   ),
                 );
+              if (effectiveCommand.type === "message.dispatch") {
+                const approval = yield* applyConversationApproval(work, {
+                  threadId: effectiveCommand.threadId,
+                  messageId: effectiveCommand.messageId,
+                  text: effectiveCommand.text,
+                  createdBy: "user",
+                  creationSource: "creationSource" in command ? command.creationSource : "web",
+                });
+                if (approval.status === "rejected")
+                  yield* Effect.logWarning("conversation approval rejected", {
+                    messageId: effectiveCommand.messageId,
+                    cause: approval.error,
+                  });
+              }
+              return result;
             }).pipe(
               Effect.tap(() => recordClientCommandAnalytics(command)),
               Effect.map((result) => ({ sequence: result.sequence })),

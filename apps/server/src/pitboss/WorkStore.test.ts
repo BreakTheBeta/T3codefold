@@ -1,10 +1,15 @@
 import { expect, it } from "@effect/vitest";
-import { CommandId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { CommandId, MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer } from "./WorkStore.ts";
+import {
+  applyConversationApproval,
+  applyPreparedConversationApproval,
+  conversationApprovalCommand,
+} from "./ConversationApproval.ts";
 const database = SqlitePersistenceMemory;
 const services = layer.pipe(Layer.provideMerge(database));
 const election = {
@@ -24,6 +29,66 @@ const election = {
     },
   },
 };
+const prepareConversationDecision = Effect.fn("prepareConversationDecision")(function* (
+  store: WorkStore["Service"],
+) {
+  const elected = yield* store.command(election, { type: "user" });
+  const created = yield* store.command(
+    {
+      commandId: CommandId.make("conversation-create"),
+      expectedRevision: elected.revision,
+      authorityGeneration: elected.role!.generation,
+      action: {
+        type: "create",
+        taskId: "conversation-task",
+        projectId: election.action.projectId,
+        title: "Conversation task",
+        outcome: "Approve the reviewed checks",
+        criteria: "Focused checks pass",
+        verifyCommand: "vp test run focused.test.ts",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "root" },
+      },
+    },
+    { type: "agent", threadId: election.action.threadId },
+  );
+  const recipe = {
+    projectId: election.action.projectId,
+    profileId: "conversation-focused",
+    version: 1,
+    name: "Conversation focused",
+    doctor: "command -v vp",
+    verify: "vp test run focused.test.ts",
+    cleanup: "",
+    timeoutSeconds: 60,
+    artifacts: [],
+  };
+  const proposed = yield* store.command(
+    {
+      commandId: CommandId.make("conversation-proposal"),
+      expectedRevision: created.revision,
+      authorityGeneration: created.role!.generation,
+      action: { type: "propose-verification", taskId: "conversation-task", recipe },
+    },
+    { type: "agent", threadId: election.action.threadId },
+  );
+  return yield* store.command(
+    {
+      commandId: CommandId.make("conversation-decision"),
+      expectedRevision: proposed.revision,
+      authorityGeneration: proposed.role!.generation,
+      action: {
+        type: "request-decision",
+        taskId: "conversation-task",
+        question: "Approve these checks?",
+        options: ["Revise checks"],
+        recommendation: "Approve after review",
+      },
+    },
+    { type: "agent", threadId: election.action.threadId },
+  );
+});
 it.effect("persists one election and one dispatch intent when the reply is lost and retried", () =>
   Effect.gen(function* () {
     const store = yield* WorkStore;
@@ -39,6 +104,77 @@ it.effect("persists one election and one dispatch intent when the reply is lost 
       .pipe(Effect.flip);
     expect(conflict.code).toBe("conflict");
     expect((yield* store.read()).role?.threadId).toBe("boss");
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("durably applies one exact conversation approval with its originating message", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    yield* prepareConversationDecision(store);
+    const messageId = MessageId.make("conversation-user-message");
+    const input = {
+      threadId: election.action.threadId,
+      messageId,
+      text: "Approve verification for task conversation-task",
+      createdBy: "user" as const,
+      creationSource: "web" as const,
+    };
+
+    const applied = yield* applyConversationApproval(store, input);
+    const replayed = yield* applyConversationApproval(store, input);
+    if (applied.status === "rejected") return yield* applied.error;
+    expect(applied.status).toBe("applied");
+    expect(replayed.status).toBe("ignored");
+    const state = yield* store.read();
+    expect(state.tasks[0]?.approvedVerificationProposal).toMatchObject({ version: 1 });
+    expect(state.messages.at(-1)?.sourceMessageId).toBe(messageId);
+    expect(yield* store.rebuild()).toEqual(state);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("consumes a stale conversation approval without rebinding it to a replacement", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    const reviewed = yield* prepareConversationDecision(store);
+    const messageId = MessageId.make("stale-conversation-message");
+    const input = {
+      threadId: election.action.threadId,
+      messageId,
+      text: "Approve verification for task conversation-task",
+      createdBy: "user" as const,
+      creationSource: "web" as const,
+    };
+    const prepared = conversationApprovalCommand(reviewed, input)!;
+    yield* store.command(
+      {
+        commandId: CommandId.make("replacement-conversation-proposal"),
+        expectedRevision: reviewed.revision,
+        authorityGeneration: reviewed.role!.generation,
+        action: {
+          type: "propose-verification",
+          taskId: "conversation-task",
+          recipe: {
+            ...reviewed.tasks[0]!.proposedVerificationRecipe!,
+            version: 2,
+            verify: "vp test run replacement.test.ts",
+          },
+        },
+      },
+      { type: "agent", threadId: election.action.threadId },
+    );
+
+    const stale = yield* applyPreparedConversationApproval(store, prepared);
+    const replay = yield* applyConversationApproval(store, input);
+    expect(stale.status).toBe("rejected");
+    expect(replay.status).toBe("ignored");
+    const state = yield* store.read();
+    expect(state.tasks[0]?.approvedVerificationProposal).toBeUndefined();
+    expect(state.messages.at(-1)).toMatchObject({
+      id: "conversation-approval-rejected:stale-conversation-message",
+      sourceMessageId: messageId,
+      kind: "question",
+    });
+    expect(yield* store.rebuild()).toEqual(state);
   }).pipe(Effect.provide(services)),
 );
 
