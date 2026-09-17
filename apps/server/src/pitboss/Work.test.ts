@@ -128,6 +128,43 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
   expect(f.state.tasks[0]!.status).toBe("done");
 });
 
+it("reserves candidate submission for the assigned worker", () => {
+  const f = fixture();
+  const run = f.run;
+  run({
+    type: "create",
+    taskId: "worker-evidence",
+    projectId,
+    title: "Worker evidence",
+    outcome: "Keep execution with the worker",
+    criteria: "The assigned worker submits the candidate",
+    verifyCommand: "vp test run focused.test.ts",
+    priority: 10,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  run({ type: "assign", taskId: "worker-evidence" });
+  const attempt = f.state.tasks[0]!.attempts[0]!;
+  const submit = {
+    type: "submit" as const,
+    taskId: "worker-evidence",
+    attemptId: attempt.id,
+    criteriaVersion: 1,
+    candidate: `commit:${"a".repeat(40)}`,
+    verdict: "pass" as const,
+    summary: "Focused test passed",
+    command: "vp test run focused.test.ts",
+    artifactUrls: [],
+  };
+
+  expect(() => run(submit, { type: "agent", threadId })).toThrow(/assigned worker/);
+  run(submit, { type: "agent", threadId: attempt.threadId });
+  expect(f.state.tasks[0]!.evidence[0]).toMatchObject({
+    attemptId: attempt.id,
+    provenance: "worker_report",
+  });
+});
+
 it("derives recovery and explicit acceptance from coordinator review verdicts", () => {
   const f = fixture();
   const run = f.run;
@@ -855,4 +892,30 @@ it("keeps coordinator turn context bounded and points to durable detail", () => 
   expect(context).not.toContain("DO_NOT_REPEAT_CHARTER");
   expect(context).not.toContain("DO_NOT_REPEAT_CONTEXT");
   expect(context).not.toContain("DO_NOT_REPEAT_NOTE");
+});
+
+it("separates coordinator recovery from worker execution", () => {
+  const f = fixture();
+  f.run({
+    type: "create",
+    taskId: "role-context",
+    projectId,
+    title: "Role context",
+    outcome: "Keep execution delegated",
+    criteria: "Coordinator and worker responsibilities are explicit",
+    verifyCommand: "vp test run focused.test.ts",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  f.run({ type: "assign", taskId: "role-context" });
+  const worker = f.state.tasks[0]!.attempts[0]!;
+  const coordinatorContext = workContext(f.state, threadId)!;
+  const workerContext = workContext(f.state, worker.threadId)!;
+
+  expect(coordinatorContext).toContain("Strict coordination");
+  expect(coordinatorContext).toContain("A failed or rejected launch is a recovery obligation");
+  expect(coordinatorContext).toContain("do not take over implementation");
+  expect(workerContext).toContain("You are the worker for this assignment");
+  expect(workerContext).toContain("repository edits, builds, debugging, test execution");
 });
