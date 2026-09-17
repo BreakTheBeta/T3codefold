@@ -101,6 +101,70 @@ it.effect("does not let a downgraded coordinator launch the saved full-access de
   }).pipe(Effect.provide(services)),
 );
 
+it.effect("does not revise retained work when caller runtime authority is unknown", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    const elected = yield* store.command(election, { type: "user" });
+    const configured = yield* store.command(
+      {
+        commandId: CommandId.make("full-worker-default-for-revision"),
+        expectedRevision: elected.revision,
+        action: {
+          type: "brief",
+          brief: { ...elected.role!.brief, workerRuntimeMode: "full-access" },
+        },
+      },
+      { type: "user" },
+    );
+    const created = yield* store.command(
+      {
+        commandId: CommandId.make("create-retained-task"),
+        expectedRevision: configured.revision,
+        authorityGeneration: configured.role!.generation,
+        action: {
+          type: "create",
+          taskId: "retained-task",
+          projectId: election.action.projectId,
+          title: "Retained work",
+          outcome: "Repair the candidate",
+          criteria: "Focused proof passes",
+          verifyCommand: "vp test run focused.test.ts",
+          priority: 1,
+          dependencies: [],
+          workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+        },
+      },
+      { type: "agent", threadId: election.action.threadId },
+    );
+    const assigned = yield* store.command(
+      {
+        commandId: CommandId.make("assign-retained-task"),
+        expectedRevision: created.revision,
+        action: { type: "assign", taskId: "retained-task" },
+      },
+      { type: "user" },
+    );
+    const denied = yield* store
+      .command(
+        {
+          commandId: CommandId.make("revise-with-unknown-runtime"),
+          expectedRevision: assigned.revision,
+          authorityGeneration: assigned.role!.generation,
+          action: {
+            type: "revise-result",
+            taskId: "retained-task",
+            note: "Repair the focused failure",
+          },
+        },
+        { type: "agent", threadId: election.action.threadId },
+      )
+      .pipe(Effect.flip);
+    expect(denied.code).toBe("forbidden");
+    expect(denied.message).toContain("caller mode unknown");
+    expect((yield* store.read()).tasks[0]!.revisionRequest).toBeUndefined();
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect(
   "deduplicates tracker refreshes and keeps external Done separate from accepted work",
   () =>

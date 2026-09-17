@@ -96,6 +96,38 @@ it.effect("passes the authenticated caller runtime mode to durable work launches
     assert.deepEqual(calls[0]?.[1], { type: "agent", threadId });
   }),
 );
+it.effect("passes the authenticated caller runtime mode to managed result revisions", () =>
+  Effect.gen(function* () {
+    const calls: Array<Parameters<WorkStore["Service"]["command"]>> = [];
+    const work = Layer.mock(WorkStore)({
+      command: (...args) => {
+        calls.push(args);
+        return Effect.succeed({ revision: 1, role: null, tasks: [], messages: [] });
+      },
+    });
+    yield* handlers
+      .work_command({
+        commandId: CommandId.make("revise-full-access-result"),
+        expectedRevision: 0,
+        action: {
+          type: "revise-result",
+          taskId: "retained-task",
+          note: "Repair the focused failure",
+          runtimeMode: "full-access",
+        },
+      })
+      .pipe(
+        Effect.provide(
+          Layer.merge(
+            setup(() => Effect.die("must not route"), "full-access"),
+            work,
+          ),
+        ),
+      );
+    assert.deepEqual(calls[0]?.[2], { runtimeMode: "full-access" });
+    assert.deepEqual(calls[0]?.[1], { type: "agent", threadId });
+  }),
+);
 it.effect(
   "routes a main-task handoff with source policy and keeps provider defaults destination-local",
   () =>

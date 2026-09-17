@@ -77,6 +77,7 @@ export const handlers = {
       const needsLaunchAuthority =
         input.action.type === "create-lead" ||
         input.action.type === "assign" ||
+        input.action.type === "revise-result" ||
         (input.action.type === "lead-status" && input.action.status === "active");
       const authority = needsLaunchAuthority
         ? {
