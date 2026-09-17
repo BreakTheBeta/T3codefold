@@ -49,6 +49,9 @@ export function conversationApprovalCommand(
   )
     return undefined;
 
+  if (state.messages.some((receipt) => receipt.sourceMessageId === message.messageId))
+    return undefined;
+
   const directive = normalizedDirective(message.text);
   const matches: Array<ConversationApproval> = [];
   for (const task of state.tasks) {
@@ -113,13 +116,41 @@ export const applyPreparedConversationApproval = Effect.fn("ConversationApproval
   },
 );
 
-export const applyConversationApproval = Effect.fn("ConversationApproval.apply")(function* (
+export const prepareConversationApproval = Effect.fn("ConversationApproval.prepare")(function* (
   store: WorkStore["Service"],
   message: ConversationApprovalMessage,
 ) {
   const read = yield* Effect.result(store.read());
   if (read._tag === "Failure") return { status: "rejected" as const, error: read.failure };
-  const approval = conversationApprovalCommand(read.success, message);
-  if (!approval) return { status: "ignored" as const };
-  return yield* applyPreparedConversationApproval(store, approval);
+  return {
+    status: "prepared" as const,
+    approval: conversationApprovalCommand(read.success, message),
+  };
+});
+
+export const applyConversationApproval = Effect.fn("ConversationApproval.apply")(function* (
+  store: WorkStore["Service"],
+  message: ConversationApprovalMessage,
+) {
+  const prepared = yield* prepareConversationApproval(store, message);
+  if (prepared.status === "rejected") return prepared;
+  if (!prepared.approval) return { status: "ignored" as const };
+  return yield* applyPreparedConversationApproval(store, prepared.approval);
+});
+
+export const dispatchWithConversationApproval = Effect.fn(
+  "ConversationApproval.dispatchWithApproval",
+)(function* <A, E, R>(
+  store: WorkStore["Service"],
+  message: ConversationApprovalMessage,
+  dispatch: Effect.Effect<A, E, R>,
+) {
+  const prepared = yield* prepareConversationApproval(store, message);
+  const result = yield* dispatch;
+  if (prepared.status === "rejected") return { result, approval: prepared };
+  if (!prepared.approval) return { result, approval: { status: "ignored" as const } };
+  return {
+    result,
+    approval: yield* applyPreparedConversationApproval(store, prepared.approval),
+  };
 });

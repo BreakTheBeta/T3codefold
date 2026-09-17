@@ -7,8 +7,7 @@ import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer } from "./WorkStore.ts";
 import {
   applyConversationApproval,
-  applyPreparedConversationApproval,
-  conversationApprovalCommand,
+  dispatchWithConversationApproval,
 } from "./ConversationApproval.ts";
 const database = SqlitePersistenceMemory;
 const services = layer.pipe(Layer.provideMerge(database));
@@ -132,50 +131,108 @@ it.effect("durably applies one exact conversation approval with its originating 
   }).pipe(Effect.provide(services)),
 );
 
-it.effect("consumes a stale conversation approval without rebinding it to a replacement", () =>
+it.effect("does not apply a prepared approval when user message dispatch fails", () =>
   Effect.gen(function* () {
     const store = yield* WorkStore;
-    const reviewed = yield* prepareConversationDecision(store);
-    const messageId = MessageId.make("stale-conversation-message");
-    const input = {
-      threadId: election.action.threadId,
-      messageId,
-      text: "Approve verification for task conversation-task",
-      createdBy: "user" as const,
-      creationSource: "web" as const,
-    };
-    const prepared = conversationApprovalCommand(reviewed, input)!;
-    yield* store.command(
-      {
-        commandId: CommandId.make("replacement-conversation-proposal"),
-        expectedRevision: reviewed.revision,
-        authorityGeneration: reviewed.role!.generation,
-        action: {
-          type: "propose-verification",
-          taskId: "conversation-task",
-          recipe: {
-            ...reviewed.tasks[0]!.proposedVerificationRecipe!,
-            version: 2,
-            verify: "vp test run replacement.test.ts",
-          },
+    yield* prepareConversationDecision(store);
+    const dispatched = yield* Effect.result(
+      dispatchWithConversationApproval(
+        store,
+        {
+          threadId: election.action.threadId,
+          messageId: MessageId.make("undispatched-conversation-message"),
+          text: "Approve verification for task conversation-task",
+          createdBy: "user",
+          creationSource: "web",
         },
-      },
-      { type: "agent", threadId: election.action.threadId },
+        Effect.fail("message dispatch failed"),
+      ),
     );
 
-    const stale = yield* applyPreparedConversationApproval(store, prepared);
-    const replay = yield* applyConversationApproval(store, input);
-    expect(stale.status).toBe("rejected");
-    expect(replay.status).toBe("ignored");
+    expect(dispatched).toMatchObject({ _tag: "Failure", failure: "message dispatch failed" });
     const state = yield* store.read();
     expect(state.tasks[0]?.approvedVerificationProposal).toBeUndefined();
-    expect(state.messages.at(-1)).toMatchObject({
-      id: "conversation-approval-rejected:stale-conversation-message",
-      sourceMessageId: messageId,
-      kind: "question",
-    });
-    expect(yield* store.rebuild()).toEqual(state);
+    expect(state.messages.some((message) => message.sourceMessageId)).toBe(false);
   }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "consumes a pre-dispatch approval without rebinding it after a replacement is linked",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* WorkStore;
+      const reviewed = yield* prepareConversationDecision(store);
+      const messageId = MessageId.make("stale-conversation-message");
+      const input = {
+        threadId: election.action.threadId,
+        messageId,
+        text: "Approve verification for task conversation-task",
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+      };
+      const reviewedDecisionId = reviewed.tasks[0]!.decisions![0]!.id;
+      const dispatch = Effect.gen(function* () {
+        const replacement = yield* store.command(
+          {
+            commandId: CommandId.make("replacement-conversation-proposal"),
+            expectedRevision: reviewed.revision,
+            authorityGeneration: reviewed.role!.generation,
+            action: {
+              type: "propose-verification",
+              taskId: "conversation-task",
+              recipe: {
+                ...reviewed.tasks[0]!.proposedVerificationRecipe!,
+                version: 2,
+                verify: "vp test run replacement.test.ts",
+              },
+            },
+          },
+          { type: "agent", threadId: election.action.threadId },
+        );
+        const declined = yield* store.command(
+          {
+            commandId: CommandId.make("decline-replaced-conversation-decision"),
+            expectedRevision: replacement.revision,
+            action: {
+              type: "resolve-decision",
+              taskId: "conversation-task",
+              decisionId: reviewedDecisionId,
+              answer: "Revise checks",
+            },
+          },
+          { type: "user" },
+        );
+        return yield* store.command(
+          {
+            commandId: CommandId.make("replacement-conversation-decision"),
+            expectedRevision: declined.revision,
+            authorityGeneration: declined.role!.generation,
+            action: {
+              type: "request-decision",
+              taskId: "conversation-task",
+              question: "Approve the replacement checks?",
+              options: ["Revise replacement checks"],
+              recommendation: "Approve after reviewing the replacement",
+            },
+          },
+          { type: "agent", threadId: election.action.threadId },
+        );
+      });
+
+      const handled = yield* dispatchWithConversationApproval(store, input, dispatch);
+      const replay = yield* applyConversationApproval(store, input);
+      expect(handled.approval.status).toBe("rejected");
+      expect(replay.status).toBe("ignored");
+      const state = yield* store.read();
+      expect(state.tasks[0]?.approvedVerificationProposal).toBeUndefined();
+      expect(state.tasks[0]?.proposedVerificationDecisionId).toBeDefined();
+      expect(state.messages.at(-1)).toMatchObject({
+        id: "conversation-approval-rejected:stale-conversation-message",
+        sourceMessageId: messageId,
+        kind: "question",
+      });
+      expect(yield* store.rebuild()).toEqual(state);
+    }).pipe(Effect.provide(services)),
 );
 
 it.effect("does not expose the portfolio or role controls to an unrelated agent", () =>
