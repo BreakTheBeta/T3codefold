@@ -195,7 +195,7 @@ describe("withPreviewAutomationFocus", () => {
     ).resolves.toBe("pressed");
   });
 
-  it("does not let an older overlapping operation reclaim focus", async () => {
+  it("waits for the last overlapping operation before restoring focus", async () => {
     const composer = new MockHTMLElement();
     const { body } = setupDocument(composer);
     let finish!: () => void;
@@ -215,12 +215,44 @@ describe("withPreviewAutomationFocus", () => {
 
     const second = withPreviewAutomationFocus(async () => {
       setActiveElement(body);
+      return "second";
     });
 
-    await second;
+    await expect(second).resolves.toBe("second");
     expect(composer.focus).not.toHaveBeenCalled();
     finish();
     await first;
-    expect(composer.focus).not.toHaveBeenCalled();
+    expect(composer.focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(globalThis.document.activeElement).toBe(composer);
+  });
+
+  it("restores the original composer after overlapping native focus transfers", async () => {
+    const composer = new MockHTMLElement();
+    const hostButton = new MockHTMLElement();
+    const { dispatchDocument, dispatchWindow } = setupDocument(composer);
+    let finishFirst!: () => void;
+    let firstStarted!: () => void;
+    const firstIsStarted = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+
+    const first = withPreviewAutomationFocus(async () => {
+      dispatchWindow("blur");
+      dispatchWindow("focus");
+      setActiveElement(hostButton);
+      dispatchDocument("focusin", hostButton, false);
+      firstStarted();
+      await new Promise<void>((resolve) => {
+        finishFirst = resolve;
+      });
+    });
+    await firstIsStarted;
+
+    await withPreviewAutomationFocus(async () => undefined);
+    finishFirst();
+    await first;
+
+    expect(composer.focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(globalThis.document.activeElement).toBe(composer);
   });
 });
