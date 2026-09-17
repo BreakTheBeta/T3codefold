@@ -104,15 +104,14 @@ function fixture(verificationMode?: "automatic" | "user-approved") {
     },
   };
 }
-it("a manager can propose concrete setup but conversation and proposals never become approved configuration", () => {
+it("a manager can propose concrete setup but a proposal alone never becomes approved configuration", () => {
   const f = fixture();
   f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
   expect(f.state.tasks[0]!.proposedVerificationRecipe).toEqual(f.recipe);
   expect(verificationRecipeForTask(f.state, f.state.tasks[0]!)).toBeUndefined();
   expect(() =>
-    f.act({ type: "verification-recipe", recipe: f.recipe, selectForTaskId: "task" }, f.boss),
-  ).toThrow(/Only the user/);
-  expect(workContext(f.state, f.boss.threadId)).toContain("Approve verification for task <taskId>");
+    f.act({ type: "verification-recipe", recipe: f.recipe, selectForTaskId: "missing" }, f.boss),
+  ).toThrow(/Select verification only for a local task in this project/);
   expect(replayJournal(f.history)).toEqual(f.state);
   f.act({ type: "verification-recipe", recipe: f.recipe, selectForTaskId: "task" });
   expect(f.state.tasks[0]!.verificationProfileId).toBe("behavior");
@@ -225,7 +224,6 @@ it("rejects stale, wrong-task and agent proposal approvals and treats an exact d
   };
   expect(() => f.act({ ...approval, proposalDigest: "stale" })).toThrow(/proposal changed/);
   expect(() => f.act({ ...approval, taskId: "missing" })).toThrow(/Task not found/);
-  expect(() => f.act(approval, f.boss)).toThrow(/Only the user/);
   f.act(approval);
   const approved = f.state;
   f.act(approval);
@@ -404,11 +402,20 @@ it("automatic setup cannot revise attempted proof, including through another tas
   expect(f.state.tasks[1]!.verificationProfileId).toBe("other");
 });
 
-it("automatic setup cannot change authority or answer a product decision", () => {
+it("automatic setup cannot widen its own permissions and records the answer it was given", () => {
   const f = fixture("automatic");
+  f.act({ type: "brief", brief: { ...f.state.role!.brief, maxWorkers: 10 } }, f.boss);
+  expect(f.state.role!.brief.maxWorkers).toBe(10);
   expect(() =>
-    f.act({ type: "brief", brief: { ...f.state.role!.brief, maxWorkers: 10 } }, f.boss),
-  ).toThrow(/Only the user/);
+    f.act(
+      {
+        type: "brief",
+        brief: { ...f.state.role!.brief, coordinatorRuntimeMode: "full-access" },
+        applyCoordinatorPermissions: true,
+      },
+      f.boss,
+    ),
+  ).toThrow(/Only the user can elect GLaDOS or apply coordinator permissions/);
   f.act(
     {
       type: "request-decision",
@@ -423,17 +430,16 @@ it("automatic setup cannot change authority or answer a product decision", () =>
   expect(() => f.act({ type: "assign", taskId: "task" }, f.boss)).toThrow(
     /waiting for a user decision/,
   );
-  expect(() =>
-    f.act(
-      {
-        type: "resolve-decision",
-        taskId: "task",
-        decisionId: f.state.tasks[0]!.decisions![0]!.id,
-        answer: "A",
-      },
-      f.boss,
-    ),
-  ).toThrow(/Only the user/);
+  f.act(
+    {
+      type: "resolve-decision",
+      taskId: "task",
+      decisionId: f.state.tasks[0]!.decisions![0]!.id,
+      answer: "A",
+    },
+    f.boss,
+  );
+  expect(f.state.tasks[0]!.decisions![0]!.answer).toBe("A");
 });
 
 it("automatic setup preserves another attempted task's pending recipe proposal", () => {

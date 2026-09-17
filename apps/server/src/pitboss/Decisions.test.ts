@@ -10,7 +10,7 @@ import {
 import { decide, emptyWork, observeAttempt, readyTasks, workContext } from "./Work.ts";
 import { replayJournal } from "./WorkJournal.ts";
 
-it("parks one worker durably, leaves unrelated work ready, and only a user answer releases the gate", () => {
+it("parks one worker durably, leaves unrelated work ready, and only an authorized answer releases the gate", () => {
   let state: PitbossSnapshot = emptyWork;
   const history: string[] = [];
   const now = "2026-09-14T00:00:00Z";
@@ -78,9 +78,9 @@ it("parks one worker durably, leaves unrelated work ready, and only a user answe
   expect(() =>
     command(
       { type: "resolve-decision", taskId: "waiting", decisionId: decision.id, answer: "Warm" },
-      { type: "agent", threadId: ThreadId.make("boss") },
+      { type: "agent", threadId: ThreadId.make("stranger") },
     ),
-  ).toThrow(/Only the user/);
+  ).toThrow(/Only the current GLaDOS or user can manage work/);
   command({ type: "assign", taskId: "independent" });
   expect(state.tasks[1]!.status).toBe("active");
   expect(replayJournal(history)).toEqual(state);

@@ -1,14 +1,16 @@
 import { expect, it } from "@effect/vitest";
-import { CommandId, MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  verificationProposalApprovalAction,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer } from "./WorkStore.ts";
-import {
-  applyConversationApproval,
-  dispatchWithConversationApproval,
-} from "./ConversationApproval.ts";
 const database = SqlitePersistenceMemory;
 const services = layer.pipe(Layer.provideMerge(database));
 const election = {
@@ -28,7 +30,7 @@ const election = {
     },
   },
 };
-const prepareConversationDecision = Effect.fn("prepareConversationDecision")(function* (
+const prepareVerificationDecision = Effect.fn("prepareVerificationDecision")(function* (
   store: WorkStore["Service"],
 ) {
   const elected = yield* store.command(election, { type: "user" });
@@ -106,133 +108,117 @@ it.effect("persists one election and one dispatch intent when the reply is lost 
   }).pipe(Effect.provide(services)),
 );
 
-it.effect("durably applies one exact conversation approval with its originating message", () =>
+it.effect("lets GLaDOS resolve a pending decision the user answered in conversation", () =>
   Effect.gen(function* () {
     const store = yield* WorkStore;
-    yield* prepareConversationDecision(store);
-    const messageId = MessageId.make("conversation-user-message");
-    const input = {
-      threadId: election.action.threadId,
-      messageId,
-      text: "Approve verification for task conversation-task",
-      createdBy: "user" as const,
-      creationSource: "web" as const,
-    };
-
-    const applied = yield* applyConversationApproval(store, input);
-    const replayed = yield* applyConversationApproval(store, input);
-    if (applied.status === "rejected") return yield* applied.error;
-    expect(applied.status).toBe("applied");
-    expect(replayed.status).toBe("ignored");
-    const state = yield* store.read();
-    expect(state.tasks[0]?.approvedVerificationProposal).toMatchObject({ version: 1 });
-    expect(state.messages.at(-1)?.sourceMessageId).toBe(messageId);
-    expect(yield* store.rebuild()).toEqual(state);
-  }).pipe(Effect.provide(services)),
-);
-
-it.effect("does not apply a prepared approval when user message dispatch fails", () =>
-  Effect.gen(function* () {
-    const store = yield* WorkStore;
-    yield* prepareConversationDecision(store);
-    const dispatched = yield* Effect.result(
-      dispatchWithConversationApproval(
-        store,
-        {
-          threadId: election.action.threadId,
-          messageId: MessageId.make("undispatched-conversation-message"),
-          text: "Approve verification for task conversation-task",
-          createdBy: "user",
-          creationSource: "web",
+    const reviewed = yield* prepareVerificationDecision(store);
+    const resolved = yield* store.command(
+      {
+        commandId: CommandId.make("agent-resolves-decision"),
+        expectedRevision: reviewed.revision,
+        authorityGeneration: reviewed.role!.generation,
+        action: {
+          type: "resolve-decision",
+          taskId: "conversation-task",
+          decisionId: reviewed.tasks[0]!.decisions![0]!.id,
+          answer: "Revise checks",
         },
-        Effect.fail("message dispatch failed"),
-      ),
+      },
+      { type: "agent", threadId: election.action.threadId },
     );
 
-    expect(dispatched).toMatchObject({ _tag: "Failure", failure: "message dispatch failed" });
-    const state = yield* store.read();
-    expect(state.tasks[0]?.approvedVerificationProposal).toBeUndefined();
-    expect(state.messages.some((message) => message.sourceMessageId)).toBe(false);
+    expect(resolved.tasks[0]?.decisions?.[0]?.answer).toBe("Revise checks");
+    expect(yield* store.rebuild()).toEqual(yield* store.read());
   }).pipe(Effect.provide(services)),
 );
 
-it.effect(
-  "consumes a pre-dispatch approval without rebinding it after a replacement is linked",
-  () =>
-    Effect.gen(function* () {
-      const store = yield* WorkStore;
-      const reviewed = yield* prepareConversationDecision(store);
-      const messageId = MessageId.make("stale-conversation-message");
-      const input = {
-        threadId: election.action.threadId,
-        messageId,
-        text: "Approve verification for task conversation-task",
-        createdBy: "user" as const,
-        creationSource: "web" as const,
-      };
-      const reviewedDecisionId = reviewed.tasks[0]!.decisions![0]!.id;
-      const dispatch = Effect.gen(function* () {
-        const replacement = yield* store.command(
-          {
-            commandId: CommandId.make("replacement-conversation-proposal"),
-            expectedRevision: reviewed.revision,
-            authorityGeneration: reviewed.role!.generation,
-            action: {
-              type: "propose-verification",
-              taskId: "conversation-task",
-              recipe: {
-                ...reviewed.tasks[0]!.proposedVerificationRecipe!,
-                version: 2,
-                verify: "vp test run replacement.test.ts",
-              },
-            },
-          },
-          { type: "agent", threadId: election.action.threadId },
-        );
-        const declined = yield* store.command(
-          {
-            commandId: CommandId.make("decline-replaced-conversation-decision"),
-            expectedRevision: replacement.revision,
-            action: {
-              type: "resolve-decision",
-              taskId: "conversation-task",
-              decisionId: reviewedDecisionId,
-              answer: "Revise checks",
-            },
-          },
-          { type: "user" },
-        );
-        return yield* store.command(
-          {
-            commandId: CommandId.make("replacement-conversation-decision"),
-            expectedRevision: declined.revision,
-            authorityGeneration: declined.role!.generation,
-            action: {
-              type: "request-decision",
-              taskId: "conversation-task",
-              question: "Approve the replacement checks?",
-              options: ["Revise replacement checks"],
-              recommendation: "Approve after reviewing the replacement",
-            },
-          },
-          { type: "agent", threadId: election.action.threadId },
-        );
-      });
+it.effect("lets GLaDOS record the verification approval bound to the reviewed proposal", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    const reviewed = yield* prepareVerificationDecision(store);
+    const action = verificationProposalApprovalAction(reviewed.tasks[0]!);
+    expect(action).toBeDefined();
+    const approved = yield* store.command(
+      {
+        commandId: CommandId.make("agent-approves-verification"),
+        expectedRevision: reviewed.revision,
+        authorityGeneration: reviewed.role!.generation,
+        action: action!,
+      },
+      { type: "agent", threadId: election.action.threadId },
+    );
 
-      const handled = yield* dispatchWithConversationApproval(store, input, dispatch);
-      const replay = yield* applyConversationApproval(store, input);
-      expect(handled.approval.status).toBe("rejected");
-      expect(replay.status).toBe("ignored");
-      const state = yield* store.read();
-      expect(state.tasks[0]?.approvedVerificationProposal).toBeUndefined();
-      expect(state.tasks[0]?.proposedVerificationDecisionId).toBeDefined();
-      expect(state.messages.at(-1)).toMatchObject({
-        id: "conversation-approval-rejected:stale-conversation-message",
-        sourceMessageId: messageId,
-        kind: "question",
-      });
-      expect(yield* store.rebuild()).toEqual(state);
-    }).pipe(Effect.provide(services)),
+    expect(approved.tasks[0]?.approvedVerificationProposal).toMatchObject({ version: 1 });
+    expect(yield* store.rebuild()).toEqual(yield* store.read());
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("lets GLaDOS set the brief and pause without a user command", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    const elected = yield* store.command(election, { type: "user" });
+    const briefed = yield* store.command(
+      {
+        commandId: CommandId.make("agent-brief"),
+        expectedRevision: elected.revision,
+        authorityGeneration: elected.role!.generation,
+        action: { type: "brief", brief: { ...election.action.brief, maxWorkers: 4 } },
+      },
+      { type: "agent", threadId: election.action.threadId },
+    );
+    expect(briefed.role?.brief.maxWorkers).toBe(4);
+
+    const paused = yield* store.command(
+      {
+        commandId: CommandId.make("agent-pause"),
+        expectedRevision: briefed.revision,
+        authorityGeneration: briefed.role!.generation,
+        action: { type: "pause", paused: true },
+      },
+      { type: "agent", threadId: election.action.threadId },
+    );
+    expect(paused.role?.paused).toBe(true);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("keeps coordinator permissions and elections with the user", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    const elected = yield* store.command(election, { type: "user" });
+    const escalated = yield* Effect.result(
+      store.command(
+        {
+          commandId: CommandId.make("agent-escalates-permissions"),
+          expectedRevision: elected.revision,
+          authorityGeneration: elected.role!.generation,
+          action: {
+            type: "brief",
+            brief: { ...election.action.brief, coordinatorRuntimeMode: "full-access" },
+            applyCoordinatorPermissions: true,
+          },
+        },
+        { type: "agent", threadId: election.action.threadId },
+      ),
+    );
+    expect(escalated).toMatchObject({ _tag: "Failure", failure: { code: "forbidden" } });
+
+    const reelected = yield* Effect.result(
+      store.command(
+        {
+          ...election,
+          commandId: CommandId.make("agent-elects"),
+          expectedRevision: elected.revision,
+          authorityGeneration: elected.role!.generation,
+        },
+        { type: "agent", threadId: election.action.threadId },
+      ),
+    );
+    expect(reelected).toMatchObject({ _tag: "Failure", failure: { code: "forbidden" } });
+
+    const state = yield* store.read();
+    expect(state.role?.brief.coordinatorRuntimeMode).toBeUndefined();
+    expect(state.role?.brief.maxWorkers).toBe(1);
+  }).pipe(Effect.provide(services)),
 );
 
 it.effect("does not expose the portfolio or role controls to an unrelated agent", () =>

@@ -52,7 +52,7 @@ describe("captured verification acceptance", () => {
         { type: "verification-recipe", recipe: { ...f.recipe, version: 2, verify: "true" } },
         { type: "agent", threadId: boss },
       ),
-    ).toThrow(/Only the user/);
+    ).toThrow(/local task owned by this manager/);
     f.act({ type: "verify", taskId: "task", evidenceId: f.state.tasks[0]!.evidence.at(-1)!.id });
     f.complete();
     const task = f.state.tasks[0]!;
