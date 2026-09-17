@@ -115,6 +115,7 @@ it("persists Terra project context and routes two Luna workers through its owner
   f.run({ type: "assign", taskId: "ui" }, f.actor);
   f.run({ type: "assign", taskId: "storage" }, f.actor);
   expect(f.state.tasks.map((t) => t.attempts[0]!.model.model)).toEqual([model.model, model.model]);
+  expect(workContext(f.state, f.lead.threadId)).toContain("Coordinate through workers");
   const worker = f.state.tasks[0]!.attempts[0]!;
   expect(workContext(f.state, worker.threadId)).toContain("garden-v1");
   f.run(
