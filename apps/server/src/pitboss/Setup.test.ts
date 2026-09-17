@@ -363,7 +363,7 @@ it("automatic setup still validates paths and required artifact inputs", () => {
   expect(f.state.verificationRecipes).toBeUndefined();
 });
 
-it("automatic setup cannot revise attempted proof, including through another task", () => {
+it("automatic setup may revise proof for a profile another task already attempted", () => {
   const f = fixture("automatic");
   f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
   f.act({ type: "assign", taskId: "task" }, f.boss);
@@ -379,22 +379,20 @@ it("automatic setup cannot revise attempted proof, including through another tas
     dependencies: [],
     workspaceStrategy: { type: "root" },
   });
-  expect(() =>
-    f.act(
-      {
-        type: "propose-verification",
-        taskId: "other",
-        recipe: { ...f.recipe, version: 2, verify: "true" },
-      },
-      f.boss,
-    ),
-  ).toThrow(/after work has been attempted/);
   f.act(
-    { type: "propose-verification", taskId: "task", recipe: { ...f.recipe, version: 2 } },
+    {
+      type: "propose-verification",
+      taskId: "other",
+      recipe: { ...f.recipe, version: 2, verify: "true" },
+    },
     f.boss,
   );
-  expect(f.state.tasks[0]!.proposedVerificationRecipe?.version).toBe(2);
-  expect(verificationRecipeForTask(f.state, f.state.tasks[0]!)?.version).toBe(1);
+  expect(verificationRecipeForTask(f.state, f.state.tasks[1]!)?.version).toBe(2);
+  f.act(
+    { type: "propose-verification", taskId: "task", recipe: { ...f.recipe, version: 3 } },
+    f.boss,
+  );
+  expect(f.state.tasks[0]!.proposedVerificationRecipe?.version).toBe(3);
   f.act(
     { type: "propose-verification", taskId: "other", recipe: { ...f.recipe, profileId: "other" } },
     f.boss,
@@ -402,20 +400,19 @@ it("automatic setup cannot revise attempted proof, including through another tas
   expect(f.state.tasks[1]!.verificationProfileId).toBe("other");
 });
 
-it("automatic setup cannot widen its own permissions and records the answer it was given", () => {
+it("automatic setup applies its own permissions and records the answer it was given", () => {
   const f = fixture("automatic");
   f.act({ type: "brief", brief: { ...f.state.role!.brief, maxWorkers: 10 } }, f.boss);
   expect(f.state.role!.brief.maxWorkers).toBe(10);
-  expect(() =>
-    f.act(
-      {
-        type: "brief",
-        brief: { ...f.state.role!.brief, coordinatorRuntimeMode: "full-access" },
-        applyCoordinatorPermissions: true,
-      },
-      f.boss,
-    ),
-  ).toThrow(/Only the user can elect GLaDOS or apply coordinator permissions/);
+  f.act(
+    {
+      type: "brief",
+      brief: { ...f.state.role!.brief, coordinatorRuntimeMode: "full-access" },
+      applyCoordinatorPermissions: true,
+    },
+    f.boss,
+  );
+  expect(f.state.role!.brief.coordinatorRuntimeMode).toBe("full-access");
   f.act(
     {
       type: "request-decision",
@@ -442,7 +439,7 @@ it("automatic setup cannot widen its own permissions and records the answer it w
   expect(f.state.tasks[0]!.decisions![0]!.answer).toBe("A");
 });
 
-it("automatic setup preserves another attempted task's pending recipe proposal", () => {
+it("saving a sibling profile supersedes an attempted task's pending recipe proposal", () => {
   const f = fixture("automatic");
   f.act({ type: "propose-verification", taskId: "task", recipe: f.recipe }, f.boss);
   f.act({ type: "assign", taskId: "task" }, f.boss);
@@ -460,9 +457,8 @@ it("automatic setup preserves another attempted task's pending recipe proposal",
     dependencies: [],
     workspaceStrategy: { type: "root" },
   });
-  expect(() =>
-    f.act({ type: "propose-verification", taskId: "other", recipe: proposed }, f.boss),
-  ).toThrow(/after work has been attempted/);
-  expect(f.state.tasks[0]!.proposedVerificationRecipe).toEqual(proposed);
+  f.act({ type: "propose-verification", taskId: "other", recipe: proposed }, f.boss);
+  // Saving the profile settles the matching proposal; the attempted task keeps its own profile.
+  expect(f.state.tasks[0]!.proposedVerificationRecipe).toBeUndefined();
   expect(verificationRecipeForTask(f.state, f.state.tasks[0]!)).toEqual(f.recipe);
 });
