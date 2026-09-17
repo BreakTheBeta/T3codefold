@@ -34,6 +34,17 @@ export function inboxFor(state: PitbossSnapshot, leadId?: string) {
   });
 }
 
+/** Messages that require work from this recipient, excluding its own durable audit entries. */
+export function actionableInboxFor(state: PitbossSnapshot, threadId: ThreadId, leadId?: string) {
+  const userDecisionIds = new Set(
+    state.tasks.flatMap((task) => task.decisions?.map((decision) => decision.id) ?? []),
+  );
+  return inboxFor(state, leadId).filter(
+    (message) =>
+      !message.acknowledged && message.threadId !== threadId && !userDecisionIds.has(message.id),
+  );
+}
+
 export function leadView(state: PitbossSnapshot, threadId: ThreadId): PitbossSnapshot | undefined {
   const lead = activeLeads(state).find((lead) => lead.threadId === threadId);
   if (!lead) return;

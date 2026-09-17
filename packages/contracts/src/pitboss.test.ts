@@ -1,8 +1,10 @@
 import { expect, it } from "@effect/vitest";
-import { ProjectId } from "./baseSchemas.ts";
+import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import {
+  isUserWorkMessage,
   verificationProposalApprovalAction,
   verificationProposalSaveAction,
+  type PitbossMessage,
   type PitbossTask,
 } from "./pitboss.ts";
 
@@ -71,4 +73,24 @@ it("uses atomic approval only for the exact linked pending proposal decision", (
       decisions: [{ ...task.decisions![0]!, answer: "Reject" }],
     }),
   ).toBeUndefined();
+});
+
+it("keeps agent-originated decisions user-visible without exposing ordinary worker questions", () => {
+  const message = (patch: Partial<PitbossMessage>): PitbossMessage => ({
+    id: "message",
+    taskId: "task",
+    threadId: null,
+    kind: "question",
+    text: "Needs attention",
+    createdAt: "2026-09-17T00:00:00Z",
+    acknowledged: false,
+    ...patch,
+  });
+  expect(isUserWorkMessage(message({ threadId: ThreadId.make("glados"), kind: "decision" }))).toBe(
+    true,
+  );
+  expect(isUserWorkMessage(message({ threadId: ThreadId.make("worker"), kind: "question" }))).toBe(
+    false,
+  );
+  expect(isUserWorkMessage(message({ kind: "question" }))).toBe(true);
 });

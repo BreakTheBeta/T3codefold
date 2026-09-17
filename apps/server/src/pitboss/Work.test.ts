@@ -32,6 +32,27 @@ const elect = () =>
     { type: "user" },
     "2026-09-10T00:00:00.000Z",
   );
+
+function fixture() {
+  const f = {
+    state: elect(),
+    run(action: PitbossAction, actor: Parameters<typeof decide>[2] = { type: "user" }) {
+      f.state = decide(
+        f.state,
+        {
+          commandId: CommandId.make(`command-${f.state.revision}`),
+          expectedRevision: f.state.revision,
+          authorityGeneration: f.state.role?.generation,
+          action,
+        },
+        actor,
+        "2026-09-10T00:00:00.000Z",
+      );
+    },
+  };
+  return f;
+}
+
 describe("pitboss work", () => {
   it("elects one durable role and rejects a concurrent stale election", () => {
     const state = elect();
@@ -53,23 +74,8 @@ describe("pitboss work", () => {
 });
 
 it("keeps worker submission distinct from acceptance and rejects worker self-acceptance", () => {
-  let state = elect();
-  const run = (
-    action: Parameters<typeof decide>[1]["action"],
-    actor: Parameters<typeof decide>[2] = { type: "user" },
-  ) => {
-    state = decide(
-      state,
-      {
-        commandId: CommandId.make(`command-${state.revision}`),
-        expectedRevision: state.revision,
-        authorityGeneration: state.role?.generation,
-        action,
-      },
-      actor,
-      "2026-09-10T00:00:00.000Z",
-    );
-  };
+  const f = fixture();
+  const run = f.run;
   run({
     type: "create",
     taskId: "task",
@@ -83,8 +89,8 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
     workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
   });
   run({ type: "assign", taskId: "task" });
-  const attempt = state.tasks[0]!.attempts[0]!;
-  expect(workContext(state, attempt.threadId)).toContain("pass it explicitly with --repo");
+  const attempt = f.state.tasks[0]!.attempts[0]!;
+  expect(workContext(f.state, attempt.threadId)).toContain("pass it explicitly with --repo");
   run(
     {
       type: "submit",
@@ -99,9 +105,9 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
     },
     { type: "agent", threadId: attempt.threadId },
   );
-  expect(state.tasks[0]!.status).toBe("verifying");
-  expect(state.tasks[0]!.acceptedEvidenceId).toBeNull();
-  const evidenceId = state.tasks[0]!.evidence[0]!.id;
+  expect(f.state.tasks[0]!.status).toBe("verifying");
+  expect(f.state.tasks[0]!.acceptedEvidenceId).toBeNull();
+  const evidenceId = f.state.tasks[0]!.evidence[0]!.id;
   expect(() =>
     run(
       { type: "accept", taskId: "task", evidenceId, note: "Looks good" },
@@ -111,31 +117,20 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
   expect(() => run({ type: "accept", taskId: "task", evidenceId, note: "Too early" })).toThrow(
     /writer to stop/,
   );
-  state = {
-    ...state,
-    tasks: state.tasks.map((task) => ({
+  f.state = {
+    ...f.state,
+    tasks: f.state.tasks.map((task) => ({
       ...task,
       attempts: task.attempts.map((attempt) => ({ ...attempt, state: "stopped" })),
     })),
   };
   run({ type: "accept", taskId: "task", evidenceId, note: "Inspected candidate and check result" });
-  expect(state.tasks[0]!.status).toBe("done");
+  expect(f.state.tasks[0]!.status).toBe("done");
 });
 
 it("derives recovery and explicit acceptance from coordinator review verdicts", () => {
-  let state = elect();
-  const run = (action: Parameters<typeof decide>[1]["action"]) => {
-    state = decide(
-      state,
-      {
-        commandId: CommandId.make(`review-next-${state.revision}`),
-        expectedRevision: state.revision,
-        action,
-      },
-      { type: "user" },
-      "2026-09-10T00:00:00.000Z",
-    );
-  };
+  const f = fixture();
+  const run = f.run;
   run({
     type: "create",
     taskId: "review-next",
@@ -149,14 +144,14 @@ it("derives recovery and explicit acceptance from coordinator review verdicts", 
     workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
   });
   run({ type: "assign", taskId: "review-next" });
-  const attempt = state.tasks[0]!.attempts[0]!;
-  state = observeAttempt(state, "review-next", attempt.id, "stopped", "Worker stopped");
+  const attempt = f.state.tasks[0]!.attempts[0]!;
+  f.state = observeAttempt(f.state, "review-next", attempt.id, "stopped", "Worker stopped");
   const review = (verdict: "pass" | "fail" | "inconclusive", suffix: string) =>
     run({
       type: "review",
       taskId: "review-next",
       attemptId: attempt.id,
-      criteriaVersion: state.tasks[0]!.criteriaVersion,
+      criteriaVersion: f.state.tasks[0]!.criteriaVersion,
       candidate: `commit:${suffix.repeat(40)}`,
       verdict,
       summary: `${verdict} coordinator review`,
@@ -164,29 +159,18 @@ it("derives recovery and explicit acceptance from coordinator review verdicts", 
       artifactUrls: [],
     });
   review("fail", "a");
-  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+  expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("recover");
   review("inconclusive", "b");
-  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+  expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("recover");
   review("pass", "c");
-  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("accept");
+  expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("accept");
 });
 
 it.each(["fail", "inconclusive"] as const)(
   "makes explicit rework assignable after a %s review without discarding evidence",
   (verdict) => {
-    let state = elect();
-    const run = (action: Parameters<typeof decide>[1]["action"]) => {
-      state = decide(
-        state,
-        {
-          commandId: CommandId.make(`explicit-rework-${state.revision}`),
-          expectedRevision: state.revision,
-          action,
-        },
-        { type: "user" },
-        `2026-09-10T00:00:${String(state.revision).padStart(2, "0")}.000Z`,
-      );
-    };
+    const f = fixture();
+    const run = f.run;
     run({
       type: "create",
       taskId: "explicit-rework",
@@ -203,9 +187,9 @@ it.each(["fail", "inconclusive"] as const)(
       },
     });
     run({ type: "assign", taskId: "explicit-rework" });
-    const first = state.tasks[0]!.attempts[0]!;
-    state = observeAttempt(
-      state,
+    const first = f.state.tasks[0]!.attempts[0]!;
+    f.state = observeAttempt(
+      f.state,
       "explicit-rework",
       first.id,
       "stopped",
@@ -216,43 +200,32 @@ it.each(["fail", "inconclusive"] as const)(
       type: "review",
       taskId: "explicit-rework",
       attemptId: first.id,
-      criteriaVersion: state.tasks[0]!.criteriaVersion,
+      criteriaVersion: f.state.tasks[0]!.criteriaVersion,
       candidate: `commit:${"a".repeat(40)}`,
       verdict,
       summary: `${verdict} retained candidate`,
       command: "vp test run focused.test.ts",
       artifactUrls: [],
     });
-    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
-    expect(readyTasks(state)).toEqual([]);
+    expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("recover");
+    expect(readyTasks(f.state)).toEqual([]);
     run({ type: "rework", taskId: "explicit-rework", note: "Repair retained candidate" });
-    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+    expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("recover");
     run({ type: "reopen", taskId: "explicit-rework" });
-    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("assign");
-    expect(readyTasks(state).map((task) => task.id)).toEqual(["explicit-rework"]);
-    const retainedEvidence = state.tasks[0]!.evidence;
+    expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("assign");
+    expect(readyTasks(f.state).map((task) => task.id)).toEqual(["explicit-rework"]);
+    const retainedEvidence = f.state.tasks[0]!.evidence;
     run({ type: "assign", taskId: "explicit-rework", resumeAttemptId: first.id });
-    expect(state.tasks[0]!.reworkRequestedAt).toBeUndefined();
-    expect(state.tasks[0]!.evidence).toEqual(retainedEvidence);
-    expect(state.tasks[0]!.attempts.at(-1)?.workspacePath).toBe("/tmp/explicit-rework");
-    expect(readyTasks(state)).toEqual([]);
+    expect(f.state.tasks[0]!.reworkRequestedAt).toBeUndefined();
+    expect(f.state.tasks[0]!.evidence).toEqual(retainedEvidence);
+    expect(f.state.tasks[0]!.attempts.at(-1)?.workspacePath).toBe("/tmp/explicit-rework");
+    expect(readyTasks(f.state)).toEqual([]);
   },
 );
 
 it("does not await verification captured for a replaced candidate", () => {
-  let state = elect();
-  const run = (action: Parameters<typeof decide>[1]["action"]) => {
-    state = decide(
-      state,
-      {
-        commandId: CommandId.make(`stale-verification-${state.revision}`),
-        expectedRevision: state.revision,
-        action,
-      },
-      { type: "user" },
-      "2026-09-10T00:00:00.000Z",
-    );
-  };
+  const f = fixture();
+  const run = f.run;
   run({
     type: "create",
     taskId: "stale-verification",
@@ -282,7 +255,7 @@ it("does not await verification captured for a replaced candidate", () => {
     },
   });
   run({ type: "assign", taskId: "stale-verification" });
-  const task = state.tasks[0]!;
+  const task = f.state.tasks[0]!;
   const attempt = task.attempts[0]!;
   run({
     type: "submit",
@@ -295,11 +268,11 @@ it("does not await verification captured for a replaced candidate", () => {
     command: "vp test run focused.test.ts",
     artifactUrls: [],
   });
-  state = observeAttempt(state, task.id, attempt.id, "stopped", "Worker stopped");
-  run({ type: "verify", taskId: task.id, evidenceId: state.tasks[0]!.evidence.at(-1)!.id });
-  state = {
-    ...state,
-    tasks: state.tasks.map((entry) =>
+  f.state = observeAttempt(f.state, task.id, attempt.id, "stopped", "Worker stopped");
+  run({ type: "verify", taskId: task.id, evidenceId: f.state.tasks[0]!.evidence.at(-1)!.id });
+  f.state = {
+    ...f.state,
+    tasks: f.state.tasks.map((entry) =>
       entry.id !== task.id
         ? entry
         : {
@@ -317,20 +290,20 @@ it("does not await verification captured for a replaced candidate", () => {
           },
     ),
   };
-  expect(state.tasks[0]!.verification).toMatchObject({
+  expect(f.state.tasks[0]!.verification).toMatchObject({
     state: "pending",
     candidate: `commit:${"a".repeat(40)}`,
   });
-  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
-  state = {
-    ...state,
-    verificationRecipes: state.verificationRecipes!.map((recipe) => ({ ...recipe, version: 2 })),
-    tasks: state.tasks.map((entry) => ({ ...entry, evidence: [entry.evidence[0]!] })),
+  expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("verify");
+  f.state = {
+    ...f.state,
+    verificationRecipes: f.state.verificationRecipes!.map((recipe) => ({ ...recipe, version: 2 })),
+    tasks: f.state.tasks.map((entry) => ({ ...entry, evidence: [entry.evidence[0]!] })),
   };
-  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
-  state = {
-    ...state,
-    tasks: state.tasks.map((entry) => ({
+  expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("verify");
+  f.state = {
+    ...f.state,
+    tasks: f.state.tasks.map((entry) => ({
       ...entry,
       criteriaVersion: entry.criteriaVersion + 1,
       evidence: [
@@ -338,25 +311,14 @@ it("does not await verification captured for a replaced candidate", () => {
       ],
     })),
   };
-  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
+  expect(pitbossTaskNextAction(f.state, f.state.tasks[0]!)).toBe("verify");
 });
 
 it.each([false, true])(
   "preserves a stopped candidate with explicit resume=%s and rejects a second writer before the stop",
   (explicitResume) => {
-    let state = elect();
-    const run = (action: Parameters<typeof decide>[1]["action"]) => {
-      state = decide(
-        state,
-        {
-          commandId: CommandId.make(`takeover-${state.revision}`),
-          expectedRevision: state.revision,
-          action,
-        },
-        { type: "user" },
-        "2026-09-10T00:00:00Z",
-      );
-    };
+    const f = fixture();
+    const run = f.run;
     run({
       type: "create",
       taskId: "takeover",
@@ -370,9 +332,9 @@ it.each([false, true])(
       workspaceStrategy: { type: "worktree", baseRef: "HEAD", branch: "fix/retained" },
     });
     run({ type: "assign", taskId: "takeover" });
-    const first = state.tasks[0]!.attempts[0]!;
-    state = observeAttempt(
-      state,
+    const first = f.state.tasks[0]!.attempts[0]!;
+    f.state = observeAttempt(
+      f.state,
       "takeover",
       first.id,
       "running",
@@ -381,15 +343,15 @@ it.each([false, true])(
     );
     run({ type: "rework", taskId: "takeover", note: "Escalate with candidate retained" });
     expect(() => run({ type: "reopen", taskId: "takeover" })).toThrow(/previous writer/);
-    state = observeAttempt(state, "takeover", first.id, "stopped", "Confirmed stopped");
+    f.state = observeAttempt(f.state, "takeover", first.id, "stopped", "Confirmed stopped");
     run({ type: "reopen", taskId: "takeover" });
-    const retained = state;
-    state = {
-      ...state,
+    const retained = f.state;
+    f.state = {
+      ...f.state,
       tasks: [
-        ...state.tasks,
+        ...f.state.tasks,
         {
-          ...state.tasks[0]!,
+          ...f.state.tasks[0]!,
           id: "another-owner",
           status: "active",
           attempts: [
@@ -405,7 +367,10 @@ it.each([false, true])(
       ],
     };
     // Raise only capacity in the test so the workspace ownership check is reached.
-    state = { ...state, role: { ...state.role!, brief: { ...state.role!.brief, maxWorkers: 2 } } };
+    f.state = {
+      ...f.state,
+      role: { ...f.state.role!, brief: { ...f.state.role!.brief, maxWorkers: 2 } },
+    };
     expect(() =>
       run({
         type: "assign",
@@ -413,20 +378,20 @@ it.each([false, true])(
         ...(explicitResume ? { resumeAttemptId: first.id } : {}),
       }),
     ).toThrow(/owns that workspace/);
-    state = retained;
+    f.state = retained;
     run({
       type: "assign",
       taskId: "takeover",
       ...(explicitResume ? { resumeAttemptId: first.id } : {}),
       model: { instanceId: ProviderInstanceId.make("codex"), model: "stronger-test-model" },
     });
-    expect(state.tasks[0]?.workspaceStrategy).toEqual({
+    expect(f.state.tasks[0]?.workspaceStrategy).toEqual({
       type: "existing_worktree",
       worktreePath: "/tmp/retained-candidate",
     });
-    expect(state.tasks[0]?.attempts.at(-1)?.model.model).toBe("stronger-test-model");
-    expect(state.tasks[0]?.attempts[0]?.state).toBe("stopped");
-    expect(state.tasks[0]?.attempts.at(-1)?.workspacePath).toBe("/tmp/retained-candidate");
+    expect(f.state.tasks[0]?.attempts.at(-1)?.model.model).toBe("stronger-test-model");
+    expect(f.state.tasks[0]?.attempts[0]?.state).toBe("stopped");
+    expect(f.state.tasks[0]?.attempts.at(-1)?.workspacePath).toBe("/tmp/retained-candidate");
     expect(() => run({ type: "assign", taskId: "takeover" })).toThrow(/not ready/);
   },
 );
@@ -616,20 +581,8 @@ it("lets GLaDOS choose a configured worker and thinking level without automatic 
 });
 
 it("snapshots explicit worker permissions while preserving legacy defaults and remote home limits", () => {
-  let state = elect();
-  const run = (action: PitbossAction, actor: Parameters<typeof decide>[2] = { type: "user" }) => {
-    state = decide(
-      state,
-      {
-        commandId: CommandId.make(`runtime-${state.revision}`),
-        expectedRevision: state.revision,
-        authorityGeneration: state.role?.generation,
-        action,
-      },
-      actor,
-      "2026-09-15T00:00:00Z",
-    );
-  };
+  const f = fixture();
+  const run = f.run;
   const create = (taskId: string) =>
     run({
       type: "create",
@@ -645,10 +598,10 @@ it("snapshots explicit worker permissions while preserving legacy defaults and r
     });
   create("explicit");
   run({ type: "assign", taskId: "explicit", runtimeMode: "full-access" });
-  expect(state.tasks[0]?.attempts[0]?.runtimeMode).toBe("full-access");
-  state = {
-    ...state,
-    tasks: state.tasks.map((task) =>
+  expect(f.state.tasks[0]?.attempts[0]?.runtimeMode).toBe("full-access");
+  f.state = {
+    ...f.state,
+    tasks: f.state.tasks.map((task) =>
       task.id === "explicit"
         ? {
             ...task,
@@ -660,14 +613,14 @@ it("snapshots explicit worker permissions while preserving legacy defaults and r
   };
   create("legacy");
   run({ type: "assign", taskId: "legacy" });
-  expect(state.tasks[1]?.attempts[0]?.runtimeMode).toBe("approval-required");
-  state = {
-    ...state,
+  expect(f.state.tasks[1]?.attempts[0]?.runtimeMode).toBe("approval-required");
+  f.state = {
+    ...f.state,
     role: {
-      ...state.role!,
-      brief: { ...state.role!.brief, workerRuntimeMode: "full-access" as const },
+      ...f.state.role!,
+      brief: { ...f.state.role!.brief, workerRuntimeMode: "full-access" as const },
     },
-    tasks: state.tasks.map((task) =>
+    tasks: f.state.tasks.map((task) =>
       task.id === "legacy"
         ? {
             ...task,
@@ -679,10 +632,10 @@ it("snapshots explicit worker permissions while preserving legacy defaults and r
   };
   create("downgraded");
   run({ type: "assign", taskId: "downgraded", runtimeMode: "approval-required" });
-  expect(state.tasks[2]?.attempts[0]?.runtimeMode).toBe("approval-required");
+  expect(f.state.tasks[2]?.attempts[0]?.runtimeMode).toBe("approval-required");
 
   const remote = {
-    ...state,
+    ...f.state,
     sourceAuthorities: [
       {
         scope: "shared",
@@ -694,10 +647,10 @@ it("snapshots explicit worker permissions while preserving legacy defaults and r
       },
     ],
     role: {
-      ...state.role!,
-      brief: { ...state.role!.brief, workerRuntimeMode: "approval-required" as const },
+      ...f.state.role!,
+      brief: { ...f.state.role!.brief, workerRuntimeMode: "approval-required" as const },
     },
-    tasks: state.tasks.map((task) =>
+    tasks: f.state.tasks.map((task) =>
       task.id === "legacy"
         ? {
             ...task,
@@ -736,19 +689,8 @@ it("snapshots explicit worker permissions while preserving legacy defaults and r
 });
 
 it("admits ten workers while enforcing the saved concurrent worker limit", () => {
-  let state = elect();
-  const run = (action: Parameters<typeof decide>[1]["action"]) => {
-    state = decide(
-      state,
-      {
-        commandId: CommandId.make(`capacity-${state.revision}`),
-        expectedRevision: state.revision,
-        action,
-      },
-      { type: "user" },
-      "2026-09-11T00:00:00Z",
-    );
-  };
+  const f = fixture();
+  const run = f.run;
   run({ type: "brief", brief: { ...brief, maxWorkers: 10 } });
   for (let i = 0; i < 11; i++) {
     run({
@@ -765,24 +707,13 @@ it("admits ten workers while enforcing the saved concurrent worker limit", () =>
     });
     if (i < 10) run({ type: "assign", taskId: `capacity-${i}` });
   }
-  expect(state.tasks.filter((task) => task.status === "active")).toHaveLength(10);
+  expect(f.state.tasks.filter((task) => task.status === "active")).toHaveLength(10);
   expect(() => run({ type: "assign", taskId: "capacity-10" })).toThrow(/capacity/);
 });
 
 it("turns one revise-result request into a bounded retained-workspace assignment", () => {
-  let state = elect();
-  const run = (action: Parameters<typeof decide>[1]["action"]) => {
-    state = decide(
-      state,
-      {
-        commandId: CommandId.make(`revise-${state.revision}`),
-        expectedRevision: state.revision,
-        action,
-      },
-      { type: "user" },
-      "2026-09-17T00:00:00Z",
-    );
-  };
+  const f = fixture();
+  const run = f.run;
   run({
     type: "create",
     taskId: "revise-result",
@@ -796,9 +727,9 @@ it("turns one revise-result request into a bounded retained-workspace assignment
     workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
   });
   run({ type: "assign", taskId: "revise-result" });
-  const first = state.tasks[0]!.attempts[0]!;
-  state = observeAttempt(
-    state,
+  const first = f.state.tasks[0]!.attempts[0]!;
+  f.state = observeAttempt(
+    f.state,
     "revise-result",
     first.id,
     "running",
@@ -806,39 +737,28 @@ it("turns one revise-result request into a bounded retained-workspace assignment
     "/tmp/revise-retained",
   );
   run({ type: "revise-result", taskId: "revise-result", note: "Address the review gap" });
-  expect(state.tasks[0]).toMatchObject({
+  expect(f.state.tasks[0]).toMatchObject({
     status: "queued",
     acceptedEvidenceId: null,
-    reworkRequestedAt: "2026-09-17T00:00:00Z",
+    reworkRequestedAt: "2026-09-10T00:00:00.000Z",
     revisionRequest: { note: "Address the review gap" },
   });
-  expect(state.tasks[0]!.attempts[0]!.state).toBe("stop_requested");
-  expect(readyTasks(state)).toEqual([]);
-  state = observeAttempt(state, "revise-result", first.id, "stopped", "Writer drained");
-  expect(readyTasks(state).map((task) => task.id)).toEqual(["revise-result"]);
+  expect(f.state.tasks[0]!.attempts[0]!.state).toBe("stop_requested");
+  expect(readyTasks(f.state)).toEqual([]);
+  f.state = observeAttempt(f.state, "revise-result", first.id, "stopped", "Writer drained");
+  expect(readyTasks(f.state).map((task) => task.id)).toEqual(["revise-result"]);
   run({ type: "assign", taskId: "revise-result", resumeAttemptId: first.id });
-  expect(state.tasks[0]!.revisionRequest).toBeUndefined();
-  expect(state.tasks[0]!.workspaceStrategy).toEqual({
+  expect(f.state.tasks[0]!.revisionRequest).toBeUndefined();
+  expect(f.state.tasks[0]!.workspaceStrategy).toEqual({
     type: "existing_worktree",
     worktreePath: "/tmp/revise-retained",
   });
-  expect(state.tasks[0]!.attempts).toHaveLength(2);
+  expect(f.state.tasks[0]!.attempts).toHaveLength(2);
 });
 
 it("closes historical work without accepting it and keeps closure visible after restore", () => {
-  let state = elect();
-  const run = (action: Parameters<typeof decide>[1]["action"]) => {
-    state = decide(
-      state,
-      {
-        commandId: CommandId.make(`close-${state.revision}`),
-        expectedRevision: state.revision,
-        action,
-      },
-      { type: "user" },
-      "2026-09-17T00:00:00Z",
-    );
-  };
+  const f = fixture();
+  const run = f.run;
   run({
     type: "create",
     taskId: "historical",
@@ -852,16 +772,87 @@ it("closes historical work without accepting it and keeps closure visible after 
     workspaceStrategy: { type: "root" },
   });
   run({ type: "close", taskId: "historical", reason: "Superseded by the integrated approach" });
-  expect(state.tasks[0]).toMatchObject({
+  expect(f.state.tasks[0]).toMatchObject({
     status: "cancelled",
     acceptedEvidenceId: null,
-    closedAt: "2026-09-17T00:00:00Z",
+    closedAt: "2026-09-10T00:00:00.000Z",
     closedReason: "Superseded by the integrated approach",
   });
   run({ type: "reopen", taskId: "historical" });
-  expect(state.tasks[0]).toMatchObject({
+  expect(f.state.tasks[0]).toMatchObject({
     status: "queued",
     acceptedEvidenceId: null,
     closedReason: "Superseded by the integrated approach",
   });
+});
+
+it("keeps coordinator turn context bounded and points to durable detail", () => {
+  let state = elect();
+  for (let index = 0; index < 20; index++) {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`context-task-${index}`),
+        expectedRevision: state.revision,
+        action: {
+          type: "create",
+          taskId: `context-task-${index}`,
+          projectId,
+          title: `Task ${index}`,
+          outcome: "Keep automatic context compact",
+          criteria: "Use work_read for complete detail",
+          verifyCommand: "vp test run focused.test.ts",
+          priority: index,
+          dependencies: [],
+          workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+        },
+      },
+      { type: "user" },
+      "2026-09-17T00:00:00Z",
+    );
+  }
+  state = {
+    ...state,
+    leads: [
+      {
+        id: "dormant",
+        projectId,
+        threadId: ThreadId.make("dormant-lead"),
+        generation: 1,
+        parentGeneration: state.role!.generation,
+        status: "dormant",
+        charter: `DO_NOT_REPEAT_CHARTER_${"x".repeat(4_000)}`,
+        model: brief.workerModel,
+        maxWorkers: 1,
+        context: "DO_NOT_REPEAT_CONTEXT",
+        contextRevision: 1,
+        updatedAt: "2026-09-17T00:00:00Z",
+      },
+    ],
+    tasks: state.tasks.map((task) => ({
+      ...task,
+      note: `DO_NOT_REPEAT_NOTE_${task.id}_${"y".repeat(500)}`,
+    })),
+  };
+  state = {
+    ...state,
+    messages: Array.from({ length: 21 }, (_, index) => ({
+      id: `message-${index}`,
+      taskId: null,
+      threadId: index < 12 ? threadId : ThreadId.make("worker"),
+      kind: "progress" as const,
+      text: `Update ${index}`,
+      createdAt: "2026-09-17T00:00:00Z",
+      acknowledged: false,
+    })),
+  };
+  const context = workContext(state, threadId)!;
+  expect(context).toContain("0 active/backlog tasks and 1 actionable inbox items");
+  expect(context.length).toBeLessThan(12_000);
+  expect(context).toContain("Read full charters, context and model settings with work_read");
+  expect(context).toContain("Priorities, quality, model guidance and exact model settings");
+  expect(context).toContain("Actionable inbox");
+  expect(context).not.toContain("DO_NOT_REPEAT_CHARTER");
+  expect(context).not.toContain("DO_NOT_REPEAT_CONTEXT");
+  expect(context).not.toContain("DO_NOT_REPEAT_NOTE");
 });

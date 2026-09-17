@@ -33,7 +33,7 @@ import { ThreadLaunchService, ThreadLaunchError } from "../orchestration-v2/Thre
 import { PeerService } from "./PeerService.ts";
 import { WorkStore, layer as storeLayer } from "./WorkStore.ts";
 import { layer as runtime } from "./WorkRuntime.ts";
-import { readyTasks } from "./Work.ts";
+import { readyTasks, workContext } from "./Work.ts";
 
 const decodeAction = Schema.decodeUnknownSync(Schema.fromJsonString(PitbossAction));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -358,6 +358,66 @@ it.effect("does not echo a coordinator's own task report back as a wake", () =>
     );
     yield* h.drain();
     expect(h.sent).toEqual([boss]);
+    const recorded = yield* h.store.read();
+    expect(recorded.messages.some((message) => message.text.includes("recorded this update"))).toBe(
+      true,
+    );
+    expect(workContext(recorded, boss)).not.toContain("recorded this update");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("does not echo GLaDOS's own decision request but delivers the user's answer", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "self-decision",
+      projectId: a,
+      title: "Self decision",
+      outcome: "Wait for a user choice without waking itself",
+      criteria: "Only the answer returns to GLaDOS",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "self-decision" });
+    yield* h.drain();
+    const assigned = (yield* h.store.read()).tasks[0]!;
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("self-decision-request"),
+        expectedRevision: (yield* h.store.read()).revision,
+        authorityGeneration: (yield* h.store.read()).role!.generation,
+        action: {
+          type: "request-decision",
+          taskId: assigned.id,
+          question: "Choose the retained format?",
+          options: ["A", "B"],
+          recommendation: "A",
+        },
+      },
+      { type: "agent", threadId: boss },
+    );
+    yield* h.drain();
+    expect(h.sentMessages).toEqual([]);
+    const parked = yield* h.store.read();
+    expect(parked.messages.at(-1)).toMatchObject({
+      id: "self-decision-request",
+      threadId: boss,
+      kind: "decision",
+      acknowledged: false,
+    });
+    expect(workContext(parked, boss)).not.toContain("Choose the retained format?");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({
+      type: "resolve-decision",
+      taskId: assigned.id,
+      decisionId: "self-decision-request",
+      answer: "B",
+    });
+    yield* h.drain();
+    expect(h.sentMessages).toHaveLength(1);
+    expect(h.sentMessages[0]?.text).toContain("User answered");
   }).pipe(Effect.provide(services)),
 );
 it.effect("delivers distinct worker questions once and preserves them across restart", () =>
@@ -1120,7 +1180,7 @@ it.effect("runs later assignment effects behind a full page of deferred wakes", 
     expect(h.launched).toContain(later.attempts[0]!.threadId);
   }).pipe(Effect.provide(services)),
 );
-it.effect("delivers unresolved decisions and genuinely new readiness once each", () =>
+it.effect("leaves decision requests to the user and delivers answers with new readiness", () =>
   Effect.gen(function* () {
     const h = yield* harness;
     yield* h.command({
@@ -1145,12 +1205,10 @@ it.effect("delivers unresolved decisions and genuinely new readiness once each",
       recommendation: "A",
     });
     yield* h.drain();
-    expect(h.sent).toEqual([boss]);
-    expect(h.sentMessages[0]?.text).toContain("decision · task decision-task");
-    expect(h.sentMessages[0]?.text).toContain("Resolve the recorded decision");
-    h.projections.set(boss, projection(boss, a));
+    expect(h.sent).toEqual([]);
+    yield* h.store.rebuild();
     yield* h.drain();
-    expect(h.sent).toEqual([boss]);
+    expect(h.sent).toEqual([]);
     const decision = (yield* h.store.read()).tasks[0]!.decisions![0]!;
     yield* h.command({
       type: "resolve-decision",
@@ -1171,11 +1229,12 @@ it.effect("delivers unresolved decisions and genuinely new readiness once each",
       workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
     });
     yield* h.drain();
-    expect(h.sent).toEqual([boss, boss]);
-    expect(h.sentMessages[1]?.text).toContain(
+    expect(h.sent).toEqual([boss]);
+    expect(h.sentMessages[0]?.text).toContain("User answered");
+    expect(h.sentMessages[0]?.text).toContain(
       "Ready to assign · task newly-ready · attempt none · owner GLaDOS",
     );
-    expect(h.sentMessages[1]?.text).not.toContain("decision · task decision-task");
+    expect(h.sentMessages[0]?.text).not.toContain("decision · task decision-task");
   }).pipe(Effect.provide(services)),
 );
 it.effect("redelivers a mirrored task obligation when ownership returns to a prior manager", () =>
