@@ -865,3 +865,61 @@ it("closes historical work without accepting it and keeps closure visible after 
     closedReason: "Superseded by the integrated approach",
   });
 });
+
+it("keeps coordinator turn context bounded and points to durable detail", () => {
+  let state = elect();
+  for (let index = 0; index < 20; index++) {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`context-task-${index}`),
+        expectedRevision: state.revision,
+        action: {
+          type: "create",
+          taskId: `context-task-${index}`,
+          projectId,
+          title: `Task ${index}`,
+          outcome: "Keep automatic context compact",
+          criteria: "Use work_read for complete detail",
+          verifyCommand: "vp test run focused.test.ts",
+          priority: index,
+          dependencies: [],
+          workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+        },
+      },
+      { type: "user" },
+      "2026-09-17T00:00:00Z",
+    );
+  }
+  state = {
+    ...state,
+    leads: [
+      {
+        id: "dormant",
+        projectId,
+        threadId: ThreadId.make("dormant-lead"),
+        generation: 1,
+        parentGeneration: state.role!.generation,
+        status: "dormant",
+        charter: `DO_NOT_REPEAT_CHARTER_${"x".repeat(4_000)}`,
+        model: brief.workerModel,
+        maxWorkers: 1,
+        context: "DO_NOT_REPEAT_CONTEXT",
+        contextRevision: 1,
+        updatedAt: "2026-09-17T00:00:00Z",
+      },
+    ],
+    tasks: state.tasks.map((task) => ({
+      ...task,
+      note: `DO_NOT_REPEAT_NOTE_${task.id}_${"y".repeat(500)}`,
+    })),
+  };
+  const context = workContext(state, threadId)!;
+  expect(context.length).toBeLessThan(12_000);
+  expect(context).toContain("Read full charters, context and model settings with work_read");
+  expect(context).toContain("Priorities, quality, model guidance and exact model settings");
+  expect(context).toContain("Actionable inbox");
+  expect(context).not.toContain("DO_NOT_REPEAT_CHARTER");
+  expect(context).not.toContain("DO_NOT_REPEAT_CONTEXT");
+  expect(context).not.toContain("DO_NOT_REPEAT_NOTE");
+});

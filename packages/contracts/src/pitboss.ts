@@ -667,9 +667,8 @@ export function workNeedsUserInput(
 export function isUserWorkMessage(message: PitbossMessage) {
   return (
     !message.acknowledged &&
-    !message.threadId &&
     !message.sourcePeerId &&
     !message.recipientLeadId &&
-    (message.kind === "question" || message.kind === "decision")
+    (message.kind === "decision" || (!message.threadId && message.kind === "question"))
   );
 }

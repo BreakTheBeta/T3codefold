@@ -1,4 +1,4 @@
-import { activeLeads, inboxFor, taskLead } from "./Leads.ts";
+import { actionableInboxFor, activeLeads, taskLead } from "./Leads.ts";
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectionStoreThreadNotFoundError } from "../orchestration-v2/ProjectionStore.ts";
 import { PeerService } from "./PeerService.ts";
@@ -59,9 +59,7 @@ interface WakeRecipient {
   readonly leadId?: string | undefined;
 }
 function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
-  const messages = inboxFor(state, recipient.leadId).filter(
-    (message) => !message.acknowledged && message.threadId !== recipient.threadId,
-  );
+  const messages = actionableInboxFor(state, recipient.threadId, recipient.leadId);
   const available =
     state.tasks.filter((task) =>
       task.attempts.some((attempt) =>

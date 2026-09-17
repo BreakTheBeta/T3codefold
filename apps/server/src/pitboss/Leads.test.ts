@@ -12,7 +12,7 @@ import {
   type PitbossSnapshot,
 } from "@t3tools/contracts";
 import { decide, emptyWork, observeAttempt, workContext, type WorkActor } from "./Work.ts";
-import { activeLeads, inboxFor, leadView } from "./Leads.ts";
+import { actionableInboxFor, activeLeads, inboxFor, leadView } from "./Leads.ts";
 import { replayJournal } from "./WorkJournal.ts";
 
 const isJson = Schema.is(Schema.Json);
@@ -125,6 +125,47 @@ it("persists Terra project context and routes two Luna workers through its owner
   expect(inboxFor(f.state).some((m) => m.text === "Which empty state?")).toBe(false);
   expect(replayJournal(f.journal)).toEqual(f.state);
   expect(leadView(f.state, f.lead.threadId)?.tasks).toHaveLength(2);
+});
+
+it("keeps legacy decision prompts in the audit inbox but out of manager actionability", () => {
+  const f = fixture();
+  f.task("decision");
+  const legacy = {
+    ...f.state,
+    tasks: f.state.tasks.map((task) => ({
+      ...task,
+      decisions: [
+        {
+          id: "legacy-decision",
+          question: "Choose a format?",
+          options: ["A", "B"],
+          recommendation: "A",
+          requestedAt: "2026-09-11T00:00:00.000Z",
+        },
+      ],
+    })),
+    messages: [
+      ...f.state.messages,
+      {
+        id: "legacy-decision",
+        taskId: "decision",
+        threadId: null,
+        kind: "question" as const,
+        text: "Decision needed: Choose a format?",
+        createdAt: "2026-09-11T00:00:00.000Z",
+        acknowledged: false,
+      },
+    ],
+  };
+  expect(inboxFor(legacy, f.lead.id).some((message) => message.id === "legacy-decision")).toBe(
+    true,
+  );
+  expect(
+    actionableInboxFor(legacy, f.lead.threadId, f.lead.id).some(
+      (message) => message.id === "legacy-decision",
+    ),
+  ).toBe(false);
+  expect(workContext(legacy, f.lead.threadId)).not.toContain("Choose a format?");
 });
 
 it("lets a lead coordinate only work already assigned to an approved remote task home", () => {
