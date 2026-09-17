@@ -10,6 +10,7 @@ import * as Paths from "effect/Path";
 import { EnvironmentId, ProjectId, type PitbossVerification } from "@t3tools/contracts";
 import { ServerConfig, layerTest } from "../config.ts";
 import { ProcessRunner, layer as processes } from "../processRunner.ts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { VerificationRunner, layer } from "./VerificationRunner.ts";
 
 it.live(
@@ -19,16 +20,29 @@ it.live(
       const Fs = yield* FileSystem.FileSystem;
       const Path = yield* Paths.Path;
       const runner = yield* VerificationRunner;
-      const process = yield* ProcessRunner;
+      const processRunner = yield* ProcessRunner;
+      const platform = yield* HostProcessPlatform;
       const config = yield* ServerConfig;
       const root = yield* Fs.makeTempDirectoryScoped({ prefix: "verification-fixture-" });
-      const git = (args: string[]) => process.run({ command: "git", args, cwd: root });
+      const git = (args: string[]) => processRunner.run({ command: "git", args, cwd: root });
       yield* git(["init", "--quiet"]);
       yield* Fs.writeFileString(Path.join(root, "app.cjs"), "exports.add = (a,b) => a+b;");
       yield* Fs.writeFileString(
         Path.join(root, "verify.cjs"),
         'const assert=require("node:assert/strict"); assert.equal(require("./app.cjs").add(2,3),5); require("node:fs").writeFileSync("proof.txt","2+3=5");',
       );
+      const bin = Path.join(root, "node_modules", ".bin");
+      yield* Fs.makeDirectory(bin, { recursive: true });
+      const fixtureTool = Path.join(
+        bin,
+        platform === "win32" ? "fixture-verification-tool.cmd" : "fixture-verification-tool",
+      );
+      const candidateTool =
+        platform === "win32"
+          ? '@if not "%NODE_ENV%"=="test" exit /b 9\r\n'
+          : '#!/bin/sh\n[ "$NODE_ENV" = test ]\n';
+      yield* Fs.writeFileString(fixtureTool, candidateTool);
+      if (platform !== "win32") yield* Fs.chmod(fixtureTool, 0o755);
       yield* git(["add", "."]);
       yield* git([
         "-c",
@@ -76,6 +90,16 @@ it.live(
         ),
       ).toBe("2+3=5");
       expect((yield* git(["status", "--porcelain"])).stdout).toBe("");
+      yield* Fs.writeFileString(
+        fixtureTool,
+        platform === "win32" ? "@exit /b 19\r\n" : "#!/bin/sh\nexit 19\n",
+      );
+      if (platform !== "win32") yield* Fs.chmod(fixtureTool, 0o755);
+      const explicitTestRuntime = yield* run({
+        doctor: "fixture-verification-tool",
+        artifacts: [],
+      });
+      expect(explicitTestRuntime.verdict).toBe("pass");
       yield* Fs.writeFileString(Path.join(root, "app.cjs"), "exports.add = (a,b) => a-b;");
       yield* git(["add", "."]);
       yield* git([
@@ -101,6 +125,13 @@ it.live(
       const missing = yield* run({ doctor: "node missing-dependency.cjs" });
       expect(missing.verdict).toBe("inconclusive");
       expect(missing.checks).toHaveLength(1);
+      const missingExecutable = yield* run({ doctor: "missing-verification-executable" });
+      expect(missingExecutable.verdict).toBe("inconclusive");
+      expect(missingExecutable.summary).toContain("executable is unavailable");
+      expect(missingExecutable.checks).toHaveLength(1);
+      const failedReadiness = yield* run({ doctor: 'node -e "process.exit(7)"' });
+      expect(failedReadiness.verdict).toBe("inconclusive");
+      expect(failedReadiness.summary).toContain("readiness command ran and failed");
       const dirty = yield* run({
         verify: "node -e \"require('node:fs').writeFileSync('app.cjs','changed')\"",
         artifacts: [],
@@ -134,6 +165,7 @@ it.live(
       const Path = yield* Paths.Path;
       const config = yield* ServerConfig;
       const runner = yield* VerificationRunner;
+      const platform = yield* HostProcessPlatform;
       const root = yield* Fs.makeTempDirectoryScoped({ prefix: "verification-nongit-" });
       const environmentId = EnvironmentId.make("test-environment");
       yield* Fs.makeDirectory(Path.dirname(config.environmentIdPath), { recursive: true });
@@ -175,6 +207,23 @@ it.live(
           },
         });
       const yieldNow = yield* DateTime.now;
+      const sourceBin = Path.join(root, "node_modules", ".bin");
+      yield* Fs.makeDirectory(sourceBin, { recursive: true });
+      const sourceOnlyTool = Path.join(
+        sourceBin,
+        platform === "win32" ? "source-only-artifact-tool.cmd" : "source-only-artifact-tool",
+      );
+      yield* Fs.writeFileString(
+        sourceOnlyTool,
+        platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+      );
+      if (platform !== "win32") yield* Fs.chmod(sourceOnlyTool, 0o755);
+      const isolatedArtifactPath = yield* run({
+        doctor: "source-only-artifact-tool",
+        artifacts: [],
+      });
+      expect(isolatedArtifactPath.verdict).toBe("inconclusive");
+      expect(isolatedArtifactPath.summary).toContain("executable is unavailable");
       const research = yield* run();
       expect(research.verdict).toBe("pass");
       expect(research.subjectDigest).toBe(hash(packet));

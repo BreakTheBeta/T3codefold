@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { PitbossAction, PitbossTask } from "@t3tools/contracts";
+import {
+  verificationProposalApprovalAction,
+  type PitbossAction,
+  type PitbossTask,
+} from "@t3tools/contracts";
 import { Button } from "../ui/button";
 
 export function TaskDecisionCard({
@@ -23,6 +27,8 @@ export function TaskDecisionCard({
       ? undefined
       : task.decisions?.find((decision) => decision.answer === undefined);
   if (!pending) return null;
+  const proposalApproval = verificationProposalApprovalAction(task);
+  const approvesProposal = proposalApproval?.decisionId === pending.id;
   const submit = (value: string) => {
     if (value.trim())
       void command({
@@ -50,6 +56,15 @@ export function TaskDecisionCard({
         for later.
       </p>
       <div className="flex flex-wrap gap-2">
+        {proposalApproval && approvesProposal && (
+          <Button
+            size="sm"
+            disabled={busy || !!task.homeEnvironmentId}
+            onClick={() => void command(proposalApproval)}
+          >
+            Approve and save evidence profile
+          </Button>
+        )}
         {pending.options.map((option) => (
           <Button
             key={option}
@@ -62,6 +77,12 @@ export function TaskDecisionCard({
           </Button>
         ))}
       </div>
+      {proposalApproval && approvesProposal && (
+        <p className="text-xs text-muted-foreground">
+          Only “Approve and save evidence profile” saves the exact proposed checks. Other choices
+          and written replies answer the decision without changing proof requirements.
+        </p>
+      )}
       <label className="block text-sm">
         Your direction
         <textarea

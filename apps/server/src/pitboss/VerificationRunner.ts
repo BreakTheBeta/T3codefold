@@ -59,6 +59,20 @@ export const layer = Layer.effect(
               ? yield* Fs.realPath(input.root)
               : Path.join(temporary, "checkout");
           const sourceRoot = yield* Fs.realPath(input.root);
+          const pathSeparator = platform === "win32" ? ";" : ":";
+          const commitEnvironment =
+            mode === "commit"
+              ? {
+                  NODE_ENV: "test",
+                  PATH: [
+                    Path.join(checkout, "node_modules", ".bin"),
+                    Path.join(sourceRoot, "node_modules", ".bin"),
+                    process.env.PATH,
+                  ]
+                    .filter(Boolean)
+                    .join(pathSeparator),
+                }
+              : {};
           const digest = (bytes: Uint8Array) =>
             NodeCrypto.createHash("sha256").update(bytes).digest("hex");
           const inputFile = Effect.fn("VerificationRunner.input")(function* (
@@ -100,6 +114,7 @@ export const layer = Layer.effect(
               outputMode: "truncate",
               env: {
                 ...process.env,
+                ...commitEnvironment,
                 T3_VERIFICATION_ID: input.verification.id,
                 T3_VERIFICATION_CANDIDATE: candidate,
                 T3_VERIFICATION_MODE: mode,
@@ -168,8 +183,17 @@ export const layer = Layer.effect(
             }
             const doctor = yield* shell("Readiness", recipe.doctor);
             if (doctor.code !== 0 || doctor.timedOut) {
-              summary =
-                "Blocked: readiness failed or timed out. Repair the environment before retrying.";
+              const missingExecutable =
+                doctor.code === 127 ||
+                doctor.code === 9009 ||
+                /(?:command not found|not recognized as an internal or external command)/i.test(
+                  `${doctor.stdout}\n${doctor.stderr}`,
+                );
+              summary = doctor.timedOut
+                ? "Blocked: readiness timed out before verification started."
+                : missingExecutable
+                  ? "Blocked: a readiness executable is unavailable on the verification PATH. The saved recipe was not weakened and verification did not run."
+                  : "Blocked: the readiness command ran and failed. Repair the reported environment condition before retrying; verification did not run.";
               return;
             }
             const test = yield* shell("Verification", recipe.verify);

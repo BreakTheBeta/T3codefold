@@ -2,6 +2,7 @@ import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialo
 import { useId, useState } from "react";
 import {
   hasCurrentVerification,
+  verificationProposalApprovalAction,
   type EnvironmentId,
   type PitbossAction,
   type PitbossTask,
@@ -69,6 +70,7 @@ export function VerificationCard({
   command: (action: PitbossAction) => Promise<boolean>;
 }) {
   const proposal = task.proposedVerificationRecipe;
+  const proposalApproval = verificationProposalApprovalAction(task);
   const proposedSaved =
     proposal &&
     recipes.some(
@@ -98,15 +100,27 @@ export function VerificationCard({
               ? "The proof requirements would change after work started. Review the change before it applies."
               : "Review the prepared checks and save to continue."}
           </p>
-          <Button
-            size="sm"
-            onClick={() => {
-              setCreating(true);
-              setEditing(true);
-            }}
-          >
-            Review proposed settings
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {proposalApproval && (
+              <Button
+                size="sm"
+                disabled={busy || !!task.homeEnvironmentId}
+                onClick={() => void command(proposalApproval)}
+              >
+                Approve and save exact proposal
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setCreating(true);
+                setEditing(true);
+              }}
+            >
+              Review proposed settings
+            </Button>
+          </div>
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">

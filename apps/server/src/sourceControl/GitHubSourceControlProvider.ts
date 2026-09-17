@@ -119,6 +119,7 @@ export const make = Effect.gen(function* () {
         return github
           .listOpenPullRequests({
             cwd: input.cwd,
+            ...(input.repository === undefined ? {} : { repository: input.repository }),
             headSelector: input.headSelector,
             ...(input.limit !== undefined ? { limit: input.limit } : {}),
           })
@@ -148,6 +149,7 @@ export const make = Effect.gen(function* () {
           args: [
             "pr",
             "list",
+            ...(input.repository === undefined ? [] : ["--repo", input.repository]),
             "--head",
             input.headSelector,
             "--state",
@@ -229,10 +231,31 @@ export const make = Effect.gen(function* () {
             }),
         ),
       ),
-    createChangeRequest: (input) =>
-      github
+    createChangeRequest: (input) => {
+      const repository = input.target?.repository?.trim();
+      if (!repository) {
+        return Effect.fail(
+          new SourceControlProviderError({
+            provider: "github",
+            operation: "createChangeRequest",
+            command: "gh",
+            cwd: input.cwd,
+            reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+              input.headSelector,
+            ),
+            detail: "GitHub pull request creation requires an explicit target repository.",
+            cause: new GitHubCli.GitHubRepositoryTargetError({
+              command: "gh",
+              cwd: input.cwd,
+              repository: "",
+            }),
+          }),
+        );
+      }
+      return github
         .createPullRequest({
           cwd: input.cwd,
+          repository,
           baseBranch: input.baseRefName,
           headSelector: input.headSelector,
           title: input.title,
@@ -253,7 +276,8 @@ export const make = Effect.gen(function* () {
                 cause: error,
               }),
           ),
-        ),
+        );
+    },
     getRepositoryCloneUrls: (input) =>
       github.getRepositoryCloneUrls(input).pipe(
         Effect.mapError(
@@ -289,19 +313,24 @@ export const make = Effect.gen(function* () {
         ),
       ),
     getDefaultBranch: (input) =>
-      github.getDefaultBranch(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "github",
-              operation: "getDefaultBranch",
-              command: error.command,
-              cwd: input.cwd,
-              detail: error.detail,
-              cause: error,
-            }),
+      github
+        .getDefaultBranch({
+          cwd: input.cwd,
+          ...(input.repository === undefined ? {} : { repository: input.repository }),
+        })
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "getDefaultBranch",
+                command: error.command,
+                cwd: input.cwd,
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
         ),
-      ),
     checkoutChangeRequest: (input) =>
       github.checkoutPullRequest(input).pipe(
         Effect.mapError(

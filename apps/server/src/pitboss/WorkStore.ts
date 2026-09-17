@@ -205,7 +205,9 @@ export const layer = Layer.effect(
           if (actor.type === "agent") {
             const action = input.action;
             const requestedMode =
-              action.type === "create-lead" || action.type === "assign"
+              action.type === "create-lead" ||
+              action.type === "assign" ||
+              action.type === "revise-result"
                 ? (action.runtimeMode ??
                   before.role?.brief.workerRuntimeMode ??
                   "approval-required")
@@ -255,6 +257,8 @@ export const layer = Layer.effect(
               "elect",
               "assign",
               "rework",
+              "revise-result",
+              "close",
               "request-decision",
               "cancel",
               "propose-coordination",
@@ -353,7 +357,7 @@ export const layer = Layer.effect(
               const message = {
                 id,
                 taskId: task.id,
-                threadId: state.role?.threadId ?? null,
+                threadId: null,
                 kind: "progress" as const,
                 text: `Task home ${sender}: ${task.title} is ${task.status}. ${task.note}`.slice(
                   0,
@@ -462,7 +466,7 @@ export const layer = Layer.effect(
                     ?.id ??
                   state.messages.find((entry) => entry.id === id)?.taskId ??
                   null,
-                threadId: state.role?.threadId ?? null,
+                threadId: null,
                 kind: "question" as const,
                 text: `Work delivery needs attention: ${error}`.slice(0, 16000),
                 createdAt: DateTime.formatIso(yield* DateTime.now),

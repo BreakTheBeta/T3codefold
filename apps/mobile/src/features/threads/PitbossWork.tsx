@@ -33,6 +33,8 @@ import {
   CommandId,
   isPitbossLeadActive,
   hasCurrentVerification,
+  verificationProposalApprovalAction,
+  verificationProposalSaveAction,
   verificationRecipeForTask,
   type EnvironmentId,
   type ModelSelection,
@@ -423,7 +425,7 @@ export function PitbossWork(props: {
                         >
                           <Text className="text-xs text-muted-foreground">
                             {item.task
-                              ? `${projectName(item.task.projectId)} · ${gladosWorkStatus(item.task)}`
+                              ? `${projectName(item.task.projectId)} · ${gladosWorkStatus(item.task, state)}`
                               : `GLaDOS · ${item.message.kind}`}
                           </Text>
                           <Text className="font-semibold" numberOfLines={2}>
@@ -475,7 +477,7 @@ export function PitbossWork(props: {
                             </Text>
                             <Text className="text-xl font-semibold">{task.title}</Text>
                             <Text className="text-xs text-muted-foreground">
-                              {gladosWorkKind(task, state)} · {gladosWorkStatus(task)}
+                              {gladosWorkKind(task, state)} · {gladosWorkStatus(task, state)}
                             </Text>
                             {task.proposedVerificationRecipe && (
                               <View className="rounded-xl border border-primary p-3">
@@ -515,16 +517,17 @@ export function PitbossWork(props: {
                                   {task.proposedVerificationRecipe.artifacts.join(", ") ||
                                     "No captured files"}
                                 </Text>
-                                {button(
-                                  "Save evidence profile",
-                                  () =>
-                                    void command({
-                                      type: "verification-recipe",
-                                      recipe: task.proposedVerificationRecipe!,
-                                      selectForTaskId: task.id,
-                                    }),
-                                  !!task.homeEnvironmentId,
-                                )}
+                                {verificationProposalSaveAction(task) &&
+                                  button(
+                                    verificationProposalApprovalAction(task)
+                                      ? "Approve and save exact proposal"
+                                      : "Save evidence profile",
+                                    () => {
+                                      const action = verificationProposalSaveAction(task);
+                                      if (action) void command(action);
+                                    },
+                                    !!task.homeEnvironmentId,
+                                  )}
                               </View>
                             )}
                             {task.status !== "cancelled" &&
@@ -545,6 +548,23 @@ export function PitbossWork(props: {
                                       This decision pauses this outcome. Independent work can
                                       continue.
                                     </Text>
+                                    {verificationProposalApprovalAction(task)?.decisionId ===
+                                      decision.id && (
+                                      <View className="gap-2">
+                                        {button(
+                                          "Approve and save evidence profile",
+                                          () => {
+                                            const action = verificationProposalApprovalAction(task);
+                                            if (action) void command(action);
+                                          },
+                                          !!task.homeEnvironmentId,
+                                        )}
+                                        <Text className="text-xs text-muted-foreground">
+                                          Other choices and written replies do not change proof
+                                          requirements.
+                                        </Text>
+                                      </View>
+                                    )}
                                     {decision.options.map((option) => (
                                       <View key={option}>
                                         {button(
@@ -629,6 +649,14 @@ export function PitbossWork(props: {
                             <Text>
                               {task.note || "The team has not reported a recommendation yet."}
                             </Text>
+                            {task.closedReason && (
+                              <Text className="text-xs text-muted-foreground">
+                                Closure history · {task.closedReason}
+                                {task.closedAt
+                                  ? ` · ${new Date(task.closedAt).toLocaleString()}`
+                                  : ""}
+                              </Text>
+                            )}
                             {state.messages
                               .filter(
                                 (message) =>
@@ -823,33 +851,36 @@ export function PitbossWork(props: {
                             {showManagement && (
                               <View className="gap-2">
                                 {task.status === "queued" &&
+                                  task.attempts.length === 0 &&
                                   button(
                                     "Assign worker",
                                     () => void command({ type: "assign", taskId: task.id }),
                                   )}
-                                {["active", "verifying"].includes(task.status) &&
+                                {task.status !== "cancelled" &&
+                                  !task.revisionRequest &&
+                                  (task.attempts.length > 0 || task.evidence.length > 0) &&
                                   button(
-                                    "Stop for rework",
+                                    "Revise result",
                                     () =>
                                       void command({
-                                        type: "rework",
+                                        type: "revise-result",
                                         taskId: task.id,
-                                        note: "User requested rework; preserve artifacts.",
+                                        note: "Revise the retained result within the current scope.",
                                       }),
                                   )}
-                                {["blocked", "cancelled", "done"].includes(task.status) &&
+                                {task.status === "cancelled" &&
                                   button(
-                                    "Reopen",
+                                    "Restore to queue",
                                     () => void command({ type: "reopen", taskId: task.id }),
                                   )}
-                                {!["done", "cancelled"].includes(task.status) &&
+                                {task.status !== "cancelled" &&
                                   button(
-                                    "Cancel task",
+                                    "Close outcome",
                                     () =>
                                       void command({
-                                        type: "cancel",
+                                        type: "close",
                                         taskId: task.id,
-                                        note: "Cancelled by user",
+                                        reason: "Closed by user as historical or superseded work.",
                                       }),
                                   )}
                               </View>

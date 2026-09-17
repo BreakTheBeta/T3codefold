@@ -1,10 +1,18 @@
-import { workNeedsUserInput } from "@t3tools/contracts";
-import type { PitbossTask, PitbossVerificationRecipe } from "@t3tools/contracts";
+import {
+  pitbossTaskNextAction,
+  pitbossTaskNextActionLabel,
+  workNeedsUserInput,
+} from "@t3tools/contracts";
+import type { PitbossSnapshot, PitbossTask, PitbossVerificationRecipe } from "@t3tools/contracts";
 
 export const workFilters = ["All", "Needs you", "Working", "Delivered"] as const;
 export type WorkFilter = (typeof workFilters)[number];
 
 export const needsAttention = workNeedsUserInput;
+
+export function nextActionLabel(state: PitbossSnapshot, task: PitbossTask) {
+  return pitbossTaskNextActionLabel(pitbossTaskNextAction(state, task));
+}
 
 /** Filters never truncate: every matching outcome remains reachable in the work list. */
 export function filterWork<

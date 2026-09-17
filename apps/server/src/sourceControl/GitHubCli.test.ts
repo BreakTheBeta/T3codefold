@@ -447,6 +447,118 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("validates and explicitly targets the intended repository when creating a PR", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(Effect.succeed(processOutput("BreakTheBeta/T3codefold\n")))
+        .mockReturnValueOnce(
+          Effect.succeed(processOutput("https://github.com/BreakTheBeta/T3codefold/pull/28\n")),
+        );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.createPullRequest({
+        cwd: "/fork-checkout",
+        repository: "BreakTheBeta/T3codefold",
+        baseBranch: "main",
+        headSelector: "BreakTheBeta:fix/fork-publication-target",
+        title: "Guard fork publication",
+        bodyFile: "/tmp/body.md",
+      });
+
+      expect(mockRun).toHaveBeenCalledTimes(2);
+      expect(mockRun.mock.calls[0]?.[0].args).toEqual([
+        "repo",
+        "view",
+        "BreakTheBeta/T3codefold",
+        "--json",
+        "nameWithOwner",
+        "--jq",
+        ".nameWithOwner",
+      ]);
+      expect(mockRun.mock.calls[1]?.[0].args).toEqual([
+        "pr",
+        "create",
+        "--repo",
+        "BreakTheBeta/T3codefold",
+        "--base",
+        "main",
+        "--head",
+        "BreakTheBeta:fix/fork-publication-target",
+        "--title",
+        "Guard fork publication",
+        "--body-file",
+        "/tmp/body.md",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("targets repository-scoped publication reads explicitly", () =>
+    Effect.gen(function* () {
+      mockRun
+        .mockReturnValueOnce(Effect.succeed(processOutput("[]\n")))
+        .mockReturnValueOnce(Effect.succeed(processOutput("main\n")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.listOpenPullRequests({
+        cwd: "/fork-checkout",
+        repository: "BreakTheBeta/T3codefold",
+        headSelector: "fix/fork-publication-target",
+      });
+      const defaultBranch = yield* gh.getDefaultBranch({
+        cwd: "/fork-checkout",
+        repository: "BreakTheBeta/T3codefold",
+      });
+
+      expect(defaultBranch).toBe("main");
+      expect(mockRun.mock.calls[0]?.[0].args).toEqual([
+        "pr",
+        "list",
+        "--repo",
+        "BreakTheBeta/T3codefold",
+        "--head",
+        "fix/fork-publication-target",
+        "--state",
+        "open",
+        "--limit",
+        "1",
+        "--json",
+        "number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,isCrossRepository,headRepository,headRepositoryOwner",
+      ]);
+      expect(mockRun.mock.calls[1]?.[0].args).toEqual([
+        "repo",
+        "view",
+        "BreakTheBeta/T3codefold",
+        "--json",
+        "defaultBranchRef",
+        "--jq",
+        ".defaultBranchRef.name",
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("fails closed before PR creation when GitHub resolves a different repository", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("pingdotgg/t3code\n")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const error = yield* gh
+        .createPullRequest({
+          cwd: "/fork-checkout",
+          repository: "BreakTheBeta/T3codefold",
+          baseBranch: "main",
+          headSelector: "BreakTheBeta:fix/fork-publication-target",
+          title: "Guard fork publication",
+          bodyFile: "/tmp/body.md",
+        })
+        .pipe(Effect.flip);
+
+      expect(error._tag).toBe("GitHubRepositoryTargetError");
+      expect(error.detail).toContain("pingdotgg/t3code");
+      expect(mockRun).toHaveBeenCalledTimes(1);
+      expect(mockRun.mock.calls.some(([input]) => input.args[0] === "pr")).toBe(false);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("falls back to constructed URLs when create output omits a URL", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));

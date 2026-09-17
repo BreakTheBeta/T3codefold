@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProjectId, type PitbossTask } from "@t3tools/contracts";
-import { evidenceKind, filterWork, needsAttention } from "./workView";
+import {
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type PitbossSnapshot,
+  type PitbossTask,
+} from "@t3tools/contracts";
+import { evidenceKind, filterWork, needsAttention, nextActionLabel } from "./workView";
 
 function task(title: string, status: PitbossTask["status"] = "queued", priority = 50) {
   return {
@@ -62,5 +68,89 @@ describe("GLaDOS work discovery", () => {
     expect(evidenceKind({ mode: "artifact" })).toBe("Files & research");
     expect(evidenceKind({ mode: "observation" })).toBe("Host observation");
     expect(evidenceKind({})).toBe("Code");
+  });
+  it("presents setup and retained-result obligations instead of the persisted status alone", () => {
+    const retained = {
+      ...task("Retained result"),
+      id: "retained",
+      revision: 4,
+      criteria: "Captured verification and review",
+      criteriaVersion: 2,
+      verifyCommand: "vp test run focused.test.ts",
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      attempts: [
+        {
+          id: "attempt",
+          threadId: ThreadId.make("worker"),
+          generation: 1,
+          state: "stopped",
+          model: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+          createdAt: "2026-09-16T00:00:00Z",
+          detail: "Worker stopped",
+        },
+      ],
+      evidence: [
+        {
+          id: "result",
+          attemptId: "attempt",
+          criteriaVersion: 1,
+          candidate: `commit:${"a".repeat(40)}`,
+          verdict: "pass",
+          summary: "Focused checks passed",
+          command: "vp test run focused.test.ts",
+          artifactUrls: [],
+          provenance: "worker_report",
+          createdAt: "2026-09-16T00:00:00Z",
+        },
+      ],
+      source: null,
+      note: "",
+      acceptedEvidenceId: null,
+      createdAt: "2026-09-16T00:00:00Z",
+      updatedAt: "2026-09-16T00:00:00Z",
+    } as PitbossTask;
+    const state = {
+      revision: 1,
+      role: null,
+      tasks: [retained],
+      messages: [],
+    } as PitbossSnapshot;
+    expect(nextActionLabel(state, retained)).toBe("Review retained result");
+    expect(
+      nextActionLabel(state, {
+        ...retained,
+        proposedVerificationRecipe: {
+          profileId: "focused",
+          projectId: retained.projectId,
+          version: 1,
+          name: "Focused checks",
+          doctor: "command -v vp",
+          verify: "vp test run focused.test.ts",
+          cleanup: "",
+          timeoutSeconds: 60,
+          artifacts: [],
+        },
+      }),
+    ).toBe("Approve verification setup");
+    const reviewed = {
+      ...retained,
+      criteriaVersion: 1,
+      evidence: [
+        {
+          ...retained.evidence[0]!,
+          provenance: "coordinator_review" as const,
+          verdict: "pass" as const,
+        },
+      ],
+    };
+    expect(nextActionLabel({ ...state, tasks: [reviewed] }, reviewed)).toBe(
+      "Accept reviewed result",
+    );
+    const failed = {
+      ...reviewed,
+      evidence: [{ ...reviewed.evidence[0]!, verdict: "fail" as const }],
+    };
+    expect(nextActionLabel({ ...state, tasks: [failed] }, failed)).toBe("Recover or close");
   });
 });

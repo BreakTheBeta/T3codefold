@@ -2,13 +2,14 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
   CommandId,
+  pitbossTaskNextAction,
   ProviderInstanceId,
   ProjectId,
   ThreadId,
   type PitbossBrief,
   type PitbossAction,
 } from "@t3tools/contracts";
-import { decide, emptyWork, observeAttempt, readyTasks, managerView } from "./Work.ts";
+import { decide, emptyWork, observeAttempt, readyTasks, managerView, workContext } from "./Work.ts";
 
 const projectId = ProjectId.make("project");
 const threadId = ThreadId.make("boss");
@@ -83,6 +84,7 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
   });
   run({ type: "assign", taskId: "task" });
   const attempt = state.tasks[0]!.attempts[0]!;
+  expect(workContext(state, attempt.threadId)).toContain("pass it explicitly with --repo");
   run(
     {
       type: "submit",
@@ -118,6 +120,225 @@ it("keeps worker submission distinct from acceptance and rejects worker self-acc
   };
   run({ type: "accept", taskId: "task", evidenceId, note: "Inspected candidate and check result" });
   expect(state.tasks[0]!.status).toBe("done");
+});
+
+it("derives recovery and explicit acceptance from coordinator review verdicts", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`review-next-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-10T00:00:00.000Z",
+    );
+  };
+  run({
+    type: "create",
+    taskId: "review-next",
+    projectId,
+    title: "Review next action",
+    outcome: "Expose the review verdict obligation",
+    criteria: "Coordinator review is explicit",
+    verifyCommand: "",
+    priority: 10,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  run({ type: "assign", taskId: "review-next" });
+  const attempt = state.tasks[0]!.attempts[0]!;
+  state = observeAttempt(state, "review-next", attempt.id, "stopped", "Worker stopped");
+  const review = (verdict: "pass" | "fail" | "inconclusive", suffix: string) =>
+    run({
+      type: "review",
+      taskId: "review-next",
+      attemptId: attempt.id,
+      criteriaVersion: state.tasks[0]!.criteriaVersion,
+      candidate: `commit:${suffix.repeat(40)}`,
+      verdict,
+      summary: `${verdict} coordinator review`,
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+  review("fail", "a");
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+  review("inconclusive", "b");
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+  review("pass", "c");
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("accept");
+});
+
+it.each(["fail", "inconclusive"] as const)(
+  "makes explicit rework assignable after a %s review without discarding evidence",
+  (verdict) => {
+    let state = elect();
+    const run = (action: Parameters<typeof decide>[1]["action"]) => {
+      state = decide(
+        state,
+        {
+          commandId: CommandId.make(`explicit-rework-${state.revision}`),
+          expectedRevision: state.revision,
+          action,
+        },
+        { type: "user" },
+        `2026-09-10T00:00:${String(state.revision).padStart(2, "0")}.000Z`,
+      );
+    };
+    run({
+      type: "create",
+      taskId: "explicit-rework",
+      projectId,
+      title: "Explicit rework",
+      outcome: "Repair the retained candidate",
+      criteria: "Replacement evidence passes",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 10,
+      dependencies: [],
+      workspaceStrategy: {
+        type: "existing_worktree",
+        worktreePath: "/tmp/explicit-rework",
+      },
+    });
+    run({ type: "assign", taskId: "explicit-rework" });
+    const first = state.tasks[0]!.attempts[0]!;
+    state = observeAttempt(
+      state,
+      "explicit-rework",
+      first.id,
+      "stopped",
+      "Candidate retained",
+      "/tmp/explicit-rework",
+    );
+    run({
+      type: "review",
+      taskId: "explicit-rework",
+      attemptId: first.id,
+      criteriaVersion: state.tasks[0]!.criteriaVersion,
+      candidate: `commit:${"a".repeat(40)}`,
+      verdict,
+      summary: `${verdict} retained candidate`,
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+    expect(readyTasks(state)).toEqual([]);
+    run({ type: "rework", taskId: "explicit-rework", note: "Repair retained candidate" });
+    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("recover");
+    run({ type: "reopen", taskId: "explicit-rework" });
+    expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("assign");
+    expect(readyTasks(state).map((task) => task.id)).toEqual(["explicit-rework"]);
+    const retainedEvidence = state.tasks[0]!.evidence;
+    run({ type: "assign", taskId: "explicit-rework", resumeAttemptId: first.id });
+    expect(state.tasks[0]!.reworkRequestedAt).toBeUndefined();
+    expect(state.tasks[0]!.evidence).toEqual(retainedEvidence);
+    expect(state.tasks[0]!.attempts.at(-1)?.workspacePath).toBe("/tmp/explicit-rework");
+    expect(readyTasks(state)).toEqual([]);
+  },
+);
+
+it("does not await verification captured for a replaced candidate", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`stale-verification-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-10T00:00:00.000Z",
+    );
+  };
+  run({
+    type: "create",
+    taskId: "stale-verification",
+    projectId,
+    title: "Stale verification",
+    outcome: "Verify the current candidate",
+    criteria: "Verification matches its subject",
+    verifyCommand: "vp test run focused.test.ts",
+    priority: 10,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  run({
+    type: "verification-recipe",
+    selectForTaskId: "stale-verification",
+    recipe: {
+      profileId: "focused",
+      mode: "commit",
+      projectId,
+      version: 1,
+      name: "Focused checks",
+      doctor: "command -v vp",
+      verify: "vp test run focused.test.ts",
+      cleanup: "",
+      timeoutSeconds: 60,
+      artifacts: [],
+    },
+  });
+  run({ type: "assign", taskId: "stale-verification" });
+  const task = state.tasks[0]!;
+  const attempt = task.attempts[0]!;
+  run({
+    type: "submit",
+    taskId: task.id,
+    attemptId: attempt.id,
+    criteriaVersion: task.criteriaVersion,
+    candidate: `commit:${"a".repeat(40)}`,
+    verdict: "pass",
+    summary: "Candidate A",
+    command: "vp test run focused.test.ts",
+    artifactUrls: [],
+  });
+  state = observeAttempt(state, task.id, attempt.id, "stopped", "Worker stopped");
+  run({ type: "verify", taskId: task.id, evidenceId: state.tasks[0]!.evidence.at(-1)!.id });
+  state = {
+    ...state,
+    tasks: state.tasks.map((entry) =>
+      entry.id !== task.id
+        ? entry
+        : {
+            ...entry,
+            evidence: [
+              ...entry.evidence,
+              {
+                ...entry.evidence.at(-1)!,
+                id: "replacement-review",
+                candidate: `commit:${"b".repeat(40)}`,
+                provenance: "coordinator_review" as const,
+                summary: "Candidate B replaced candidate A during recovery",
+              },
+            ],
+          },
+    ),
+  };
+  expect(state.tasks[0]!.verification).toMatchObject({
+    state: "pending",
+    candidate: `commit:${"a".repeat(40)}`,
+  });
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
+  state = {
+    ...state,
+    verificationRecipes: state.verificationRecipes!.map((recipe) => ({ ...recipe, version: 2 })),
+    tasks: state.tasks.map((entry) => ({ ...entry, evidence: [entry.evidence[0]!] })),
+  };
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
+  state = {
+    ...state,
+    tasks: state.tasks.map((entry) => ({
+      ...entry,
+      criteriaVersion: entry.criteriaVersion + 1,
+      evidence: [
+        { ...entry.evidence[0]!, criteriaVersion: entry.evidence[0]!.criteriaVersion + 1 },
+      ],
+    })),
+  };
+  expect(pitbossTaskNextAction(state, state.tasks[0]!)).toBe("verify");
 });
 
 it.each([false, true])(
@@ -546,4 +767,101 @@ it("admits ten workers while enforcing the saved concurrent worker limit", () =>
   }
   expect(state.tasks.filter((task) => task.status === "active")).toHaveLength(10);
   expect(() => run({ type: "assign", taskId: "capacity-10" })).toThrow(/capacity/);
+});
+
+it("turns one revise-result request into a bounded retained-workspace assignment", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`revise-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-17T00:00:00Z",
+    );
+  };
+  run({
+    type: "create",
+    taskId: "revise-result",
+    projectId,
+    title: "Improve retained result",
+    outcome: "Keep the useful patch",
+    criteria: "Focused checks pass",
+    verifyCommand: "vp test run focused.test.ts",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  run({ type: "assign", taskId: "revise-result" });
+  const first = state.tasks[0]!.attempts[0]!;
+  state = observeAttempt(
+    state,
+    "revise-result",
+    first.id,
+    "running",
+    "Useful partial patch",
+    "/tmp/revise-retained",
+  );
+  run({ type: "revise-result", taskId: "revise-result", note: "Address the review gap" });
+  expect(state.tasks[0]).toMatchObject({
+    status: "queued",
+    acceptedEvidenceId: null,
+    reworkRequestedAt: "2026-09-17T00:00:00Z",
+    revisionRequest: { note: "Address the review gap" },
+  });
+  expect(state.tasks[0]!.attempts[0]!.state).toBe("stop_requested");
+  expect(readyTasks(state)).toEqual([]);
+  state = observeAttempt(state, "revise-result", first.id, "stopped", "Writer drained");
+  expect(readyTasks(state).map((task) => task.id)).toEqual(["revise-result"]);
+  run({ type: "assign", taskId: "revise-result", resumeAttemptId: first.id });
+  expect(state.tasks[0]!.revisionRequest).toBeUndefined();
+  expect(state.tasks[0]!.workspaceStrategy).toEqual({
+    type: "existing_worktree",
+    worktreePath: "/tmp/revise-retained",
+  });
+  expect(state.tasks[0]!.attempts).toHaveLength(2);
+});
+
+it("closes historical work without accepting it and keeps closure visible after restore", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`close-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-17T00:00:00Z",
+    );
+  };
+  run({
+    type: "create",
+    taskId: "historical",
+    projectId,
+    title: "Superseded approach",
+    outcome: "Retain for audit",
+    criteria: "Never claim acceptance",
+    verifyCommand: "",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "root" },
+  });
+  run({ type: "close", taskId: "historical", reason: "Superseded by the integrated approach" });
+  expect(state.tasks[0]).toMatchObject({
+    status: "cancelled",
+    acceptedEvidenceId: null,
+    closedAt: "2026-09-17T00:00:00Z",
+    closedReason: "Superseded by the integrated approach",
+  });
+  run({ type: "reopen", taskId: "historical" });
+  expect(state.tasks[0]).toMatchObject({
+    status: "queued",
+    acceptedEvidenceId: null,
+    closedReason: "Superseded by the integrated approach",
+  });
 });

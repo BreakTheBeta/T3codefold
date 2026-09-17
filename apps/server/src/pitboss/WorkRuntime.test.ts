@@ -33,6 +33,7 @@ import { ThreadLaunchService, ThreadLaunchError } from "../orchestration-v2/Thre
 import { PeerService } from "./PeerService.ts";
 import { WorkStore, layer as storeLayer } from "./WorkStore.ts";
 import { layer as runtime } from "./WorkRuntime.ts";
+import { readyTasks } from "./Work.ts";
 
 const decodeAction = Schema.decodeUnknownSync(Schema.fromJsonString(PitbossAction));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -322,6 +323,175 @@ it.effect(
       expect(h.sent).toEqual([boss]);
     }).pipe(Effect.provide(services)),
 );
+it.effect("does not echo a coordinator's own task report back as a wake", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "self-report",
+      projectId: a,
+      title: "Self report",
+      outcome: "Keep the coordinator informed",
+      criteria: "No echo wake",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+    h.projections.set(boss, projection(boss, a));
+    const state = yield* h.store.read();
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("self-report-message"),
+        expectedRevision: state.revision,
+        authorityGeneration: state.role!.generation,
+        action: {
+          type: "report",
+          taskId: "self-report",
+          kind: "progress",
+          text: "I recorded this update myself.",
+        },
+      },
+      { type: "agent", threadId: boss },
+    );
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("delivers distinct worker questions once and preserves them across restart", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "distinct-questions",
+      projectId: a,
+      title: "Distinct questions",
+      outcome: "Ask independent questions",
+      criteria: "Both questions are delivered",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "distinct-questions" });
+    yield* h.drain();
+    const task = (yield* h.store.read()).tasks[0]!;
+    const worker = task.attempts[0]!.threadId;
+    for (const [id, text] of [
+      ["question-one", "Should the first edge case retain history?"],
+      ["question-two", "Should the second edge case restore history?"],
+    ] as const) {
+      const state = yield* h.store.read();
+      yield* h.store.command(
+        {
+          commandId: CommandId.make(id),
+          expectedRevision: state.revision,
+          action: { type: "report", taskId: task.id, kind: "question", text },
+        },
+        { type: "agent", threadId: worker },
+      );
+    }
+    yield* h.drain();
+    expect(h.sentMessages).toHaveLength(1);
+    expect(h.sentMessages[0]?.text).toContain("first edge case");
+    expect(h.sentMessages[0]?.text).toContain("second edge case");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.store.rebuild();
+    yield* h.drain();
+    expect(h.sentMessages).toHaveLength(1);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("wakes for a new question after an acknowledged progress report", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "question-after-progress",
+      projectId: a,
+      title: "Question after progress",
+      outcome: "Report then ask",
+      criteria: "The new question remains visible",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "question-after-progress" });
+    yield* h.drain();
+    const task = (yield* h.store.read()).tasks[0]!;
+    const worker = task.attempts[0]!.threadId;
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("acknowledged-progress"),
+        expectedRevision: (yield* h.store.read()).revision,
+        action: {
+          type: "report",
+          taskId: task.id,
+          kind: "progress",
+          text: "The baseline is complete.",
+        },
+      },
+      { type: "agent", threadId: worker },
+    );
+    yield* h.drain();
+    expect(h.sentMessages.at(-1)?.text).toContain("baseline is complete");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({ type: "acknowledge", messageId: "acknowledged-progress" });
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("new-question"),
+        expectedRevision: (yield* h.store.read()).revision,
+        action: {
+          type: "report",
+          taskId: task.id,
+          kind: "question",
+          text: "Which retained proof should I use?",
+        },
+      },
+      { type: "agent", threadId: worker },
+    );
+    yield* h.store.rebuild();
+    yield* h.drain();
+    expect(h.sentMessages).toHaveLength(2);
+    expect(h.sentMessages.at(-1)?.text).toContain("Which retained proof should I use?");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("does not re-wake the same assign obligation for an unrelated task revision", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "stable-assign-obligation",
+      projectId: a,
+      title: "Stable assign obligation",
+      outcome: "Assign once",
+      criteria: "Worker returns evidence",
+      verifyCommand: "",
+      priority: 10,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({
+      type: "edit",
+      taskId: "stable-assign-obligation",
+      projectId: a,
+      title: "Stable assign obligation",
+      outcome: "Assign once",
+      criteria: "Worker returns evidence",
+      verifyCommand: "",
+      priority: 11,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss]);
+  }).pipe(Effect.provide(services)),
+);
 it.effect("wakes once for a failed managed attempt and leaves recovery explicit", () =>
   Effect.gen(function* () {
     const h = yield* harness;
@@ -349,14 +519,14 @@ it.effect("wakes once for a failed managed attempt and leaves recovery explicit"
     yield* h.drain();
     expect((yield* h.store.read()).tasks[0]?.status).toBe("blocked");
     expect(h.sentMessages[0]?.text).toContain(
-      `Worker failed · task failed-attempt · attempt ${attempt.id} · owner GLaDOS · task status blocked`,
+      `Recovery needed · task failed-attempt · attempt ${attempt.id} · owner GLaDOS`,
     );
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
     expect(h.sent).toEqual([boss]);
   }).pipe(Effect.provide(services)),
 );
-it.effect("does not redeliver an unchanged failed-attempt review after coordinator review", () =>
+it.effect("wakes once for each changed failed review and not again after restart", () =>
   Effect.gen(function* () {
     const h = yield* harness;
     yield* h.command({
@@ -383,17 +553,125 @@ it.effect("does not redeliver an unchanged failed-attempt review after coordinat
       taskId: "stable-review",
       attemptId: attempt.id,
       criteriaVersion: 1,
-      candidate: "commit:failed-candidate",
+      candidate: `commit:${"a".repeat(40)}`,
       verdict: "fail",
       summary: "Diagnostics confirm the same failed attempt.",
       command: "vp test run focused.test.ts",
       artifactUrls: [],
     });
     yield* h.drain();
-    expect(h.sent).toEqual([boss]);
+    expect(h.sent).toEqual([boss, boss]);
+    expect(h.sentMessages.at(-1)?.text).toContain("Recovery needed");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({
+      type: "review",
+      taskId: "stable-review",
+      attemptId: attempt.id,
+      criteriaVersion: 1,
+      candidate: `commit:${"b".repeat(40)}`,
+      verdict: "inconclusive",
+      summary: "A different retained candidate is still inconclusive.",
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss, boss, boss]);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss, boss, boss]);
   }).pipe(Effect.provide(services)),
 );
-it.effect("wakes once for a submitted result without accepting the finished turn", () =>
+it.effect("resumes a retained candidate after explicit rework and reopen", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "retained-rework",
+      projectId: a,
+      title: "Retained rework",
+      outcome: "Repair the retained candidate",
+      criteria: "Replacement evidence passes",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: {
+        type: "existing_worktree",
+        worktreePath: "/tmp/retained-rework",
+      },
+    });
+    yield* h.command({ type: "assign", taskId: "retained-rework" });
+    yield* h.drain();
+    const first = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    yield* h.store.updateAttempt(
+      "retained-rework",
+      first.id,
+      "stopped",
+      "Candidate retained for review",
+      "/tmp/retained-rework",
+    );
+    yield* h.command({
+      type: "review",
+      taskId: "retained-rework",
+      attemptId: first.id,
+      criteriaVersion: 1,
+      candidate: `commit:${"a".repeat(40)}`,
+      verdict: "inconclusive",
+      summary: "The retained candidate needs another implementation pass.",
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    yield* h.command({
+      type: "rework",
+      taskId: "retained-rework",
+      note: "Repair the inconclusive candidate in its retained workspace.",
+    });
+    yield* h.command({ type: "reopen", taskId: "retained-rework" });
+    expect(readyTasks(yield* h.store.read()).map((task) => task.id)).toEqual(["retained-rework"]);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sentMessages.at(-1)?.text).toContain(
+      `Rework ready · task retained-rework · attempt ${first.id} · owner GLaDOS`,
+    );
+    expect(h.sentMessages.at(-1)?.text).toContain(`resumeAttemptId ${first.id}`);
+    yield* h.command({
+      type: "assign",
+      taskId: "retained-rework",
+      resumeAttemptId: first.id,
+    });
+    yield* h.drain();
+    const resumed = (yield* h.store.read()).tasks[0]!;
+    const second = resumed.attempts.at(-1)!;
+    expect(second.id).not.toBe(first.id);
+    expect(second.workspacePath).toBe("/tmp/retained-rework");
+    expect(resumed.evidence).toHaveLength(1);
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("retained-rework-submit"),
+        expectedRevision: (yield* h.store.read()).revision,
+        action: {
+          type: "submit",
+          taskId: resumed.id,
+          attemptId: second.id,
+          criteriaVersion: resumed.criteriaVersion,
+          candidate: `commit:${"b".repeat(40)}`,
+          verdict: "pass",
+          summary: "Replacement candidate is ready for verification.",
+          command: "vp test run focused.test.ts",
+          artifactUrls: [],
+        },
+      },
+      { type: "agent", threadId: second.threadId },
+    );
+    const submitted = (yield* h.store.read()).tasks[0]!;
+    expect(submitted.attempts.map((attempt) => attempt.state)).toEqual(["stopped", "submitted"]);
+    expect(submitted.evidence.map((evidence) => evidence.verdict)).toEqual([
+      "inconclusive",
+      "pass",
+    ]);
+    expect(submitted.acceptedEvidenceId).toBeNull();
+  }).pipe(Effect.provide(services)),
+);
+it.effect("changes a submitted result from await-writer to review after the worker drains", () =>
   Effect.gen(function* () {
     const h = yield* harness;
     yield* h.command({
@@ -430,6 +708,14 @@ it.effect("wakes once for a submitted result without accepting the finished turn
       },
       { type: "agent", threadId: attempt.threadId },
     );
+    yield* h.drain();
+    expect(h.sentMessages[0]?.text).toContain(
+      `Result submitted · task submitted-result · attempt ${attempt.id} · owner GLaDOS`,
+    );
+    expect(h.sentMessages[0]?.text).toContain(
+      "Next: wait for the worker to stop, then run the required verification.",
+    );
+    h.projections.set(boss, projection(boss, a));
     const worker = h.projections.get(attempt.threadId)!;
     h.projections.set(attempt.threadId, {
       ...worker,
@@ -439,13 +725,210 @@ it.effect("wakes once for a submitted result without accepting the finished turn
     const submitted = (yield* h.store.read()).tasks[0]!;
     expect(submitted.status).toBe("verifying");
     expect(submitted.acceptedEvidenceId).toBeNull();
-    expect(h.sentMessages[0]?.text).toContain(
-      `result · task submitted-result · attempt ${attempt.id} · owner GLaDOS`,
+    expect(h.sentMessages[1]?.text).toContain(
+      `Result ready for review · task submitted-result · attempt ${attempt.id} · owner GLaDOS`,
     );
-    expect(h.sentMessages[0]?.text).toContain("finished turn is not an accepted result");
+    expect(h.sentMessages[1]?.text).toContain(
+      "Next: inspect the reported evidence and record review; do not accept the stopped turn itself.",
+    );
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
+    expect(h.sent).toEqual([boss, boss]);
+    yield* h.command({
+      type: "review",
+      taskId: submitted.id,
+      attemptId: attempt.id,
+      criteriaVersion: submitted.criteriaVersion,
+      candidate: `commit:${"a".repeat(40)}`,
+      verdict: "pass",
+      summary: "Coordinator inspected the retained candidate",
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss, boss, boss]);
+    expect(h.sentMessages.at(-1)?.text).toContain("Acceptance needed");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss, boss, boss]);
+    const reviewed = (yield* h.store.read()).tasks[0]!;
+    yield* h.command({
+      type: "accept",
+      taskId: reviewed.id,
+      evidenceId: reviewed.evidence.at(-1)!.id,
+      note: "Accepted after explicit coordinator review",
+    });
+    yield* h.drain();
+    expect((yield* h.store.read()).tasks[0]!.status).toBe("done");
+    expect(h.sent).toEqual([boss, boss, boss]);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+  "does not offer a retained result for duplicate assignment after setup approval resolves its decision",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.command({
+        type: "create",
+        taskId: "approved-retained-result",
+        projectId: a,
+        title: "Approved retained result",
+        outcome: "Verify the retained candidate",
+        criteria: "Captured verification and review",
+        verifyCommand: "vp test run focused.test.ts",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      });
+      yield* h.command({ type: "assign", taskId: "approved-retained-result" });
+      yield* h.drain();
+      const assigned = (yield* h.store.read()).tasks[0]!;
+      const attempt = assigned.attempts[0]!;
+      yield* h.store.command(
+        {
+          commandId: CommandId.make("retained-submit"),
+          expectedRevision: (yield* h.store.read()).revision,
+          action: {
+            type: "submit",
+            taskId: assigned.id,
+            attemptId: attempt.id,
+            criteriaVersion: assigned.criteriaVersion,
+            candidate: `commit:${"a".repeat(40)}`,
+            verdict: "pass",
+            summary: "Candidate retained while setup is approved",
+            command: "vp test run focused.test.ts",
+            artifactUrls: [],
+          },
+        },
+        { type: "agent", threadId: attempt.threadId },
+      );
+      yield* h.command({
+        type: "request-decision",
+        taskId: assigned.id,
+        question: "Approve the proposed verification setup?",
+        options: ["Approve", "Revise"],
+        recommendation: "Approve",
+      });
+      yield* h.command({
+        type: "propose-verification",
+        taskId: assigned.id,
+        recipe: {
+          profileId: "focused",
+          mode: "commit",
+          environmentId: EnvironmentId.make("verification-host"),
+          effects: "observe",
+          enabled: true,
+          projectId: a,
+          version: 1,
+          name: "Focused code checks",
+          doctor: "command -v vp",
+          verify: "vp test run focused.test.ts",
+          cleanup: "",
+          timeoutSeconds: 60,
+          artifacts: [],
+        },
+      });
+      yield* h.drain();
+      const parked = (yield* h.store.read()).tasks[0]!;
+      expect(parked.attempts[0]?.state).toBe("stopped");
+      h.projections.set(boss, projection(boss, a));
+      yield* h.command({
+        type: "verification-recipe",
+        selectForTaskId: assigned.id,
+        recipe: parked.proposedVerificationRecipe!,
+      });
+      const configured = (yield* h.store.read()).tasks[0]!;
+      yield* h.command({
+        type: "resolve-decision",
+        taskId: configured.id,
+        decisionId: configured.decisions![0]!.id,
+        answer: "Approve",
+      });
+      yield* h.drain();
+      const approved = (yield* h.store.read()).tasks[0]!;
+      expect(approved.status).toBe("queued");
+      expect(approved.proposedVerificationRecipe).toBeUndefined();
+      expect(readyTasks(yield* h.store.read())).toEqual([]);
+      expect(h.sentMessages.at(-1)?.text).toContain(
+        "Changed: the recorded update preserved the retained result.",
+      );
+      expect(h.sentMessages.at(-1)?.text).toContain(
+        "Next: review the retained candidate against the current criteria before verification.",
+      );
+      expect(h.sentMessages.at(-1)?.text).not.toContain("Newly ready");
+      expect(h.sentMessages.at(-1)?.text).not.toContain("assign a managed worker");
+    }).pipe(Effect.provide(services)),
+);
+
+it.effect("re-wakes review once when the retained result proof contract changes", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "changed-proof-contract",
+      projectId: a,
+      title: "Changed proof contract",
+      outcome: "Review the retained result under current proof",
+      criteria: "Current profile and criteria are reviewed",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "changed-proof-contract" });
+    yield* h.drain();
+    const task = (yield* h.store.read()).tasks[0]!;
+    const attempt = task.attempts[0]!;
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("proof-identity-submit"),
+        expectedRevision: (yield* h.store.read()).revision,
+        action: {
+          type: "submit",
+          taskId: task.id,
+          attemptId: attempt.id,
+          criteriaVersion: task.criteriaVersion,
+          candidate: `commit:${"a".repeat(40)}`,
+          verdict: "pass",
+          summary: "Retained candidate",
+          command: "vp test run focused.test.ts",
+          artifactUrls: [],
+        },
+      },
+      { type: "agent", threadId: attempt.threadId },
+    );
+    const worker = h.projections.get(attempt.threadId)!;
+    h.projections.set(attempt.threadId, {
+      ...worker,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    yield* h.drain();
     expect(h.sent).toEqual([boss]);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.command({ type: "acknowledge", messageId: "proof-identity-submit" });
+    yield* h.command({
+      type: "verification-recipe",
+      selectForTaskId: task.id,
+      recipe: {
+        profileId: "focused",
+        mode: "commit",
+        projectId: a,
+        version: 1,
+        name: "Focused checks",
+        doctor: "command -v vp",
+        verify: "vp test run focused.test.ts",
+        cleanup: "",
+        timeoutSeconds: 60,
+        artifacts: [],
+      },
+    });
+    yield* h.drain();
+    expect(h.sent).toEqual([boss, boss]);
+    expect(h.sentMessages.at(-1)?.text).toContain("Result ready for review");
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss, boss]);
   }).pipe(Effect.provide(services)),
 );
 it.effect("does not offer managed work again while its persisted writer is running", () =>
@@ -509,9 +992,11 @@ it.effect("wakes once with an honest review action when a worker finishes withou
       creationSource: "server",
     });
     expect(h.sentMessages[0]?.text).toContain(
-      `Worker stopped · task unfinished-result · attempt ${attempt.id} · owner GLaDOS · task status blocked`,
+      `Recovery needed · task unfinished-result · attempt ${attempt.id} · owner GLaDOS`,
     );
-    expect(h.sentMessages[0]?.text).toContain("do not accept the turn itself as evidence");
+    expect(h.sentMessages[0]?.text).toContain(
+      "Next: inspect the retained thread, then rework or cancel with an honest superseded reason; do not invent evidence for historical work.",
+    );
     expect(h.sentMessages[0]?.text).not.toContain("work_read");
     expect(h.sentMessages[0]?.text).not.toContain("Pending user decisions");
     h.projections.set(boss, projection(boss, a));
@@ -688,7 +1173,7 @@ it.effect("delivers unresolved decisions and genuinely new readiness once each",
     yield* h.drain();
     expect(h.sent).toEqual([boss, boss]);
     expect(h.sentMessages[1]?.text).toContain(
-      "Newly ready · task newly-ready · attempt none · owner GLaDOS · task status queued",
+      "Ready to assign · task newly-ready · attempt none · owner GLaDOS",
     );
     expect(h.sentMessages[1]?.text).not.toContain("decision · task decision-task");
   }).pipe(Effect.provide(services)),
@@ -1159,5 +1644,132 @@ it.effect(
       yield* h.command({ type: "brief", brief, applyCoordinatorPermissions: true });
       yield* h.drain();
       expect(h.sent).toEqual([]);
+    }).pipe(Effect.provide(services)),
+);
+
+it.effect("drains a writer and launches one retained revision from one managed command", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "managed-revision",
+      projectId: a,
+      title: "Revise retained candidate",
+      outcome: "Keep useful work and address review",
+      criteria: "Focused proof passes",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "managed-revision" });
+    yield* h.drain();
+    const first = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    const firstProjection = h.projections.get(first.threadId)!;
+    h.projections.set(first.threadId, {
+      ...firstProjection,
+      thread: { ...firstProjection.thread, worktreePath: "/tmp/managed-revision" },
+    });
+    yield* h.drain();
+    yield* h.command({
+      type: "submit",
+      taskId: "managed-revision",
+      attemptId: first.id,
+      candidate: `commit:${"a".repeat(40)}`,
+      criteriaVersion: 1,
+      verdict: "fail",
+      summary: "Useful candidate needs one focused repair",
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    yield* h.command({
+      type: "revise-result",
+      taskId: "managed-revision",
+      note: "Repair the focused failure",
+    });
+    yield* h.drain();
+    let task = (yield* h.store.read()).tasks[0]!;
+    expect(h.interrupted).toContain(first.threadId);
+    expect(task.evidence).toHaveLength(1);
+    expect(task.evidence[0]!.candidate).toBe(`commit:${"a".repeat(40)}`);
+    expect(task.workspaceStrategy).toEqual({
+      type: "existing_worktree",
+      worktreePath: "/tmp/managed-revision",
+    });
+    expect(task.attempts.map((attempt) => attempt.state)).toEqual(["stopped", "pending"]);
+    expect(task.revisionRequest).toBeUndefined();
+    yield* h.drain();
+    task = (yield* h.store.read()).tasks[0]!;
+    expect(task.attempts.map((attempt) => attempt.state)).toEqual(["stopped", "running"]);
+    expect(h.launched).toHaveLength(2);
+  }).pipe(Effect.provide(services)),
+);
+it.effect(
+  "parks a managed revision with one actionable failure when its workspace is occupied",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.command({
+        type: "create",
+        taskId: "blocked-revision",
+        projectId: a,
+        title: "Blocked revision",
+        outcome: "Retain the candidate",
+        criteria: "Surface the workspace conflict",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "existing_worktree", worktreePath: "/tmp/shared-revision" },
+      });
+      yield* h.command({ type: "assign", taskId: "blocked-revision" });
+      yield* h.drain();
+      const retained = (yield* h.store.read()).tasks.find(
+        (task) => task.id === "blocked-revision",
+      )!;
+      h.projections.set(retained.attempts[0]!.threadId, {
+        ...h.projections.get(retained.attempts[0]!.threadId)!,
+        runs: [
+          {
+            ...running(retained.attempts[0]!.threadId),
+            status: "completed",
+            completedAt: time,
+          },
+        ],
+      });
+      yield* h.drain();
+      yield* h.command({
+        type: "create",
+        taskId: "workspace-owner",
+        projectId: a,
+        title: "Workspace owner",
+        outcome: "Own the shared workspace",
+        criteria: "Remain the sole writer",
+        verifyCommand: "",
+        priority: 2,
+        dependencies: [],
+        workspaceStrategy: { type: "existing_worktree", worktreePath: "/tmp/shared-revision" },
+      });
+      yield* h.command({ type: "assign", taskId: "workspace-owner" });
+      yield* h.command({
+        type: "revise-result",
+        taskId: "blocked-revision",
+        note: "Repair the retained candidate",
+      });
+      yield* h.drain();
+      let state = yield* h.store.read();
+      const blocked = state.tasks.find((task) => task.id === "blocked-revision")!;
+      expect(blocked.status).toBe("blocked");
+      expect(blocked.revisionRequest).toBeUndefined();
+      expect(blocked.note).toContain("Another task owns that workspace");
+      expect(
+        state.messages.filter((message) => message.id.endsWith(":blocked-message")),
+      ).toHaveLength(1);
+      h.projections.set(boss, projection(boss, a));
+      yield* h.store.rebuild();
+      yield* h.drain();
+      state = yield* h.store.read();
+      expect(
+        state.messages.filter((message) => message.id.endsWith(":blocked-message")),
+      ).toHaveLength(1);
     }).pipe(Effect.provide(services)),
 );

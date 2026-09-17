@@ -226,6 +226,28 @@ export type PitbossDecision = typeof PitbossDecision.Type;
 
 export const PitbossTask = Schema.Struct({
   proposedVerificationRecipe: Schema.optional(PitbossVerificationRecipe),
+  reworkRequestedAt: Schema.optional(Schema.String),
+  revisionRequest: Schema.optional(
+    Schema.Struct({
+      id: Id,
+      note: TrimmedNonEmptyString,
+      requestedAt: Schema.String,
+      model: Schema.optional(ModelSelection),
+      runtimeMode: Schema.optional(PitbossRuntimeMode),
+    }),
+  ),
+  closedAt: Schema.optional(Schema.String),
+  closedReason: Schema.optional(TrimmedNonEmptyString),
+  proposedVerificationDigest: Schema.optional(Id),
+  proposedVerificationDecisionId: Schema.optional(Id),
+  approvedVerificationProposal: Schema.optional(
+    Schema.Struct({
+      decisionId: Id,
+      profileId: Schema.optional(Id),
+      version: Version,
+      digest: Id,
+    }),
+  ),
   decisions: Schema.optional(Schema.Array(PitbossDecision).check(Schema.isMaxLength(20))),
   verificationProfileId: Schema.optional(Schema.NullOr(Id)),
   verification: Schema.optional(PitbossVerification),
@@ -308,6 +330,13 @@ export const PitbossAction = Schema.Union([
     taskId: Id,
     decisionId: Id,
     answer: TrimmedNonEmptyString.check(Schema.isMaxLength(4000)),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("approve-verification"),
+    taskId: Id,
+    decisionId: Id,
+    proposalVersion: Version,
+    proposalDigest: Id,
   }),
   Schema.Struct({
     type: Schema.Literal("verification-profile"),
@@ -418,11 +447,65 @@ export const PitbossAction = Schema.Union([
     note: TrimmedNonEmptyString,
   }),
   Schema.Struct({ type: Schema.Literal("rework"), taskId: Id, note: TrimmedNonEmptyString }),
+  Schema.Struct({
+    type: Schema.Literal("revise-result"),
+    taskId: Id,
+    note: TrimmedNonEmptyString,
+    model: Schema.optional(ModelSelection),
+    runtimeMode: Schema.optional(PitbossRuntimeMode),
+  }),
+  Schema.Struct({ type: Schema.Literal("close"), taskId: Id, reason: TrimmedNonEmptyString }),
   Schema.Struct({ type: Schema.Literal("cancel"), taskId: Id, note: Text }),
   Schema.Struct({ type: Schema.Literal("reopen"), taskId: Id }),
   Schema.Struct({ type: Schema.Literal("acknowledge"), messageId: Id }),
 ]);
 export type PitbossAction = typeof PitbossAction.Type;
+type VerificationProposalTask = Pick<
+  PitbossTask,
+  | "id"
+  | "proposedVerificationRecipe"
+  | "proposedVerificationDigest"
+  | "proposedVerificationDecisionId"
+  | "decisions"
+>;
+type VerificationProposalApprovalAction = Extract<
+  PitbossAction,
+  { readonly type: "approve-verification" }
+>;
+
+/** Returns an atomic action only when the task carries the complete persisted approval identity. */
+export function verificationProposalApprovalAction(
+  task: VerificationProposalTask,
+): VerificationProposalApprovalAction | undefined {
+  const recipe = task.proposedVerificationRecipe;
+  const digest = task.proposedVerificationDigest;
+  const decision = task.decisions?.find(
+    (entry) => entry.id === task.proposedVerificationDecisionId && entry.answer === undefined,
+  );
+  if (!recipe || !digest || !decision) return undefined;
+  return {
+    type: "approve-verification",
+    taskId: task.id,
+    decisionId: decision.id,
+    proposalVersion: recipe.version,
+    proposalDigest: digest,
+  };
+}
+
+/** Legacy proposals remain explicit manual saves; missing identity never becomes inferred consent. */
+export function verificationProposalSaveAction(
+  task: VerificationProposalTask,
+): PitbossAction | undefined {
+  const approval = verificationProposalApprovalAction(task);
+  if (approval) return approval;
+  if (task.proposedVerificationDigest || task.proposedVerificationDecisionId) return undefined;
+  if (!task.proposedVerificationRecipe) return undefined;
+  return {
+    type: "verification-recipe",
+    recipe: task.proposedVerificationRecipe,
+    selectForTaskId: task.id,
+  };
+}
 export const PitbossCommand = Schema.Struct({
   commandId: CommandId,
   expectedRevision: Version,
@@ -466,6 +549,108 @@ export const PitbossSourceRequest = Schema.Union([
 export type PitbossSourceRequest = typeof PitbossSourceRequest.Type;
 
 export type PitbossSourcesResult = typeof PitbossSourcesResult.Type;
+
+export type PitbossTaskNextAction =
+  | "setup"
+  | "decision"
+  | "await-writer"
+  | "await-verification"
+  | "verify"
+  | "review"
+  | "recover"
+  | "accept"
+  | "assign"
+  | "working";
+
+/**
+ * Status records lifecycle history; this derives the concrete obligation without weakening the
+ * evidence boundary. In particular, a retained result is never made assignable just because a
+ * setup decision moved its task back to queued.
+ */
+export function pitbossTaskNextAction(
+  state: PitbossSnapshot,
+  task: PitbossTask,
+  // Pure callers can pin observation time; UI callers use wall time for expiring observations.
+  // @effect-diagnostics-next-line globalDate:off
+  now = Date.now(),
+): PitbossTaskNextAction | null {
+  if (["done", "cancelled"].includes(task.status)) return null;
+  if (task.proposedVerificationRecipe) return "setup";
+  if (task.decisions?.some((decision) => decision.answer === undefined)) return "decision";
+  if (task.pendingOperationId) return "working";
+  const selectedRecipe = verificationRecipeForTask(state, task);
+  if (task.verificationProfileId && (!selectedRecipe || selectedRecipe.enabled === false))
+    return "setup";
+
+  const attempt = task.attempts.at(-1);
+  if (attempt && ["pending", "running", "submitted", "stop_requested"].includes(attempt.state))
+    return attempt.state === "submitted" || attempt.state === "stop_requested"
+      ? "await-writer"
+      : "working";
+
+  // Reopen preserves evidence for audit, so explicit rework intent must outrank that old result.
+  // Assign consumes the intent before starting the replacement writer.
+  if (task.status === "queued" && task.reworkRequestedAt) return "assign";
+
+  const evidence = task.evidence.at(-1);
+  if (evidence) {
+    // A profile approval can advance the proof contract while preserving the candidate. A fresh
+    // coordinator review re-attests that candidate; assigning another implementation would race
+    // the retained result and lose useful work.
+    if (evidence.criteriaVersion !== task.criteriaVersion) return "review";
+    if (evidence.provenance === "coordinator_review" && evidence.verdict !== "pass")
+      return "recover";
+    const recipe = selectedRecipe;
+    if (recipe && recipe.enabled !== false) {
+      const run = task.verification;
+      const verificationMatches =
+        !!run &&
+        run.candidate === evidence.candidate &&
+        run.attemptId === evidence.attemptId &&
+        run.criteriaVersion === task.criteriaVersion &&
+        (run.recipe.profileId ?? "default") === (recipe.profileId ?? "default") &&
+        run.recipe.projectId === recipe.projectId &&
+        run.recipe.version === recipe.version;
+      if (verificationMatches && ["pending", "running"].includes(run.state))
+        return "await-verification";
+      if (!hasCurrentVerification(task, recipe, evidence.candidate, now)) return "verify";
+    }
+    if (evidence.provenance === "coordinator_review") return "accept";
+    return "review";
+  }
+
+  if (attempt && ["stopped", "failed"].includes(attempt.state))
+    return task.status === "queued" ? "assign" : "recover";
+  if (task.status === "blocked" || task.status === "verifying") return "recover";
+  return task.status === "queued" ? "assign" : "working";
+}
+
+export function pitbossTaskNextActionLabel(action: PitbossTaskNextAction | null) {
+  switch (action) {
+    case "setup":
+      return "Approve verification setup";
+    case "decision":
+      return "Resolve decision";
+    case "await-writer":
+      return "Waiting for worker to finish";
+    case "await-verification":
+      return "Verification in progress";
+    case "verify":
+      return "Run verification";
+    case "review":
+      return "Review retained result";
+    case "recover":
+      return "Recover or close";
+    case "accept":
+      return "Accept reviewed result";
+    case "assign":
+      return "Ready to assign";
+    case "working":
+      return "In progress";
+    default:
+      return null;
+  }
+}
 
 /** User attention is a concrete decision or setup review, not every operational blocker. */
 export function workNeedsUserInput(

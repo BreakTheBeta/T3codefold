@@ -1,4 +1,4 @@
-import { assert, it } from "@effect/vitest";
+import { assert, expect, it, vi } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -182,6 +182,46 @@ it.effect("treats empty non-open change request listing output as no results", (
   }),
 );
 
+it.effect("forwards explicit repositories through publication reads", () =>
+  Effect.gen(function* () {
+    let listInput: Parameters<GitHubCli.GitHubCli["Service"]["listOpenPullRequests"]>[0] | null =
+      null;
+    let defaultInput: Parameters<GitHubCli.GitHubCli["Service"]["getDefaultBranch"]>[0] | null =
+      null;
+    const provider = yield* makeProvider({
+      listOpenPullRequests: (input) => {
+        listInput = input;
+        return Effect.succeed([]);
+      },
+      getDefaultBranch: (input) => {
+        defaultInput = input;
+        return Effect.succeed("main");
+      },
+    });
+
+    yield* provider.listChangeRequests({
+      cwd: "/repo",
+      repository: "BreakTheBeta/T3codefold",
+      headSelector: "fix/fork-publication-target",
+      state: "open",
+    });
+    yield* provider.getDefaultBranch({
+      cwd: "/repo",
+      repository: "BreakTheBeta/T3codefold",
+    });
+
+    expect(listInput).toEqual({
+      cwd: "/repo",
+      repository: "BreakTheBeta/T3codefold",
+      headSelector: "fix/fork-publication-target",
+    });
+    expect(defaultInput).toEqual({
+      cwd: "/repo",
+      repository: "BreakTheBeta/T3codefold",
+    });
+  }),
+);
+
 it.effect("creates GitHub PRs through provider-neutral input names", () =>
   Effect.gen(function* () {
     let createInput: Parameters<GitHubCli.GitHubCli["Service"]["createPullRequest"]>[0] | null =
@@ -195,6 +235,7 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
 
     yield* provider.createChangeRequest({
       cwd: "/repo",
+      target: { refName: "main", repository: "octocat/codething-mvp" },
       baseRefName: "main",
       headSelector: "owner:feature/provider",
       title: "Provider PR",
@@ -203,11 +244,32 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
 
     assert.deepStrictEqual(createInput, {
       cwd: "/repo",
+      repository: "octocat/codething-mvp",
       baseBranch: "main",
       headSelector: "owner:feature/provider",
       title: "Provider PR",
       bodyFile: "/tmp/body.md",
     });
+  }),
+);
+
+it.effect("refuses GitHub PR creation without an explicit target repository", () =>
+  Effect.gen(function* () {
+    const createPullRequest = vi.fn(() => Effect.void);
+    const provider = yield* makeProvider({ createPullRequest });
+
+    const error = yield* provider
+      .createChangeRequest({
+        cwd: "/repo",
+        baseRefName: "main",
+        headSelector: "owner:feature/provider",
+        title: "Provider PR",
+        bodyFile: "/tmp/body.md",
+      })
+      .pipe(Effect.flip);
+
+    expect(error.detail).toContain("explicit target repository");
+    expect(createPullRequest).not.toHaveBeenCalled();
   }),
 );
 
