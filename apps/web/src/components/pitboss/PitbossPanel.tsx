@@ -64,7 +64,7 @@ const statusLabel: Record<PitbossTask["status"], string> = {
   verifying: "In review",
   done: "Delivered",
   blocked: "Waiting",
-  cancelled: "Cancelled",
+  cancelled: "Closed",
 };
 const statusClass: Record<PitbossTask["status"], string> = {
   queued: "text-muted-foreground",
@@ -345,10 +345,7 @@ export function PitbossPanel(props: {
             label: "Delivered",
             tasks: visibleTasks.filter((task) => task.status === "done"),
           },
-          {
-            label: "Cancelled",
-            tasks: visibleTasks.filter((task) => task.status === "cancelled"),
-          },
+          { label: "Closed", tasks: visibleTasks.filter((task) => task.status === "cancelled") },
         ]
           .filter(({ tasks }) => tasks.length > 0)
           .map(({ label, tasks }) => {
@@ -818,6 +815,12 @@ export function PitbossPanel(props: {
                     {selected.note}
                   </p>
                 )}
+                {selected.closedReason && (
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Closure history · {selected.closedReason}
+                    {selected.closedAt ? ` · ${new Date(selected.closedAt).toLocaleString()}` : ""}
+                  </p>
+                )}
                 {selected.dependencies.length > 0 && (
                   <div className="my-3 space-y-1 text-xs">
                     <h4 className="font-medium">Depends on</h4>
@@ -1050,24 +1053,7 @@ export function PitbossPanel(props: {
                     >
                       Edit task and criteria
                     </Button>
-                    {selected.status === "queued" && selected.attempts.at(-1)?.workspacePath && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || !!selected.pendingOperationId}
-                        onClick={() =>
-                          void command({
-                            type: "assign",
-                            taskId: selected.id,
-                            model: props.modelSelection,
-                            resumeAttemptId: selected.attempts.at(-1)!.id,
-                          })
-                        }
-                      >
-                        Resume candidate with {props.modelSelection.model}
-                      </Button>
-                    )}
-                    {selected.status === "queued" && (
+                    {selected.status === "queued" && selected.attempts.length === 0 && (
                       <Button
                         size="sm"
                         disabled={busy || !!selected.pendingOperationId}
@@ -1076,46 +1062,48 @@ export function PitbossPanel(props: {
                         Assign worker
                       </Button>
                     )}
-                    {["active", "verifying"].includes(selected.status) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || !!selected.pendingOperationId}
-                        onClick={() =>
-                          void command({
-                            type: "rework",
-                            taskId: selected.id,
-                            note: "User requested rework. Preserve the current patch and evidence.",
-                          })
-                        }
-                      >
-                        Stop for rework
-                      </Button>
-                    )}
-                    {["blocked", "done", "cancelled"].includes(selected.status) && (
+                    {selected.status !== "cancelled" &&
+                      !selected.revisionRequest &&
+                      (selected.attempts.length > 0 || selected.evidence.length > 0) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy || !!selected.pendingOperationId}
+                          onClick={() =>
+                            void command({
+                              type: "revise-result",
+                              taskId: selected.id,
+                              note: "Revise the retained result within the current scope.",
+                            })
+                          }
+                        >
+                          Revise result
+                        </Button>
+                      )}
+                    {selected.status === "cancelled" && (
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={busy || !!selected.pendingOperationId}
                         onClick={() => void command({ type: "reopen", taskId: selected.id })}
                       >
-                        Reopen
+                        Restore to queue
                       </Button>
                     )}
-                    {!["done", "cancelled"].includes(selected.status) && (
+                    {selected.status !== "cancelled" && (
                       <Button
                         size="sm"
                         variant="ghost"
                         disabled={busy || !!selected.pendingOperationId}
                         onClick={() =>
                           void command({
-                            type: "cancel",
+                            type: "close",
                             taskId: selected.id,
-                            note: "Cancelled by user",
+                            reason: "Closed by user as historical or superseded work.",
                           })
                         }
                       >
-                        Cancel task
+                        Close outcome
                       </Button>
                     )}
                   </div>

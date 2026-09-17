@@ -21,7 +21,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 import { WorkStore, type WorkEffect } from "./WorkStore.ts";
-import { readyTasks, workContext } from "./Work.ts";
+import { readyTasks, workContext, type WorkActor } from "./Work.ts";
 import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
 import {
   ThreadManagementProjectionLoadError,
@@ -494,7 +494,9 @@ export const layer = Layer.effectDiscard(
             }
             if (
               action.type === "cancel" ||
+              action.type === "close" ||
               action.type === "rework" ||
+              action.type === "revise-result" ||
               action.type === "request-decision"
             ) {
               const task = state.tasks.find((task) => task.id === action.taskId);
@@ -504,7 +506,12 @@ export const layer = Layer.effectDiscard(
                   projectId: task.projectId,
                   threadId: attempt.threadId,
                   commandId: CommandId.make(`${effect.operation_id}:stop:${attempt.id}`),
-                  reason: action.type === "request-decision" ? action.question : action.note,
+                  reason:
+                    action.type === "request-decision"
+                      ? action.question
+                      : action.type === "close"
+                        ? action.reason
+                        : action.note,
                 });
                 if (stopped.type !== "interrupt_requested")
                   yield* store.updateAttempt(
@@ -582,6 +589,79 @@ export const layer = Layer.effectDiscard(
         }
       }
       state = yield* store.read();
+      // A single revise-result command owns the whole recovery transition. It first drains the
+      // old writer above, then this durable request becomes an ordinary checked assignment. Using
+      // WorkStore.command keeps attempt, capacity, ownership, model and runtime-mode fences in the
+      // same decider as every other launch.
+      for (const task of state.tasks) {
+        const request = task.revisionRequest;
+        if (!request || state.role?.paused) continue;
+        const authority = state.sourceAuthorities?.find(
+          (entry) => entry.scope === task.source?.scope,
+        );
+        const lead = task.leadId
+          ? activeLeads(state).find((entry) => entry.id === task.leadId)
+          : undefined;
+        const actor: WorkActor | undefined =
+          authority?.proposalId &&
+          authority.coordinator &&
+          authority.homeEnvironmentId === authority.self &&
+          authority.coordinator !== authority.self
+            ? {
+                type: "peer",
+                environmentId: authority.coordinator,
+                scope: authority.scope,
+                proposalId: authority.proposalId,
+              }
+            : lead
+              ? { type: "agent", threadId: lead.threadId }
+              : !task.leadId && state.role
+                ? { type: "agent", threadId: state.role.threadId }
+                : undefined;
+        const ready = readyTasks(state, actor?.type === "peer" ? actor.scope : undefined).some(
+          (entry) => entry.id === task.id,
+        );
+        if (!actor || !ready) continue;
+        const attempt = task.attempts.at(-1);
+        const assigned = yield* Effect.result(
+          store.command(
+            {
+              commandId: CommandId.make(`${request.id}:assign`),
+              expectedRevision: state.revision,
+              ...(actor.type === "agent"
+                ? {
+                    authorityGeneration:
+                      lead?.generation ??
+                      (state.role?.threadId === actor.threadId ? state.role.generation : undefined),
+                  }
+                : {}),
+              action: {
+                type: "assign",
+                taskId: task.id,
+                ...(request.model ? { model: request.model } : {}),
+                ...(request.runtimeMode ? { runtimeMode: request.runtimeMode } : {}),
+                ...(attempt?.state === "stopped" && attempt.workspacePath
+                  ? { resumeAttemptId: attempt.id }
+                  : {}),
+              },
+            },
+            actor,
+            actor.type === "agent"
+              ? {
+                  runtimeMode:
+                    request.runtimeMode ??
+                    lead?.runtimeMode ??
+                    state.role?.brief.workerRuntimeMode ??
+                    "approval-required",
+                }
+              : undefined,
+          ),
+        );
+        if (assigned._tag === "Success") {
+          state = yield* store.read();
+          break;
+        }
+      }
       const role = state.role;
       if (!role || role.paused) return;
       const leads = activeLeads(state);

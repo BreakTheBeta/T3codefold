@@ -1511,3 +1511,61 @@ it.effect(
       expect(h.sent).toEqual([]);
     }).pipe(Effect.provide(services)),
 );
+
+it.effect("drains a writer and launches one retained revision from one managed command", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "managed-revision",
+      projectId: a,
+      title: "Revise retained candidate",
+      outcome: "Keep useful work and address review",
+      criteria: "Focused proof passes",
+      verifyCommand: "vp test run focused.test.ts",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "managed-revision" });
+    yield* h.drain();
+    const first = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    const firstProjection = h.projections.get(first.threadId)!;
+    h.projections.set(first.threadId, {
+      ...firstProjection,
+      thread: { ...firstProjection.thread, worktreePath: "/tmp/managed-revision" },
+    });
+    yield* h.drain();
+    yield* h.command({
+      type: "submit",
+      taskId: "managed-revision",
+      attemptId: first.id,
+      candidate: `commit:${"a".repeat(40)}`,
+      criteriaVersion: 1,
+      verdict: "fail",
+      summary: "Useful candidate needs one focused repair",
+      command: "vp test run focused.test.ts",
+      artifactUrls: [],
+    });
+    yield* h.command({
+      type: "revise-result",
+      taskId: "managed-revision",
+      note: "Repair the focused failure",
+    });
+    yield* h.drain();
+    let task = (yield* h.store.read()).tasks[0]!;
+    expect(h.interrupted).toContain(first.threadId);
+    expect(task.evidence).toHaveLength(1);
+    expect(task.evidence[0]!.candidate).toBe(`commit:${"a".repeat(40)}`);
+    expect(task.workspaceStrategy).toEqual({
+      type: "existing_worktree",
+      worktreePath: "/tmp/managed-revision",
+    });
+    expect(task.attempts.map((attempt) => attempt.state)).toEqual(["stopped", "pending"]);
+    expect(task.revisionRequest).toBeUndefined();
+    yield* h.drain();
+    task = (yield* h.store.read()).tasks[0]!;
+    expect(task.attempts.map((attempt) => attempt.state)).toEqual(["stopped", "running"]);
+    expect(h.launched).toHaveLength(2);
+  }).pipe(Effect.provide(services)),
+);

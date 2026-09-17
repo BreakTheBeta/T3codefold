@@ -170,7 +170,7 @@ export function gladosWorkStatus(task: PitbossTask, state?: PitbossSnapshot) {
     case "blocked":
       return "Waiting";
     case "cancelled":
-      return "Cancelled";
+      return "Closed";
     default:
       return "Planned";
   }

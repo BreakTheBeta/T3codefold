@@ -136,7 +136,9 @@ export function readyTasks(state: PitbossSnapshot, peerScope?: string): Readonly
 export function remoteTaskAuthority(state: PitbossSnapshot, action: PitbossAction) {
   if (
     !("taskId" in action) ||
-    !["assign", "edit", "reopen", "rework", "cancel", "accept"].includes(action.type)
+    !["assign", "edit", "reopen", "rework", "revise-result", "close", "cancel", "accept"].includes(
+      action.type,
+    )
   )
     return undefined;
   const task = state.tasks.find((entry) => entry.id === action.taskId);
@@ -196,7 +198,16 @@ export function decide(
     actor.type === "peer" &&
     (!peerAuthority ||
       !("taskId" in action) ||
-      !["assign", "edit", "reopen", "rework", "cancel", "accept"].includes(action.type))
+      ![
+        "assign",
+        "edit",
+        "reopen",
+        "rework",
+        "revise-result",
+        "close",
+        "cancel",
+        "accept",
+      ].includes(action.type))
   )
     fail("Peer authority is stale or does not permit this operation.", "forbidden");
   const lead =
@@ -250,6 +261,8 @@ export function decide(
       "propose-verification",
       "request-decision",
       "rework",
+      "revise-result",
+      "close",
       "cancel",
       "reopen",
       "acknowledge",
@@ -765,6 +778,9 @@ export function decide(
           : undefined,
       decisions: existing?.decisions,
       reworkRequestedAt: existing?.reworkRequestedAt,
+      revisionRequest: existing?.revisionRequest,
+      closedAt: existing?.closedAt,
+      closedReason: existing?.closedReason,
       verificationProfileId:
         existing?.projectId === action.projectId ? existing.verificationProfileId : undefined,
       verification: existing?.projectId === action.projectId ? existing.verification : undefined,
@@ -938,7 +954,9 @@ export function decide(
   let messages = state.messages;
   if (
     task.decisions?.some((decision) => decision.answer === undefined) &&
-    !["resolve-decision", "approve-verification", "report", "cancel"].includes(action.type) &&
+    !["resolve-decision", "approve-verification", "report", "close", "cancel"].includes(
+      action.type,
+    ) &&
     !(action.type === "reopen" && task.status === "cancelled")
   )
     fail(
@@ -1204,6 +1222,7 @@ export function decide(
       task = {
         ...task,
         reworkRequestedAt: undefined,
+        revisionRequest: undefined,
         status: "active",
         note: "Dispatch pending",
         attempts: [
@@ -1371,13 +1390,50 @@ export function decide(
       task = { ...task, status: "done", acceptedEvidenceId: evidence.id, note: action.note };
       break;
     }
+    case "revise-result": {
+      if (task.attempts.length === 0 && task.evidence.length === 0)
+        fail("Revise result requires retained work. Assign new work instead.");
+      if (task.leadId && !activeLeads(state).some((entry) => entry.id === task.leadId))
+        fail("Reactivate this task's project lead or reclaim ownership before revising it.");
+      if (task.attempts.length >= (state.role?.brief.maxAttempts ?? 1))
+        fail("Attempt allowance exhausted. Ask the user to change the saved limit.");
+      task = {
+        ...task,
+        revisionRequest: {
+          id: command.commandId,
+          note: action.note,
+          requestedAt: now,
+          ...(action.model ? { model: action.model } : {}),
+          ...(action.runtimeMode ? { runtimeMode: action.runtimeMode } : {}),
+        },
+        reworkRequestedAt: now,
+        status: "queued",
+        note: `${action.note} The retained workspace and proof remain available while the writer drains.`,
+        acceptedEvidenceId: null,
+        attempts: task.attempts.map((attempt) =>
+          ["pending", "running", "submitted"].includes(attempt.state)
+            ? { ...attempt, state: "stop_requested" }
+            : attempt,
+        ),
+      };
+      break;
+    }
     case "rework":
+    case "close":
     case "cancel":
       task = {
         ...task,
         reworkRequestedAt: action.type === "rework" ? now : undefined,
-        status: action.type === "cancel" ? "cancelled" : "blocked",
-        note: action.note,
+        revisionRequest: undefined,
+        status: action.type === "rework" ? "blocked" : "cancelled",
+        note: action.type === "close" ? action.reason : action.note,
+        ...(action.type === "close" || action.type === "cancel"
+          ? {
+              closedAt: now,
+              closedReason:
+                action.type === "close" ? action.reason : action.note || "Cancelled by user",
+            }
+          : {}),
         acceptedEvidenceId: null,
         attempts: task.attempts.map((attempt) =>
           ["pending", "running", "submitted"].includes(attempt.state)
@@ -1462,7 +1518,7 @@ export function workContext(input: PitbossSnapshot, threadId: ThreadId): string 
         ? "Automatic verification setup is enabled. Inspect the project and its available capabilities, then use propose-verification {taskId,recipe} to save and select concrete readiness, verification, cleanup and artifact settings for unattempted work. Do this yourself; do not ask the user to fill forms or assign routine workers. Use a task-specific profile when an existing profile is already used by attempted work. Do not weaken evidence: changing proof after attempts still requires the user. Missing tools or hardware are inconclusive, not a reason to substitute weaker proof. Ask only for an actual product decision, unavailable capability or authority beyond the brief. Pending decisions park only their task; continue independent work."
         : "Setup recovery: distinguish missing saved configuration from missing executables or hardware, and both from an actual verification failure. For missing verification, inspect the project and propose concrete readiness, verification, cleanup and artifact settings with propose-verification {taskId,recipe}. Request one explicit linked user decision, then wait for the client to send approve-verification with that decision ID and the exact stored proposal version/digest. A proposal is not approved configuration; free text, vague consent, full discretion or continue in chat does not save it. Reuse a pending proposal instead of asking the same question repeatedly. Continue useful inspection and unrelated approved work. Never weaken evidence to bypass missing capabilities. Create and assign bounded workers within the saved brief without asking again for routine delegation.",
       "Chat is the primary work interface. When the user describes an outcome or refines a request, create or update the durable tasks yourself: fill in the outcome, acceptance criteria, dependencies, workspace and verification plan from the conversation and project evidence. Keep the user-facing work view current through work_command. Do not ask the user to enter routine task fields, author recipes or assign workers. Explain meaningful assumptions briefly and proceed within the saved brief. Ask only when an actual decision or a change beyond saved authority is required. Respect manual verification review when selected; prepare its fields yourself. Never claim a task or result exists until the command succeeds.",
-      "Own recovery before escalating: inspect worker questions and launch/check receipts, distinguish a failing solution from unavailable infrastructure, and answer routine choices within the brief. Preserve partial files. Stop and confirm the previous writer before rework/reopen/assign; named worktree retries automatically retain the latest stopped workspace, or use resumeAttemptId for a specific stopped candidate. Keep the existing verification contract and attempt limits. Never repeatedly retry the same forbidden action, spend unlimited attempts, or turn missing hardware into weaker proof. Request a user decision only for a concrete choice or capability you cannot resolve; include the evidence and a recommendation. Do not forward raw worker questions or ask for permissions already saved. Continue unrelated ready work while a task waits.",
+      "Own recovery before escalating: inspect worker questions and launch/check receipts, distinguish a failing solution from unavailable infrastructure, and answer routine choices within the brief. Preserve partial files. Use revise-result {taskId,note,model?,runtimeMode?} once to stop the current writer safely and launch the bounded replacement after drain; it retains the workspace and proof and still enforces ownership, capacity and attempt limits. Legacy rework/reopen/assign remains adapter compatibility, not the normal recovery ritual. Use close {taskId,reason} for superseded or historical outcomes; closure is auditable, leaves evidence unaccepted, and can be restored with reopen. Never repeatedly retry the same forbidden action, spend unlimited attempts, or turn missing hardware into weaker proof. Request a user decision only for a concrete choice or capability you cannot resolve; include the evidence and a recommendation. Do not forward raw worker questions or ask for permissions already saved. Continue unrelated ready work while a task waits.",
       `Brief: ${JSON.stringify(state.role.brief)}`,
       "Worker selection: workerModel is the default and alternateWorkerModel is an optional alternative, each with provider-specific options including thinking level. Choose per task using modelGuidance, complexity, evidence and availability; do not switch models solely because an attempt failed. Use assign.model with the chosen configuration; omission uses the default. assign.runtimeMode may select approval-required or full-access for this launch when the user requested it, but cannot exceed this thread's current mode; omission uses the saved worker default. Explain non-default choices or escalation with work_command report. Discover model options with orchestrator_capabilities for the destination when reachable. For remote work ask the task-home GLaDOS for its worker configurations through send-peer, or omit assign.model and runtimeMode to use its defaults. Never assume this environment's provider instance IDs or catalogs exist elsewhere. A different model does not raise limits or permit concurrent writers on a retained candidate.",
       `Shared source authority: ${JSON.stringify(state.sourceAuthorities ?? [])}. Environments remain independent outside these scopes; unavailable peers do not authorize takeover.`,

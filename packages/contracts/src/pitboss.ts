@@ -227,6 +227,17 @@ export type PitbossDecision = typeof PitbossDecision.Type;
 export const PitbossTask = Schema.Struct({
   proposedVerificationRecipe: Schema.optional(PitbossVerificationRecipe),
   reworkRequestedAt: Schema.optional(Schema.String),
+  revisionRequest: Schema.optional(
+    Schema.Struct({
+      id: Id,
+      note: TrimmedNonEmptyString,
+      requestedAt: Schema.String,
+      model: Schema.optional(ModelSelection),
+      runtimeMode: Schema.optional(PitbossRuntimeMode),
+    }),
+  ),
+  closedAt: Schema.optional(Schema.String),
+  closedReason: Schema.optional(TrimmedNonEmptyString),
   proposedVerificationDigest: Schema.optional(Id),
   proposedVerificationDecisionId: Schema.optional(Id),
   approvedVerificationProposal: Schema.optional(
@@ -436,6 +447,14 @@ export const PitbossAction = Schema.Union([
     note: TrimmedNonEmptyString,
   }),
   Schema.Struct({ type: Schema.Literal("rework"), taskId: Id, note: TrimmedNonEmptyString }),
+  Schema.Struct({
+    type: Schema.Literal("revise-result"),
+    taskId: Id,
+    note: TrimmedNonEmptyString,
+    model: Schema.optional(ModelSelection),
+    runtimeMode: Schema.optional(PitbossRuntimeMode),
+  }),
+  Schema.Struct({ type: Schema.Literal("close"), taskId: Id, reason: TrimmedNonEmptyString }),
   Schema.Struct({ type: Schema.Literal("cancel"), taskId: Id, note: Text }),
   Schema.Struct({ type: Schema.Literal("reopen"), taskId: Id }),
   Schema.Struct({ type: Schema.Literal("acknowledge"), messageId: Id }),

@@ -3483,6 +3483,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             },
           },
           prListSequence: [
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
             JSON.stringify([
               {
                 number: 12_004,
@@ -3496,6 +3497,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           prListSequenceByRepository: {
             "BreakTheBeta/T3codefold": [
               "[]",
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
               JSON.stringify([
                 {
                   number: 28,
@@ -3580,6 +3582,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           },
           prListSequenceByRepository: {
             "BreakTheBeta/T3codefold": [
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
               JSON.stringify([
                 {
                   number: 12_004,

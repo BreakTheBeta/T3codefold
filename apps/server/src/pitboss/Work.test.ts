@@ -768,3 +768,100 @@ it("admits ten workers while enforcing the saved concurrent worker limit", () =>
   expect(state.tasks.filter((task) => task.status === "active")).toHaveLength(10);
   expect(() => run({ type: "assign", taskId: "capacity-10" })).toThrow(/capacity/);
 });
+
+it("turns one revise-result request into a bounded retained-workspace assignment", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`revise-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-17T00:00:00Z",
+    );
+  };
+  run({
+    type: "create",
+    taskId: "revise-result",
+    projectId,
+    title: "Improve retained result",
+    outcome: "Keep the useful patch",
+    criteria: "Focused checks pass",
+    verifyCommand: "vp test run focused.test.ts",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  run({ type: "assign", taskId: "revise-result" });
+  const first = state.tasks[0]!.attempts[0]!;
+  state = observeAttempt(
+    state,
+    "revise-result",
+    first.id,
+    "running",
+    "Useful partial patch",
+    "/tmp/revise-retained",
+  );
+  run({ type: "revise-result", taskId: "revise-result", note: "Address the review gap" });
+  expect(state.tasks[0]).toMatchObject({
+    status: "queued",
+    acceptedEvidenceId: null,
+    reworkRequestedAt: "2026-09-17T00:00:00Z",
+    revisionRequest: { note: "Address the review gap" },
+  });
+  expect(state.tasks[0]!.attempts[0]!.state).toBe("stop_requested");
+  expect(readyTasks(state)).toEqual([]);
+  state = observeAttempt(state, "revise-result", first.id, "stopped", "Writer drained");
+  expect(readyTasks(state).map((task) => task.id)).toEqual(["revise-result"]);
+  run({ type: "assign", taskId: "revise-result", resumeAttemptId: first.id });
+  expect(state.tasks[0]!.revisionRequest).toBeUndefined();
+  expect(state.tasks[0]!.workspaceStrategy).toEqual({
+    type: "existing_worktree",
+    worktreePath: "/tmp/revise-retained",
+  });
+  expect(state.tasks[0]!.attempts).toHaveLength(2);
+});
+
+it("closes historical work without accepting it and keeps closure visible after restore", () => {
+  let state = elect();
+  const run = (action: Parameters<typeof decide>[1]["action"]) => {
+    state = decide(
+      state,
+      {
+        commandId: CommandId.make(`close-${state.revision}`),
+        expectedRevision: state.revision,
+        action,
+      },
+      { type: "user" },
+      "2026-09-17T00:00:00Z",
+    );
+  };
+  run({
+    type: "create",
+    taskId: "historical",
+    projectId,
+    title: "Superseded approach",
+    outcome: "Retain for audit",
+    criteria: "Never claim acceptance",
+    verifyCommand: "",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "root" },
+  });
+  run({ type: "close", taskId: "historical", reason: "Superseded by the integrated approach" });
+  expect(state.tasks[0]).toMatchObject({
+    status: "cancelled",
+    acceptedEvidenceId: null,
+    closedAt: "2026-09-17T00:00:00Z",
+    closedReason: "Superseded by the integrated approach",
+  });
+  run({ type: "reopen", taskId: "historical" });
+  expect(state.tasks[0]).toMatchObject({
+    status: "queued",
+    acceptedEvidenceId: null,
+    closedReason: "Superseded by the integrated approach",
+  });
+});

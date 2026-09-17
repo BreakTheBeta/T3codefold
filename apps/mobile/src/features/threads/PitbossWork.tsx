@@ -649,6 +649,14 @@ export function PitbossWork(props: {
                             <Text>
                               {task.note || "The team has not reported a recommendation yet."}
                             </Text>
+                            {task.closedReason && (
+                              <Text className="text-xs text-muted-foreground">
+                                Closure history · {task.closedReason}
+                                {task.closedAt
+                                  ? ` · ${new Date(task.closedAt).toLocaleString()}`
+                                  : ""}
+                              </Text>
+                            )}
                             {state.messages
                               .filter(
                                 (message) =>
@@ -843,33 +851,36 @@ export function PitbossWork(props: {
                             {showManagement && (
                               <View className="gap-2">
                                 {task.status === "queued" &&
+                                  task.attempts.length === 0 &&
                                   button(
                                     "Assign worker",
                                     () => void command({ type: "assign", taskId: task.id }),
                                   )}
-                                {["active", "verifying"].includes(task.status) &&
+                                {task.status !== "cancelled" &&
+                                  !task.revisionRequest &&
+                                  (task.attempts.length > 0 || task.evidence.length > 0) &&
                                   button(
-                                    "Stop for rework",
+                                    "Revise result",
                                     () =>
                                       void command({
-                                        type: "rework",
+                                        type: "revise-result",
                                         taskId: task.id,
-                                        note: "User requested rework; preserve artifacts.",
+                                        note: "Revise the retained result within the current scope.",
                                       }),
                                   )}
-                                {["blocked", "cancelled", "done"].includes(task.status) &&
+                                {task.status === "cancelled" &&
                                   button(
-                                    "Reopen",
+                                    "Restore to queue",
                                     () => void command({ type: "reopen", taskId: task.id }),
                                   )}
-                                {!["done", "cancelled"].includes(task.status) &&
+                                {task.status !== "cancelled" &&
                                   button(
-                                    "Cancel task",
+                                    "Close outcome",
                                     () =>
                                       void command({
-                                        type: "cancel",
+                                        type: "close",
                                         taskId: task.id,
-                                        note: "Cancelled by user",
+                                        reason: "Closed by user as historical or superseded work.",
                                       }),
                                   )}
                               </View>

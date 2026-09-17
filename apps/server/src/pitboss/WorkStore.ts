@@ -205,7 +205,9 @@ export const layer = Layer.effect(
           if (actor.type === "agent") {
             const action = input.action;
             const requestedMode =
-              action.type === "create-lead" || action.type === "assign"
+              action.type === "create-lead" ||
+              action.type === "assign" ||
+              action.type === "revise-result"
                 ? (action.runtimeMode ??
                   before.role?.brief.workerRuntimeMode ??
                   "approval-required")
@@ -255,6 +257,8 @@ export const layer = Layer.effect(
               "elect",
               "assign",
               "rework",
+              "revise-result",
+              "close",
               "request-decision",
               "cancel",
               "propose-coordination",
