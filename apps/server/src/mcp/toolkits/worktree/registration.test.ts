@@ -1,5 +1,3 @@
-import { DeviceService } from "../../../device/DeviceService.ts";
-import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SqlitePersistenceMemory } from "../../../persistence/Layers/Sqlite.ts";
 import { layerTest as serverConfigTestLayer } from "../../../config.ts";
 import { expect, it } from "@effect/vitest";
@@ -25,11 +23,9 @@ import * as McpSessionRegistry from "../../McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 
 const StubServicesLive = Layer.mergeAll(
-  Layer.mock(DeviceService)({}),
   SqlitePersistenceMemory,
   serverConfigTestLayer(process.cwd(), { prefix: "t3-worktree-test-" }),
   Layer.mock(ThreadManagementService)({}),
-  Layer.mock(ProjectionSnapshotQuery)({}),
   Layer.mock(ProviderRegistry)({}),
   Layer.mock(ScheduledTaskService)({}),
   Layer.mock(ProjectService.ProjectService)({}),
@@ -141,5 +137,15 @@ it.effect("production mcp layer lists worktree tools over http", () =>
         expect(tool.inputSchema.type, `inputSchema.type of ${tool.name}`).toBe("object");
       }
     }),
-  ).pipe(Effect.provide(Layer.mergeAll(NodeHttpServer.layerTest, NodeServices.layer))),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeHttpServer.layerTest,
+        serverConfigTestLayer(process.cwd(), { prefix: "t3-worktree-mcp-" }).pipe(
+          Layer.provide(NodeServices.layer),
+        ),
+        NodeServices.layer,
+      ),
+    ),
+  ),
 );

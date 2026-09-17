@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, ThreadId, RunId, ProviderInstanceId } from "@t3tools/contracts";
-type NotificationThread = Parameters<typeof indexNotificationThreads>[0][number];
+import { EnvironmentId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
 
 import { indexNotificationThreads, localAgentNotificationEvents } from "./localNotificationEvents";
+type NotificationThread = Parameters<typeof indexNotificationThreads>[0][number];
 
 function thread(input: Partial<NotificationThread> = {}): NotificationThread {
   return {

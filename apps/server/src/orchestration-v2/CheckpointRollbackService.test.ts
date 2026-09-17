@@ -1,9 +1,5 @@
-import type { ProviderAdapterV2SessionRuntime } from "./ProviderAdapter.ts";
-import * as DateTime from "effect/DateTime";
 import { assert, it, vi } from "@effect/vitest";
 import {
-  RunId,
-  type OrchestrationV2DomainEvent,
   CheckpointId,
   CheckpointScopeId,
   type OrchestrationV2ThreadProjection,
@@ -334,95 +330,75 @@ it.effect("wraps underlying failures with an unexpected-failure reason and cause
   }).pipe(Effect.provide(testLayer));
 });
 
-for (const restoreFiles of [undefined, true, false]) {
-  it.effect(
-    `rewinds completed and interrupted conversation work with restoreFiles=${restoreFiles}`,
-    () => {
-      const threadId = ThreadId.make("thread:rewind-files");
-      const providerThreadId = ProviderThreadId.make("provider-thread:rewind-files");
-      const providerSessionId = ProviderSessionId.make("provider-session:rewind-files");
-      const providerInstanceId = ProviderInstanceId.make("codex");
-      const checkpointId = CheckpointId.make("checkpoint:rewind-files");
-      const scopeId = CheckpointScopeId.make("scope:rewind-files");
-      const now = DateTime.makeUnsafe("2026-01-01T00:00:00Z");
-      const providerThread = {
-        id: providerThreadId,
-        providerSessionId,
-        providerInstanceId,
-        driver: "codex",
-        updatedAt: now,
-      };
-      const projection = {
-        thread: {
-          activeProviderThreadId: providerThreadId,
-          modelSelection: { instanceId: providerInstanceId, model: "test" },
-        },
-        providerThreads: [providerThread],
-        providerSessions: [],
-        checkpoints: [{ id: checkpointId, scopeId, status: "ready", appRunOrdinal: 0 }],
-        checkpointScopes: [{ id: scopeId }],
-        runs: ["completed", "interrupted", "failed"].map((status, index) => ({
-          id: RunId.make(`run-${index}`),
-          ordinal: index + 1,
-          status,
-          providerInstanceId,
-          rootNodeId: null,
-        })),
-        attempts: [],
-        providerTurns: [],
-        nodes: [],
-      } as unknown as OrchestrationV2ThreadProjection;
-      const restore = vi.fn(() => Effect.void);
-      const rollbackThread = vi.fn(() =>
-        Effect.succeed({ providerThread: projection.providerThreads[0]! }),
-      );
-      const written: Array<OrchestrationV2DomainEvent> = [];
-      const testLayer = checkpointRollbackServiceLayer.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.mock(CheckpointServiceV2)({ restore }),
-            Layer.mock(EventSinkV2)({
-              write: (input) =>
-                Effect.sync(() => {
-                  written.push(...input.events);
-                  return [];
-                }),
-            }),
-            idAllocatorLayer,
-            Layer.mock(ProjectionStoreV2)({
-              getThreadProjection: () => Effect.succeed(projection),
-            }),
-            Layer.mock(ProviderSessionManagerV2)({
-              open: () =>
-                Effect.succeed({ rollbackThread } as unknown as ProviderAdapterV2SessionRuntime),
-            }),
-            Layer.mock(RuntimePolicyV2)({ resolve: () => Effect.succeed({} as never) }),
-          ),
-        ),
-      );
-      return Effect.gen(function* () {
-        const service = yield* CheckpointRollbackServiceV2;
-        yield* service.execute({
-          threadId,
-          providerThreadId,
-          checkpointId,
-          scopeId,
-          ...(restoreFiles === undefined ? {} : { restoreFiles }),
-        });
-        assert.equal(restore.mock.calls.length, restoreFiles === false ? 0 : 1);
-        assert.equal(rollbackThread.mock.calls.length, 1);
-        const rolledBackRuns = written.flatMap((event) =>
-          event.type === "run.updated" ? [event.payload] : [],
-        );
-        assert.deepEqual(
-          rolledBackRuns.map((run) => run.status),
-          ["rolled_back", "rolled_back", "rolled_back"],
-        );
-        assert.equal(
-          written.find((event) => event.type === "provider-thread.updated")?.payload.lastRunOrdinal,
-          null,
-        );
-      }).pipe(Effect.provide(testLayer));
+it.effect.each([true, false])("rewinds provider history with restoreFiles=%s", (restoreFiles) => {
+  const threadId = ThreadId.make("rewind-files");
+  const providerThreadId = ProviderThreadId.make("rewind-provider");
+  const providerSessionId = ProviderSessionId.make("rewind-session");
+  const instanceId = ProviderInstanceId.make("rewind-instance");
+  const checkpointId = CheckpointId.make("rewind-start");
+  const scopeId = CheckpointScopeId.make("rewind-scope");
+  const calls: string[] = [];
+  const providerThread = {
+    id: providerThreadId,
+    providerSessionId,
+    providerInstanceId: instanceId,
+  };
+  const projection = {
+    thread: {
+      activeProviderThreadId: providerThreadId,
+      modelSelection: { instanceId, model: "test" },
     },
+    providerThreads: [providerThread],
+    providerSessions: [],
+    providerTurns: [],
+    nodes: [],
+    checkpoints: [{ id: checkpointId, scopeId, status: "ready", appRunOrdinal: null }],
+    checkpointScopes: [{ id: scopeId }],
+    runs: [{ id: "run-1", ordinal: 1, status: "completed", rootNodeId: null }],
+  } as unknown as OrchestrationV2ThreadProjection;
+  const testLayer = checkpointRollbackServiceLayer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(CheckpointServiceV2)({
+          restore: () =>
+            Effect.sync(() => {
+              calls.push("files");
+            }),
+        }),
+        Layer.mock(EventSinkV2)({
+          write: ({ events }) =>
+            Effect.sync(() => {
+              assert.ok(
+                events.some(
+                  (event) => event.type === "run.updated" && event.payload.status === "rolled_back",
+                ),
+              );
+              calls.push("projection");
+              return [];
+            }),
+        }),
+        idAllocatorLayer,
+        Layer.mock(ProjectionStoreV2)({ getThreadProjection: () => Effect.succeed(projection) }),
+        Layer.mock(ProviderSessionManagerV2)({
+          open: () =>
+            Effect.succeed({
+              rollbackThread: () =>
+                Effect.sync(() => {
+                  calls.push("provider");
+                  return { providerThread };
+                }),
+            } as never),
+        }),
+        Layer.mock(RuntimePolicyV2)({ resolve: () => Effect.succeed({} as never) }),
+      ),
+    ),
   );
-}
+  return Effect.gen(function* () {
+    const service = yield* CheckpointRollbackServiceV2;
+    yield* service.execute({ threadId, providerThreadId, checkpointId, scopeId, restoreFiles });
+    assert.deepEqual(
+      calls,
+      restoreFiles ? ["provider", "files", "projection"] : ["provider", "projection"],
+    );
+  }).pipe(Effect.provide(testLayer));
+});

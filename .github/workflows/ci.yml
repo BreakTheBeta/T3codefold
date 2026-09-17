@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - main
-      # Keep v2 checked while its pull request has conflicts with main.
-      - t3code/codex-turn-mapping
 
 permissions:
   contents: read
@@ -114,6 +112,9 @@ jobs:
         run: |
           sudo sed -i 's|http://|https://|g' /etc/apt/blacksmith-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Test preview artifact validation
+        run: python3 -B .github/scripts/stage-preview-bundle.test.py
 
       - name: Test nightly release checks
         run: node --test .github/scripts/check-nightly-release.test.cjs

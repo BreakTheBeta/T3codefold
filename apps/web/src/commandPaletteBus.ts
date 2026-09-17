@@ -11,9 +11,9 @@ const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 
 export interface CommandPaletteOpenDetail {
   readonly open?: "add-project" | "new-thread-in";
-  readonly mode?: "command" | "files" | "content";
   readonly query?: string;
   readonly linkedThreads?: CommandPaletteLinkedThreads;
+  readonly mode?: "command" | "files" | "content";
 }
 
 export function openCommandPalette(detail?: CommandPaletteOpenDetail): void {

@@ -48,6 +48,12 @@ export interface ExecuteGitInput {
   readonly timeoutMs?: number | null;
   readonly maxOutputBytes?: number;
   readonly appendTruncationMarker?: boolean;
+  /**
+   * With `appendTruncationMarker`, keep invoking the line callbacks after the
+   * buffered copy is full. For long-running commands whose output is only
+   * consumed through `progress`.
+   */
+  readonly keepLineCallbacksAfterTruncation?: boolean;
   readonly progress?: ExecuteGitProgress;
 }
 
@@ -839,6 +845,27 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           args: ["update-ref", input.checkpointRef, commitOid],
         });
       }).pipe(Effect.ensuring(cleanupTempIndex));
+    }),
+
+    warmCheckpoint: Effect.fn("GitVcsDriver.checkpoints.warmCheckpoint")(function* (input) {
+      const operation = "GitVcsDriver.checkpoints.warmCheckpoint";
+      const gitCommonDir = yield* resolveGitCommonDir(input.cwd);
+      const tempIndexPath = path.join(
+        gitCommonDir,
+        `t3-checkpoint-warm-${NodeCrypto.randomUUID()}`,
+      );
+      // Hashing into a throwaway index writes every worktree blob into the
+      // object store, so the next real captureCheckpoint's `git add -A` only
+      // has to reuse them. Concurrent captures are safe: object writes are
+      // idempotent and each capture owns its own temp index.
+      yield* execute({
+        operation,
+        cwd: input.cwd,
+        args: ["add", "-A", "--", "."],
+        env: { ...process.env, GIT_INDEX_FILE: tempIndexPath },
+      }).pipe(
+        Effect.ensuring(fileSystem.remove(tempIndexPath, { force: true }).pipe(Effect.ignore)),
+      );
     }),
 
     hasCheckpointRef: (input) =>

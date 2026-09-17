@@ -1,4 +1,4 @@
-import { RuntimeRequestId, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { ApprovalRequestId, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   questionAttachmentDraftKey,
@@ -223,7 +223,7 @@ describe("composer attachment upload queue", () => {
 
 describe("draft upload scope and offline submission", () => {
   it("uploads question drafts in their environment without matching other thread prefixes", () => {
-    const requestId = RuntimeRequestId.make("request:1");
+    const requestId = ApprovalRequestId.make("request:1");
     for (const environment of [environmentId, EnvironmentId.make("remote:server")]) {
       const threadId = ThreadId.make("thread:1");
       const prefix = questionAttachmentDraftPrefix(environment, threadId);

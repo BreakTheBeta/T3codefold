@@ -27,8 +27,6 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.260",
-    "@connectrpc/connect": "1.7.0",
-    "@connectrpc/connect-node": "1.7.0",
     "@cursor/sdk": "1.0.22",
     "@effect/platform-node": "catalog:",
     "@effect/platform-node-shared": "catalog:",

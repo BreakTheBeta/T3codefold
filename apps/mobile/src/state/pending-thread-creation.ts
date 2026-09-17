@@ -2,10 +2,10 @@ import {
   presentThreadShell,
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import type { ThreadFeedMessage } from "../lib/threadActivity";
-import * as DateTime from "effect/DateTime";
+import type { OrchestrationThread } from "@t3tools/contracts";
 import { DEFAULT_PROVIDER_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
+import * as DateTime from "effect/DateTime";
 
 import { deriveThreadTitleFromPrompt } from "../lib/projectThreadStartTurn";
 import { scopedThreadKey } from "../lib/scopedEntities";
@@ -36,8 +36,9 @@ export function resolvePendingThreadCreation(input: {
   readonly previous: PendingThreadCreation | null;
   readonly detail: {
     readonly messages: ReadonlyArray<{ readonly id: string }>;
-    readonly latestRun: { readonly runId: string } | null;
-    readonly runtime: { readonly status: string } | null;
+    readonly runs?: ReadonlyArray<{ readonly status: string }>;
+    readonly latestTurn?: { readonly turnId: string } | null;
+    readonly session?: { readonly status: string } | null;
   } | null;
 }): PendingThreadCreation | null {
   const creation = input.pending ?? input.previous;
@@ -49,10 +50,14 @@ export function resolvePendingThreadCreation(input: {
   }
   if (creation.outcome?.kind === "failed") return creation;
   const detail = input.detail;
+  const latestRun = detail?.runs?.at(-1);
+  const terminalStatus = latestRun?.status ?? detail?.session?.status;
   if (
-    detail?.runtime?.status === "failed" ||
-    detail?.runtime?.status === "cancelled" ||
-    detail?.runtime?.status === "interrupted"
+    terminalStatus === "failed" ||
+    terminalStatus === "error" ||
+    terminalStatus === "cancelled" ||
+    terminalStatus === "stopped" ||
+    terminalStatus === "interrupted"
   )
     return null;
   // Message delivery and turn startup are separate events. The prompt alone
@@ -60,7 +65,7 @@ export function resolvePendingThreadCreation(input: {
   // the local creation if the outbox has already collected its shell outcome.
   if (
     detail !== null &&
-    detail.latestRun !== null &&
+    (latestRun !== undefined || detail.latestTurn != null) &&
     !isPendingThreadCreationVisible({
       creationMessageId: creation.message.messageId,
       loadedMessageIds: detail.messages.map((message) => message.id),
@@ -110,7 +115,9 @@ export function isPendingThreadCreationVisible(input: {
   return !input.loadedMessageIds?.includes(input.creationMessageId);
 }
 
-export function pendingThreadCreationMessage(message: QueuedThreadMessage): ThreadFeedMessage {
+export function pendingThreadCreationMessage(
+  message: QueuedThreadMessage,
+): OrchestrationThread["messages"][number] {
   return {
     id: message.messageId,
     role: "user",
@@ -120,10 +127,7 @@ export function pendingThreadCreationMessage(message: QueuedThreadMessage): Thre
     // cannot resolve, so the feed's attachment rows would sit on a spinner
     // that only ends when the real message arrives — and never, if the
     // creation is rejected. The delivered message renders them moments later.
-    runId: null,
-    attachments: [],
-    visibility: "local",
-    sourceThreadId: message.threadId,
+    turnId: null,
     streaming: false,
     createdAt: message.createdAt,
     updatedAt: message.createdAt,
@@ -141,7 +145,7 @@ export function pendingThreadCreationShell(
   if (!creation || !message.modelSelection) {
     return null;
   }
-  const now = DateTime.makeUnsafe(message.createdAt);
+  const timestamp = DateTime.makeUnsafe(message.createdAt);
   return presentThreadShell(message.environmentId, {
     id: message.threadId,
     projectId: creation.projectId,
@@ -151,26 +155,35 @@ export function pendingThreadCreationShell(
     runtimeMode: message.runtimeMode ?? DEFAULT_RUNTIME_MODE,
     interactionMode: message.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
     branch: creation.branch,
+    pullRequests: [],
     worktreePath: creation.workspaceMode === "worktree" ? null : creation.worktreePath,
-    activeProviderThreadId: null,
+    linkedPullRequest: null,
+    branchPullRequest: null,
     lineage: { rootThreadId: message.threadId, parentThreadId: null, relationshipToParent: null },
     forkedFrom: null,
     createdBy: "user",
     creationSource: "mobile",
+    activeProviderThreadId: null,
     latestRunId: null,
     activeRunId: null,
-    status: "idle",
+    status: "preparing",
     pendingRuntimeRequest: null,
     latestVisibleMessage: null,
-    latestUserMessageAt: now,
+    latestUserMessageAt: timestamp,
     hasActionableProposedPlan: false,
     itemCount: 0,
     visibleItemCount: 0,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: timestamp,
+    updatedAt: timestamp,
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
+    unsettledAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
+    pinnedAt: null,
+    pinOrderKey: null,
+    activeOrderKey: null,
     deletedAt: null,
   });
 }

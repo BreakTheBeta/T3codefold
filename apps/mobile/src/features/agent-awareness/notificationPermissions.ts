@@ -40,11 +40,10 @@ export const requestAgentNotificationPermission: Effect.Effect<
 
   if (Platform.OS === "android") {
     yield* Effect.tryPromise({
-      try: () =>
-        Notifications.setNotificationChannelAsync("agent-alerts", {
-          name: "Agent alerts",
-          importance: Notifications.AndroidImportance.HIGH,
-        }),
+      try: async () => {
+        const { ensureAndroidAgentNotificationChannel } = await import("./localNotifications");
+        await ensureAndroidAgentNotificationChannel();
+      },
       catch: (cause) => new NotificationPermissionRequestError({ cause }),
     });
   }

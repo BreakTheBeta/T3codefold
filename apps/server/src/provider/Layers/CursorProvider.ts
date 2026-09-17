@@ -26,7 +26,6 @@ import { CursorSdkCatalog } from "./CursorSdkCatalog.ts";
 const CURSOR_PRESENTATION = {
   displayName: "Cursor",
   supportsConversationRollback: false,
-  badgeLabel: "Early Access",
   showInteractionModeToggle: true,
 } as const;
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
@@ -74,7 +73,7 @@ export function buildInitialCursorProviderSnapshot(
   });
 }
 
-export function getCursorFallbackModels(
+function getCursorFallbackModels(
   cursorSettings: Pick<CursorSettings, "customModels">,
 ): ReadonlyArray<ServerProviderModel> {
   return providerModelsFromSettings([], cursorSettings.customModels, EMPTY_CAPABILITIES);

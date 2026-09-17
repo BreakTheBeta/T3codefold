@@ -38,6 +38,7 @@ describe("deriveActiveWorkStartedAt", () => {
         deriveActiveWorkStartedAt(
           {
             runId: "old",
+            requestedAt: "2026-09-06T23:33:00.000Z",
             startedAt: null,
             completedAt: null,
           },
@@ -52,7 +53,8 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: null,
           completedAt: "2026-09-06T23:33:05.000Z",
         },
@@ -61,39 +63,48 @@ describe("deriveActiveWorkStartedAt", () => {
       ),
     ).toBeNull();
   });
-  it("waits for startedAt while the provider is still starting", () => {
+  // The gap this closes. The projector stamps startedAt in the same update
+  // that moves the session to "running", so during provider spin-up the turn
+  // is requested with no startedAt and the session is "starting". Returning
+  // null there blinks the working indicator out between "Setting up
+  // worktree..." and "Working for 0s".
+  it("counts from requestedAt while the provider is still starting", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: null,
           completedAt: null,
         },
         { orchestrationStatus: "starting", activeRunId: null },
         null,
       ),
-    ).toBeNull();
+    ).toBe("2026-09-06T23:33:00.000Z");
   });
 
   it("prefers the turn's own startedAt once the provider reports it", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: "2026-09-06T23:33:05.000Z",
           completedAt: null,
         },
-        { orchestrationStatus: "running", activeRunId: "run-1" },
+        { orchestrationStatus: "running", activeRunId: "turn-1" },
         null,
       ),
     ).toBe("2026-09-06T23:33:05.000Z");
   });
 
+  // requestedAt must not leak past the end of the work.
   it("stops counting once the turn has settled", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: "2026-09-06T23:33:05.000Z",
           completedAt: "2026-09-06T23:33:09.000Z",
         },
@@ -108,7 +119,8 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: "2026-09-06T23:33:05.000Z",
           completedAt: "2026-09-06T23:33:09.000Z",
         },

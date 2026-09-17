@@ -1,4 +1,3 @@
-import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
@@ -6,7 +5,7 @@ import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
 import { resolveThreadRouteRef, resolveThreadRouteRenderState } from "../threadRoutes";
-
+import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { useEnvironmentThreadRefs, useThreadShell } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
@@ -44,23 +43,29 @@ function ChatThreadRouteView() {
   });
   const serverThreadStarted = threadHasStarted(serverThreadShell);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
+  const clearPendingFileDropsForThread = useSidebarPendingFileDropStore(
+    (store) => store.clearPendingFileDropsForThread,
+  );
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
       return;
     }
 
-    // Navigation already resolved onto this path, so a drop aimed here
-    // passed its landing check; once the thread reads as missing it can
-    // never be attached, release it even when there is nowhere to redirect.
     if (renderState === "missing") {
-      const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(threadRef);
       if (environmentHasAnyThreads) {
         void navigate({ to: "/", replace: true });
       }
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, threadRef]);
+  }, [
+    bootstrapComplete,
+    clearPendingFileDropsForThread,
+    environmentHasAnyThreads,
+    navigate,
+    renderState,
+    threadRef,
+  ]);
 
   useEffect(() => {
     if (!threadRef || !serverThreadStarted || !draftThread) {

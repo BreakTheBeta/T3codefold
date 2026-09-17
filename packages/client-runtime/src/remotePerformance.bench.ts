@@ -2,7 +2,6 @@ import {
   EnvironmentId,
   EventId,
   MessageId,
-  OrchestrationV2ThreadDetailSnapshot,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ThreadProjection,
 } from "@t3tools/contracts";
@@ -18,7 +17,6 @@ import type { RemoteEnvironmentRequestError } from "./rpc/http.ts";
 import { fetchEnvironmentThreadSnapshot } from "./state/threadSnapshotHttp.ts";
 import { applyOrchestrationV2ProjectionEvent } from "./state/orchestrationV2Projection.ts";
 import { v2Projection, v2Now } from "./state/orchestrationV2TestFixtures.ts";
-import * as Schema from "effect/Schema";
 
 const timestamp = "2026-09-01T00:00:00.000Z";
 const thread: OrchestrationV2ThreadProjection = {
@@ -28,12 +26,12 @@ const thread: OrchestrationV2ThreadProjection = {
     threadId: v2Projection.thread.id,
     runId: null,
     nodeId: null,
-    createdBy: "agent",
-    creationSource: "provider",
     role: "assistant",
     text: "Message text. ".repeat(40),
     attachments: [],
     streaming: false,
+    createdBy: "agent",
+    creationSource: "provider",
     createdAt: v2Now,
     updatedAt: v2Now,
   })),
@@ -53,9 +51,7 @@ const responses = {
     capabilities: { repositoryIdentity: true },
   },
   "/api/auth/websocket-ticket": { ticket: "test-ticket", expiresAt: timestamp },
-  [`/api/orchestration/threads/${thread.thread.id}`]: Schema.encodeSync(
-    OrchestrationV2ThreadDetailSnapshot,
-  )({ snapshotSequence: 1, projection: thread }),
+  "/api/orchestration/threads/thread-v2": { snapshotSequence: 1, projection: thread },
 };
 const httpClient = HttpClient.make((request) =>
   Effect.sync(() => {
@@ -102,12 +98,12 @@ describe("remote HTTP processing with an in-memory transport", () => {
   }
 });
 
-const delta: OrchestrationV2DomainEvent = {
+const delta: Extract<OrchestrationV2DomainEvent, { type: "message.updated" }> = {
   id: EventId.make("delta"),
   type: "message.updated",
   threadId: thread.thread.id,
   occurredAt: v2Now,
-  payload: { ...thread.messages[99]!, text: "Updated message text", streaming: true },
+  payload: { ...thread.messages[99]!, text: " next", streaming: true },
 };
 
 describe("remote message replay", () => {
@@ -128,8 +124,11 @@ describe("remote message replay", () => {
       () => {
         let current: OrchestrationV2ThreadProjection = loaded;
         for (let index = 0; index < 200; index += 1) {
-          const result = applyOrchestrationV2ProjectionEvent(current, event);
-          if (result !== null) current = result;
+          current =
+            applyOrchestrationV2ProjectionEvent(current, {
+              ...event,
+              payload: { ...event.payload, text: ` next ${index}` },
+            }) ?? current;
         }
       },
       { warmupTime: 1_000, time: 1_500 },

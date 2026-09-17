@@ -206,7 +206,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             </span>
           ) : null}
           <ComposerBanner.ToggleIcon expanded={!isCollapsed} />
-          {prompt.responseMode === "message" ? (
+          {prompt.dismissible ? (
             // Sits inside the trigger button, so stop the click from toggling
             // the disclosure. Dismiss closes the question without a reply.
             <ComposerBanner.Dismiss

@@ -33,9 +33,9 @@ const makeHarness = Effect.gen(function* () {
   const requests: Array<{ tag: string; payload: unknown }> = [];
   const protocol = yield* RpcClient.Protocol.make((write) =>
     Effect.succeed({
-      codecFor: Schema.toCodecJson,
       supportsAck: false,
       supportsTransferables: false,
+      codecFor: Schema.toCodecJson,
       send: (clientId, request) =>
         Effect.gen(function* () {
           if (request._tag !== "Request") return;

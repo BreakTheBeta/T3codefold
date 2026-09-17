@@ -3,9 +3,9 @@ import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useMemo, useRef, useState } from "react";
 import {
   EnvironmentId,
+  ThreadId,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
-  ThreadId,
   type ScopedProjectRef,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -83,6 +83,9 @@ function threadDetailToShell(
     interactionMode: thread.interactionMode,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    linkedPullRequest: thread.linkedPullRequest ?? null,
+    pullRequests: thread.pullRequests,
+    branchPullRequest: thread.branchPullRequest ?? null,
     activeProviderThreadId: thread.activeProviderThreadId,
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,
@@ -106,12 +109,9 @@ function threadDetailToShell(
     settledOverride: thread.settledOverride,
     settledAt: thread.settledAt,
     unsettledAt: thread.unsettledAt,
+    activeOrderKey: thread.activeOrderKey,
     pinnedAt: thread.pinnedAt,
     pinOrderKey: thread.pinOrderKey,
-    activeOrderKey: thread.activeOrderKey,
-    linkedPullRequest: thread.linkedPullRequest,
-    branchPullRequest: thread.branchPullRequest,
-    lastVisitedAt: thread.lastVisitedAt,
     snoozedUntil: thread.snoozedUntil ?? null,
     snoozedAt: thread.snoozedAt ?? null,
     deletedAt: thread.deletedAt,
@@ -165,9 +165,14 @@ function useResolvedThreadSelection(params: ThreadSelectionRouteParams | undefin
     pendingCreation.outcome?.kind === "delivered"
       ? selectedThreadRef
       : null;
+  const [previousCreation, setPreviousCreation] = useState<PendingThreadCreation | null>(null);
+  // Normal selection is shell-only. Detail readers subscribe separately; only
+  // optimistic creation needs the projection here until its prompt arrives.
+  const needsDetail =
+    selectedThreadShell === null || pendingCreation !== null || previousCreation !== null;
   const selectedThreadDetailState = useEnvironmentThread(
-    selectedThreadDetailRef?.environmentId ?? null,
-    selectedThreadDetailRef?.threadId ?? null,
+    needsDetail ? (selectedThreadDetailRef?.environmentId ?? null) : null,
+    needsDetail ? (selectedThreadDetailRef?.threadId ?? null) : null,
   );
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
   const selectedThread = useMemo(
@@ -180,19 +185,11 @@ function useResolvedThreadSelection(params: ThreadSelectionRouteParams | undefin
           : null),
     [pendingCreation, selectedThreadDetail, selectedThreadRef, selectedThreadShell],
   );
-  const [previousCreation, setPreviousCreation] = useState<PendingThreadCreation | null>(null);
   const selectedThreadCreation = resolvePendingThreadCreation({
     threadKey: selectedThreadKey,
     pending: pendingCreation,
     previous: previousCreation,
-    detail:
-      selectedThreadDetail === null
-        ? null
-        : {
-            messages: selectedThreadDetail.messages,
-            latestRun: deriveLatestThreadRun(selectedThreadDetail),
-            runtime: deriveThreadRuntime(selectedThreadDetail),
-          },
+    detail: selectedThreadDetail,
   });
   if (previousCreation !== selectedThreadCreation) {
     setPreviousCreation(selectedThreadCreation);
@@ -217,7 +214,7 @@ function useResolvedThreadSelection(params: ThreadSelectionRouteParams | undefin
       selectedThreadRef,
       selectedThread,
       selectedThreadCreation,
-      selectedThreadDetailState,
+      selectedThreadDetailRef,
       selectedThreadProject,
       selectedEnvironmentConnection,
       selectedEnvironmentRuntime,
@@ -227,7 +224,7 @@ function useResolvedThreadSelection(params: ThreadSelectionRouteParams | undefin
       selectedEnvironmentRuntime,
       selectedThread,
       selectedThreadCreation,
-      selectedThreadDetailState,
+      selectedThreadDetailRef,
       selectedThreadProject,
       selectedThreadRef,
     ],

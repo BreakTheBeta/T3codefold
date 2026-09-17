@@ -15,6 +15,10 @@
       "types": "./src/pendingRequests.ts",
       "default": "./src/pendingRequests.ts"
     },
+    "./user-message": {
+      "types": "./src/userMessage.ts",
+      "default": "./src/userMessage.ts"
+    },
     "./connection": {
       "types": "./src/connection/index.ts",
       "default": "./src/connection/index.ts"
@@ -287,6 +291,10 @@
       "types": "./src/threadPullRequestCompatibility.ts",
       "default": "./src/threadPullRequestCompatibility.ts"
     },
+    "./file-preview": {
+      "types": "./src/filePreview.ts",
+      "default": "./src/filePreview.ts"
+    },
     "./realtime-voice/workspace": {
       "types": "./src/realtime-voice/workspace.ts",
       "default": "./src/realtime-voice/workspace.ts"
@@ -298,10 +306,6 @@
     "./realtime-voice": {
       "types": "./src/realtime-voice/controller.ts",
       "default": "./src/realtime-voice/controller.ts"
-    },
-    "./file-preview": {
-      "types": "./src/filePreview.ts",
-      "default": "./src/filePreview.ts"
     }
   },
   "scripts": {

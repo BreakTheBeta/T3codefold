@@ -7,6 +7,8 @@ import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/tu
 import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-log/tool-presentation";
 import { commandProgramName } from "@t3tools/client-runtime/work-log/command-label";
 import {
+  contextCompactionLabel,
+  toolItemForDisplay,
   workEntryDisplayIndicatesToolFailure,
   liveActivityToolStatus,
   toolGroupAction,
@@ -36,6 +38,7 @@ import type {
   OrchestrationV2UserMessageInputIntent,
   RunId,
   RunAttemptId,
+  ScheduledTaskId,
 } from "@t3tools/contracts";
 import { ThreadId } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
@@ -88,7 +91,7 @@ export interface ThreadFeedActivity {
 }
 
 export interface ThreadFeedMessage {
-  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
+  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
   readonly id: MessageId;
   readonly role: "user" | "assistant";
   readonly text: string;
@@ -98,6 +101,7 @@ export interface ThreadFeedMessage {
   readonly inputIntent?: OrchestrationV2UserMessageInputIntent;
   readonly createdBy?: OrchestrationV2Actor;
   readonly creationSource?: OrchestrationV2CreationSource;
+  readonly scheduledTaskId?: ScheduledTaskId;
   readonly visibility: OrchestrationV2ProjectedTurnItem["visibility"];
   readonly sourceThreadId: ThreadId;
   readonly createdAt: string;
@@ -153,6 +157,12 @@ export type ThreadFeedEntry =
       readonly runId: RunId;
       readonly label: string;
       readonly expanded: boolean;
+    }
+  | {
+      readonly type: "thinking";
+      readonly id: string;
+      readonly createdAt: string;
+      readonly runId: RunId | null;
     };
 
 export interface ThreadFeedLatestRun {
@@ -160,6 +170,46 @@ export interface ThreadFeedLatestRun {
   readonly status: OrchestrationV2RunStatus;
   readonly startedAt: string | null;
   readonly completedAt: string | null;
+}
+
+export interface AgentSpawnSummary {
+  readonly title: string;
+  readonly status: string;
+  readonly tone: "working" | "completed" | "failed" | "stopped";
+  readonly members: ReadonlyArray<{
+    readonly title: string;
+    readonly status: string;
+    readonly tone: "working" | "completed" | "failed" | "stopped";
+    readonly detail: string | undefined;
+    readonly updatedAt: string;
+  }>;
+}
+
+function compactWorkEntryText(value: string): string {
+  return value.replace(/\s+/gu, " ").trim();
+}
+
+function stripShellWrapper(value: string): string {
+  const trimmed = value.trim();
+  const match = /^\/bin\/zsh -lc ['"]?([\s\S]*?)['"]?$/u.exec(trimmed);
+  return (match?.[1] ?? trimmed).trim();
+}
+
+/** Expanded work rows keep their detail while compact rows show a stable one-line label. */
+export function workEntryRowLabel(entry: WorkLogPresentationEntry, expanded = false): string {
+  const presentation = resolveWorkEntryToolPresentation(entry);
+  if (presentation) return presentation.displayName;
+  if (expanded && entry.command?.trim()) return "Command";
+  const preview =
+    entry.command ??
+    entry.detail ??
+    (entry.changedFiles?.length
+      ? entry.changedFiles.length === 1
+        ? entry.changedFiles[0]!
+        : `${entry.changedFiles[0]!} +${entry.changedFiles.length - 1} more`
+      : null);
+  if (expanded) return preview?.trim() || entry.label;
+  return preview ? compactWorkEntryText(stripShellWrapper(preview)) || entry.label : entry.label;
 }
 
 type ThreadFeedActivityGroup = Extract<ThreadFeedEntry, { readonly type: "activity-group" }>;
@@ -190,6 +240,7 @@ const runFoldRowsCache = new WeakMap<
   ThreadFeedEntry,
   Extract<ThreadFeedEntry, { readonly type: "run-fold" }>
 >();
+let cachedThinkingRow: Extract<ThreadFeedEntry, { readonly type: "thinking" }> | null = null;
 
 export function isContextCompactionActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return (
@@ -305,6 +356,7 @@ function itemIsProminent(item: OrchestrationV2TurnItem): boolean {
 }
 
 function itemStatus(item: OrchestrationV2TurnItem): ThreadFeedActivity["status"] {
+  if (item.type === "notification") return item.outcome === "failed" ? "failure" : null;
   if (item.type === "error") {
     if (item.status === "failed") return "failure";
     return item.status === "completed" ? "success" : "neutral";
@@ -349,6 +401,7 @@ function itemWorkLogTone(item: OrchestrationV2TurnItem): WorkLogPresentationEntr
 }
 
 function itemIcon(item: OrchestrationV2TurnItem): ThreadFeedActivity["icon"] {
+  if (item.type === "notification") return "zap";
   switch (item.type) {
     case "reasoning":
       return "agent";
@@ -398,7 +451,9 @@ function itemSummary(
   item: OrchestrationV2TurnItem,
   toolPresentation: T3McpToolPresentation | null = null,
 ): string {
+  if (item.type === "notification") return item.summary;
   if (item.type === "system_notice") return item.message;
+  if (item.type === "compaction") return contextCompactionLabel(item);
   const title = item.title?.trim();
   if (title) return toolPresentation?.displayName ?? capitalizePhrase(title);
   switch (item.type) {
@@ -407,7 +462,9 @@ function itemSummary(
     case "command_execution":
       return "Command";
     case "file_change":
-      return `Changed ${item.fileName}`;
+      return item.changes !== undefined && item.changes.length > 1
+        ? `Changed ${item.changes.length} files`
+        : `Changed ${item.fileName}`;
     case "file_search":
       return "Searched files";
     case "web_search":
@@ -424,8 +481,6 @@ function itemSummary(
       return "Run interrupted";
     case "error":
       return "Provider error";
-    case "compaction":
-      return "Context compacted";
     case "handoff":
       return "Context handed off";
     case "fork":
@@ -483,6 +538,8 @@ function itemPreview(item: OrchestrationV2TurnItem): string | null {
       return item.result ?? item.progress ?? item.prompt;
     case "dynamic_tool":
       return null;
+    case "notification":
+      return item.detail ?? null;
     case "proposed_plan":
       return item.markdown || null;
     case "todo_list":
@@ -522,7 +579,6 @@ function toWorkLogEntry(
         ...common,
         command: item.input,
         rawCommand: item.input,
-        ...(item.output ? { detail: item.output } : {}),
         toolTitle: title ?? "Command",
         toolData: item,
       };
@@ -530,7 +586,6 @@ function toWorkLogEntry(
       return {
         ...common,
         changedFiles: [item.fileName],
-        ...((item.diffStr ?? item.newStr) ? { detail: item.diffStr ?? item.newStr } : {}),
         toolTitle: title ?? "File change",
         toolData: item,
       };
@@ -575,7 +630,7 @@ function toFeedActivity(
   const item = row.item;
   const toolPresentation = itemToolPresentation(item);
   const summary = itemSummary(item, toolPresentation);
-  const detail = itemPreview(item);
+  const detail = item.type === "notification" ? null : itemPreview(item);
   const createdAt = DateTime.formatIso(item.startedAt ?? item.updatedAt);
   const workEntry = toWorkLogEntry(item, createdAt, summary, detail);
   const getFullDetail = memoizeValue(() =>
@@ -584,7 +639,7 @@ function toFeedActivity(
         visibility: row.visibility,
         sourceThreadId: row.sourceThreadId,
         sourceItemId: row.sourceItemId,
-        item,
+        item: toolItemForDisplay(item),
       },
       null,
       2,
@@ -612,7 +667,7 @@ function toFeedActivity(
     logo: toolPresentation?.logo ?? null,
     toolLike: itemIsToolLike(item),
     prominent: itemIsProminent(item),
-    status: itemStatus(item),
+    status: workEntryDisplayIndicatesToolFailure(workEntry) ? "failure" : itemStatus(item),
     lifecycleStatus: itemLifecycleStatus(item),
     workEntry,
     projectedItem: row,
@@ -674,9 +729,11 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
       continue;
     }
 
-    const isCompaction = entry.activity.projectedItem.item.type === "compaction";
+    const isStandaloneActivity =
+      entry.activity.projectedItem.item.type === "compaction" ||
+      entry.activity.projectedItem.item.type === "notification";
     if (
-      isCompaction ||
+      isStandaloneActivity ||
       entry.activity.prominent ||
       firstActivityEntry?.runId !== entry.runId ||
       firstActivityEntry?.activity.attemptId !== entry.activity.attemptId
@@ -685,7 +742,7 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
     }
     firstActivityEntry ??= entry;
     openGroupActivities.push(entry.activity);
-    if (isCompaction || entry.activity.prominent) {
+    if (isStandaloneActivity || entry.activity.prominent) {
       flushGroup();
     }
   }
@@ -814,7 +871,8 @@ function deriveThreadFeedRunFolds(
             !(
               entry.type === "activity-group" &&
               entry.activities.some(
-                (activity) => activity.prominent || activity.workEntry.questionAnswer !== undefined,
+                (activity) =>
+                  activity.prominent || activity.projectedItem.item.type === "notification",
               )
             ),
         )
@@ -873,7 +931,8 @@ export function deriveThreadFeedPresentation(
   activeWorkStartedAt: string | null = null,
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
-    (entry) => entry.type !== "run-fold" && entry.type !== "work-toggle",
+    (entry) =>
+      entry.type !== "run-fold" && entry.type !== "work-toggle" && entry.type !== "thinking",
   );
   const activeTailGroup = sourceFeed.at(-1);
   const foldsByAnchorId = deriveThreadFeedRunFolds(sourceFeed, latestRun);
@@ -928,12 +987,37 @@ export function deriveThreadFeedPresentation(
       );
     }
   }
+  // Keep exactly one live slot while a run is working. When no tool row can
+  // carry it yet (or the latest call failed), the slot reads "Thinking".
+  if (
+    activeWorkStartedAt !== null &&
+    !result.some(
+      (row) =>
+        (row.type === "work-toggle" && row.shimmer) ||
+        (row.type === "activity-group" &&
+          isContextCompactionActivityGroup(row) &&
+          row.runId === activeRunId &&
+          row.activities[0]?.projectedItem.item.status === "running"),
+    )
+  ) {
+    result.push(thinkingRow(activeWorkStartedAt, activeRunId));
+  }
   return result;
+}
+
+/** Shared by the trailing live tool row and its Thinking fallback. */
+export const LIVE_ACTIVITY_ROW_ID = "live-activity-row";
+
+function thinkingRow(createdAt: string, runId: RunId | null) {
+  if (cachedThinkingRow?.createdAt !== createdAt || cachedThinkingRow.runId !== runId) {
+    cachedThinkingRow = { type: "thinking", id: LIVE_ACTIVITY_ROW_ID, createdAt, runId };
+  }
+  return cachedThinkingRow;
 }
 
 function appendPresentedFeedEntry(
   result: ThreadFeedEntry[],
-  entry: Exclude<ThreadFeedEntry, { readonly type: "run-fold" | "work-toggle" }>,
+  entry: Exclude<ThreadFeedEntry, { readonly type: "run-fold" | "work-toggle" | "thinking" }>,
   expandedWorkGroupIds: ReadonlySet<string>,
   activeRunId: RunId | null,
   isWorking: boolean,
@@ -1014,7 +1098,7 @@ function appendActivityGroupRows(
   for (const activity of activities) {
     const item = activity.projectedItem.item;
     const severeProviderError = item.type === "error" && item.status === "failed";
-    if (!activity.prominent && !severeProviderError) {
+    if (!activity.prominent && !severeProviderError && item.type !== "notification") {
       groupableRun.push(activity);
       continue;
     }
@@ -1041,12 +1125,16 @@ function appendToolGroupRows(
   activeTail: boolean,
 ): void {
   const expanded = expandedWorkGroupIds.has(groupId);
-  const latestInProgressActivity = activities.findLast(
+  const latestActiveActivity = activities.findLast(
     (activity) =>
       isWorking && activity.lifecycleStatus === "inProgress" && activity.runId === activeRunId,
   );
-  const live = activeTail || latestInProgressActivity !== undefined;
-  const latestActivity = latestInProgressActivity ?? activities.at(-1)!;
+  const active = latestActiveActivity !== undefined;
+  const live = activeTail || active;
+  const latestActivity = latestActiveActivity ?? activities.at(-1)!;
+  // A successful trailing call remains the live slot until the next activity.
+  // Failed/stopped calls hand that slot to the Thinking row.
+  const shimmer = activeTail && (active || latestActivity.status === "success");
   const singleActivity = activities.length === 1 ? latestActivity : null;
   const groupSummary = summarizeToolGroup(activities.map((activity) => activity.workEntry));
   const summary = live
@@ -1088,7 +1176,7 @@ function appendToolGroupRows(
       : undefined;
   result.push({
     type: "work-toggle",
-    id: `${live ? "work-live" : "work-toggle"}:${groupId}`,
+    id: shimmer ? LIVE_ACTIVITY_ROW_ID : `${live ? "work-live" : "work-toggle"}:${groupId}`,
     createdAt: sourceGroup.createdAt,
     runId: sourceGroup.runId,
     groupId,
@@ -1108,10 +1196,7 @@ function appendToolGroupRows(
       );
     })(),
     live,
-    shimmer:
-      isWorking &&
-      latestActivity.lifecycleStatus === "inProgress" &&
-      latestActivity.runId === activeRunId,
+    shimmer,
   });
   if (!expanded) return;
   result.push({
@@ -1304,9 +1389,7 @@ export function buildThreadFeed(
           id: item.messageId,
           role: item.type === "user_message" ? "user" : "assistant",
           text: item.text,
-          ...(item.type === "user_message" && item.context !== undefined
-            ? { context: item.context }
-            : {}),
+          ...(item.type === "user_message" && item.context ? { context: item.context } : {}),
           attachments: item.attachments ?? [],
           runId: item.runId,
           streaming: item.type === "assistant_message" && item.streaming,
@@ -1315,6 +1398,7 @@ export function buildThreadFeed(
                 inputIntent: item.inputIntent,
                 createdBy: item.createdBy,
                 creationSource: item.creationSource,
+                ...(item.scheduledTaskId ? { scheduledTaskId: item.scheduledTaskId } : {}),
               }
             : {}),
           visibility: row.visibility,
@@ -1353,6 +1437,7 @@ export function buildThreadFeed(
         id: message.id,
         role: message.role === "assistant" ? "assistant" : "user",
         text: message.text,
+        ...(message.context ? { context: message.context } : {}),
         attachments: message.attachments ?? [],
         runId: null,
         streaming: message.streaming,

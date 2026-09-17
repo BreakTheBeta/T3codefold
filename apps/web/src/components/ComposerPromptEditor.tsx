@@ -81,8 +81,8 @@ import {
   selectionTouchesMentionBoundary,
   splitPromptIntoComposerSegments,
 } from "~/composer-editor-mentions";
-import { dropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
+import { dropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { basenameOfPath } from "~/pierre-icons";
 import {
@@ -2406,6 +2406,7 @@ function ComposerPromptEditorInner({
     <ComposerContextRecordsContext value={contextRecords}>
       <ComposerCitationCommentContext value={citationCommentActions}>
         <div
+          data-composer-prompt-surface="true"
           className={cn(
             "relative [font-family:var(--font-composer,var(--font-sans))] [font-size:var(--font-size-prompt,0.875rem)] [@media(max-width:39.999rem)_and_(pointer:coarse)]:[font-size:max(var(--font-size-prompt,1rem),16px)]",
             containerClassName,
@@ -2558,9 +2559,9 @@ export function ComposerPromptEditor({
           buildContextClipboardFragment={buildContextClipboardFragment}
           importContextFragment={importContextFragment}
           skills={skills}
+          disabled={disabled}
           vimModeEnabled={vimModeEnabled}
           {...(onVimModeDisplayChange ? { onVimModeDisplayChange } : {})}
-          disabled={disabled}
           placeholder={placeholder}
           {...(containerClassName ? { containerClassName } : {})}
           onChange={onChange}

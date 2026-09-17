@@ -1148,20 +1148,6 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
 
   return (
     <>
-      {capturedOutput !== null && selectedThread ? (
-        <TerminalContextSheet
-          text={capturedOutput}
-          environmentId={selectedThread.environmentId}
-          threadId={selectedThread.id}
-          terminalId={terminalId}
-          terminalLabel={resolveTerminalSessionLabel(terminalId, terminal.summary)}
-          onClose={() => setCapturedOutput(null)}
-          onAttach={() => {
-            setCapturedOutput(null);
-            if (navigation.canGoBack()) navigation.goBack();
-          }}
-        />
-      ) : null}
       {!isInspector ? (
         <NativeStackScreenOptions
           options={{
@@ -1182,7 +1168,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         <AndroidScreenHeader
           title="Terminal"
           subtitle={headerSubtitle}
-          onBack={handleCloseTerminal}
+          onBack={!isInspector && navigation.canGoBack() ? () => navigation.goBack() : undefined}
           trailing={
             <>
               {layout.usesSplitView && !isInspector ? (

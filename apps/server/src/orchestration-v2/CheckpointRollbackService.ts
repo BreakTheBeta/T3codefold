@@ -140,13 +140,19 @@ export const layer: Layer.Layer<
         modelSelection,
         runtimePolicy: resolvedRuntimePolicy,
         ...(existingSession === undefined ? {} : { resumeFromSession: existingSession }),
+        ...(providerThread.nativeThreadRef?.nativeId == null
+          ? {}
+          : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
+        ...(providerThread.nativeMetadata?.itemIdentityVersion === undefined
+          ? {}
+          : {
+              initialProviderItemIdentityVersion: providerThread.nativeMetadata.itemIdentityVersion,
+            }),
       });
 
       const targetOrdinal = checkpoint.appRunOrdinal ?? 0;
       const runsToRollback = projection.runs.filter(
-        (run) =>
-          run.ordinal > targetOrdinal &&
-          ["completed", "interrupted", "failed", "cancelled"].includes(run.status),
+        (run) => run.ordinal > targetOrdinal && run.status === "completed",
       );
       const providerThreadTurns = projection.providerTurns.filter(
         (turn) => turn.providerThreadId === providerThread.id,
@@ -184,9 +190,6 @@ export const layer: Layer.Layer<
               };
             });
 
-      if (input.restoreFiles !== false) {
-        yield* checkpoints.restore({ scope, checkpoint });
-      }
       const snapshot =
         runsToRollback.length === 0
           ? { providerThread }
@@ -195,6 +198,7 @@ export const layer: Layer.Layer<
               target: rollbackTarget,
               providerThreadTurns,
             });
+      if (input.restoreFiles !== false) yield* checkpoints.restore({ scope, checkpoint });
       const staleCheckpoints = projection.checkpoints.filter(
         (candidate) =>
           candidate.scopeId === scope.id &&

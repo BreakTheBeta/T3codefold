@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId, TurnItemId, type OrchestrationV2TurnItem } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 
 import {
   commandDetailRepeatsCommand,
@@ -10,11 +11,39 @@ import {
   summarizeToolGroup,
   toolGroupAction,
   toolGroupSummaryKind,
+  toolItemForDisplay,
   type WorkLogPresentationEntry,
   type WorkLogToolLifecycleStatus,
   workEntryViewedImagePath,
+  workEntryIndicatesToolFailure,
   workEntryDisplayIndicatesToolFailure,
+  workEntryIndicatesToolSuccess,
 } from "./presentation.js";
+
+function commandItem(
+  fields: Partial<Extract<OrchestrationV2TurnItem, { type: "command_execution" }>> = {},
+): OrchestrationV2TurnItem {
+  return {
+    id: TurnItemId.make("command"),
+    threadId: ThreadId.make("thread"),
+    runId: null,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status: "completed",
+    title: null,
+    startedAt: null,
+    completedAt: null,
+    updatedAt: DateTime.makeUnsafe("2026-09-08T00:00:00.000Z"),
+    type: "command_execution",
+    input: 'rg "command not found"',
+    exitCode: 0,
+    ...fields,
+  };
+}
 
 describe("workEntryDisplayIndicatesToolFailure", () => {
   const base = {
@@ -22,6 +51,30 @@ describe("workEntryDisplayIndicatesToolFailure", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     label: "Read",
   };
+
+  it.each([
+    [{ outputIndicatesFailure: true }, true],
+    [{ exitCode: 2 }, true],
+    [{ output: "sh: missing-command: command not found" }, true],
+    [{ output: "Found 3 matches" }, false],
+    [{ output: `${"x".repeat(32_768)} command not found` }, false],
+    [{}, false],
+  ] as const)(
+    "preserves command failure state after removing displayed output: %j",
+    (fields, failed) => {
+      const structuredPayload = commandItem(fields);
+      const entry: WorkLogPresentationEntry = {
+        ...base,
+        tone: "tool",
+        itemType: "command_execution",
+        toolLifecycleStatus: "completed",
+        structuredPayload,
+      };
+      expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(failed);
+      expect(workEntryIndicatesToolSuccess(entry)).toBe(!failed);
+      expect(JSON.stringify(toolItemForDisplay(structuredPayload))).not.toContain('"output":');
+    },
+  );
 
   it("is true for error tone", () => {
     expect(
@@ -121,6 +174,19 @@ describe("summarizeToolGroup", () => {
     label: "Tool call",
     tone: "tool",
     ...overrides,
+  });
+
+  it("counts created threads alongside adjacent commands", () => {
+    expect(
+      summarizeToolGroup([
+        entry("command", { itemType: "command_execution", command: "vp test run" }),
+        entry("created", {
+          itemType: "thread_created",
+
+          label: "Created thread",
+        }),
+      ]).summary,
+    ).toBe("Ran 1 command and created 1 thread");
   });
 
   it("deduplicates named sources ahead of ordinary actions", () => {
@@ -554,10 +620,6 @@ describe("resolveViewedImageAsset", () => {
 });
 
 describe("pull request tool presentation", () => {
-  const baseEntry = {
-    id: "pull-request-tool",
-    createdAt: "2026-09-01T00:00:00.000Z",
-  };
   it.each([
     "mcp__t3-code__link_pull_request",
     "mcp__t3_code__link_pull_request",
@@ -565,11 +627,12 @@ describe("pull request tool presentation", () => {
     "t3code/link_pull_request",
     "link_pull_request",
   ])("recognizes the native linking tool: %s", (label) => {
-    const entry = {
-      ...baseEntry,
+    const entry: WorkLogPresentationEntry = {
+      id: "link",
+      createdAt: "2026-09-10T00:00:00.000Z",
       label,
-      tone: "tool" as const,
-      toolLifecycleStatus: "completed" as const,
+      tone: "tool",
+      toolLifecycleStatus: "completed",
     };
     expect(resolveWorkEntryToolPresentation(entry)).toMatchObject({
       displayName: "Linked a pull request",
@@ -584,13 +647,12 @@ describe("pull request tool presentation", () => {
     ["failed", "Failed to link PR #42"],
     ["declined", "Declined to link PR #42"],
     ["stopped", "Stopped linking PR #42"],
-  ])("describes the target and %s status", (toolLifecycleStatus, displayName) => {
+  ] as const)("describes the target and %s status", (toolLifecycleStatus, displayName) => {
     expect(
       resolveWorkEntryToolPresentation({
-        ...baseEntry,
         label: "MCP tool call",
         toolTitle: "Custom title",
-        toolLifecycleStatus: toolLifecycleStatus as WorkLogToolLifecycleStatus,
+        toolLifecycleStatus,
         toolData: {
           server: "t3-code",
           tool: "link_pull_request",
@@ -603,7 +665,6 @@ describe("pull request tool presentation", () => {
   it("recognizes unlink targets supplied as repository and number", () => {
     expect(
       resolveWorkEntryToolPresentation({
-        ...baseEntry,
         label: "MCP tool call",
         toolLifecycleStatus: "completed",
         toolData: {
@@ -616,7 +677,8 @@ describe("pull request tool presentation", () => {
 
   it("summarizes native PR work separately from ordinary tools and integration metadata", () => {
     const link: WorkLogPresentationEntry = {
-      ...baseEntry,
+      id: "link",
+      createdAt: "2026-09-10T00:00:00.000Z",
       label: "T3-code · link_pull_request",
       tone: "tool",
       itemType: "dynamic_tool",
@@ -643,10 +705,10 @@ describe("pull request tool presentation", () => {
 
 describe("device group summaries", () => {
   const deviceEntry = (tool: string): WorkLogPresentationEntry => ({
+    id: tool,
+    createdAt: "2026-09-10T00:00:00.000Z",
     label: "MCP tool call",
     toolData: { server: "t3-code", tool },
-    id: "device",
-    createdAt: "2026-01-01T00:00:00Z",
     itemType: "dynamic_tool",
     toolLifecycleStatus: "completed",
     tone: "tool",
@@ -665,8 +727,8 @@ describe("device group summaries", () => {
     expect(
       summarizeToolGroup([
         {
-          id: "shell",
-          createdAt: "2026-01-01T00:00:00Z",
+          id: "command",
+          createdAt: "2026-09-10T00:00:00.000Z",
           label: "Ran command",
           itemType: "command_execution",
           command: "pwd",

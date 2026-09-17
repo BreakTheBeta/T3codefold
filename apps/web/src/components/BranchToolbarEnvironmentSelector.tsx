@@ -1,5 +1,5 @@
-import { ScaleIcon } from "lucide-react";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { ScaleIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import type { EnvironmentOption } from "./BranchToolbar.logic";
@@ -50,7 +50,10 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       ...(onAutoEnvironment
         ? [{ value: "auto", label: autoEnvironmentLabel ?? "Auto balance" }]
         : []),
-      ...availableEnvironments.map((env) => ({ value: env.environmentId, label: env.label })),
+      ...availableEnvironments.map((env) => ({
+        value: env.environmentId,
+        label: env.label,
+      })),
     ],
     [availableEnvironments, autoEnvironmentLabel, onAutoEnvironment],
   );
@@ -75,7 +78,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         />
         <span
           data-composer-label
-          className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
+          className="min-w-0 max-w-[240px] truncate transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0"
         >
           <span
             data-composer-label-motion
@@ -105,15 +108,27 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
           displayMode === "panel" && THREAD_DETAILS_PANEL_SELECT_ROW_CLASS,
         )}
         aria-label="Run on"
+        data-composer-shortcut="composer.host"
         data-composer-context-control
       >
-        <EnvironmentMachineIcon
-          kind={activeEnvironment?.machine ?? "server"}
-          className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"}
-        />
+        {autoEnvironmentLabel ? (
+          <ScaleIcon
+            className={
+              displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"
+            }
+            aria-hidden="true"
+          />
+        ) : (
+          <EnvironmentMachineIcon
+            kind={activeEnvironment?.machine ?? "server"}
+            className={
+              displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"
+            }
+          />
+        )}
         <span
           data-composer-label
-          className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
+          className="min-w-0 max-w-[240px] truncate transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0"
         >
           <span
             data-composer-label-motion
@@ -134,11 +149,11 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       >
         <SelectGroup>
           <SelectGroupLabel>Run on</SelectGroupLabel>
-          {onAutoEnvironment ? (
+          {onAutoEnvironment && (
             <SelectItem
               value="auto"
               onClick={() => {
-                if (autoEnvironmentLabel) onAutoEnvironment();
+                if (autoEnvironmentLabel) onAutoEnvironment?.();
               }}
             >
               <span className="inline-flex items-center gap-1.5">
@@ -146,7 +161,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
                 {autoEnvironmentLabel ?? "Auto balance"}
               </span>
             </SelectItem>
-          ) : null}
+          )}
           {availableEnvironments.map((env) => (
             <SelectItem key={env.environmentId} value={env.environmentId}>
               <span className="inline-flex items-center gap-1.5">

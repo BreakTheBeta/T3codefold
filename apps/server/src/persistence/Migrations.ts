@@ -1,4 +1,6 @@
 import Migration0065 from "./Migrations/065_ProjectionThreadMessageContext.ts";
+import Migration0066 from "./Migrations/066_ProjectionThreadPullRequests.ts";
+import Migration0067 from "./Migrations/067_ProjectionThreadTitleState.ts";
 import Migration0064 from "./Migrations/064_PitbossMail.ts";
 import Migration0063 from "./Migrations/063_PitbossPeers.ts";
 import Migration0062 from "./Migrations/062_Pitboss.ts";
@@ -156,6 +158,9 @@ export const migrationEntries = [
   [64, "PitbossMail", Migration0064],
   // Upstream migration 51 follows Fold's already-shipped 50–64; their ids must stay stable.
   [65, "ProjectionThreadMessageContext", Migration0065],
+  // Upstream released these as 050 and 052 after Fold had shipped that range.
+  [66, "ProjectionThreadPullRequests", Migration0066],
+  [67, "ProjectionThreadTitleState", Migration0067],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -175,28 +180,89 @@ const makeMigrationLoader = (throughId?: number) =>
  */
 const run = Migrator.make({});
 
-const repairUpstreamMigration50Collision = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  const trackingTable = yield* sql<{ readonly name: string }>`
-    SELECT name FROM sqlite_master
-    WHERE type = 'table' AND name = 'effect_sql_migrations'
-  `;
-  if (trackingTable.length === 0) return;
-  const migration = yield* sql<{ readonly name: string }>`
-    SELECT name FROM effect_sql_migrations WHERE migration_id = 50
-  `;
-  if (migration[0]?.name !== "ProjectionThreadPullRequests") return;
+const foldV2MigrationNames = [
+  "OrchestrationV2",
+  "OrchestrationV2Subagents",
+  "OrchestrationV2Foundation",
+  "OrchestrationV2ProviderSessionBindings",
+  "OrchestrationV2ThreadLaunchWorkflows",
+  "ApplicationEventSource",
+  "OrchestrationV2EffectCancellation",
+  "ScheduledTasks",
+  "LegacyV1ImportState",
+  "ApplicationEventSequenceIndexes",
+  "OrchestrationV2RecoveryIndexes",
+  "OrchestrationV2ShellIndexes",
+] as const;
 
-  const v2Table = yield* sql<{ readonly name: string }>`
-    SELECT name FROM sqlite_master
-    WHERE type = 'table' AND name = 'orchestration_v2_events'
-  `;
-  if (v2Table.length === 0) yield* Migration0050;
-  yield* sql`
-    UPDATE effect_sql_migrations
-    SET name = 'OrchestrationV2'
-    WHERE migration_id = 50
-  `;
+const repairUpstreamMigrationCollisions = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql.withTransaction(
+    Effect.gen(function* () {
+      const trackingTable = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name = 'effect_sql_migrations'
+      `;
+      if (trackingTable.length === 0) return;
+
+      const migrations = yield* sql<{ readonly migrationId: number; readonly name: string }>`
+        SELECT migration_id AS "migrationId", name
+        FROM effect_sql_migrations
+        WHERE migration_id BETWEEN 50 AND 53
+        ORDER BY migration_id
+      `;
+      const migrationName = (id: number) =>
+        migrations.find((migration) => migration.migrationId === id)?.name;
+
+      if (migrationName(53) === "OrchestrationV2") {
+        const schemaMarkers = yield* sql<{ readonly name: string }>`
+          SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name IN (
+            'orchestration_v2_events',
+            'orchestration_v2_projection_subagents',
+            'orchestration_v2_effect_outbox'
+          )
+        `;
+        if (schemaMarkers.length !== 3) {
+          return yield* Effect.dieMessage(
+            "Upstream orchestration V2 migration ledger is present without its complete schema",
+          );
+        }
+
+        for (const [index, name] of foldV2MigrationNames.entries()) {
+          const id = index + 50;
+          yield* sql`
+            INSERT INTO effect_sql_migrations (migration_id, name)
+            VALUES (${id}, ${name})
+            ON CONFLICT(migration_id) DO UPDATE SET name = excluded.name
+          `;
+        }
+        return;
+      }
+
+      if (migrationName(50) === "ProjectionThreadPullRequests") {
+        yield* Migration0050;
+        yield* sql`
+          UPDATE effect_sql_migrations SET name = 'OrchestrationV2'
+          WHERE migration_id = 50
+        `;
+      }
+      if (migrationName(51) === "ProjectionThreadMessageContext") {
+        yield* Migration0051;
+        yield* sql`
+          UPDATE effect_sql_migrations SET name = 'OrchestrationV2Subagents'
+          WHERE migration_id = 51
+        `;
+      }
+      if (migrationName(52) === "ProjectionThreadTitleState") {
+        yield* Migration0052;
+        yield* sql`
+          UPDATE effect_sql_migrations SET name = 'OrchestrationV2Foundation'
+          WHERE migration_id = 52
+        `;
+      }
+    }),
+  );
 });
 
 export interface RunMigrationsOptions {
@@ -216,7 +282,7 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
-  yield* repairUpstreamMigration50Collision;
+  yield* repairUpstreamMigrationCollisions;
   const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0

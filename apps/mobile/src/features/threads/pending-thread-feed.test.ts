@@ -40,8 +40,7 @@ describe("pending timeline messages", () => {
 
   it("keeps pending messages after newer agent activity in queue order", () => {
     const activity = {
-      type: "activity-group",
-      activities: [],
+      type: "thinking",
       runId: null,
       id: "thinking",
       createdAt: "2026-09-06T11:00:00.000Z",

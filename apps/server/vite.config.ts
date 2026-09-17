@@ -1,4 +1,3 @@
-import * as NodeModule from "node:module";
 import "vite-plus/test/config";
 import { defineConfig, mergeConfig } from "vite-plus";
 
@@ -76,9 +75,6 @@ export default mergeConfig(
       },
     },
     pack: {
-      // Cursor's ESM entry retains a dynamic bun:sqlite import even on Node.
-      // Its CommonJS entry selects the same Node backend without SEA-incompatible imports.
-      alias: { "@cursor/sdk": NodeModule.createRequire(import.meta.url).resolve("@cursor/sdk") },
       // The executable embeds one entry; the history worker becomes a hidden
       // subcommand there instead of a sibling script.
       entry: packExecutable ? ["src/bin.ts"] : ["src/bin.ts", "src/claude-history-worker.ts"],

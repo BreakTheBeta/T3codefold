@@ -63,7 +63,7 @@ describe("resolvePendingThreadCreation", () => {
       threadKey,
       pending,
       previous,
-      detail: { messages: [], latestRun: null, runtime: null },
+      detail: { messages: [], latestTurn: null, session: null },
     });
     expect(previous).toBe(pending);
 
@@ -72,7 +72,7 @@ describe("resolvePendingThreadCreation", () => {
       threadKey,
       pending,
       previous,
-      detail: { messages: [prompt], latestRun: null, runtime: { status: "starting" } },
+      detail: { messages: [prompt], latestTurn: null, session: { status: "starting" } },
     });
     expect(previous).toBe(pending);
 
@@ -82,7 +82,7 @@ describe("resolvePendingThreadCreation", () => {
       threadKey,
       pending: null,
       previous,
-      detail: { messages: [prompt], latestRun: null, runtime: { status: "starting" } },
+      detail: { messages: [prompt], latestTurn: null, session: { status: "starting" } },
     });
     expect(previous).toBe(pending);
 
@@ -93,8 +93,8 @@ describe("resolvePendingThreadCreation", () => {
         previous,
         detail: {
           messages: [prompt],
-          latestRun: { runId: "turn-1" },
-          runtime: { status: "running" },
+          latestTurn: { turnId: "turn-1" },
+          session: { status: "running" },
         },
       }),
     ).toBeNull();
@@ -106,18 +106,18 @@ describe("resolvePendingThreadCreation", () => {
         threadKey,
         pending,
         previous: null,
-        detail: { messages: [], latestRun: { runId: "turn-1" }, runtime: { status: "running" } },
+        detail: { messages: [], latestTurn: { turnId: "turn-1" }, session: { status: "running" } },
       }),
     ).toBe(pending);
   });
 
-  it.each(["failed", "cancelled", "interrupted"])("ends setup when startup is %s", (status) => {
+  it.each(["error", "stopped", "interrupted"])("ends setup when startup is %s", (status) => {
     expect(
       resolvePendingThreadCreation({
         threadKey,
         pending: null,
         previous: pending,
-        detail: { messages: [prompt], latestRun: null, runtime: { status } },
+        detail: { messages: [prompt], latestTurn: null, session: { status } },
       }),
     ).toBeNull();
   });
@@ -132,7 +132,7 @@ describe("resolvePendingThreadCreation", () => {
         threadKey,
         pending: failed,
         previous: pending,
-        detail: { messages: [], latestRun: null, runtime: { status: "failed" } },
+        detail: { messages: [], latestTurn: null, session: { status: "error" } },
       }),
     ).toBe(failed);
   });
@@ -248,10 +248,7 @@ describe("pendingThreadCreationMessage", () => {
       id: creation.messageId,
       role: "user",
       text: creation.text,
-      runId: null,
-      attachments: [],
-      visibility: "local",
-      sourceThreadId: creation.threadId,
+      turnId: null,
       streaming: false,
       createdAt: creation.createdAt,
       updatedAt: creation.createdAt,
@@ -261,6 +258,6 @@ describe("pendingThreadCreationMessage", () => {
   // Draft attachment ids are local; the feed resolves attachment rows against
   // the server and would spin forever on them.
   it("omits the queued attachments rather than passing local draft ids to the feed", () => {
-    expect(pendingThreadCreationMessage(creation).attachments).toEqual([]);
+    expect(pendingThreadCreationMessage(creation)).not.toHaveProperty("attachments");
   });
 });

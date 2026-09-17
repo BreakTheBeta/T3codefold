@@ -5,6 +5,9 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { migrationEntries, runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import Migration0065 from "./065_ProjectionThreadMessageContext.ts";
+import Migration0066 from "./066_ProjectionThreadPullRequests.ts";
+import Migration0067 from "./067_ProjectionThreadTitleState.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
@@ -13,7 +16,7 @@ layer("050_051_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 61 }, (_, index) => index + 1),
+        Array.from({ length: 67 }, (_, index) => index + 1),
       );
     }),
   );
@@ -39,7 +42,7 @@ layer("050_051_OrchestrationV2", (it) => {
         const executed = yield* runMigrations();
         assert.deepStrictEqual(
           executed.map(([id]) => id),
-          Array.from({ length: 12 }, (_, i) => i + 50),
+          Array.from({ length: 18 }, (_, i) => i + 50),
         );
         const threads = yield* sql<{
           readonly title: string;
@@ -88,7 +91,7 @@ layer("050_051_OrchestrationV2", (it) => {
       const executed = yield* runMigrations();
       assert.deepStrictEqual(
         executed.map(([id]) => id),
-        Array.from({ length: 11 }, (_, index) => index + 51),
+        Array.from({ length: 17 }, (_, index) => index + 51),
       );
       const migration = yield* sql<{ readonly name: string }>`
         SELECT name FROM effect_sql_migrations WHERE migration_id = 50
@@ -104,6 +107,82 @@ layer("050_051_OrchestrationV2", (it) => {
         WHERE type = 'table' AND name = 'projection_thread_pull_requests'
       `;
       assert.deepStrictEqual(upstreamTable, [{ name: "projection_thread_pull_requests" }]);
+    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  );
+
+  for (const upstreamLatestId of [51, 52] as const) {
+    it.effect(`repairs upstream main's partial migration ${upstreamLatestId} ledger`, () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 49 });
+        yield* Migration0066;
+        yield* Migration0065;
+        if (upstreamLatestId === 52) yield* Migration0067;
+        yield* sql`
+          INSERT INTO effect_sql_migrations (migration_id, name) VALUES
+            (50, 'ProjectionThreadPullRequests'),
+            (51, 'ProjectionThreadMessageContext')
+        `;
+        if (upstreamLatestId === 52) {
+          yield* sql`
+            INSERT INTO effect_sql_migrations (migration_id, name)
+            VALUES (52, 'ProjectionThreadTitleState')
+          `;
+        }
+
+        const executed = yield* runMigrations();
+        assert.deepStrictEqual(
+          executed.map(([id]) => id),
+          Array.from({ length: 67 - upstreamLatestId }, (_, index) => index + upstreamLatestId + 1),
+        );
+        const repaired = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+          SELECT migration_id, name FROM effect_sql_migrations
+          WHERE migration_id BETWEEN 50 AND 52 ORDER BY migration_id
+        `;
+        assert.deepStrictEqual(repaired, [
+          { migration_id: 50, name: "OrchestrationV2" },
+          { migration_id: 51, name: "OrchestrationV2Subagents" },
+          { migration_id: 52, name: "OrchestrationV2Foundation" },
+        ]);
+        assert.deepStrictEqual(yield* runMigrations(), []);
+      }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+    );
+  }
+
+  it.effect("normalizes upstream's consolidated migration 53 without replaying its schema", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 61 });
+      yield* sql`
+        INSERT INTO orchestration_v2_events (
+          event_id, thread_id, sequence, event_type, occurred_at, payload_json
+        ) VALUES ('event:existing', 'thread:existing', 1, 'thread.created',
+          '2026-01-01T00:00:00.000Z', '{}')
+      `;
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id BETWEEN 50 AND 61`;
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (53, 'OrchestrationV2')
+      `;
+
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(
+        executed.map(([id]) => id),
+        Array.from({ length: 6 }, (_, index) => index + 62),
+      );
+      const normalized = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+        SELECT migration_id, name FROM effect_sql_migrations
+        WHERE migration_id BETWEEN 50 AND 61 ORDER BY migration_id
+      `;
+      assert.deepStrictEqual(
+        normalized,
+        migrationEntries.slice(49, 61).map(([migration_id, name]) => ({ migration_id, name })),
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT event_id FROM orchestration_v2_events WHERE event_id = 'event:existing'`,
+        [{ event_id: "event:existing" }],
+      );
+      assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
   );
 

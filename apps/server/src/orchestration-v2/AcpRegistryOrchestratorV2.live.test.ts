@@ -1,3 +1,4 @@
+import { SourceControlProviderRegistry } from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -37,7 +38,21 @@ import { worktreeRepairDependenciesTestLayer } from "./ProviderTurnStartService.
 import { OrchestrationV2LayerLive } from "./runtimeLayer.ts";
 import { layer as mcpSessionRegistryTestLayer } from "../mcp/McpSessionRegistry.testkit.ts";
 
-const liveAgentId = process.env.T3_ACP_REGISTRY_LIVE_AGENT_ID?.trim() || "devin";
+// The Antigravity switch is a durable, named conformance fixture for Google's
+// official Registry distribution. It uses credentials already owned by the
+// Antigravity agent and never stores them in the test database.
+//
+// T3_ACP_ANTIGRAVITY_LIVE=1 ../../node_modules/.bin/vp test run \
+//   src/orchestration-v2/AcpRegistryOrchestratorV2.live.test.ts
+const PlatformTestLayer = Layer.merge(
+  NodeServices.layer,
+  Layer.mock(SourceControlProviderRegistry)({ resolveLink: () => Effect.die("unused title link") }),
+);
+
+const runAntigravityFixture = process.env.T3_ACP_ANTIGRAVITY_LIVE === "1";
+const liveAgentId = runAntigravityFixture
+  ? "antigravity-acp"
+  : process.env.T3_ACP_REGISTRY_LIVE_AGENT_ID?.trim() || "devin";
 const liveCommandPath = process.env.T3_ACP_REGISTRY_LIVE_COMMAND?.trim();
 const liveInstanceId = ProviderInstanceId.make("acpRegistry_live");
 const liveModelSelection = {
@@ -52,7 +67,7 @@ const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
 const vcsDriverRegistryLayer = VcsDriverRegistry.layer.pipe(
   Layer.provide(VcsProcess.layer),
   Layer.provide(serverConfigLayer),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(PlatformTestLayer),
 );
 
 const checkpointStoreLayer = CheckpointStore.layer.pipe(Layer.provide(vcsDriverRegistryLayer));
@@ -77,17 +92,17 @@ const backgroundPolicyLayer = BackgroundPolicy.layer.pipe(
 const providerInstanceRegistryLayer = ProviderInstanceRegistryHydrationLive.pipe(
   Layer.provide(
     Layer.mergeAll(
-      serverConfigLayer.pipe(Layer.provide(NodeServices.layer)),
+      serverConfigLayer.pipe(Layer.provide(PlatformTestLayer)),
       serverSettingsLayer,
       NodeServices.layer,
       FetchHttpClient.layer,
-      OpenCodeRuntimeLive.pipe(Layer.provide(NodeServices.layer)),
+      OpenCodeRuntimeLive.pipe(Layer.provide(PlatformTestLayer)),
       Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers),
       ModelManifest.layerTest,
       AntigravityInstallation.layer.pipe(
-        Layer.provide(serverConfigLayer.pipe(Layer.provide(NodeServices.layer))),
+        Layer.provide(serverConfigLayer.pipe(Layer.provide(PlatformTestLayer))),
         Layer.provide(FetchHttpClient.layer),
-        Layer.provide(NodeServices.layer),
+        Layer.provide(PlatformTestLayer),
       ),
     ),
   ),
@@ -103,7 +118,7 @@ const liveLayer = OrchestrationV2LayerLive.pipe(
   Layer.provide(CodexResetCredit.layer),
   Layer.provide(backgroundPolicyLayer),
   Layer.provide(worktreeRepairDependenciesTestLayer),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(PlatformTestLayer),
 );
 
 const waitForIdle = Effect.fn("AcpRegistryOrchestratorV2Live.waitForIdle")(function* (
@@ -126,11 +141,11 @@ const waitForIdle = Effect.fn("AcpRegistryOrchestratorV2Live.waitForIdle")(funct
   return yield* Effect.die(new Error(`Timed out waiting for ACP Registry thread ${threadId}.`));
 });
 
-describe.runIf(process.env.T3_ACP_REGISTRY_LIVE_ORCHESTRATOR === "1")(
+describe.runIf(runAntigravityFixture || process.env.T3_ACP_REGISTRY_LIVE_ORCHESTRATOR === "1")(
   "ACP Registry V2 live orchestrator",
   () => {
     it.live(
-      "runs and resumes a real registry agent through the production V2 harness",
+      `runs and resumes ${runAntigravityFixture ? "Google Antigravity" : "a real registry agent"} through the production V2 harness`,
       () =>
         Effect.gen(function* () {
           const orchestrator = yield* OrchestratorV2;

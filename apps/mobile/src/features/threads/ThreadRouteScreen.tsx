@@ -18,12 +18,12 @@ import {
   projectScriptRuntimeEnv,
   resolveProjectScripts,
 } from "@t3tools/shared/projectScripts";
-import { Alert, Platform, ScrollView, View } from "react-native";
+import { Alert, BackHandler, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useWorkspaceState } from "../../state/workspace";
 import { restoredNewTaskDraftKey } from "../../state/new-task-draft-key";
 import { clearPendingThreadCreationOutcome } from "../../state/pending-thread-creation";
 import { recoverFailedThreadDraft } from "../../state/recover-failed-thread-draft";
-import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
 import { dismissGitActionResult, useGitActionProgress } from "../../state/use-vcs-action-state";
 import { vcsEnvironment } from "../../state/vcs";
@@ -35,6 +35,7 @@ import {
 } from "../../components/AndroidScreenHeader";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { resolveAdaptiveWorkspaceBackAction } from "../../lib/adaptive-navigation";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { connectionTone } from "../connection/connectionTone";
 
@@ -80,7 +81,6 @@ import {
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
-import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
 import { ThreadFileNavigatorPane } from "../files/thread-file-navigator-pane";
 import {
   ThreadInspectorContentStack,
@@ -144,7 +144,6 @@ function ThreadUnavailableScreen() {
 
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   const { state: workspaceState } = useWorkspaceState();
-  useFoldWorkspaceAndroidBack();
   const { connectionState } = useRemoteConnectionStatus();
   const { selectedThread } = useThreadSelection();
   const params = props.route.params;
@@ -204,7 +203,6 @@ function ThreadRouteContent(
     toggleAuxiliaryPane,
     togglePrimarySidebar,
   } = useAdaptiveWorkspaceLayout();
-  useFoldWorkspaceAndroidBack();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
   const {
@@ -220,14 +218,6 @@ function ThreadRouteContent(
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
-  const dismissUserInput = useAtomCommand(threadEnvironment.dismissUserInput, "dismiss question");
-  const handleDismissUserInput = useCallback(async () => {
-    if (!selectedThread || requests.activePendingUserInput?.responseMode !== "message") return;
-    await dismissUserInput({
-      environmentId: selectedThread.environmentId,
-      input: { threadId: selectedThread.id, requestId: requests.activePendingUserInput.requestId },
-    });
-  }, [dismissUserInput, selectedThread, requests.activePendingUserInput]);
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
   const loadEarlierHistory = useAtomCommand(threadEnvironment.loadEarlierHistory, {
     label: "load earlier thread history",
@@ -625,6 +615,36 @@ function ThreadRouteContent(
     ],
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android" || !layout.usesSplitView) {
+        return;
+      }
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        const action = resolveAdaptiveWorkspaceBackAction({
+          auxiliaryPaneVisible: panes.auxiliaryPaneVisible,
+          primarySidebarVisible: panes.primarySidebarVisible,
+        });
+        if (action === "close-inspector") {
+          toggleAuxiliaryPane();
+          return true;
+        }
+        if (action === "show-sidebar") {
+          togglePrimarySidebar();
+          return true;
+        }
+        return false;
+      });
+      return () => subscription.remove();
+    }, [
+      layout.usesSplitView,
+      panes.auxiliaryPaneVisible,
+      panes.primarySidebarVisible,
+      toggleAuxiliaryPane,
+      togglePrimarySidebar,
+    ]),
+  );
+
   const handleOpenNewTerminal = useCallback(() => {
     terminalDebugLog("terminal-menu:open-new", {
       hasThread: Boolean(selectedThread),
@@ -877,9 +897,11 @@ function ThreadRouteContent(
       }),
     );
   }, [navigation, routeThreadIdentity, selectedThreadCreation, selectedThreadProject]);
+  const awaitingBootstrapTurn =
+    selectedThreadDetail?.runs.some((run) => run.status === "preparing") ?? false;
   const creationState = ((): ThreadDetailScreenProps["creationState"] => {
     if (selectedThreadCreation === null) {
-      return null;
+      return awaitingBootstrapTurn ? { kind: "preparing", preparingWorktree: true } : null;
     }
     if (selectedThreadCreation.outcome?.kind === "failed") {
       return {
@@ -918,6 +940,9 @@ function ThreadRouteContent(
     return <OpeningThreadLoadingScreen />;
   }
 
+  // A queued creation renders as ready content: its prompt is the whole
+  // conversation until the server creates the thread. The subscription's
+  // not-found error for that window is expected, not a load failure.
   const contentPresentation =
     creationState !== null
       ? { kind: "ready" as const }
@@ -954,13 +979,13 @@ function ThreadRouteContent(
           screenTone={connectionTone(routeConnectionState)}
           connectionError={routeConnectionError}
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
+          feedbackSubmissions={composer.feedbackSubmissions}
+          onDismissFeedback={composer.dismissFeedback}
           selectedThreadFeed={composer.selectedThreadFeed}
           activityRun={composer.selectedThreadActivityRun}
           activeWorkStartedAt={composer.activeWorkStartedAt}
           isCompacting={composer.isCompacting}
           creationState={creationState}
-          queuedMessages={composer.selectedThreadQueuedMessages}
-          dispatchingMessageId={composer.dispatchingQueuedMessageId}
           activePendingApproval={requests.activePendingApproval}
           respondingApprovalId={requests.respondingApprovalId}
           activePendingUserInput={requests.activePendingUserInput}
@@ -978,6 +1003,8 @@ function ThreadRouteContent(
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           threadCwd={selectedThreadCwd}
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
+          queuedMessages={composer.selectedThreadQueuedMessages}
+          dispatchingMessageId={composer.dispatchingQueuedMessageId}
           layoutVariant={layout.variant}
           usesAutomaticContentInsets={usesNativeHeaderGlass}
           onOpenConnectionEditor={handleOpenConnectionEditor}
@@ -998,7 +1025,7 @@ function ThreadRouteContent(
           onSelectUserInputOption={requests.onSelectUserInputOption}
           onChangeUserInputCustomAnswer={requests.onChangeUserInputCustomAnswer}
           onSubmitUserInput={requests.onSubmitUserInput}
-          onDismissUserInput={handleDismissUserInput}
+          onDismissUserInput={requests.onDismissUserInput}
         />
       </View>
     </>

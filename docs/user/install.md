@@ -5,9 +5,10 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 
 ## Requirements
 
-Fold's self-contained CLI archives and desktop app include their server runtime.
-The npm-compatible tarball requires Node.js 24. SSH and WSL use the matching
-self-contained CLI archive; provider CLIs may have their own Node.js requirements.
+`npx t3` needs Node.js only to run npm itself; the CLI it installs is a
+self-contained executable. SSH hosts and WSL backends need Node.js 22.16+
+(22.x), 23.11+ (23.x), or 24.10 and later. The native desktop app includes its
+server runtime.
 
 You need an installed, authenticated provider before starting a thread. You can
 launch T3 Code and configure providers afterwards.
@@ -28,7 +29,7 @@ on an Intel Mac, build it from source. You need Node.js 24 and `vp` (see
 [Install vp](https://github.com/pingdotgg/t3code#install-vp)):
 
 ```bash
-git clone https://github.com/BreakTheBeta/T3codefold t3code
+git clone https://github.com/pingdotgg/t3code
 cd t3code && vp i && vp run build:desktop
 node apps/server/dist/bin.mjs
 ```
@@ -45,7 +46,7 @@ using the asset for your operating system. Upstream package-manager entries inst
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects
-there. Install your provider CLIs inside that distro. T3 Code installs its
+there. Install Node.js and provider CLIs inside that distro. T3 Code installs its
 matching server runtime there automatically; the first launch after an app
 update can take longer.
 
@@ -91,6 +92,7 @@ computer.
 | Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                           |
 | OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                     |
 | Antigravity | Install and sign in with Google from T3 Code's provider settings.                            |
+| Pi          | Install [Pi](https://pi.dev), then run `pi` once to finish its login or API-key setup.       |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
@@ -110,8 +112,8 @@ base URL. Mark secret values as sensitive; after saving, T3 Code does not displa
 their original values.
 
 For provider-specific setup and accounts, see [Codex](./providers-codex.md),
-[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md), and
-[Antigravity](./providers-antigravity.md).
+[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md),
+[Antigravity](./providers-antigravity.md), and [Pi](./providers-pi.md).
 
 ## Next steps
 
