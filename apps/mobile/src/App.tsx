@@ -77,9 +77,13 @@ function AppContent() {
     <>
       <SplashScreenCoordinator navigationReady={navigationReady} />
       <SubscriptionUsageCoordinator />
+      {/* Uniwind compiles `className` into `style`, so an explicit `style` prop replaces
+          it outright. Passing the background colour on its own dropped `flex-1`, collapsing
+          the root view to zero height: everything still mounted and navigation reported
+          ready, but nothing had any size to paint. Keep the flex in the same object. */}
       <GestureHandlerRootView
         className="flex-1"
-        style={{ backgroundColor: navigationTheme.colors.background }}
+        style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}
       >
         <KeyboardProvider statusBarTranslucent>
           {/* Without initialMetrics SafeAreaProvider renders null until native insets
