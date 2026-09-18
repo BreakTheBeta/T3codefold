@@ -53,15 +53,6 @@ import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps
 import { AcpRegistrySearchStep } from "./AcpRegistrySearchStep";
 import { resolveOfficialAcpRegistryIconUrl } from "./AcpRegistryIcon";
 
-const PROVIDER_ACCENT_SWATCHES = [
-  "#2563eb",
-  "#16a34a",
-  "#ea580c",
-  "#dc2626",
-  "#7c3aed",
-  "#0891b2",
-] as const;
-
 /**
  * Normalize a user-provided label into a slug suffix for the instance id.
  * The full id is formed by prefixing the driver slug. For example, label "Work" on
@@ -541,43 +532,12 @@ export function AddProviderInstanceDialog({
 
           <div className={cn("grid gap-2", wizardStep !== identityStep && "hidden")}>
             <span className="text-xs font-medium text-foreground">Accent color</span>
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <ProviderAccentColorPicker
-                displayName={label || driverOption.label}
-                value={accentColor || undefined}
-                onCommit={(accentColor) => setIdentityDraft({ accentColor })}
-                layout="inline"
-              />
-              <div className="flex flex-wrap gap-1.5">
-                {PROVIDER_ACCENT_SWATCHES.map((swatch) => {
-                  const selected = accentColor.toLowerCase() === swatch;
-                  return (
-                    <button
-                      key={swatch}
-                      type="button"
-                      className={cn(
-                        "size-6 cursor-pointer rounded-full border transition",
-                        selected
-                          ? "scale-110 border-foreground ring-2 ring-ring ring-offset-1 ring-offset-background"
-                          : "border-black/10 hover:scale-105 dark:border-white/20",
-                      )}
-                      style={{ backgroundColor: swatch }}
-                      onClick={() => setIdentityDraft({ accentColor: swatch })}
-                      aria-label={`Use ${swatch} accent`}
-                    />
-                  );
-                })}
-              </div>
-              {accentColor ? (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => setIdentityDraft({ accentColor: "" })}
-                >
-                  Clear
-                </Button>
-              ) : null}
-            </div>
+            <ProviderAccentColorPicker
+              displayName={label || driverOption.label}
+              value={accentColor || undefined}
+              onCommit={(value) => setIdentityDraft({ accentColor: value })}
+              layout="inline"
+            />
             <span className="text-[11px] text-muted-foreground">
               Optional marker shown in the picker.
             </span>
