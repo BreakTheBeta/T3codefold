@@ -1,3 +1,4 @@
+import { ProjectCloneTracker, ensureProjectCloneReady } from "../project/ProjectCloneTracker.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as Deferred from "effect/Deferred";
@@ -47,6 +48,7 @@ export type ThreadLaunchWorkspaceStrategy =
     }
   | {
       readonly type: "worktree";
+      readonly requireWorktree?: boolean | undefined;
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
@@ -130,6 +132,7 @@ function failureDetail(error: unknown): string {
 export const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const git = yield* GitWorkflow.GitWorkflowService;
+  const clones = yield* Effect.serviceOption(ProjectCloneTracker);
   const setupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
   const terminals = yield* TerminalManager.TerminalManager;
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
@@ -395,6 +398,19 @@ export const make = Effect.gen(function* () {
       );
     }
 
+    if (
+      input.workspaceStrategy.type === "worktree" &&
+      input.workspaceStrategy.requireWorktree &&
+      worktreePath === null
+    ) {
+      return yield* mapError(
+        input,
+        "provision-worktree",
+        threadId,
+      )(
+        "This launch requires a separate worktree. Commit the base branch before starting multiple models.",
+      );
+    }
     const cwd = worktreePath ?? project.workspaceRoot;
     if (runId !== null) {
       yield* threads
@@ -433,6 +449,7 @@ export const make = Effect.gen(function* () {
           );
 
     let setupFailed = setup === null;
+    let backgroundSetup: Effect.Effect<void> | null = null;
     if (setup?.status === "started") {
       yield* setupTracker.update(threadId, (snapshot) => ({
         ...snapshot,
@@ -443,24 +460,36 @@ export const make = Effect.gen(function* () {
         },
       }));
       if (setup.completion) {
-        const completion = yield* setup.completion.pipe(
+        const observe = setup.completion.pipe(
           Effect.onInterrupt(() =>
             terminals.close({ threadId, terminalId: setup.terminalId }).pipe(Effect.ignore),
           ),
+          Effect.flatMap((completion) =>
+            Effect.gen(function* () {
+              setupFailed = completion.exitCode !== 0;
+              yield* setupTracker.stage(threadId, "setup-script", {
+                detail: `Exit code: ${completion.exitCode ?? "unknown"}`,
+              });
+              yield* setupTracker.stageStatus(
+                threadId,
+                "setup-script",
+                setupFailed ? "failed" : "done",
+              );
+            }),
+          ),
         );
-        yield* setupTracker.stage(threadId, "setup-script", {
-          detail: `Exit code: ${completion.exitCode ?? "unknown"}`,
-        });
-        if (completion.exitCode !== 0) {
-          setupFailed = true;
-        }
+        if (setup.async) backgroundSetup = observe;
+        else yield* observe;
       }
     }
-    yield* setupTracker.stageStatus(
-      threadId,
-      "setup-script",
-      setup?.status === "no-script" ? "skipped" : setupFailed ? "failed" : "done",
-    );
+    if (backgroundSetup === null) {
+      yield* setupTracker.stageStatus(
+        threadId,
+        "setup-script",
+        setupFailed ? "failed" : setup?.status === "no-script" ? "skipped" : "done",
+      );
+    }
+
     yield* setupTracker.markUncancellable(threadId);
     yield* setupTracker.stageStatus(threadId, "agent", "running");
     if (runId !== null) {
@@ -473,6 +502,9 @@ export const make = Effect.gen(function* () {
         })
         .pipe(Effect.mapError(mapError(input, "release-run", threadId)));
     }
+    yield* setupTracker.stageStatus(threadId, "agent", "done");
+    yield* recordSetup(threadId, runId);
+    if (backgroundSetup !== null) yield* backgroundSetup;
   });
 
   const failPreparedRun = (
@@ -527,6 +559,29 @@ export const make = Effect.gen(function* () {
       return next;
     });
 
+  const recordSetup = Effect.fn("ThreadLaunchService.recordSetup")(function* (
+    threadId: ThreadId,
+    runId: RunId | null,
+  ) {
+    if (runId === null) return;
+    const snapshot = yield* setupTracker.get(threadId);
+    if (snapshot === null) return;
+    yield* threads
+      .dispatch({
+        type: "prepared-run.progress",
+        commandId: CommandId.make(`setup:${runId}:${snapshot.sequence}:${snapshot.phase}`),
+        threadId,
+        runId,
+        phase: "setup",
+        snapshot,
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Failed to record worktree setup", { threadId, cause }),
+        ),
+      );
+  });
+
   const schedulePreparation = Effect.fn("ThreadLaunchService.schedulePreparation")(function* (
     input: ThreadLaunchInput,
     threadId: ThreadId,
@@ -537,7 +592,10 @@ export const make = Effect.gen(function* () {
       Effect.andThen(prepareInBackground(input, threadId, runId)),
       Effect.interruptible,
       Effect.onExit((exit) => {
-        if (Exit.isSuccess(exit)) return setupTracker.finish(threadId, "done");
+        if (Exit.isSuccess(exit))
+          return setupTracker
+            .finish(threadId, "done")
+            .pipe(Effect.andThen(recordSetup(threadId, runId)));
         const cancelled = Cause.hasInterruptsOnly(exit.cause);
         return failPreparedRun(
           input,
@@ -546,11 +604,13 @@ export const make = Effect.gen(function* () {
           cancelled ? new Error("Worktree setup cancelled.") : Cause.squash(exit.cause),
         ).pipe(
           Effect.andThen(
-            setupTracker.finish(
-              threadId,
-              cancelled ? "cancelled" : "failed",
-              cancelled ? null : failureDetail(Cause.squash(exit.cause)),
-            ),
+            setupTracker
+              .finish(
+                threadId,
+                cancelled ? "cancelled" : "failed",
+                cancelled ? null : failureDetail(Cause.squash(exit.cause)),
+              )
+              .pipe(Effect.andThen(recordSetup(threadId, runId))),
           ),
         );
       }),
@@ -569,11 +629,16 @@ export const make = Effect.gen(function* () {
           : ["setup-script", "agent"],
       fiber,
     });
+    yield* recordSetup(threadId, runId);
     yield* Deferred.succeed(ready, undefined);
   });
 
   const launch: ThreadLaunchService["Service"]["launch"] = Effect.fn("ThreadLaunchService.launch")(
     function* (input) {
+      if (Option.isSome(clones))
+        yield* ensureProjectCloneReady(clones.value, input.projectId, input.commandId).pipe(
+          Effect.mapError(mapError(input, "resolve-project")),
+        );
       const project = yield* projects.getById(input.projectId).pipe(
         Effect.mapError(mapError(input, "resolve-project")),
         Effect.flatMap(

@@ -275,6 +275,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
       default:
         return Effect.succeed({
           status: "started",
+          async: false,
           scriptId: "setup",
           scriptName: "Setup",
           scriptCommand: "npm install",

@@ -165,8 +165,6 @@ export function ThreadDetailsPrRow({
       : resolvePullRequestState({
           state: detail.state,
           isDraft: detail.isDraft,
-          mergeability: detail.mergeability,
-          baseBranch: detail.baseBranch,
         });
   const icon = statePresentation ? (
     <statePresentation.Icon

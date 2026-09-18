@@ -1,3 +1,4 @@
+import { CheckpointWorkspaceIsolation } from "./CheckpointWorkspaceIsolation.ts";
 import type { ProviderAdapterV2SessionRuntime } from "./ProviderAdapter.ts";
 import * as DateTime from "effect/DateTime";
 import { assert, it, vi } from "@effect/vitest";
@@ -18,13 +19,19 @@ import * as Layer from "effect/Layer";
 import { CheckpointServiceV2 } from "./CheckpointService.ts";
 import {
   CheckpointRollbackServiceV2,
-  layer as checkpointRollbackServiceLayer,
+  layer as baseCheckpointRollbackServiceLayer,
 } from "./CheckpointRollbackService.ts";
 import { EventSinkV2 } from "./EventSink.ts";
 import { layer as idAllocatorLayer } from "./IdAllocator.ts";
 import { ProjectionStoreReadError, ProjectionStoreV2 } from "./ProjectionStore.ts";
 import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
 import { RuntimePolicyV2 } from "./RuntimePolicy.ts";
+
+const checkpointRollbackServiceLayer = baseCheckpointRollbackServiceLayer.pipe(
+  Layer.provide(
+    Layer.succeed(CheckpointWorkspaceIsolation, { isIsolated: () => Effect.succeed(true) }),
+  ),
+);
 
 it.effect("rejects a non-ready checkpoint before opening a session or restoring files", () => {
   const threadId = ThreadId.make("thread:rollback-non-ready");

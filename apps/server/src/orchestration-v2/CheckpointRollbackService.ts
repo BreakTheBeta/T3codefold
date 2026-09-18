@@ -1,3 +1,4 @@
+import { CheckpointWorkspaceIsolation } from "./CheckpointWorkspaceIsolation.ts";
 import {
   CheckpointId,
   CheckpointScopeId,
@@ -23,6 +24,7 @@ export class CheckpointRollbackExecutionError extends Schema.TaggedError<Checkpo
   "CheckpointRollbackExecutionError",
   {
     reason: Schema.Literals([
+      "shared-workspace",
       "rollback-target-invalid",
       "active-provider-changed",
       "provider-turn-unavailable",
@@ -36,6 +38,8 @@ export class CheckpointRollbackExecutionError extends Schema.TaggedError<Checkpo
 ) {
   override get message(): string {
     switch (this.reason) {
+      case "shared-workspace":
+        return "File restore requires an isolated worktree. Rewind the conversation without restoring files instead.";
       case "rollback-target-invalid":
         return `Rollback target ${this.checkpointId} for provider thread ${this.providerThreadId} on thread ${this.threadId} is incomplete or invalid.`;
       case "active-provider-changed":
@@ -78,6 +82,7 @@ export const layer: Layer.Layer<
   CheckpointRollbackServiceV2,
   Effect.gen(function* () {
     const checkpoints = yield* CheckpointServiceV2;
+    const isolation = yield* CheckpointWorkspaceIsolation;
     const eventSink = yield* EventSinkV2;
     const ids = yield* IdAllocatorV2;
     const projections = yield* ProjectionStoreV2;
@@ -185,6 +190,20 @@ export const layer: Layer.Layer<
             });
 
       if (input.restoreFiles !== false) {
+        if (
+          !(yield* isolation.isIsolated({
+            threadId: input.threadId,
+            worktreePath: projection.thread.worktreePath,
+            cwd: scope.cwd,
+          }))
+        ) {
+          return yield* new CheckpointRollbackExecutionError({
+            reason: "shared-workspace",
+            threadId: input.threadId,
+            providerThreadId: input.providerThreadId,
+            checkpointId: input.checkpointId,
+          });
+        }
         yield* checkpoints.restore({ scope, checkpoint });
       }
       const snapshot =

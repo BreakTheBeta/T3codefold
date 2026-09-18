@@ -5230,22 +5230,35 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
         const resolvePromptParts = Effect.fnUntraced(function* (
           turnInput: ProviderAdapterV2TurnInput,
         ) {
+          const nativeCommand = /^\/[^\s/]+(?:\s|$)/.test(turnInput.message.text.trim());
+          if (
+            driver === "grok" &&
+            /^\/always-approve(?:\s|$)/i.test(turnInput.message.text.trim())
+          ) {
+            return yield* new ProviderAdapterProtocolError({
+              driver,
+              detail:
+                "Change permissions with T3's permission selector instead of /always-approve.",
+            });
+          }
           const prompt: Array<EffectAcpSchema.ContentBlock> = [];
-          const text = t3OrchestrationPromptForFirstRun({
-            prompt: providerMessageTextWithAttachmentPaths({
-              text: turnInput.message.text,
-              attachments: turnInput.message.attachments,
-              attachmentsDir: serverConfig.attachmentsDir,
-            }),
-            runOrdinal: turnInput.runOrdinal,
-            hasT3Mcp:
-              acpMcpServers(turnInput.threadId).length > 0 &&
-              !(
-                flavor.supportsCompaction === true &&
-                turnInput.message.text.trim() === "/compact" &&
-                turnInput.message.attachments.length === 0
-              ),
-          });
+          const text = nativeCommand
+            ? turnInput.message.text.trim()
+            : t3OrchestrationPromptForFirstRun({
+                prompt: providerMessageTextWithAttachmentPaths({
+                  text: turnInput.message.text,
+                  attachments: turnInput.message.attachments,
+                  attachmentsDir: serverConfig.attachmentsDir,
+                }),
+                runOrdinal: turnInput.runOrdinal,
+                hasT3Mcp:
+                  acpMcpServers(turnInput.threadId).length > 0 &&
+                  !(
+                    flavor.supportsCompaction === true &&
+                    turnInput.message.text.trim() === "/compact" &&
+                    turnInput.message.attachments.length === 0
+                  ),
+              });
           if (text.length > 0) {
             prompt.push({ type: "text", text });
           }
@@ -5291,13 +5304,14 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
               detail: "ACP turn requires non-empty text or attachments",
             });
           }
-          prompt.push({
-            type: "text",
-            text: buildRuntimeInstructions({
-              harness: flavor.runtimeHarness ?? driver,
-              model: turnInput.modelSelection.model,
-            }),
-          });
+          if (!nativeCommand)
+            prompt.push({
+              type: "text",
+              text: buildRuntimeInstructions({
+                harness: flavor.runtimeHarness ?? driver,
+                model: turnInput.modelSelection.model,
+              }),
+            });
           return prompt;
         });
 

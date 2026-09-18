@@ -520,6 +520,13 @@ export function applyToProjection(
         checkpointScopes: upsertById(base.checkpointScopes, event.payload),
       };
     case "checkpoint.captured":
+      if (
+        event.payload.status === "missing" &&
+        base.checkpoints.some(
+          (checkpoint) => checkpoint.id === event.payload.id && checkpoint.status === "ready",
+        )
+      )
+        return base;
       return {
         ...base,
         checkpoints: upsertById(base.checkpoints, event.payload),
@@ -1131,6 +1138,7 @@ export function threadShellFromProjection(
     pinOrderKey: projection.thread.pinOrderKey ?? null,
     activeOrderKey: projection.thread.activeOrderKey ?? null,
     lastVisitedAt: projection.thread.lastVisitedAt,
+    titleState: projection.thread.titleState,
     titleRegeneration: projection.thread.titleRegeneration ?? null,
     deletedAt: projection.thread.deletedAt,
   };
@@ -1318,6 +1326,7 @@ function shellFromState(input: {
     pinOrderKey: input.state.thread.pinOrderKey ?? null,
     activeOrderKey: input.state.thread.activeOrderKey ?? null,
     lastVisitedAt: input.state.thread.lastVisitedAt,
+    titleState: input.state.thread.titleState,
     titleRegeneration: input.state.thread.titleRegeneration ?? null,
     deletedAt: input.state.thread.deletedAt,
   };
@@ -2058,6 +2067,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 status = excluded.status,
                 captured_at = excluded.captured_at,
                 payload_json = excluded.payload_json
+              WHERE NOT (orchestration_v2_projection_checkpoints.status = 'ready' AND excluded.status = 'missing')
             `;
             break;
           }

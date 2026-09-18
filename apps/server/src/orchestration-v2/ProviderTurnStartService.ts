@@ -1,3 +1,5 @@
+import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
+import * as Path from "effect/Path";
 import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import { WorkStore } from "../pitboss/WorkStore.ts";
 import {
@@ -67,6 +69,7 @@ export const layer: Layer.Layer<
   | EventSinkV2
   | ContextHandoffServiceV2
   | IdAllocatorV2
+  | Path.Path
   | FileSystem.FileSystem
   | GitWorkflowService
   | ProjectService
@@ -84,6 +87,7 @@ export const layer: Layer.Layer<
     const contextHandoffService = yield* ContextHandoffServiceV2;
     const idAllocator = yield* IdAllocatorV2;
     const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const gitWorkflow = yield* GitWorkflowService;
     const projects = yield* ProjectService;
     const providerAuth = yield* ProviderAuthService;
@@ -292,40 +296,45 @@ export const layer: Layer.Layer<
       }
       const { worktreePath, branch } = projection.thread;
       if (worktreePath !== null && branch !== null) {
-        const exists = yield* fileSystem
-          .exists(worktreePath)
-          .pipe(Effect.orElseSucceed(() => true));
-        if (!exists) {
-          const project = yield* projects.getById(projection.thread.projectId).pipe(
-            Effect.map(Option.getOrUndefined),
-            Effect.orElseSucceed(() => undefined),
-          );
-          if (project !== undefined) {
-            yield* Effect.logWarning("provider turn start recreating missing worktree", {
-              threadId: projection.thread.id,
-              worktreePath,
-              branch,
-            });
-            yield* gitWorkflow.pruneWorktrees({ cwd: project.workspaceRoot }).pipe(
-              Effect.andThen(
-                gitWorkflow.createWorktree({
-                  cwd: project.workspaceRoot,
-                  refName: branch,
-                  path: worktreePath,
-                }),
-              ),
-              Effect.catchCause((cause) =>
-                Cause.hasInterruptsOnly(cause)
-                  ? Effect.failCause(cause)
-                  : Effect.logWarning("provider turn start failed to recreate worktree", {
-                      threadId: projection.thread.id,
-                      worktreePath,
-                      cause: Cause.pretty(cause),
+        yield* withWorkspaceLease(
+          path.resolve(worktreePath),
+          Effect.gen(function* () {
+            const exists = yield* fileSystem
+              .exists(worktreePath)
+              .pipe(Effect.orElseSucceed(() => true));
+            if (!exists) {
+              const project = yield* projects.getById(projection.thread.projectId).pipe(
+                Effect.map(Option.getOrUndefined),
+                Effect.orElseSucceed(() => undefined),
+              );
+              if (project !== undefined) {
+                yield* Effect.logWarning("provider turn start recreating missing worktree", {
+                  threadId: projection.thread.id,
+                  worktreePath,
+                  branch,
+                });
+                yield* gitWorkflow.pruneWorktrees({ cwd: project.workspaceRoot }).pipe(
+                  Effect.andThen(
+                    gitWorkflow.createWorktree({
+                      cwd: project.workspaceRoot,
+                      refName: branch,
+                      path: worktreePath,
                     }),
-              ),
-            );
-          }
-        }
+                  ),
+                  Effect.catchCause((cause) =>
+                    Cause.hasInterruptsOnly(cause)
+                      ? Effect.failCause(cause)
+                      : Effect.logWarning("provider turn start failed to recreate worktree", {
+                          threadId: projection.thread.id,
+                          worktreePath,
+                          cause: Cause.pretty(cause),
+                        }),
+                  ),
+                );
+              }
+            }
+          }),
+        );
       }
       const selectInheritedBackgroundItems = (
         current: typeof projection,

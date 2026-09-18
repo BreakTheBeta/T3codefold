@@ -1,4 +1,5 @@
-import { CheckpointScopeId, RunId, ThreadId } from "@t3tools/contracts";
+import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { CheckpointScopeId, RunId, ThreadId, type ProjectId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -27,14 +28,19 @@ export class RunFinalizationRefreshError extends Schema.TaggedError<RunFinalizat
 ) {}
 
 export class RunFinalizationObserver extends Context.Reference<{
-  readonly refreshAfterTurn: Effect.Effect<void>;
+  readonly drain: Effect.Effect<void>;
+  readonly refreshAfterTurn: (projectId: ProjectId) => Effect.Effect<void>;
   readonly refresh: (input: {
     readonly cwd: string;
     readonly threadId: ThreadId;
     readonly runId: RunId;
   }) => Effect.Effect<void, RunFinalizationRefreshError>;
 }>("t3/orchestration-v2/RunFinalizationObserver", {
-  defaultValue: () => ({ refresh: () => Effect.void, refreshAfterTurn: Effect.void }),
+  defaultValue: () => ({
+    drain: Effect.void,
+    refresh: () => Effect.void,
+    refreshAfterTurn: () => Effect.void,
+  }),
 }) {}
 
 export class RunFinalizationService extends Context.Service<
@@ -50,8 +56,6 @@ export class RunFinalizationService extends Context.Service<
 
 export const make = Effect.gen(function* () {
   const checkpointCapture = yield* CheckpointCapture.CheckpointCaptureServiceV2;
-  const projections = yield* ProjectionStore.ProjectionStoreV2;
-  const observer = yield* RunFinalizationObserver;
 
   const finalize: RunFinalizationService["Service"]["finalize"] = Effect.fn(
     "RunFinalizationService.finalize",
@@ -63,24 +67,6 @@ export const make = Effect.gen(function* () {
           (cause) => new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
         ),
       );
-    const projection = yield* projections
-      .getThreadProjection(input.threadId)
-      .pipe(
-        Effect.mapError(
-          (cause) => new RunFinalizationError({ ...input, operation: "refresh-workspace", cause }),
-        ),
-      );
-    const cwd = projection.checkpointScopes.find((scope) => scope.id === input.scopeId)?.cwd;
-    if (cwd !== undefined) {
-      yield* observer
-        .refresh({ cwd, threadId: input.threadId, runId: input.runId })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new RunFinalizationError({ ...input, operation: "refresh-workspace", cause }),
-          ),
-        );
-    }
   });
   return RunFinalizationService.of({ finalize });
 });
@@ -94,28 +80,46 @@ export const observerLive = Layer.effect(
     const vcsStatus = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const refreshNow = ({
+      cwd,
+      threadId,
+      runId,
+    }: {
+      cwd: string;
+      threadId: ThreadId;
+      runId: RunId;
+    }) =>
+      Effect.gen(function* () {
+        const [, local] = yield* Effect.all(
+          [workspaceEntries.refresh(cwd), vcsStatus.refreshLocalStatus(cwd)],
+          { concurrency: "unbounded" },
+        );
+        if (local.refName === null || local.isDefaultRef) return;
+        const thread = yield* projections.getThreadShell(threadId);
+        if (!thread || thread.branch !== local.refName) return;
+        if (thread.activeRunId !== null && thread.activeRunId !== runId) return;
+        yield* vcsStatus.refreshPullRequestStatus(cwd).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("failed to refresh pull request status after run completion", {
+              threadId,
+              cwd,
+              detail: error.message,
+            }),
+          ),
+        );
+      }).pipe(Effect.mapError((cause) => new RunFinalizationRefreshError({ cwd, cause })));
+    const worker = yield* makeDrainableWorker(
+      (input: { cwd: string; threadId: ThreadId; runId: RunId }) =>
+        refreshNow(input).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Workspace refresh after run failed", { error }),
+          ),
+        ),
+    );
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
-      refresh: ({ cwd, threadId, runId }) =>
-        Effect.gen(function* () {
-          const [, local] = yield* Effect.all(
-            [workspaceEntries.refresh(cwd), vcsStatus.refreshLocalStatus(cwd)],
-            { concurrency: "unbounded" },
-          );
-          if (local.refName === null || local.isDefaultRef) return;
-          const thread = yield* projections.getThreadShell(threadId);
-          if (!thread || thread.branch !== local.refName) return;
-          if (thread.activeRunId !== null && thread.activeRunId !== runId) return;
-          yield* vcsStatus.refreshPullRequestStatus(cwd).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("failed to refresh pull request status after run completion", {
-                threadId,
-                cwd,
-                detail: error.message,
-              }),
-            ),
-          );
-        }).pipe(Effect.mapError((cause) => new RunFinalizationRefreshError({ cwd, cause }))),
+      refresh: worker.enqueue,
+      drain: worker.drain,
     };
   }),
 );

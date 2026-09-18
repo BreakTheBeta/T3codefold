@@ -1,3 +1,4 @@
+import { ProjectCloneTracker, ensureProjectCloneReady } from "../project/ProjectCloneTracker.ts";
 import { WorkStore } from "../pitboss/WorkStore.ts";
 import { ThreadLinkedPullRequest } from "@t3tools/contracts";
 import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
@@ -557,6 +558,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const commandReceipts = yield* CommandReceiptStoreV2;
   const idAllocator = yield* IdAllocatorV2;
   const projectionStore = yield* ProjectionStoreV2;
+  const clones = yield* Effect.serviceOption(ProjectCloneTracker);
   const projectRepository = yield* ProjectionProjectRepository;
   const providerAdapters = yield* ProviderAdapterRegistryV2;
   const continuationRequests = yield* ProviderContinuationRequests;
@@ -1850,9 +1852,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         case "thread.mark-unread":
           return { ...thread, lastVisitedAt: markUnreadVisitedAt };
         case "thread.metadata.update":
+          if (
+            command.expectedTitleVersion !== undefined &&
+            (thread.titleState?.source !== "generated" ||
+              thread.titleState.version !== command.expectedTitleVersion ||
+              !thread.titleState.needsRefinement ||
+              thread.titleRegeneration != null)
+          )
+            return thread;
           return {
             ...thread,
-            ...(command.title === undefined ? {} : { title: command.title }),
+            ...(command.title === undefined
+              ? {}
+              : {
+                  title: command.title,
+                  titleState: {
+                    source: "manual" as const,
+                    version: command.commandId,
+                    needsRefinement: false,
+                  },
+                }),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
             ...(command.linkedPullRequest === undefined
@@ -1871,7 +1890,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return thread.titleRegeneration?.requestId === command.requestId
             ? {
                 ...thread,
-                ...(command.title === undefined ? {} : { title: command.title }),
+                ...(command.title === undefined
+                  ? {}
+                  : {
+                      title: command.title,
+                      titleState: {
+                        source: "generated" as const,
+                        version: command.commandId,
+                        needsRefinement: command.needsRefinement ?? false,
+                      },
+                    }),
                 titleRegeneration: null,
                 updatedAt: now,
               }
@@ -1943,7 +1971,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: updatedThread,
     });
 
-    if (command.type === "thread.metadata.update" && command.regenerateTitle === true) {
+    if (
+      command.type === "thread.metadata.update" &&
+      command.regenerateTitle === true &&
+      updatedThread.titleRegeneration?.requestId === command.commandId
+    ) {
       yield* Ref.update(effects, (existing) => [
         ...existing,
         pendingThreadTitleGenerationEffect(command.commandId, command.threadId, {
@@ -3089,6 +3121,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const onlyMaintenanceHistory =
         userMessages.length > 0 && userMessages.every(isNativeMaintenanceCommand);
       if (
+        projection.thread.titleState?.source !== "manual" &&
         !isNativeMaintenanceCommand(command) &&
         ((command.titleSeed !== undefined && projection.messages.length === 0) ||
           (command.createdBy === "user" && onlyMaintenanceHistory))
@@ -5841,6 +5874,31 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) =>
     Effect.gen(function* () {
       const projection = yield* loadProjectionForCommand(command);
+      if (command.snapshot !== undefined) {
+        const item = projection.turnItems.find(
+          (entry) =>
+            entry.runId === command.runId &&
+            entry.type === "command_execution" &&
+            entry.input === WORKSPACE_PREPARATION_INPUT,
+        );
+        if (
+          item === undefined ||
+          item.type !== "command_execution" ||
+          command.snapshot.threadId !== command.threadId
+        )
+          return;
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "turn-item.updated",
+          threadId: command.threadId,
+          runId: command.runId,
+          occurredAt: yield* DateTime.now,
+          payload: { ...item, worktreeSetup: command.snapshot, updatedAt: yield* DateTime.now },
+        });
+        return;
+      }
       const state = preparedRunState(command, projection);
       if (state === null) {
         return yield* new OrchestratorDispatchError({
@@ -7390,6 +7448,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         sequence: receipt.resultSequence,
         storedEvents,
       } satisfies OrchestratorV2DispatchResult;
+    }
+
+    if (
+      Option.isSome(clones) &&
+      (command.type === "thread.create" || command.type === "message.dispatch")
+    ) {
+      const projectId =
+        command.type === "thread.create"
+          ? command.projectId
+          : (yield* loadProjectionForCommand(command)).thread.projectId;
+      yield* ensureProjectCloneReady(clones.value, projectId, command.commandId).pipe(
+        mapDispatchError(command),
+      );
     }
 
     const plan = yield* dispatchOnce(command).pipe(

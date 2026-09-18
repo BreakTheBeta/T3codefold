@@ -11,6 +11,7 @@ export function orchestrationProtocolCompatibilityError(
 ): ConnectionBlockedError | null {
   if (
     descriptor.orchestrationProtocolVersion === undefined ||
+    descriptor.orchestrationProtocolVersion === 1 ||
     descriptor.orchestrationProtocolVersion === ORCHESTRATION_PROTOCOL_VERSION
   ) {
     return null;
@@ -20,8 +21,11 @@ export function orchestrationProtocolCompatibilityError(
   return new ConnectionBlockedError({ reason: "unsupported", detail });
 }
 
-export function appendOrchestrationProtocol(socketUrl: string): string {
+export function appendOrchestrationProtocol(
+  socketUrl: string,
+  version = ORCHESTRATION_PROTOCOL_VERSION,
+): string {
   const url = new URL(socketUrl);
-  url.searchParams.set(ORCHESTRATION_PROTOCOL_QUERY_PARAM, String(ORCHESTRATION_PROTOCOL_VERSION));
+  url.searchParams.set(ORCHESTRATION_PROTOCOL_QUERY_PARAM, String(version));
   return url.toString();
 }

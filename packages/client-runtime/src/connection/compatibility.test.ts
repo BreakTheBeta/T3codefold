@@ -37,6 +37,12 @@ describe("orchestration protocol compatibility", () => {
 
   it("accepts a pre-orchestration host for the legacy adapter", () => {
     expect(orchestrationProtocolCompatibilityError(descriptor())).toBeNull();
+    expect(orchestrationProtocolCompatibilityError(descriptor(1))).toBeNull();
+    expect(
+      new URL(appendOrchestrationProtocol("wss://host.test/ws", 1)).searchParams.get(
+        "orchestrationProtocol",
+      ),
+    ).toBe("1");
   });
 
   it("blocks a different explicit protocol instead of attempting to decode it", () => {

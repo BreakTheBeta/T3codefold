@@ -19,10 +19,11 @@ Uninstalling the service leaves your projects, threads, and settings intact.
 Finish active work before restarting the service. To match a remote client's
 version, follow [Updating T3 Code](./updating.md).
 
-Self-contained builds install as a download from the T3 Code GitHub release
-instead of through npm, so the machine running the service does not need
-Node.js or npm once the CLI is on it. To get the CLI onto a machine without
-Node, run the install script:
+Pass an exact version (`t3 update 0.0.42`) to pin one, `--channel nightly` to
+switch trains, or `--allow-downgrade` to move backwards. `preview` is a
+maintainers' test train: its builds can be broken and are never offered as
+updates, so the installer and `t3 update` ask for confirmation before
+installing one.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/BreakTheBeta/T3codefold/main/scripts/install.sh | sh
@@ -108,7 +109,7 @@ that session open.
 
 On macOS, check **System Settings → General → Login Items** if the service no
 longer starts at login. If agent work cannot access Desktop, Documents, or
-Downloads, it may need Full Disk Access for the Node executable listed in
+Downloads, it may need Full Disk Access for the `t3` executable listed in
 `ProgramArguments` in
 `~/Library/LaunchAgents/com.t3tools.t3code.service.plist`.
 

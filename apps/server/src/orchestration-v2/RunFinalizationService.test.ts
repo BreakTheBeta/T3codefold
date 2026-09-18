@@ -16,7 +16,7 @@ import * as CheckpointCapture from "./CheckpointCaptureService.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as RunFinalization from "./RunFinalizationService.ts";
 
-it.effect("captures the root checkpoint and refreshes workspace state", () => {
+it.effect("captures the root checkpoint independently of workspace refresh", () => {
   const threadId = ThreadId.make("thread_finalize");
   const runId = RunId.make("run_finalize");
   const scopeId = CheckpointScopeId.make("scope_finalize");
@@ -34,7 +34,8 @@ it.effect("captures the root checkpoint and refreshes workspace state", () => {
         }),
         Layer.succeed(RunFinalization.RunFinalizationObserver, {
           refresh,
-          refreshAfterTurn: Effect.void,
+          drain: Effect.void,
+          refreshAfterTurn: () => Effect.void,
         }),
       ),
     ),
@@ -43,7 +44,7 @@ it.effect("captures the root checkpoint and refreshes workspace state", () => {
     const service = yield* RunFinalization.RunFinalizationService;
     yield* service.finalize({ threadId, runId, scopeId });
     assert.equal(capture.mock.calls.length, 1);
-    assert.deepEqual(refresh.mock.calls[0], [{ cwd: "/repo", threadId, runId }]);
+    assert.equal(refresh.mock.calls.length, 0);
   }).pipe(Effect.provide(layer));
 });
 
@@ -85,7 +86,9 @@ for (const scenario of [
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(WorkspaceEntries.WorkspaceEntries)({ refresh: () => Effect.void }),
-          Layer.mock(PullRequestService.PullRequestService)({ refreshAfterTurn: Effect.void }),
+          Layer.mock(PullRequestService.PullRequestService)({
+            refreshAfterTurn: () => Effect.void,
+          }),
           Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
             refreshLocalStatus: () =>
               Effect.succeed({
@@ -118,6 +121,7 @@ for (const scenario of [
     return Effect.gen(function* () {
       const observer = yield* RunFinalization.RunFinalizationObserver;
       yield* observer.refresh({ cwd: "/repo", threadId, runId });
+      yield* observer.drain;
       assert.deepEqual(refreshed, [...scenario.expected]);
     }).pipe(Effect.provide(layer));
   });

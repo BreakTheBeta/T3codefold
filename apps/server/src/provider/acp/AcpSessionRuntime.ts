@@ -1372,6 +1372,7 @@ export const make = (
     const sessionLoadSemaphore = yield* Semaphore.make(1);
     const promptDispatchSemaphore = yield* Semaphore.make(1);
     const activePromptRef = yield* Ref.make<Option.Option<AcpActivePrompt>>(Option.none());
+    const assistantUpdatesOpenRef = yield* Ref.make(true);
     const sessionLoadGateRef = yield* Ref.make<Option.Option<SessionLoadGate>>(Option.none());
 
     const ensureConnected = Effect.gen(function* () {
@@ -1783,6 +1784,13 @@ export const make = (
           if (
             startState._tag !== "Started" ||
             notification.sessionId !== startState.result.sessionId
+          ) {
+            return;
+          }
+          if (
+            !(yield* Ref.get(assistantUpdatesOpenRef)) &&
+            (notification.update.sessionUpdate === "agent_message_chunk" ||
+              notification.update.sessionUpdate === "agent_thought_chunk")
           ) {
             return;
           }
@@ -2264,7 +2272,16 @@ export const make = (
         return;
       }
       const acknowledge = yield* Deferred.make<void>();
-      yield* Queue.offer(eventQueue, { _tag: "EventStreamBarrier", acknowledge });
+      yield* notificationSemaphore.withPermit(
+        Effect.gen(function* () {
+          // Keep a provider's final flushed chunks together until the adapter settles the turn.
+          if (Option.isNone(yield* Ref.get(activePromptRef))) {
+            yield* Ref.set(assistantUpdatesOpenRef, false);
+            yield* closeActiveAssistantSegment({ queue: eventQueue, assistantSegmentRef });
+          }
+          yield* Queue.offer(eventQueue, { _tag: "EventStreamBarrier", acknowledge });
+        }),
+      );
       yield* Effect.raceFirst(Deferred.await(acknowledge), Deferred.await(runtimeClosed));
     });
 
@@ -2430,6 +2447,7 @@ export const make = (
               Effect.gen(function* () {
                 const started = yield* getStartedState;
                 yield* closeActiveAssistantSegment({ queue: eventQueue, assistantSegmentRef });
+                yield* Ref.set(assistantUpdatesOpenRef, true);
                 const requestPayload = {
                   sessionId: started.sessionId,
                   ...payload,
@@ -2446,7 +2464,7 @@ export const make = (
                   yield* Deferred.succeed(promptOptions.dispatched, undefined);
                 }
                 return active;
-              }),
+              }).pipe(notificationSemaphore.withPermit),
             ),
             (activePrompt) =>
               Fiber.join(activePrompt.fiber).pipe(

@@ -181,7 +181,7 @@ describe("formatThreadTitleContext", () => {
       { role: "assistant", text: "y".repeat(6_000) },
       { role: "user", text: "z".repeat(1_500) },
     ]);
-    assert.isTrue(context.message.startsWith("USER:\nAncient context that anchors the topic"));
+    assert.isTrue(context.message.includes("USER:\nAncient context that anchors the topic"));
     assert.isTrue(context.message.includes("[Earlier content truncated]\n\n"));
     assert.isTrue(context.message.includes("y".repeat(100)));
   });
@@ -192,12 +192,12 @@ describe("formatThreadTitleContext", () => {
       { role: "assistant", text: "y".repeat(9_000) },
       { role: "user", text: "z".repeat(1_500) },
     ]);
-    assert.isTrue(context.message.startsWith("USER:\nTopic anchor"));
-    assert.isTrue(context.message.includes("[First user message truncated]"));
+    assert.isTrue(context.message.includes("USER:\nTopic anchor"));
+    assert.isTrue(context.message.includes("[Content truncated]"));
     assert.isTrue(context.message.includes("[Earlier content truncated]\n\n"));
   });
 
-  it("retains at most four attachments from the newest messages", () => {
+  it("retains the first attachment and up to three recent attachments", () => {
     const context = formatThreadTitleContext([
       { role: "user", text: "older", attachments: [attachment("a"), attachment("b")] },
       {
@@ -208,7 +208,7 @@ describe("formatThreadTitleContext", () => {
     ]);
     assert.deepEqual(
       context.attachments.map((entry) => entry.name),
-      ["b.png", "c.png", "d.png", "e.png"],
+      ["a.png", "c.png", "d.png", "e.png"],
     );
   });
 });

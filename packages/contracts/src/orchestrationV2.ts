@@ -1,5 +1,6 @@
+import { WorktreeSetupSnapshot } from "./worktreeSetup.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
-import { UserInputAttachmentAnswerPayload } from "./orchestration.ts";
+import { UserInputAttachmentAnswerPayload, ThreadTitleState } from "./orchestration.ts";
 import { UserInputAttachments } from "./chatAttachment.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -358,6 +359,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   /** In-flight title regeneration marker; cleared when a new title lands. */
+  titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -993,6 +995,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("command_execution"),
+    worktreeSetup: Schema.optional(WorktreeSetupSnapshot),
     input: Schema.String,
     output: Schema.optional(Schema.String),
     exitCode: Schema.optional(Schema.Int),
@@ -1395,6 +1398,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
    */
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   /** In-flight title regeneration marker; null/absent when no request is pending. */
+  titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -1482,6 +1486,7 @@ export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtcFromString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -1685,6 +1690,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("command_execution"),
+    worktreeSetup: Schema.optional(WorktreeSetupSnapshot),
     input: Schema.String,
     output: Schema.optional(Schema.String),
     exitCode: Schema.optional(Schema.Int),
@@ -1877,6 +1883,7 @@ export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFiel
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -2227,6 +2234,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("thread.metadata.update"),
+    expectedTitleVersion: Schema.optional(CommandId),
     commandId: CommandId,
     threadId: ThreadId,
     title: Schema.optional(TrimmedNonEmptyString),
@@ -2240,6 +2248,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("thread.title.regeneration.complete"),
+    needsRefinement: Schema.optional(Schema.Boolean),
     commandId: CommandId,
     threadId: ThreadId,
     requestId: CommandId,
@@ -2311,6 +2320,7 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     runId: RunId,
     phase: Schema.Literals(["worktree", "setup"]),
+    snapshot: Schema.optional(WorktreeSetupSnapshot),
   }),
   Schema.Struct({
     type: Schema.Literal("prepared-run.fail"),
@@ -2507,6 +2517,7 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("worktree"),
+    requireWorktree: Schema.optional(Schema.Boolean),
     baseRef: TrimmedNonEmptyString,
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),

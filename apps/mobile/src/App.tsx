@@ -1,9 +1,8 @@
 import { VoiceWorkspaceProvider } from "./features/voice-input/VoiceWorkspaceProvider";
-import { BlurTargetView } from "expo-blur";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
-import { StatusBar } from "react-native";
+import { StatusBar, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -22,7 +21,7 @@ import {
 import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { OverlayPortalHost } from "./components/OverlayPortal";
-import { appBlurTargetRef } from "./lib/appBlurTarget";
+import { shouldHandleAppLink } from "./lib/appLinking";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { LocalAgentNotificationsCoordinator } from "./features/agent-awareness/localNotifications";
 
@@ -40,14 +39,9 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
 
 const appLinking = {
   prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
-  // The Expo dev client launches the app via
-  // <scheme>://expo-development-client/?url=<packager> — that URL addresses
-  // the launcher, not app navigation. Without this filter it falls through
-  // to the NotFound wildcard route on every dev launch.
-  // expo-sharing uses a private lifecycle URL only to wake the app. The
-  // persisted share inbox below owns navigation once the payload is durable.
-  filter: (url: string) =>
-    !url.includes("expo-development-client") && !url.includes("://expo-sharing"),
+  // Keep the compact thread list available beneath a directly opened thread.
+  config: { initialRouteName: "Home" },
+  filter: shouldHandleAppLink,
 };
 
 const Navigation = createStaticNavigation(RootStack);
@@ -99,7 +93,7 @@ function AppContent() {
                 header (glass buttons, title, materials) is forced light even when
                 the system is in dark mode. */}
             {/* Blur target for Android dropdown backdrops — see appBlurTarget.ts. */}
-            <BlurTargetView ref={appBlurTargetRef} style={{ flex: 1 }}>
+            <View style={{ flex: 1 }}>
               <VoiceWorkspaceProvider>
                 <IncomingShareProvider>
                   <LocalAgentNotificationsCoordinator />
@@ -112,7 +106,7 @@ function AppContent() {
               </VoiceWorkspaceProvider>
               <ConfirmDialogHost />
               <ThreadArrangementHost />
-            </BlurTargetView>
+            </View>
             {/* Anchored-menu overlays render here — in-window, so the
                 keyboard stays up while a dropdown is open. */}
             <OverlayPortalHost />

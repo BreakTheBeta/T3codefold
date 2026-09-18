@@ -310,9 +310,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   );
 
   return (
-    <Tooltip key="submit">
-      <TooltipTrigger render={<span className="inline-flex" />}>{sendButton}</TooltipTrigger>
-      <TooltipPopup>{submitTooltip}</TooltipPopup>
-    </Tooltip>
+    <>
+      {isRunning ? renderStopGenerationButton(false) : null}
+      <Tooltip key="submit">
+        <TooltipTrigger render={<span className="inline-flex" />}>{sendButton}</TooltipTrigger>
+        <TooltipPopup>{submitTooltip}</TooltipPopup>
+      </Tooltip>
+    </>
   );
 });

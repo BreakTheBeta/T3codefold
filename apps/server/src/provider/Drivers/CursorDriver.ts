@@ -1,3 +1,5 @@
+import { HttpClient } from "effect/unstable/http";
+import { readCursorUsageLimits } from "../Layers/cursorUsageLimits.ts";
 /**
  * CursorDriver — `ProviderDriver` for the Cursor Agent SDK runtime.
  *
@@ -52,6 +54,7 @@ const MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
 
 export type CursorDriverEnv =
   | CursorAdapterV2DriverEnv
+  | HttpClient.HttpClient
   | FileSystem.FileSystem
   | Path.Path
   | BackgroundPolicy.BackgroundPolicy
@@ -69,6 +72,7 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsService;
+      const httpClient = yield* HttpClient.HttpClient;
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const processEnv = mergeProviderInstanceEnvironment(environment);
@@ -106,6 +110,16 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
       const textGeneration = yield* makeCursorTextGeneration(effectiveConfig, processEnv);
 
       const checkProvider = checkCursorProviderStatus(effectiveConfig, processEnv).pipe(
+        Effect.flatMap((snapshot) =>
+          effectiveConfig.enabled && snapshot.installed && snapshot.auth.status === "authenticated"
+            ? readCursorUsageLimits({}, processEnv).pipe(
+                Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),
+              )
+            : Effect.succeed(snapshot),
+        ),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
         Effect.map(stampIdentity),
         Effect.provide(CursorSdkCatalogLive),
       );

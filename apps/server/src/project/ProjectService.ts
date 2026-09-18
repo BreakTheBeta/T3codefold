@@ -1,3 +1,4 @@
+import { ProjectCloneTracker } from "./ProjectCloneTracker.ts";
 import {
   CommandId,
   ModelSelection,
@@ -143,6 +144,7 @@ export class ProjectService extends Context.Service<
 >()("t3/project/ProjectService") {}
 
 export const make = Effect.gen(function* () {
+  const clones = yield* Effect.serviceOption(ProjectCloneTracker);
   const engine = yield* OrchestrationEngineService;
   const projects = yield* ProjectionProjects.ProjectionProjectRepository;
   const projectEnrichment = yield* ProjectEnrichmentService;
@@ -479,6 +481,7 @@ export const make = Effect.gen(function* () {
           ...(input.force === undefined ? {} : { force: input.force }),
         },
         invalidateEnrichment(existing.value.workspaceRoot).pipe(
+          Effect.andThen(Option.isSome(clones) ? clones.value.discard(projectId) : Effect.void),
           Effect.andThen(readCommitted(projectId)),
         ),
       );

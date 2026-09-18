@@ -31,6 +31,7 @@ const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
 
 interface BranchToolbarEnvModeSelectorProps {
   envLocked: boolean;
+  forceNewWorktree?: boolean;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
   workspaceRoot?: string | null;
@@ -42,6 +43,7 @@ interface BranchToolbarEnvModeSelectorProps {
 
 export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSelector({
   envLocked,
+  forceNewWorktree = false,
   effectiveEnvMode,
   activeWorktreePath,
   workspaceRoot = null,
@@ -68,7 +70,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
     [activeWorktreePath, previousWorktreeLabel, showPreviousWorktree, workspaceDisplayName],
   );
 
-  if (envLocked) {
+  if (envLocked || forceNewWorktree) {
     const lockedRow = (
       <span
         className={cn(
@@ -102,7 +104,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
                 "max-w-[240px] group-data-[compact]/composer-context:opacity-0",
             )}
           >
-            {workspaceDisplayName ?? resolveLockedWorkspaceLabel(activeWorktreePath)}
+            {forceNewWorktree
+              ? "New worktree per model"
+              : (workspaceDisplayName ?? resolveLockedWorkspaceLabel(activeWorktreePath))}
           </span>
         </span>
         {displayMode === "panel" ? (
@@ -147,6 +151,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
                 displayMode === "panel" && THREAD_DETAILS_PANEL_SELECT_ROW_CLASS,
               )}
               aria-label="Workspace"
+              data-composer-shortcut="composer.workspace"
               data-composer-context-control
             />
           }

@@ -125,27 +125,29 @@ export function legacyThreadProjection(
       updatedAt: DateTime.makeUnsafe(message.updatedAt),
     };
     const item: OrchestrationV2TurnItem =
-      message.role === "system"
-        ? { ...base, type: "system_notice", message: message.text }
-        : message.role === "user"
-          ? {
-              ...base,
-              type: "user_message",
-              messageId: message.id,
-              text: message.text,
-              attachments: message.attachments ?? [],
-              inputIntent: "turn_start",
-              createdBy: "user",
-              creationSource: "mobile",
-            }
-          : {
-              ...base,
-              type: "assistant_message",
-              messageId: message.id,
-              text: message.text,
-              attachments: message.attachments ?? [],
-              streaming: message.streaming,
-            };
+      message.role === "reasoning"
+        ? { ...base, type: "reasoning", text: message.text, streaming: message.streaming }
+        : message.role === "system"
+          ? { ...base, type: "system_notice", message: message.text }
+          : message.role === "user"
+            ? {
+                ...base,
+                type: "user_message",
+                messageId: message.id,
+                text: message.text,
+                attachments: message.attachments ?? [],
+                inputIntent: "turn_start",
+                createdBy: "user",
+                creationSource: "mobile",
+              }
+            : {
+                ...base,
+                type: "assistant_message",
+                messageId: message.id,
+                text: message.text,
+                attachments: message.attachments ?? [],
+                streaming: message.streaming,
+              };
     messageItems.set(message, item);
     return item;
   });
@@ -266,23 +268,27 @@ export function legacyThreadProjection(
     providerThreads: [],
     providerTurns: [],
     runtimeRequests,
-    messages: thread.messages.map((message) => {
-      const cached = messages.get(message);
-      if (cached !== undefined && cached.threadId === thread.id) return cached;
-      const value: OrchestrationV2ConversationMessage = {
-        ...message,
-        threadId: thread.id,
-        runId: message.turnId === null ? null : runId(message.turnId),
-        nodeId: null,
-        attachments: message.attachments ?? [],
-        createdBy: message.role === "assistant" ? "agent" : message.role,
-        creationSource: "mobile",
-        createdAt: DateTime.makeUnsafe(message.createdAt),
-        updatedAt: DateTime.makeUnsafe(message.updatedAt),
-      };
-      messages.set(message, value);
-      return value;
-    }),
+    messages: thread.messages
+      .filter((message) => message.role !== "reasoning")
+      .map((message) => {
+        const cached = messages.get(message);
+        if (cached !== undefined && cached.threadId === thread.id) return cached;
+        const value: OrchestrationV2ConversationMessage = {
+          ...message,
+          role: message.role === "reasoning" ? "system" : message.role,
+          threadId: thread.id,
+          runId: message.turnId === null ? null : runId(message.turnId),
+          nodeId: null,
+          attachments: message.attachments ?? [],
+          createdBy:
+            message.role === "assistant" || message.role === "reasoning" ? "agent" : message.role,
+          creationSource: "mobile",
+          createdAt: DateTime.makeUnsafe(message.createdAt),
+          updatedAt: DateTime.makeUnsafe(message.updatedAt),
+        };
+        messages.set(message, value);
+        return value;
+      }),
     plans: thread.proposedPlans.map((plan) => ({
       id: PlanId.make(plan.id),
       threadId: thread.id,

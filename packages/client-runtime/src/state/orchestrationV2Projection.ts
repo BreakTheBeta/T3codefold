@@ -246,6 +246,13 @@ export function applyOrchestrationV2ProjectionEvent(
     case "checkpoint-scope.created":
       return { ...base, checkpointScopes: upsertEntity(base.checkpointScopes, event.payload) };
     case "checkpoint.captured":
+      if (
+        event.payload.status === "missing" &&
+        base.checkpoints.some(
+          (checkpoint) => checkpoint.id === event.payload.id && checkpoint.status === "ready",
+        )
+      )
+        return base;
       return { ...base, checkpoints: upsertEntity(base.checkpoints, event.payload) };
     case "checkpoint.rollback-requested":
       return base;

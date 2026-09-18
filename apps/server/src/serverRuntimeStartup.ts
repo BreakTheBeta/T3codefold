@@ -1,3 +1,6 @@
+import { RunId, WorktreeSetupSnapshot } from "@t3tools/contracts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as StorageCleanup from "./storageCleanup.ts";
 import {
   CommandId,
   DEFAULT_MODEL,
@@ -351,6 +354,71 @@ const runStartupPhase = <A, E, R>(phase: string, effect: Effect.Effect<A, E, R>)
     Effect.withSpan(`server.startup.${phase}`),
   );
 
+export function interruptedWorktreeSetup(
+  snapshot: WorktreeSetupSnapshot,
+  interruptedAt: string,
+): WorktreeSetupSnapshot {
+  if (snapshot.phase !== "running") return snapshot;
+  const turnStarted = snapshot.stages.some(
+    (stage) => stage.id === "agent" && stage.status === "done",
+  );
+  return {
+    ...snapshot,
+    phase: turnStarted ? "done" : "failed",
+    endedAt: interruptedAt,
+    error: turnStarted
+      ? null
+      : "The server restarted before the worktree setup finished. Send the message again.",
+    stages: snapshot.stages.map((stage) =>
+      stage.status === "running" || stage.status === "pending"
+        ? {
+            ...stage,
+            status: "failed",
+            endedAt: interruptedAt,
+            detail: "interrupted by a server restart",
+          }
+        : stage,
+    ),
+    sequence: snapshot.sequence + 1,
+  };
+}
+
+export const reconcileWorktreeSetups = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const threads = yield* ThreadManagement.ThreadManagementService;
+  const rows = yield* sql`
+    SELECT i.thread_id AS "threadId", i.run_id AS "runId", json_extract(i.payload_json, '$.worktreeSetup') AS snapshot
+    FROM orchestration_v2_projection_turn_items i JOIN orchestration_v2_projection_threads t ON t.thread_id = i.thread_id
+    WHERE t.deleted_at IS NULL AND i.type = 'command_execution' AND json_extract(i.payload_json, '$.worktreeSetup.phase') = 'running'
+  `;
+  const setups = yield* Schema.decodeUnknownEffect(
+    Schema.Array(
+      Schema.Struct({
+        threadId: ThreadId,
+        runId: RunId,
+        snapshot: Schema.fromJsonString(WorktreeSetupSnapshot),
+      }),
+    ),
+  )(rows);
+  const now = DateTime.formatIso(yield* DateTime.now);
+  for (const { threadId, runId, snapshot } of setups) {
+    yield* threads.dispatch({
+      type: "prepared-run.progress",
+      commandId: CommandId.make(`setup:recovery:${runId}:${snapshot.sequence}`),
+      threadId,
+      runId,
+      phase: "setup",
+      snapshot: interruptedWorktreeSetup(snapshot, now),
+    });
+  }
+}).pipe(
+  Effect.catchCause((cause) =>
+    Cause.hasInterruptsOnly(cause)
+      ? Effect.failCause(cause)
+      : Effect.logWarning("worktree setup recovery failed", { cause }),
+  ),
+);
+
 interface StartupOptions {
   readonly activate?: Effect.Effect<void>;
   readonly awaitAuxiliaryParked?: Effect.Effect<void>;
@@ -570,6 +638,8 @@ export const make = (options?: StartupOptions) =>
         ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
+      yield* reconcileWorktreeSetups;
+      yield* (yield* StorageCleanup.StorageCleanup).start();
       yield* runStartupPhase(
         "projects.auto-pull",
         Effect.gen(function* () {

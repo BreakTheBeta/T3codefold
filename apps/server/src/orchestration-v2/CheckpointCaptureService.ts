@@ -57,6 +57,17 @@ export const layer: Layer.Layer<
     const ids = yield* IdAllocatorV2;
     const projections = yield* ProjectionStoreV2;
 
+    const materializeBaseline = (
+      input: Parameters<typeof checkpoints.materializeBaselineCheckpoint>[0],
+    ) =>
+      checkpoints.materializeBaselineCheckpoint(input).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Checkpoint baseline lookup failed; capturing current files", {
+            scopeId: input.scope.id,
+            error,
+          }).pipe(Effect.as(null)),
+        ),
+      );
     const execute = Effect.fn("orchestrationV2.checkpointCapture.execute")(function* (input: {
       readonly threadId: ThreadId;
       readonly runId: RunId;
@@ -104,13 +115,13 @@ export const layer: Layer.Layer<
       const threadStartCheckpoint =
         baselineOrdinalWithinScope === 0 || hasReadyCheckpoint(0)
           ? null
-          : yield* checkpoints.materializeBaselineCheckpoint({
+          : yield* materializeBaseline({
               scope,
               ordinalWithinScope: 0,
             });
       const baselineCheckpoint = hasReadyCheckpoint(baselineOrdinalWithinScope)
         ? null
-        : yield* checkpoints.materializeBaselineCheckpoint({
+        : yield* materializeBaseline({
             scope,
             ordinalWithinScope: baselineOrdinalWithinScope,
           });
