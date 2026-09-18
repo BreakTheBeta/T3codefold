@@ -228,10 +228,9 @@ export function themeColorWithAlpha(color: string, alpha: number): string {
 }
 
 /**
- * Clerk's native profile keeps a fixed palette so custom themes cannot restyle its chrome
- * (see the matching block in global.css and clerk-theme.json). Every theme still has to
- * declare them: Uniwind requires all themes to carry the same variable set, and a theme that
- * omitted one stopped the style runtime from initializing, which left the app on its splash.
+ * Clerk's native profile keeps a fixed palette so custom themes cannot restyle its chrome.
+ * The generator writes matching values into every Uniwind theme from clerk-theme.json, and
+ * runtime palettes retain them for native APIs that cannot consume a class name.
  */
 const CLERK_THEME_VARIABLES = {
   light: {

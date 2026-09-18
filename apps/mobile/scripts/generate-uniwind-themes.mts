@@ -238,8 +238,12 @@ export const readDefaultThemeVariables = (css: string) =>
   Object.fromEntries(
     APPEARANCES.map((appearance) => {
       const body = readVariantBody(css, appearance);
+      const clerkVariables = clerkVariablesFor(appearance);
       const variables = Object.fromEntries(
         MOBILE_THEME_VARIABLE_NAMES.map((name) => {
+          if (name in clerkVariables) {
+            return [name, clerkVariables[name as keyof typeof clerkVariables]];
+          }
           const match = new RegExp(`^\\s*${name}:\\s*([^;]+);`, "mu").exec(body);
           if (!match?.[1]) {
             throw new Error(`Default ${appearance} theme is missing ${name}.`);

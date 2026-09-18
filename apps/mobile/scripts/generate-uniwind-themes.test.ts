@@ -50,6 +50,9 @@ describe("generate mobile Uniwind themes", () => {
 
     expect(variables.light["--color-screen"]).toBe("#f2f2f7");
     expect(variables.dark["--color-screen"]).toBe("#0a0a0a");
+    // Clerk variables are generated from clerk-theme.json rather than authored in global.css.
+    expect(variables.light["--color-clerk-page"]).toBe("#f2f2f7");
+    expect(variables.dark["--color-clerk-page"]).toBe("#0e0e0e");
     expect(Object.keys(variables.light)).toEqual(Object.keys(variables.dark));
   });
 

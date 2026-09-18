@@ -6345,7 +6345,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           payload: {
             ...approvalTurnItem,
             ...(approvalTurnItem.type === "user_input_request" &&
-            command.attachmentsByQuestionId !== undefined
+            (command.answers !== undefined || command.attachmentsByQuestionId !== undefined)
               ? {
                   questionAnswer: {
                     requestId: command.requestId,
@@ -6353,7 +6353,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                       approvalTurnItem.questions.map((q) => [q.id, q.question]),
                     ),
                     answers: command.answers ?? {},
-                    attachmentsByQuestionId: command.attachmentsByQuestionId,
+                    attachmentsByQuestionId: command.attachmentsByQuestionId ?? {},
                   },
                 }
               : {}),

@@ -34,6 +34,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
+import { CheckpointWorkspaceIsolation } from "./CheckpointWorkspaceIsolation.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import { ServerConfig } from "../config.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -164,6 +165,11 @@ const TestLayer = Layer.mergeAll(
   ProjectionProjectRepositoryLive,
   effectOutboxLayer,
 ).pipe(
+  Layer.provide(
+    Layer.succeed(CheckpointWorkspaceIsolation, {
+      isIsolated: () => Effect.succeed(true),
+    }),
+  ),
   Layer.provide(mcpSessionRegistryTestLayer),
   Layer.provide(SqlitePersistenceMemory),
   Layer.provide(CheckpointStoreTestLayer),
@@ -470,6 +476,18 @@ it.layer(TestLayer)("OrchestrationV2LayerLive", (it) => {
       const projection = yield* orchestrator.getThreadProjection(threadId);
       const scope = projection.checkpointScopes[0]!;
       const now = yield* DateTime.now;
+      // This test isolates checkpoint readiness after the initial run has ended.
+      yield* eventSink.write({
+        commandId: CommandId.make("runtime-rollback-readiness-complete"),
+        events: projection.runs.map((run) => ({
+          id: EventId.make(`runtime-rollback-readiness-complete:${run.id}`),
+          type: "run.updated" as const,
+          threadId,
+          runId: run.id,
+          occurredAt: now,
+          payload: { ...run, status: "completed" as const, completedAt: now },
+        })),
+      });
 
       for (const status of ["missing", "error", "stale", "ready"] as const) {
         const checkpointId = CheckpointId.make("runtime-rollback-checkpoint");
