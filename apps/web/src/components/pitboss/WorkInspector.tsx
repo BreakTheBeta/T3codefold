@@ -11,6 +11,7 @@ export function WorkInspector({
   header,
   list,
   selected,
+  boardMode = false,
   children,
 }: {
   open: boolean;
@@ -20,6 +21,7 @@ export function WorkInspector({
   header: ReactNode;
   list?: ReactNode;
   selected: boolean;
+  boardMode?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -33,6 +35,7 @@ export function WorkInspector({
     edge: "right",
   });
   const wide = !!list && availableWidth >= 840;
+  const showDetail = !list || selected || (!boardMode && wide);
   useLayoutEffect(() => {
     const surface = ref.current;
     if (!open || !surface) return;
@@ -48,7 +51,7 @@ export function WorkInspector({
         keepMounted
         showCloseButton={false}
         bottomStickOnMobile={false}
-        className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-7xl flex-col gap-0 overflow-hidden p-0"
+        className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[1600px] flex-col gap-0 overflow-hidden p-0"
         finalFocus={() => {
           onReturnToChat();
           return false;
@@ -63,13 +66,13 @@ export function WorkInspector({
           {list && (
             <div
               aria-label="Work list"
-              className={`${!wide && selected ? "hidden" : "block"} min-h-0 shrink-0 overflow-y-auto overscroll-contain p-4 ${wide ? "border-r border-border" : "w-full"}`}
-              style={wide ? { width } : undefined}
+              className={`${!wide && selected ? "hidden" : "block"} min-h-0 ${boardMode ? "min-w-0 flex-1 overflow-hidden" : "shrink-0 overflow-y-auto overscroll-contain p-4"} ${wide && showDetail ? "border-r border-border" : "w-full"}`}
+              style={wide && !boardMode ? { width } : undefined}
             >
               {list}
             </div>
           )}
-          {wide && (
+          {wide && !boardMode && (
             <div
               role="separator"
               tabIndex={0}
@@ -104,7 +107,7 @@ export function WorkInspector({
           <div
             ref={scrollRef}
             aria-label="Outcome details"
-            className={`${list && !wide && !selected ? "hidden" : "block"} min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-5 sm:p-7`}
+            className={`${showDetail ? "block" : "hidden"} min-h-0 min-w-0 overflow-y-auto overscroll-contain p-5 sm:p-7 ${boardMode && wide ? "w-[420px] shrink-0" : "flex-1"}`}
           >
             {children}
           </div>

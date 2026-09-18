@@ -8,5 +8,21 @@
   "ember-light",
   "ember-dark",
   "iris-light",
-  "iris-dark"
+  "iris-dark",
+  "claude-light",
+  "claude-dark",
+  "codex-light",
+  "codex-dark",
+  "zed-light",
+  "zed-dark",
+  "midnight-light",
+  "midnight-dark",
+  "ember-forge-light",
+  "ember-forge-dark",
+  "mono-light",
+  "mono-dark",
+  "cyberpunk-light",
+  "cyberpunk-dark",
+  "slate-light",
+  "slate-dark"
 ]

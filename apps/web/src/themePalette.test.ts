@@ -90,6 +90,34 @@ describe("theme files", () => {
     }
   });
 
+  it("offers the companion palettes in both appearances with readable text and controls", () => {
+    for (const id of [
+      "claude",
+      "codex",
+      "zed",
+      "midnight",
+      "ember-forge",
+      "mono",
+      "cyberpunk",
+      "slate",
+    ]) {
+      const theme = getThemeDefinition(id);
+      expect(theme?.id).toBe(id);
+      for (const appearance of ["light", "dark"] as const) {
+        const colors = theme && getThemeColorsForMode(theme, appearance);
+        expect(colors).toBeTruthy();
+        if (!colors) throw new Error(`Missing ${id} ${appearance}`);
+        expect(contrastRatio(colors.text, colors.canvas)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.textMuted, colors.canvas)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.accentForeground, colors.accent)).toBeGreaterThanOrEqual(4.5);
+        expect(
+          contrastRatio(colors.toolbarControlForeground, colors.toolbarControl),
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    expect(getThemeDefinition("ember")).toBe(EMBER_THEME);
+  });
+
   it("keeps stock dark controls in the neutral-black surface hierarchy", () => {
     expectThemeColors(getStandardThemeColors("dark"), {
       canvas: "#0a0a0a",

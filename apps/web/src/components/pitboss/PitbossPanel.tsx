@@ -1,3 +1,4 @@
+import { GladosBoard } from "./GladosBoard";
 import { isUserWorkMessage } from "@t3tools/contracts";
 import { WorkInspector } from "./WorkInspector";
 import {
@@ -160,6 +161,7 @@ export function PitbossPanel(props: {
   const serverConfigs = useServerConfigs();
   const projects = useProjects().filter((project) => project.environmentId === props.environmentId);
   const projectName = (id: ProjectId) => projects.find((project) => project.id === id)?.title ?? id;
+  const [workView, setWorkView] = useState<"board" | "list">("board");
   const [filter, setFilter] = useState<WorkFilter>("All");
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(20);
@@ -613,7 +615,26 @@ export function PitbossPanel(props: {
         onReturnToChat={props.onComposeWork}
         scrollRef={inspectorRef}
         selected={!!selected}
-        list={isBoss && !adding ? workList : undefined}
+        boardMode={workView === "board"}
+        list={
+          isBoss && !adding ? (
+            workView === "board" ? (
+              <GladosBoard
+                state={state}
+                search={search}
+                onSearch={setSearch}
+                projectFilter={projectFilter}
+                onProjectFilter={setProjectFilter}
+                projectName={projectName}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onTalkToGlados={() => setOpen(false)}
+              />
+            ) : (
+              workList
+            )
+          ) : undefined
+        }
         header={
           <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             <div className="mr-auto">
@@ -623,6 +644,19 @@ export function PitbossPanel(props: {
                   ? "New work paused"
                   : `${active.length} working · ${next.length} planned`}
               </p>
+            </div>
+            <div className="flex gap-1" aria-label="Work view">
+              {(["board", "list"] as const).map((view) => (
+                <Button
+                  key={view}
+                  size="sm"
+                  variant={workView === view ? "secondary" : "ghost"}
+                  aria-pressed={workView === view}
+                  onClick={() => setWorkView(view)}
+                >
+                  {view === "board" ? "Board" : "Advanced"}
+                </Button>
+              ))}
             </div>
             <Button size="sm" variant="ghost" onClick={() => setEditingBrief(true)}>
               <Settings2Icon className="size-3" /> Brief & team
@@ -636,8 +670,8 @@ export function PitbossPanel(props: {
               {role?.paused ? <PlayIcon className="size-3" /> : <PauseIcon className="size-3" />}
               {role?.paused ? "Resume" : "Pause"}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
-              <MessageSquareIcon className="size-3" /> Back to chat
+            <Button size="sm" onClick={() => setOpen(false)}>
+              <MessageSquareIcon className="size-3" /> Talk to GLaDOS
             </Button>
             {(error || query.error) && (
               <p role="alert" className="w-full text-sm text-destructive">
@@ -750,7 +784,48 @@ export function PitbossPanel(props: {
             }}
           />
         )}
-        {isBoss && !editingBrief && !adding && (
+        {isBoss && !editingBrief && !adding && workView === "board" && selected && (
+          <div className="space-y-4 p-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelectedId(null)}>
+              Back to board
+            </Button>
+            <h3 ref={detailHeadingRef} tabIndex={-1} className="text-xl font-semibold outline-none">
+              {selected.title}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {statusLabel[selected.status]} · {projectName(selected.projectId)}
+            </p>
+            <p className="whitespace-pre-wrap text-sm">{selected.outcome}</p>
+            {selected.note && (
+              <p className="whitespace-pre-wrap text-sm text-muted-foreground">{selected.note}</p>
+            )}
+            {state.messages
+              .filter((message) => message.taskId === selected.id && !message.acknowledged)
+              .map((message) => (
+                <p
+                  key={message.id}
+                  className="whitespace-pre-wrap rounded-lg border border-border p-3 text-sm"
+                >
+                  {message.text}
+                </p>
+              ))}
+            <p className="text-xs text-muted-foreground">
+              GLaDOS coordinates workers and verification. You can give direction or answer
+              questions in chat.
+            </p>
+            <Button onClick={() => setOpen(false)}>Talk to GLaDOS</Button>
+            <h4 className="text-sm font-medium">Evidence · {selected.evidence.length}</h4>
+            {selected.evidence.map((evidence) => (
+              <article key={evidence.id} className="rounded-lg border border-border p-3 text-sm">
+                <p className="font-medium">
+                  {evidence.verdict} · {evidence.provenance.replaceAll("_", " ")}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap">{evidence.summary}</p>
+              </article>
+            ))}
+          </div>
+        )}
+        {isBoss && !editingBrief && !adding && workView === "list" && (
           <>
             {!selected && (
               <div className="flex min-h-64 flex-col justify-center p-5">

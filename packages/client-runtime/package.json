@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./glados-board": {
+      "types": "./src/gladosBoard.ts",
+      "default": "./src/gladosBoard.ts"
+    },
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"

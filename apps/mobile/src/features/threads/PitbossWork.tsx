@@ -1,3 +1,4 @@
+import { GladosBoard } from "./GladosBoard";
 import { useAssetUrlState } from "../../state/assets";
 import { useProjects, useServerConfigs } from "../../state/entities";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -93,6 +94,7 @@ export function PitbossWork(props: {
   const dimensions = useWindowDimensions();
   const [surface, setSurface] = useState({ width: dimensions.width, height: dimensions.height });
   const { split, listWidth } = gladosInboxLayout(surface.width, surface.height);
+  const [workView, setWorkView] = useState<"board" | "advanced">("board");
   const [tab, setTab] = useState<GladosInboxTab>("all");
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState<ProjectId | undefined>();
@@ -306,619 +308,708 @@ export function PitbossWork(props: {
                     () => void command({ type: "pause", paused: !role.paused }),
                   )}
               </View>
-              <View className="flex-row border-b border-border px-2" accessibilityRole="tablist">
-                {(
-                  [
-                    ["all", "All"],
-                    ["needs-you", "Needs you"],
-                    ["working", "Working"],
-                    ["delivered", "Delivered"],
-                  ] as const
-                ).map(([key, label]) => (
+              <View className="flex-row gap-2 px-4 pb-2">
+                {(["board", "advanced"] as const).map((view) => (
                   <Pressable
-                    key={key}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: tab === key }}
-                    accessibilityLabel={`${label}, ${inbox[key].length}`}
+                    key={view}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: workView === view }}
                     onPress={() => {
-                      setTab(key);
+                      setWorkView(view);
                       leaveDetail();
                     }}
-                    style={{
-                      minHeight: 48,
-                      flex: 1,
-                      justifyContent: "center",
-                      borderBottomWidth: tab === key ? 2 : 0,
-                    }}
-                    className="border-primary px-1"
+                    className={`min-h-12 justify-center rounded-xl px-4 ${workView === view ? "bg-secondary" : "bg-muted"}`}
                   >
-                    <Text
-                      className={
-                        tab === key
-                          ? "text-center font-semibold text-primary"
-                          : "text-center text-muted-foreground"
-                      }
-                    >
-                      {label} · {inbox[key].length}
-                    </Text>
+                    <Text>{view === "board" ? "Board" : "Advanced"}</Text>
                   </Pressable>
                 ))}
               </View>
-              <View className="flex-1 flex-row">
-                {(split || !selectedKey) && (
+              {workView === "board" ? (
+                <GladosBoard
+                  state={state}
+                  width={surface.width}
+                  search={search}
+                  onSearch={setSearch}
+                  projectFilter={projectFilter}
+                  onProjectFilter={setProjectFilter}
+                  projectName={(id) =>
+                    projects.find((project) => project.id === id)?.title ?? "Project"
+                  }
+                  selectedKey={selectedKey}
+                  onSelect={setSelectedKey}
+                  onTalkToGlados={() => {
+                    composeAfterDismiss.current = true;
+                    setVisible(false);
+                  }}
+                />
+              ) : (
+                <>
                   <View
-                    style={{ width: split ? listWidth : "100%" }}
-                    className="border-r border-border"
+                    className="flex-row border-b border-border px-2"
+                    accessibilityRole="tablist"
                   >
-                    <View className="gap-2 border-b border-border px-3 py-2">
-                      <TextInput
-                        accessibilityLabel="Search outcomes"
-                        placeholder="Search outcomes"
-                        value={search}
-                        onChangeText={setSearch}
-                        clearButtonMode="while-editing"
-                        className="min-h-11 rounded-lg bg-muted px-3 text-foreground"
-                      />
+                    {(
+                      [
+                        ["all", "All"],
+                        ["needs-you", "Needs you"],
+                        ["working", "Working"],
+                        ["delivered", "Delivered"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <Pressable
+                        key={key}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: tab === key }}
+                        accessibilityLabel={`${label}, ${inbox[key].length}`}
+                        onPress={() => {
+                          setTab(key);
+                          leaveDetail();
+                        }}
+                        style={{
+                          minHeight: 48,
+                          flex: 1,
+                          justifyContent: "center",
+                          borderBottomWidth: tab === key ? 2 : 0,
+                        }}
+                        className="border-primary px-1"
+                      >
+                        <Text
+                          className={
+                            tab === key
+                              ? "text-center font-semibold text-primary"
+                              : "text-center text-muted-foreground"
+                          }
+                        >
+                          {label} · {inbox[key].length}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <View className="flex-1 flex-row">
+                    {(split || !selectedKey) && (
+                      <View
+                        style={{ width: split ? listWidth : "100%" }}
+                        className="border-r border-border"
+                      >
+                        <View className="gap-2 border-b border-border px-3 py-2">
+                          <TextInput
+                            accessibilityLabel="Search outcomes"
+                            placeholder="Search outcomes"
+                            value={search}
+                            onChangeText={setSearch}
+                            clearButtonMode="while-editing"
+                            className="min-h-11 rounded-lg bg-muted px-3 text-foreground"
+                          />
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                          >
+                            <View className="flex-row gap-2">
+                              {[{ id: undefined, title: "All projects" }, ...projects].map(
+                                (project) => (
+                                  <Pressable
+                                    key={project.id ?? "all"}
+                                    accessibilityRole="radio"
+                                    accessibilityState={{ checked: projectFilter === project.id }}
+                                    onPress={() => setProjectFilter(project.id)}
+                                    className={`min-h-11 justify-center rounded-lg px-3 ${projectFilter === project.id ? "bg-primary/10" : "bg-muted"}`}
+                                  >
+                                    <Text className="text-sm">{project.title}</Text>
+                                  </Pressable>
+                                ),
+                              )}
+                            </View>
+                          </ScrollView>
+                        </View>
+                        <FlatList<GladosInboxRow>
+                          data={rows}
+                          keyExtractor={(row) => row.key}
+                          contentContainerStyle={{ padding: 12, gap: 8 }}
+                          extraData={selectedKey}
+                          keyboardShouldPersistTaps="handled"
+                          ListEmptyComponent={
+                            <View className="gap-2 p-5">
+                              <Text className="font-semibold">
+                                {search.trim() || projectFilter
+                                  ? "No matching outcomes"
+                                  : tab === "needs-you"
+                                    ? "Nothing needs your attention"
+                                    : tab === "working"
+                                      ? "Ready for your next outcome"
+                                      : "Completed outcomes will appear here"}
+                              </Text>
+                              <Text className="text-sm text-muted-foreground">
+                                Describe the outcome in chat. GLaDOS prepares the task, success
+                                criteria and checks, then reports back here.
+                              </Text>
+                            </View>
+                          }
+                          renderItem={({ item }) => (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={
+                                item.task
+                                  ? `Review ${item.task.title}`
+                                  : `Read ${item.message.kind}: ${item.message.text}`
+                              }
+                              accessibilityState={{ selected: selectedKey === item.key }}
+                              onPress={() => {
+                                setSelectedKey(item.key);
+                                setShowHistory(false);
+                                setShowProfiles(false);
+                                setShowCriteria(false);
+                                setShowManagement(false);
+                              }}
+                              style={{ minHeight: 88 }}
+                              className={`gap-1 rounded-xl border p-3 ${selectedKey === item.key ? "border-primary bg-primary/10" : "border-transparent"}`}
+                            >
+                              <Text className="text-xs text-muted-foreground">
+                                {item.task
+                                  ? `${projectName(item.task.projectId)} · ${gladosWorkStatus(item.task, state)}`
+                                  : `GLaDOS · ${item.message.kind}`}
+                              </Text>
+                              <Text className="font-semibold" numberOfLines={2}>
+                                {item.task ? item.task.title : item.message.text}
+                              </Text>
+                              <Text className="text-sm text-muted-foreground" numberOfLines={2}>
+                                {item.task?.note ||
+                                  item.task?.outcome ||
+                                  "A decision from your team"}
+                              </Text>
+                            </Pressable>
+                          )}
+                        />
+                      </View>
+                    )}
+                    {(split || selectedKey) && (
                       <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
+                        className="flex-1"
+                        contentContainerStyle={{ padding: 16, gap: 12 }}
                         keyboardShouldPersistTaps="handled"
                       >
-                        <View className="flex-row gap-2">
-                          {[{ id: undefined, title: "All projects" }, ...projects].map(
-                            (project) => (
-                              <Pressable
-                                key={project.id ?? "all"}
-                                accessibilityRole="radio"
-                                accessibilityState={{ checked: projectFilter === project.id }}
-                                onPress={() => setProjectFilter(project.id)}
-                                className={`min-h-11 justify-center rounded-lg px-3 ${projectFilter === project.id ? "bg-primary/10" : "bg-muted"}`}
-                              >
-                                <Text className="text-sm">{project.title}</Text>
-                              </Pressable>
-                            ),
-                          )}
-                        </View>
-                      </ScrollView>
-                    </View>
-                    <FlatList<GladosInboxRow>
-                      data={rows}
-                      keyExtractor={(row) => row.key}
-                      contentContainerStyle={{ padding: 12, gap: 8 }}
-                      extraData={selectedKey}
-                      keyboardShouldPersistTaps="handled"
-                      ListEmptyComponent={
-                        <View className="gap-2 p-5">
-                          <Text className="font-semibold">
-                            {search.trim() || projectFilter
-                              ? "No matching outcomes"
-                              : tab === "needs-you"
-                                ? "Nothing needs your attention"
-                                : tab === "working"
-                                  ? "Ready for your next outcome"
-                                  : "Completed outcomes will appear here"}
-                          </Text>
-                          <Text className="text-sm text-muted-foreground">
-                            Describe the outcome in chat. GLaDOS prepares the task, success criteria
-                            and checks, then reports back here.
-                          </Text>
-                        </View>
-                      }
-                      renderItem={({ item }) => (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            item.task
-                              ? `Review ${item.task.title}`
-                              : `Read ${item.message.kind}: ${item.message.text}`
-                          }
-                          accessibilityState={{ selected: selectedKey === item.key }}
-                          onPress={() => {
-                            setSelectedKey(item.key);
-                            setShowHistory(false);
-                            setShowProfiles(false);
-                            setShowCriteria(false);
-                            setShowManagement(false);
-                          }}
-                          style={{ minHeight: 88 }}
-                          className={`gap-1 rounded-xl border p-3 ${selectedKey === item.key ? "border-primary bg-primary/10" : "border-transparent"}`}
-                        >
-                          <Text className="text-xs text-muted-foreground">
-                            {item.task
-                              ? `${projectName(item.task.projectId)} · ${gladosWorkStatus(item.task, state)}`
-                              : `GLaDOS · ${item.message.kind}`}
-                          </Text>
-                          <Text className="font-semibold" numberOfLines={2}>
-                            {item.task ? item.task.title : item.message.text}
-                          </Text>
-                          <Text className="text-sm text-muted-foreground" numberOfLines={2}>
-                            {item.task?.note || item.task?.outcome || "A decision from your team"}
-                          </Text>
-                        </Pressable>
-                      )}
-                    />
-                  </View>
-                )}
-                {(split || selectedKey) && (
-                  <ScrollView
-                    className="flex-1"
-                    contentContainerStyle={{ padding: 16, gap: 12 }}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {selectedKey && button("Back to outcomes", leaveDetail)}
-                    {!selectedRow && (
-                      <View className="gap-2 py-8">
-                        <Text className="text-xl font-semibold">Choose an outcome</Text>
-                        <Text className="text-muted-foreground">
-                          See the recommendation, evidence and next decision together.
-                        </Text>
-                      </View>
-                    )}
-                    {selectedRow?.message && (
-                      <View className="gap-3">
-                        <Text className="text-lg font-semibold">{selectedRow.message.kind}</Text>
-                        <Text selectable>{selectedRow.message.text}</Text>
-                        {button("Acknowledge", () => {
-                          void command({ type: "acknowledge", messageId: selectedRow.message!.id });
-                        })}
-                      </View>
-                    )}
-                    {selectedTask &&
-                      (() => {
-                        const task = selectedTask;
-                        return (
+                        {selectedKey && button("Back to outcomes", leaveDetail)}
+                        {!selectedRow && (
+                          <View className="gap-2 py-8">
+                            <Text className="text-xl font-semibold">Choose an outcome</Text>
+                            <Text className="text-muted-foreground">
+                              See the recommendation, evidence and next decision together.
+                            </Text>
+                          </View>
+                        )}
+                        {selectedRow?.message && (
                           <View className="gap-3">
-                            <Text className="text-xs text-muted-foreground">
-                              {projectName(task.projectId)} ·{" "}
-                              {task.leadId ? `Project lead ${task.leadId}` : "Managed by GLaDOS"} ·{" "}
-                              {task.homeEnvironmentId
-                                ? `Task home ${task.homeEnvironmentId}`
-                                : "This environment"}
+                            <Text className="text-lg font-semibold">
+                              {selectedRow.message.kind}
                             </Text>
-                            <Text className="text-xl font-semibold">{task.title}</Text>
-                            <Text className="text-xs text-muted-foreground">
-                              {gladosWorkKind(task, state)} · {gladosWorkStatus(task, state)}
-                            </Text>
-                            {task.proposedVerificationRecipe && (
-                              <View className="rounded-xl border border-primary p-3">
-                                <Text className="font-semibold">Verification setup proposed</Text>
-                                <Text>{task.proposedVerificationRecipe.name}</Text>
-                                <Text className="text-sm text-muted-foreground">
-                                  Review the checks GLaDOS prepared. Saving approves this profile
-                                  for the outcome.
+                            <Text selectable>{selectedRow.message.text}</Text>
+                            {button("Acknowledge", () => {
+                              void command({
+                                type: "acknowledge",
+                                messageId: selectedRow.message!.id,
+                              });
+                            })}
+                          </View>
+                        )}
+                        {selectedTask &&
+                          (() => {
+                            const task = selectedTask;
+                            return (
+                              <View className="gap-3">
+                                <Text className="text-xs text-muted-foreground">
+                                  {projectName(task.projectId)} ·{" "}
+                                  {task.leadId
+                                    ? `Project lead ${task.leadId}`
+                                    : "Managed by GLaDOS"}{" "}
+                                  ·{" "}
+                                  {task.homeEnvironmentId
+                                    ? `Task home ${task.homeEnvironmentId}`
+                                    : "This environment"}
                                 </Text>
-                                {[
-                                  ["Work type", task.proposedVerificationRecipe.mode ?? "commit"],
-                                  ["Environment", task.proposedVerificationRecipe.environmentId],
-                                  ["Target", task.proposedVerificationRecipe.target],
-                                  ["Input files", task.proposedVerificationRecipe.inputPath],
-                                  ["Allowed effects", task.proposedVerificationRecipe.effects],
-                                  [
-                                    "Evidence lifetime",
-                                    task.proposedVerificationRecipe.maxAgeSeconds
-                                      ? `${task.proposedVerificationRecipe.maxAgeSeconds} seconds`
-                                      : undefined,
-                                  ],
-                                  ["Readiness", task.proposedVerificationRecipe.doctor],
-                                  ["Verification", task.proposedVerificationRecipe.verify],
-                                  ["Cleanup", task.proposedVerificationRecipe.cleanup],
-                                ]
-                                  .filter(([, value]) => value)
-                                  .map(([label, value]) => (
-                                    <View key={label} className="gap-1 py-2">
-                                      <Text className="text-sm font-semibold">{label}</Text>
-                                      <Text selectable className="text-xs">
-                                        {value}
-                                      </Text>
+                                <Text className="text-xl font-semibold">{task.title}</Text>
+                                <Text className="text-xs text-muted-foreground">
+                                  {gladosWorkKind(task, state)} · {gladosWorkStatus(task, state)}
+                                </Text>
+                                {task.proposedVerificationRecipe && (
+                                  <View className="rounded-xl border border-primary p-3">
+                                    <Text className="font-semibold">
+                                      Verification setup proposed
+                                    </Text>
+                                    <Text>{task.proposedVerificationRecipe.name}</Text>
+                                    <Text className="text-sm text-muted-foreground">
+                                      Review the checks GLaDOS prepared. Saving approves this
+                                      profile for the outcome.
+                                    </Text>
+                                    {[
+                                      [
+                                        "Work type",
+                                        task.proposedVerificationRecipe.mode ?? "commit",
+                                      ],
+                                      [
+                                        "Environment",
+                                        task.proposedVerificationRecipe.environmentId,
+                                      ],
+                                      ["Target", task.proposedVerificationRecipe.target],
+                                      ["Input files", task.proposedVerificationRecipe.inputPath],
+                                      ["Allowed effects", task.proposedVerificationRecipe.effects],
+                                      [
+                                        "Evidence lifetime",
+                                        task.proposedVerificationRecipe.maxAgeSeconds
+                                          ? `${task.proposedVerificationRecipe.maxAgeSeconds} seconds`
+                                          : undefined,
+                                      ],
+                                      ["Readiness", task.proposedVerificationRecipe.doctor],
+                                      ["Verification", task.proposedVerificationRecipe.verify],
+                                      ["Cleanup", task.proposedVerificationRecipe.cleanup],
+                                    ]
+                                      .filter(([, value]) => value)
+                                      .map(([label, value]) => (
+                                        <View key={label} className="gap-1 py-2">
+                                          <Text className="text-sm font-semibold">{label}</Text>
+                                          <Text selectable className="text-xs">
+                                            {value}
+                                          </Text>
+                                        </View>
+                                      ))}
+                                    <Text className="text-xs text-muted-foreground">
+                                      {task.proposedVerificationRecipe.timeoutSeconds}s limit ·{" "}
+                                      {task.proposedVerificationRecipe.artifacts.join(", ") ||
+                                        "No captured files"}
+                                    </Text>
+                                    {verificationProposalSaveAction(task) &&
+                                      button(
+                                        verificationProposalApprovalAction(task)
+                                          ? "Approve and save exact proposal"
+                                          : "Save evidence profile",
+                                        () => {
+                                          const action = verificationProposalSaveAction(task);
+                                          if (action) void command(action);
+                                        },
+                                        !!task.homeEnvironmentId,
+                                      )}
+                                  </View>
+                                )}
+                                {task.status !== "cancelled" &&
+                                  task.decisions
+                                    ?.filter((decision) => decision.answer === undefined)
+                                    .map((decision) => (
+                                      <View
+                                        key={decision.id}
+                                        className="gap-3 rounded-xl border border-primary bg-primary/5 p-4"
+                                      >
+                                        <Text className="text-lg font-semibold">Your decision</Text>
+                                        <Text>{decision.question}</Text>
+                                        <Text className="font-semibold">Recommendation</Text>
+                                        <Text>
+                                          {decision.recommendation || "No recommendation yet."}
+                                        </Text>
+                                        <Text className="text-sm text-muted-foreground">
+                                          This decision pauses this outcome. Independent work can
+                                          continue.
+                                        </Text>
+                                        {verificationProposalApprovalAction(task)?.decisionId ===
+                                          decision.id && (
+                                          <View className="gap-2">
+                                            {button(
+                                              "Approve and save evidence profile",
+                                              () => {
+                                                const action =
+                                                  verificationProposalApprovalAction(task);
+                                                if (action) void command(action);
+                                              },
+                                              !!task.homeEnvironmentId,
+                                            )}
+                                            <Text className="text-xs text-muted-foreground">
+                                              Other choices and written replies do not change proof
+                                              requirements.
+                                            </Text>
+                                          </View>
+                                        )}
+                                        {decision.options.map((option) => (
+                                          <View key={option}>
+                                            {button(
+                                              option,
+                                              () =>
+                                                void command({
+                                                  type: "resolve-decision",
+                                                  taskId: task.id,
+                                                  decisionId: decision.id,
+                                                  answer: option,
+                                                }),
+                                              !!task.homeEnvironmentId,
+                                            )}
+                                          </View>
+                                        ))}
+                                        <TextInput
+                                          accessibilityLabel="Your decision answer"
+                                          placeholder="Or give your own direction"
+                                          multiline
+                                          value={decisionDrafts[decision.id] ?? ""}
+                                          onChangeText={(value) =>
+                                            setDecisionDrafts((drafts) => ({
+                                              ...drafts,
+                                              [decision.id]: value,
+                                            }))
+                                          }
+                                          className="min-h-12 rounded-lg border border-border p-3 text-foreground"
+                                        />
+                                        {button(
+                                          "Send decision",
+                                          () => {
+                                            if (decisionDrafts[decision.id]?.trim())
+                                              void command({
+                                                type: "resolve-decision",
+                                                taskId: task.id,
+                                                decisionId: decision.id,
+                                                answer: decisionDrafts[decision.id]!.trim(),
+                                              }).then((saved) => {
+                                                if (saved)
+                                                  setDecisionDrafts((drafts) => ({
+                                                    ...drafts,
+                                                    [decision.id]: "",
+                                                  }));
+                                              });
+                                          },
+                                          !decisionDrafts[decision.id]?.trim() ||
+                                            !!task.homeEnvironmentId,
+                                        )}
+                                        {button("Decide later", leaveDetail)}
+                                      </View>
+                                    ))}
+                                <Text>{task.outcome}</Text>
+                                {task.dependencies.length > 0 && (
+                                  <View className="gap-2">
+                                    <Text className="text-sm font-semibold">Depends on</Text>
+                                    {task.dependencies.map((id) => {
+                                      const dependency = state.tasks.find(
+                                        (candidate) => candidate.id === id,
+                                      );
+                                      return (
+                                        <View key={id}>
+                                          {button(
+                                            dependency?.title ?? id,
+                                            () => setSelectedKey(`task:${id}`),
+                                            !dependency,
+                                          )}
+                                        </View>
+                                      );
+                                    })}
+                                  </View>
+                                )}
+                                {button(
+                                  showCriteria ? "Hide success criteria" : "What success means",
+                                  () => setShowCriteria(!showCriteria),
+                                )}
+                                {showCriteria && (
+                                  <Text className="text-sm text-muted-foreground">
+                                    {task.criteria}
+                                  </Text>
+                                )}
+                                <Text className="font-semibold">
+                                  {gladosReceiptStatus(task, state, now)}
+                                </Text>
+                                <Text>
+                                  {task.note || "The team has not reported a recommendation yet."}
+                                </Text>
+                                {task.closedReason && (
+                                  <Text className="text-xs text-muted-foreground">
+                                    Closure history · {task.closedReason}
+                                    {task.closedAt
+                                      ? ` · ${new Date(task.closedAt).toLocaleString()}`
+                                      : ""}
+                                  </Text>
+                                )}
+                                {state.messages
+                                  .filter(
+                                    (message) =>
+                                      message.taskId === task.id &&
+                                      !message.acknowledged &&
+                                      !task.decisions?.some(
+                                        (decision) =>
+                                          decision.id === message.id &&
+                                          decision.answer === undefined,
+                                      ),
+                                  )
+                                  .map((message) => (
+                                    <View
+                                      key={message.id}
+                                      className="gap-2 rounded-xl border border-primary/30 p-3"
+                                    >
+                                      <Text className="font-semibold">{message.kind}</Text>
+                                      <Text selectable>{message.text}</Text>
+                                      {button(
+                                        "Acknowledge",
+                                        () =>
+                                          void command({
+                                            type: "acknowledge",
+                                            messageId: message.id,
+                                          }),
+                                      )}
                                     </View>
                                   ))}
-                                <Text className="text-xs text-muted-foreground">
-                                  {task.proposedVerificationRecipe.timeoutSeconds}s limit ·{" "}
-                                  {task.proposedVerificationRecipe.artifacts.join(", ") ||
-                                    "No captured files"}
-                                </Text>
-                                {verificationProposalSaveAction(task) &&
-                                  button(
-                                    verificationProposalApprovalAction(task)
-                                      ? "Approve and save exact proposal"
-                                      : "Save evidence profile",
-                                    () => {
-                                      const action = verificationProposalSaveAction(task);
-                                      if (action) void command(action);
-                                    },
-                                    !!task.homeEnvironmentId,
-                                  )}
-                              </View>
-                            )}
-                            {task.status !== "cancelled" &&
-                              task.decisions
-                                ?.filter((decision) => decision.answer === undefined)
-                                .map((decision) => (
-                                  <View
-                                    key={decision.id}
-                                    className="gap-3 rounded-xl border border-primary bg-primary/5 p-4"
-                                  >
-                                    <Text className="text-lg font-semibold">Your decision</Text>
-                                    <Text>{decision.question}</Text>
-                                    <Text className="font-semibold">Recommendation</Text>
+                                {task.source && (
+                                  <Text className="text-xs text-muted-foreground">
+                                    {task.source.kind} · {task.source.key} · Source:{" "}
+                                    {task.source.status} · T3 work: {task.status}
+                                  </Text>
+                                )}
+
+                                {task.verification && (
+                                  <View className="gap-2 rounded-lg bg-muted p-3">
+                                    <Text className="font-semibold">
+                                      Captured verification · {task.verification.state}
+                                    </Text>
                                     <Text>
-                                      {decision.recommendation || "No recommendation yet."}
+                                      {task.verification.receipt?.summary ??
+                                        "Waiting for the environment runner."}
                                     </Text>
-                                    <Text className="text-sm text-muted-foreground">
-                                      This decision pauses this outcome. Independent work can
-                                      continue.
+                                    <Text className="text-xs">
+                                      {task.verification.candidate} · recipe v
+                                      {task.verification.recipe.version}
                                     </Text>
-                                    {verificationProposalApprovalAction(task)?.decisionId ===
-                                      decision.id && (
-                                      <View className="gap-2">
-                                        {button(
-                                          "Approve and save evidence profile",
-                                          () => {
-                                            const action = verificationProposalApprovalAction(task);
-                                            if (action) void command(action);
-                                          },
-                                          !!task.homeEnvironmentId,
-                                        )}
-                                        <Text className="text-xs text-muted-foreground">
-                                          Other choices and written replies do not change proof
-                                          requirements.
-                                        </Text>
-                                      </View>
+                                    {task.verification.receipt?.expiresAt && (
+                                      <Text className="text-sm">
+                                        Valid until{" "}
+                                        {new Date(
+                                          task.verification.receipt.expiresAt,
+                                        ).toLocaleString()}
+                                      </Text>
                                     )}
-                                    {decision.options.map((option) => (
-                                      <View key={option}>
+                                    {task.verification.receipt?.target && (
+                                      <Text>Target: {task.verification.receipt.target}</Text>
+                                    )}
+                                    {button(
+                                      showHistory
+                                        ? "Hide logs and history"
+                                        : "Show logs and history",
+                                      () => setShowHistory(!showHistory),
+                                    )}
+                                    {showHistory &&
+                                      task.verification.receipt?.checks.map((check) => (
+                                        <View key={check.name}>
+                                          <Text>
+                                            {check.name}:{" "}
+                                            {check.timedOut ? "timed out" : `exit ${check.code}`}
+                                          </Text>
+                                          <Text selectable className="text-xs">
+                                            {check.stdout}
+                                            {check.stderr}
+                                          </Text>
+                                        </View>
+                                      ))}
+                                  </View>
+                                )}
+                                {verificationRecipeForTask(state, task) &&
+                                  verificationRecipeForTask(state, task)?.enabled !== false &&
+                                  button(
+                                    "Run captured verification",
+                                    () => {
+                                      const latest = task.evidence.at(-1);
+                                      if (latest)
+                                        void command({
+                                          type: "verify",
+                                          taskId: task.id,
+                                          evidenceId: latest.id,
+                                        });
+                                    },
+                                    busy ||
+                                      !!role?.paused ||
+                                      !task.evidence.length ||
+                                      task.verification?.state === "pending" ||
+                                      task.verification?.state === "running" ||
+                                      task.attempts.some((attempt) =>
+                                        [
+                                          "pending",
+                                          "running",
+                                          "submitted",
+                                          "stop_requested",
+                                        ].includes(attempt.state),
+                                      ),
+                                  )}
+                                {task.decisions
+                                  ?.filter((decision) => decision.answer !== undefined)
+                                  .map((decision) => (
+                                    <View
+                                      key={decision.id}
+                                      className="gap-1 rounded-lg bg-muted p-3"
+                                    >
+                                      <Text className="font-semibold">Your decision recorded</Text>
+                                      <Text>{decision.question}</Text>
+                                      <Text>{decision.answer}</Text>
+                                    </View>
+                                  ))}
+                                {button(
+                                  showProfiles
+                                    ? "Close profile choices"
+                                    : "Change evidence profile",
+                                  () => setShowProfiles(!showProfiles),
+                                )}
+                                <Text className="text-xs">
+                                  Evidence profile:{" "}
+                                  {verificationRecipeForTask(state, task)?.name ??
+                                    "Reported evidence"}
+                                </Text>
+                                {showProfiles &&
+                                  (state.verificationRecipes ?? [])
+                                    .filter(
+                                      (recipe) =>
+                                        recipe.projectId === task.projectId &&
+                                        recipe.enabled !== false,
+                                    )
+                                    .map((recipe) => (
+                                      <View key={recipe.profileId ?? "default"}>
                                         {button(
-                                          option,
-                                          () =>
+                                          `Use ${recipe.name}`,
+                                          () => {
                                             void command({
-                                              type: "resolve-decision",
+                                              type: "verification-profile",
                                               taskId: task.id,
-                                              decisionId: decision.id,
-                                              answer: option,
-                                            }),
-                                          !!task.homeEnvironmentId,
+                                              profileId: recipe.profileId ?? "default",
+                                            });
+                                          },
+                                          busy ||
+                                            task.verification?.state === "running" ||
+                                            task.verification?.state === "pending",
                                         )}
                                       </View>
                                     ))}
-                                    <TextInput
-                                      accessibilityLabel="Your decision answer"
-                                      placeholder="Or give your own direction"
-                                      multiline
-                                      value={decisionDrafts[decision.id] ?? ""}
-                                      onChangeText={(value) =>
-                                        setDecisionDrafts((drafts) => ({
-                                          ...drafts,
-                                          [decision.id]: value,
-                                        }))
-                                      }
-                                      className="min-h-12 rounded-lg border border-border p-3 text-foreground"
-                                    />
-                                    {button(
-                                      "Send decision",
-                                      () => {
-                                        if (decisionDrafts[decision.id]?.trim())
-                                          void command({
-                                            type: "resolve-decision",
-                                            taskId: task.id,
-                                            decisionId: decision.id,
-                                            answer: decisionDrafts[decision.id]!.trim(),
-                                          }).then((saved) => {
-                                            if (saved)
-                                              setDecisionDrafts((drafts) => ({
-                                                ...drafts,
-                                                [decision.id]: "",
-                                              }));
-                                          });
-                                      },
-                                      !decisionDrafts[decision.id]?.trim() ||
-                                        !!task.homeEnvironmentId,
-                                    )}
-                                    {button("Decide later", leaveDetail)}
-                                  </View>
-                                ))}
-                            <Text>{task.outcome}</Text>
-                            {task.dependencies.length > 0 && (
-                              <View className="gap-2">
-                                <Text className="text-sm font-semibold">Depends on</Text>
-                                {task.dependencies.map((id) => {
-                                  const dependency = state.tasks.find(
-                                    (candidate) => candidate.id === id,
-                                  );
-                                  return (
-                                    <View key={id}>
-                                      {button(
-                                        dependency?.title ?? id,
-                                        () => setSelectedKey(`task:${id}`),
-                                        !dependency,
-                                      )}
-                                    </View>
-                                  );
-                                })}
-                              </View>
-                            )}
-                            {button(
-                              showCriteria ? "Hide success criteria" : "What success means",
-                              () => setShowCriteria(!showCriteria),
-                            )}
-                            {showCriteria && (
-                              <Text className="text-sm text-muted-foreground">{task.criteria}</Text>
-                            )}
-                            <Text className="font-semibold">
-                              {gladosReceiptStatus(task, state, now)}
-                            </Text>
-                            <Text>
-                              {task.note || "The team has not reported a recommendation yet."}
-                            </Text>
-                            {task.closedReason && (
-                              <Text className="text-xs text-muted-foreground">
-                                Closure history · {task.closedReason}
-                                {task.closedAt
-                                  ? ` · ${new Date(task.closedAt).toLocaleString()}`
-                                  : ""}
-                              </Text>
-                            )}
-                            {state.messages
-                              .filter(
-                                (message) =>
-                                  message.taskId === task.id &&
-                                  !message.acknowledged &&
-                                  !task.decisions?.some(
-                                    (decision) =>
-                                      decision.id === message.id && decision.answer === undefined,
-                                  ),
-                              )
-                              .map((message) => (
-                                <View
-                                  key={message.id}
-                                  className="gap-2 rounded-xl border border-primary/30 p-3"
-                                >
-                                  <Text className="font-semibold">{message.kind}</Text>
-                                  <Text selectable>{message.text}</Text>
-                                  {button(
-                                    "Acknowledge",
-                                    () =>
-                                      void command({ type: "acknowledge", messageId: message.id }),
+                                {showProfiles &&
+                                  button(
+                                    "Use reported evidence",
+                                    () => {
+                                      void command({
+                                        type: "verification-profile",
+                                        taskId: task.id,
+                                        profileId: null,
+                                      });
+                                    },
+                                    busy,
                                   )}
-                                </View>
-                              ))}
-                            {task.source && (
-                              <Text className="text-xs text-muted-foreground">
-                                {task.source.kind} · {task.source.key} · Source:{" "}
-                                {task.source.status} · T3 work: {task.status}
-                              </Text>
-                            )}
 
-                            {task.verification && (
-                              <View className="gap-2 rounded-lg bg-muted p-3">
-                                <Text className="font-semibold">
-                                  Captured verification · {task.verification.state}
-                                </Text>
-                                <Text>
-                                  {task.verification.receipt?.summary ??
-                                    "Waiting for the environment runner."}
-                                </Text>
-                                <Text className="text-xs">
-                                  {task.verification.candidate} · recipe v
-                                  {task.verification.recipe.version}
-                                </Text>
-                                {task.verification.receipt?.expiresAt && (
-                                  <Text className="text-sm">
-                                    Valid until{" "}
-                                    {new Date(task.verification.receipt.expiresAt).toLocaleString()}
-                                  </Text>
-                                )}
-                                {task.verification.receipt?.target && (
-                                  <Text>Target: {task.verification.receipt.target}</Text>
+                                {(showHistory ? task.evidence : task.evidence.slice(-1)).map(
+                                  (evidence) => (
+                                    <View
+                                      key={evidence.id}
+                                      className="gap-1 rounded-lg bg-muted p-3"
+                                    >
+                                      <Text className="text-sm">
+                                        {evidence.verdict} ·{" "}
+                                        {evidence.provenance.replaceAll("_", " ")}
+                                      </Text>
+                                      <Text className="text-sm">{evidence.summary}</Text>
+                                      <Text className="text-xs">{evidence.candidate}</Text>
+                                      {evidence.capture?.receipt.artifacts.map((artifact) => (
+                                        <VerificationArtifact
+                                          key={artifact.attachmentId}
+                                          artifact={artifact}
+                                          environmentId={
+                                            task.homeEnvironmentId ?? props.environmentId
+                                          }
+                                        />
+                                      ))}
+                                      {task.evidence.at(-1)?.id === evidence.id &&
+                                        task.status === "verifying" &&
+                                        evidence.verdict === "pass" &&
+                                        (!verificationRecipeForTask(state, task) ||
+                                          verificationRecipeForTask(state, task)?.enabled ===
+                                            false ||
+                                          hasCurrentVerification(
+                                            task,
+                                            verificationRecipeForTask(state, task),
+                                            evidence.candidate,
+                                            now,
+                                          )) &&
+                                        button(
+                                          "Accept inspected evidence",
+                                          () =>
+                                            void command({
+                                              type: "accept",
+                                              taskId: task.id,
+                                              evidenceId: evidence.id,
+                                              note: "User inspected and accepted evidence.",
+                                            }),
+                                        )}
+                                    </View>
+                                  ),
                                 )}
                                 {button(
-                                  showHistory ? "Hide logs and history" : "Show logs and history",
-                                  () => setShowHistory(!showHistory),
+                                  showManagement ? "Close work controls" : "Manage work",
+                                  () => setShowManagement(!showManagement),
                                 )}
-                                {showHistory &&
-                                  task.verification.receipt?.checks.map((check) => (
-                                    <View key={check.name}>
-                                      <Text>
-                                        {check.name}:{" "}
-                                        {check.timedOut ? "timed out" : `exit ${check.code}`}
-                                      </Text>
-                                      <Text selectable className="text-xs">
-                                        {check.stdout}
-                                        {check.stderr}
-                                      </Text>
-                                    </View>
-                                  ))}
-                              </View>
-                            )}
-                            {verificationRecipeForTask(state, task) &&
-                              verificationRecipeForTask(state, task)?.enabled !== false &&
-                              button(
-                                "Run captured verification",
-                                () => {
-                                  const latest = task.evidence.at(-1);
-                                  if (latest)
-                                    void command({
-                                      type: "verify",
-                                      taskId: task.id,
-                                      evidenceId: latest.id,
-                                    });
-                                },
-                                busy ||
-                                  !!role?.paused ||
-                                  !task.evidence.length ||
-                                  task.verification?.state === "pending" ||
-                                  task.verification?.state === "running" ||
-                                  task.attempts.some((attempt) =>
-                                    ["pending", "running", "submitted", "stop_requested"].includes(
-                                      attempt.state,
-                                    ),
-                                  ),
-                              )}
-                            {task.decisions
-                              ?.filter((decision) => decision.answer !== undefined)
-                              .map((decision) => (
-                                <View key={decision.id} className="gap-1 rounded-lg bg-muted p-3">
-                                  <Text className="font-semibold">Your decision recorded</Text>
-                                  <Text>{decision.question}</Text>
-                                  <Text>{decision.answer}</Text>
-                                </View>
-                              ))}
-                            {button(
-                              showProfiles ? "Close profile choices" : "Change evidence profile",
-                              () => setShowProfiles(!showProfiles),
-                            )}
-                            <Text className="text-xs">
-                              Evidence profile:{" "}
-                              {verificationRecipeForTask(state, task)?.name ?? "Reported evidence"}
-                            </Text>
-                            {showProfiles &&
-                              (state.verificationRecipes ?? [])
-                                .filter(
-                                  (recipe) =>
-                                    recipe.projectId === task.projectId && recipe.enabled !== false,
-                                )
-                                .map((recipe) => (
-                                  <View key={recipe.profileId ?? "default"}>
-                                    {button(
-                                      `Use ${recipe.name}`,
-                                      () => {
-                                        void command({
-                                          type: "verification-profile",
-                                          taskId: task.id,
-                                          profileId: recipe.profileId ?? "default",
-                                        });
-                                      },
-                                      busy ||
-                                        task.verification?.state === "running" ||
-                                        task.verification?.state === "pending",
-                                    )}
+                                {showManagement && (
+                                  <View className="gap-2">
+                                    {task.status === "queued" &&
+                                      task.attempts.length === 0 &&
+                                      button(
+                                        "Assign worker",
+                                        () => void command({ type: "assign", taskId: task.id }),
+                                      )}
+                                    {task.status !== "cancelled" &&
+                                      !task.revisionRequest &&
+                                      (task.attempts.length > 0 || task.evidence.length > 0) &&
+                                      button(
+                                        "Revise result",
+                                        () =>
+                                          void command({
+                                            type: "revise-result",
+                                            taskId: task.id,
+                                            note: "Revise the retained result within the current scope.",
+                                          }),
+                                      )}
+                                    {task.status === "cancelled" &&
+                                      button(
+                                        "Restore to queue",
+                                        () => void command({ type: "reopen", taskId: task.id }),
+                                      )}
+                                    {task.status !== "cancelled" &&
+                                      button(
+                                        "Close outcome",
+                                        () =>
+                                          void command({
+                                            type: "close",
+                                            taskId: task.id,
+                                            reason:
+                                              "Closed by user as historical or superseded work.",
+                                          }),
+                                      )}
                                   </View>
-                                ))}
-                            {showProfiles &&
-                              button(
-                                "Use reported evidence",
-                                () => {
-                                  void command({
-                                    type: "verification-profile",
-                                    taskId: task.id,
-                                    profileId: null,
-                                  });
-                                },
-                                busy,
-                              )}
+                                )}
 
-                            {(showHistory ? task.evidence : task.evidence.slice(-1)).map(
-                              (evidence) => (
-                                <View key={evidence.id} className="gap-1 rounded-lg bg-muted p-3">
-                                  <Text className="text-sm">
-                                    {evidence.verdict} · {evidence.provenance.replaceAll("_", " ")}
-                                  </Text>
-                                  <Text className="text-sm">{evidence.summary}</Text>
-                                  <Text className="text-xs">{evidence.candidate}</Text>
-                                  {evidence.capture?.receipt.artifacts.map((artifact) => (
-                                    <VerificationArtifact
-                                      key={artifact.attachmentId}
-                                      artifact={artifact}
-                                      environmentId={task.homeEnvironmentId ?? props.environmentId}
-                                    />
-                                  ))}
-                                  {task.evidence.at(-1)?.id === evidence.id &&
-                                    task.status === "verifying" &&
-                                    evidence.verdict === "pass" &&
-                                    (!verificationRecipeForTask(state, task) ||
-                                      verificationRecipeForTask(state, task)?.enabled === false ||
-                                      hasCurrentVerification(
-                                        task,
-                                        verificationRecipeForTask(state, task),
-                                        evidence.candidate,
-                                        now,
-                                      )) &&
-                                    button(
-                                      "Accept inspected evidence",
-                                      () =>
-                                        void command({
-                                          type: "accept",
-                                          taskId: task.id,
-                                          evidenceId: evidence.id,
-                                          note: "User inspected and accepted evidence.",
-                                        }),
-                                    )}
-                                </View>
-                              ),
-                            )}
-                            {button(showManagement ? "Close work controls" : "Manage work", () =>
-                              setShowManagement(!showManagement),
-                            )}
-                            {showManagement && (
-                              <View className="gap-2">
-                                {task.status === "queued" &&
-                                  task.attempts.length === 0 &&
-                                  button(
-                                    "Assign worker",
-                                    () => void command({ type: "assign", taskId: task.id }),
-                                  )}
-                                {task.status !== "cancelled" &&
-                                  !task.revisionRequest &&
-                                  (task.attempts.length > 0 || task.evidence.length > 0) &&
-                                  button(
-                                    "Revise result",
-                                    () =>
-                                      void command({
-                                        type: "revise-result",
-                                        taskId: task.id,
-                                        note: "Revise the retained result within the current scope.",
-                                      }),
-                                  )}
-                                {task.status === "cancelled" &&
-                                  button(
-                                    "Restore to queue",
-                                    () => void command({ type: "reopen", taskId: task.id }),
-                                  )}
-                                {task.status !== "cancelled" &&
-                                  button(
-                                    "Close outcome",
-                                    () =>
-                                      void command({
-                                        type: "close",
-                                        taskId: task.id,
-                                        reason: "Closed by user as historical or superseded work.",
-                                      }),
-                                  )}
-                              </View>
-                            )}
-
-                            {showHistory && (
-                              <View className="gap-2">
-                                {" "}
-                                {task.attempts.map((attempt) => (
-                                  <View key={attempt.id}>
-                                    {button(
-                                      serverConfigs.has(
-                                        task.homeEnvironmentId ?? props.environmentId,
-                                      )
-                                        ? `Worker ${attempt.generation} · ${attempt.state}${attempt.workspacePath ? ` · ${attempt.workspacePath}` : ""}`
-                                        : "Connect task home first",
-                                      () => {
-                                        setVisible(false);
-                                        navigation.navigate("Thread", {
-                                          environmentId:
+                                {showHistory && (
+                                  <View className="gap-2">
+                                    {" "}
+                                    {task.attempts.map((attempt) => (
+                                      <View key={attempt.id}>
+                                        {button(
+                                          serverConfigs.has(
                                             task.homeEnvironmentId ?? props.environmentId,
-                                          threadId: attempt.threadId,
-                                        });
-                                      },
-                                      !serverConfigs.has(
-                                        task.homeEnvironmentId ?? props.environmentId,
-                                      ),
-                                    )}
+                                          )
+                                            ? `Worker ${attempt.generation} · ${attempt.state}${attempt.workspacePath ? ` · ${attempt.workspacePath}` : ""}`
+                                            : "Connect task home first",
+                                          () => {
+                                            setVisible(false);
+                                            navigation.navigate("Thread", {
+                                              environmentId:
+                                                task.homeEnvironmentId ?? props.environmentId,
+                                              threadId: attempt.threadId,
+                                            });
+                                          },
+                                          !serverConfigs.has(
+                                            task.homeEnvironmentId ?? props.environmentId,
+                                          ),
+                                        )}
+                                      </View>
+                                    ))}
                                   </View>
-                                ))}
+                                )}
                               </View>
-                            )}
-                          </View>
-                        );
-                      })()}
-                  </ScrollView>
-                )}
-              </View>
+                            );
+                          })()}
+                      </ScrollView>
+                    )}
+                  </View>
+                </>
+              )}
             </>
           ) : (
             <ScrollView
