@@ -1688,6 +1688,42 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     cwd: string,
     options?: GitVcsDriver.GitLocalStatusOptions,
   ) {
+    const indexResult = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.statusDetails.indexPath",
+      cwd,
+      ["rev-parse", "--git-path", "index"],
+      { allowNonZeroExit: true },
+    ).pipe(
+      Effect.catchTags({
+        GitCommandError: (error) =>
+          isMissingGitCwdError(error) ? Effect.succeed(null) : Effect.fail(error),
+      }),
+    );
+    if (indexResult === null) return NON_REPOSITORY_STATUS_DETAILS;
+    if (indexResult.exitCode === 0) {
+      const lockPath = `${path.resolve(cwd, indexResult.stdout.trim())}.lock`;
+      const lockError = new GitCommandError({
+        operation: "GitVcsDriver.statusDetails.indexPath",
+        command: "git",
+        cwd,
+        detail: "Git index is locked. Status will resume when the index lock is removed.",
+      });
+      // Status can succeed while locked, repeatedly running LFS clean filters without caching.
+      if (
+        yield* fileSystem.exists(lockPath).pipe(
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                ...lockError,
+                detail: "Failed to check the Git index lock.",
+                cause,
+              }),
+          ),
+        )
+      ) {
+        return yield* lockError;
+      }
+    }
     const includeDivergence = options?.includeDivergence !== false;
     const statusArgs = [
       "status",
@@ -3233,14 +3269,30 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
   const fetchRemote: GitVcsDriver.GitVcsDriver["Service"]["fetchRemote"] = Effect.fn("fetchRemote")(
     function* (input) {
+      const operation = "GitVcsDriver.fetchRemote";
       const args = ["fetch", "--quiet", input.remoteName];
       const options = {
         env: STATUS_UPSTREAM_REFRESH_ENV,
         fallbackErrorDetail: `git fetch ${input.remoteName} failed`,
       };
-      const fetchAll = executeGit("GitVcsDriver.fetchRemote", input.cwd, args, options);
+      const fetch = (fetchArgs: readonly string[]) =>
+        executeGitWithStableDiagnostics(operation, input.cwd, fetchArgs, {
+          ...options,
+          allowNonZeroExit: true,
+        });
+      const failFetch = (fetchArgs: readonly string[], result: GitVcsDriver.ExecuteGitResult) =>
+        new GitCommandError({
+          ...gitCommandContext({ operation, cwd: input.cwd, args: fetchArgs }),
+          detail: fetchFailureDetail(result.stderr) ?? options.fallbackErrorDetail,
+          ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+          stdoutLength: result.stdout.length,
+          stderrLength: result.stderr.length,
+        });
+      const fetchAll = fetch(args);
       if (input.refName === undefined) {
-        return yield* fetchAll.pipe(Effect.asVoid);
+        const result = yield* fetchAll;
+        if (result.exitCode === 0) return;
+        return yield* failFetch(args, result);
       }
       const branch =
         parseRemoteRefWithRemoteNames(input.refName, [input.remoteName])?.branchName ??
@@ -3249,31 +3301,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ...args,
         `+refs/heads/${branch}:refs/remotes/${input.remoteName}/${branch}`,
       ];
-      const result = yield* executeGitWithStableDiagnostics(
-        "GitVcsDriver.fetchRemote",
-        input.cwd,
-        scopedArgs,
-        { ...options, allowNonZeroExit: true },
-      );
+      const result = yield* fetch(scopedArgs);
       if (result.exitCode === 0) return;
       if (
         result.stderr
           .split(/\r?\n/)
           .includes(`fatal: couldn't find remote ref refs/heads/${branch}`)
       ) {
-        return yield* fetchAll.pipe(Effect.asVoid);
+        const fullResult = yield* fetchAll;
+        if (fullResult.exitCode === 0) return;
+        return yield* failFetch(args, fullResult);
       }
-      return yield* new GitCommandError({
-        ...gitCommandContext({
-          operation: "GitVcsDriver.fetchRemote",
-          cwd: input.cwd,
-          args: scopedArgs,
-        }),
-        detail: fetchFailureDetail(result.stderr) ?? options.fallbackErrorDetail,
-        exitCode: result.exitCode,
-        stdoutLength: result.stdout.length,
-        stderrLength: result.stderr.length,
-      });
+      return yield* failFetch(scopedArgs, result);
     },
   );
 

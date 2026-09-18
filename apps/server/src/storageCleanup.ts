@@ -45,6 +45,45 @@ export class StorageCleanup extends Context.Service<
   }
 >()("t3/storageCleanup") {}
 
+const decodeLiveSessions = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      threadId: ThreadId,
+      cwd: Schema.NullOr(Schema.String),
+    }),
+  ),
+);
+
+// Deletion and shutdown use the durable outbox. Keep checkouts until those
+// effects settle, including sessions whose cwd is a directory inside a checkout.
+export const hasLiveWorktreeResources = Effect.fn("StorageCleanup.hasLiveWorktreeResources")(
+  function* (threadId: ThreadId, worktreePath: string) {
+    const sql = yield* SqlClient.SqlClient;
+    const path = yield* Path.Path;
+    const pending = yield* sql`
+      SELECT 1 FROM orchestration_v2_effect_outbox
+      WHERE thread_id = ${threadId} AND status IN ('pending', 'running') LIMIT 1
+    `;
+    if (pending.length > 0) return true;
+    const sessions = yield* decodeLiveSessions(
+      yield* sql`
+      SELECT thread_id AS "threadId", json_extract(payload_json, '$.cwd') AS cwd
+      FROM orchestration_v2_projection_provider_sessions WHERE status != 'stopped'
+    `,
+    );
+    const root = path.resolve(worktreePath);
+    return sessions.some((session) => {
+      if (session.threadId === threadId) return true;
+      if (session.cwd === null) return false;
+      const relative = path.relative(root, path.resolve(session.cwd));
+      return (
+        relative === "" ||
+        (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))
+      );
+    });
+  },
+);
+
 const DAY_MS = 86_400_000;
 
 const worktreeCleanupEnabled = (rules: WorktreeCleanupRules) =>
@@ -176,21 +215,6 @@ export const make = Effect.gen(function* () {
     `,
     );
   });
-  // Deletion and session shutdown run through the durable V2 outbox. A failed
-  // stop must retain its checkout; a later sweep can retry after it succeeds.
-  const hasLiveResources = Effect.fn("StorageCleanup.hasLiveResources")(function* (
-    threadId: ThreadId,
-    worktreePath: string,
-  ) {
-    const rows = yield* sql`
-      SELECT 1 FROM orchestration_v2_projection_provider_sessions s
-      WHERE s.status != 'stopped' AND (s.thread_id = ${threadId} OR json_extract(s.payload_json, '$.cwd') = ${worktreePath})
-      UNION ALL SELECT 1 FROM orchestration_v2_effect_outbox e
-      WHERE e.thread_id = ${threadId} AND e.status IN ('pending', 'running') LIMIT 1
-    `;
-    return rows.length > 0;
-  });
-
   // Local threads under another project need not have a worktreePath of their own.
   const containsProjectRoot = Effect.fn("StorageCleanup.containsProjectRoot")(function* (
     worktreePath: string,
@@ -242,7 +266,7 @@ export const make = Effect.gen(function* () {
         project === undefined ||
         (!deleted && !storageCleanupThreadIdle(thread, now)) ||
         hasTerminal(worktreePath) ||
-        (yield* hasLiveResources(thread.id, worktreePath))
+        (yield* hasLiveWorktreeResources(thread.id, worktreePath))
       )
         continue;
       yield* Effect.gen(function* () {
@@ -320,7 +344,8 @@ export const make = Effect.gen(function* () {
           (entry) =>
             entry.worktreePath !== null && path.resolve(entry.worktreePath) === worktreePath,
         );
-        if (hasTerminal(worktreePath) || (yield* hasLiveResources(thread.id, worktreePath))) return;
+        if (hasTerminal(worktreePath) || (yield* hasLiveWorktreeResources(thread.id, worktreePath)))
+          return;
         if (deleted) {
           if (
             latest.length > 0 ||

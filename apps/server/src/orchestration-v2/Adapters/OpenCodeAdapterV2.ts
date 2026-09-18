@@ -1,3 +1,4 @@
+import * as Fiber from "effect/Fiber";
 import type {
   Event as OpenCodeEvent,
   Message as OpenCodeMessage,
@@ -66,6 +67,7 @@ import { t3OrchestrationSystemPrompt } from "../../provider/T3OrchestrationInstr
 import { buildRuntimeInstructions } from "../../provider/RuntimeInstructions.ts";
 import {
   OpenCodeRuntime,
+  loadOpenCodeCommands,
   OpenCodeRuntimeError,
   openCodeQuestionId,
   openCodeRuntimeErrorDetail,
@@ -2282,6 +2284,8 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
           });
         });
 
+        const nativeCommandReceipts = new Map<string, Deferred.Deferred<void>>();
+
         const handleMessageUpdated = Effect.fnUntraced(function* (
           event: Extract<OpenCodeEvent, { type: "message.updated" }>,
         ) {
@@ -2290,6 +2294,8 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
           const message = event.properties.info;
           state.messageRoles.set(message.id, message.role);
           if (message.role !== "user") return;
+          const receipt = nativeCommandReceipts.get(message.id);
+          if (receipt !== undefined) yield* Deferred.succeed(receipt, undefined);
           const isNewUserMessage = !state.userMessageIds.includes(message.id);
           if (isNewUserMessage) state.userMessageIds.push(message.id);
           let turn = state.activeTurn;
@@ -2648,6 +2654,141 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
           return [...(text.length === 0 ? [] : [{ type: "text" as const, text }]), ...files];
         };
 
+        const resolveNativeCommand = Effect.fn("OpenCode.resolveNativeCommand")(function* (
+          text: string,
+        ) {
+          const match = text.trim().match(/^\/([^\s/]+)(?:\s+([\s\S]*))?$/);
+          if (!match) return null;
+          const commands = yield* loadOpenCodeCommands(client).pipe(
+            Effect.timeout("10 seconds"),
+            Effect.orElseSucceed(() => []),
+          );
+          const command = commands.find((entry) => entry.name === match[1]);
+          return command ? { name: command.name, arguments: match[2] ?? "" } : null;
+        });
+
+        const submitNativeCommand = Effect.fn("OpenCode.submitNativeCommand")(function* (
+          state: OpenCodeThreadState,
+          turn: ActiveOpenCodeTurn,
+          command: { name: string; arguments: string },
+          files: ReturnType<typeof toOpenCodeFileParts>,
+          steering = false,
+        ) {
+          const messageID = turn.admissionMessageId!;
+          const receipt = yield* Deferred.make<void>();
+          nativeCommandReceipts.set(messageID, receipt);
+          const generation = turn.admissionGeneration;
+          const controller = turn.admissionAbortController!;
+          const settled = turn.admissionSettled;
+          const agent =
+            getModelSelectionStringOptionValue(turn.modelSelection, "agent") ??
+            (turn.runtimePolicy.interactionMode === "plan" ? "plan" : undefined);
+          const variant = getModelSelectionStringOptionValue(turn.modelSelection, "variant");
+          const payload = {
+            sessionID: nativeThreadId(state.providerThread),
+            messageID,
+            command: command.name,
+            arguments: command.arguments,
+            model: turn.modelSelection.model,
+            ...(agent === undefined ? {} : { agent }),
+            ...(variant === undefined ? {} : { variant }),
+            parts: files,
+          };
+          // The command request lasts for generation. Only admission is bounded;
+          // a matching user-message receipt lets the caller continue immediately.
+          const submission = Effect.raceFirst(
+            sdkCall("session.command", payload, (signal) =>
+              client.session.command(payload, {
+                signal: AbortSignal.any([signal, controller.signal]),
+              }),
+            ).pipe(Effect.asVoid),
+            Deferred.await(receipt).pipe(
+              Effect.timeout("10 seconds"),
+              Effect.andThen(Effect.never),
+            ),
+          ).pipe(
+            Effect.tapError((cause) =>
+              Effect.gen(function* () {
+                if (
+                  controller.signal.aborted ||
+                  state.activeTurn !== turn ||
+                  turn.finalized ||
+                  turn.admissionGeneration !== generation
+                )
+                  return;
+                if (steering && cause._tag !== "TimeoutError") {
+                  // A rejected follow-up must not terminate the work already running.
+                  const now = yield* DateTime.now;
+                  const nativeItemId = `command-warning:${messageID}`;
+                  yield* emitProviderEvent({
+                    type: "turn_item.updated",
+                    driver: OPENCODE_PROVIDER,
+                    turnItem: {
+                      id: idAllocator.derive.turnItemFromProviderItem({
+                        driver: OPENCODE_PROVIDER,
+                        nativeItemId,
+                      }),
+                      threadId: turn.threadId,
+                      runId: turn.runId,
+                      nodeId: turn.rootNodeId,
+                      providerThreadId: state.providerThread.id,
+                      providerTurnId: turn.providerTurnId,
+                      nativeItemRef: providerRef(nativeItemId, "weak"),
+                      parentItemId: null,
+                      ordinal: itemOrdinal(turn, nativeItemId),
+                      type: "system_notice",
+                      status: "completed",
+                      title: "Command failed",
+                      message: `OpenCode /${command.name} failed: ${openCodeRuntimeErrorDetail(cause)}`,
+                      startedAt: now,
+                      completedAt: now,
+                      updatedAt: now,
+                    },
+                  });
+                  if (turn.idleDuringAdmission) yield* reconcilePromptAdmission(state, turn);
+                  else turn.admissionPending = false;
+                  return;
+                }
+                let abortExit: Exit.Exit<void, unknown> | null = null;
+                if (!(yield* Deferred.isDone(receipt))) {
+                  // A cancelled HTTP request does not stop server-side generation.
+                  // Bound cleanup independently and retain the original failure.
+                  abortExit = yield* sdkCall(
+                    "session.abort",
+                    { sessionID: payload.sessionID },
+                    (signal) => client.session.abort({ sessionID: payload.sessionID }, { signal }),
+                  ).pipe(Effect.asVoid, Effect.timeout("1 second"), Effect.exit);
+                }
+                if (
+                  state.activeTurn === turn &&
+                  !turn.finalized &&
+                  turn.admissionGeneration === generation
+                ) {
+                  yield* finalizeTurn(state, turn, "failed", {
+                    failure: makeProviderFailure({ cause, class: "provider_error" }),
+                    ...(abortExit !== null && Exit.isFailure(abortExit)
+                      ? { threadDisposition: "broken" as const }
+                      : {}),
+                  });
+                }
+              }),
+            ),
+            Effect.catch((cause) => (controller.signal.aborted ? Effect.void : Effect.fail(cause))),
+            Effect.ensuring(
+              Effect.gen(function* () {
+                nativeCommandReceipts.delete(messageID);
+                yield* Deferred.succeed(settled, undefined);
+                if (turn.admissionAbortController === controller)
+                  turn.admissionAbortController = null;
+              }),
+            ),
+          );
+          const fiber = yield* submission.pipe(Effect.forkIn(scope));
+          yield* Effect.raceFirst(Deferred.await(receipt), Fiber.join(fiber)).pipe(
+            Effect.onInterrupt(() => Effect.sync(() => controller.abort())),
+          );
+        });
+
         const readSnapshot = Effect.fnUntraced(function* (
           providerThread: OrchestrationV2ProviderThread,
         ) {
@@ -2811,6 +2952,9 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
                 turnInput.message.text.trim() === "/compact" &&
                 turnInput.message.attachments.length === 0;
               const parts = isCompaction ? [] : resolvePromptParts(turnInput);
+              const nativeCommand = isCompaction
+                ? null
+                : yield* resolveNativeCommand(turnInput.message.text);
               const startedAt = yield* DateTime.now;
               const syntheticNativeTurnId = `${sessionId}:attempt:${turnInput.attemptId}`;
               const providerTurnId = idAllocator.derive.providerTurn({
@@ -2914,52 +3058,61 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
                 turnInput.modelSelection,
                 "variant",
               );
-              yield* sdkCall(
-                "session.promptAsync",
-                {
-                  sessionID: sessionId,
-                  messageID: turn.admissionMessageId!,
-                  model: parsedModel,
-                  ...(agent === undefined ? {} : { agent }),
-                  ...(variant === undefined ? {} : { variant }),
-                  system: systemPrompt,
-                  parts,
-                },
-                (signal) =>
-                  client.session.promptAsync(
-                    {
-                      sessionID: sessionId,
-                      messageID: turn.admissionMessageId!,
-                      model: parsedModel,
-                      ...(agent === undefined ? {} : { agent }),
-                      ...(variant === undefined ? {} : { variant }),
-                      system: systemPrompt,
-                      parts,
-                    },
-                    { signal: AbortSignal.any([signal, admissionAbortController!.signal]) },
+              if (nativeCommand !== null) {
+                yield* submitNativeCommand(
+                  state,
+                  turn,
+                  nativeCommand,
+                  parts.filter((part) => part.type === "file"),
+                );
+              } else {
+                yield* sdkCall(
+                  "session.promptAsync",
+                  {
+                    sessionID: sessionId,
+                    messageID: turn.admissionMessageId!,
+                    model: parsedModel,
+                    ...(agent === undefined ? {} : { agent }),
+                    ...(variant === undefined ? {} : { variant }),
+                    system: systemPrompt,
+                    parts,
+                  },
+                  (signal) =>
+                    client.session.promptAsync(
+                      {
+                        sessionID: sessionId,
+                        messageID: turn.admissionMessageId!,
+                        model: parsedModel,
+                        ...(agent === undefined ? {} : { agent }),
+                        ...(variant === undefined ? {} : { variant }),
+                        system: systemPrompt,
+                        parts,
+                      },
+                      { signal: AbortSignal.any([signal, admissionAbortController!.signal]) },
+                    ),
+                ).pipe(
+                  Effect.tapError((cause) =>
+                    admissionAbortController!.signal.aborted
+                      ? Effect.void
+                      : finalizeTurn(state, turn, "failed", {
+                          failure: makeProviderFailure({ cause, class: "provider_error" }),
+                        }),
                   ),
-              ).pipe(
-                Effect.tapError((cause) =>
-                  admissionAbortController!.signal.aborted
-                    ? Effect.void
-                    : finalizeTurn(state, turn, "failed", {
-                        failure: makeProviderFailure({ cause, class: "provider_error" }),
+                  Effect.catch((cause) =>
+                    admissionAbortController!.signal.aborted ? Effect.void : Effect.fail(cause),
+                  ),
+                  Effect.ensuring(
+                    Effect.all([
+                      Deferred.succeed(admissionSettled, undefined).pipe(Effect.ignore),
+                      Effect.sync(() => {
+                        if (turn.admissionAbortController === admissionAbortController) {
+                          turn.admissionAbortController = null;
+                        }
                       }),
-                ),
-                Effect.catch((cause) =>
-                  admissionAbortController!.signal.aborted ? Effect.void : Effect.fail(cause),
-                ),
-                Effect.ensuring(
-                  Effect.all([
-                    Deferred.succeed(admissionSettled, undefined).pipe(Effect.ignore),
-                    Effect.sync(() => {
-                      if (turn.admissionAbortController === admissionAbortController) {
-                        turn.admissionAbortController = null;
-                      }
-                    }),
-                  ]).pipe(Effect.asVoid),
-                ),
-              );
+                    ]).pipe(Effect.asVoid),
+                  ),
+                );
+              }
               if (state.activeTurn === turn && !turn.finalized && !turn.interrupted) {
                 const admissionAction = advanceOpenCodePromptAdmission(turn, "accepted");
                 if (admissionAction === "reconcile-idle") {
@@ -3030,36 +3183,41 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
               turn.admissionAbortController = new AbortController();
               const admissionSettled = turn.admissionSettled;
               const admissionAbortController = turn.admissionAbortController;
-              yield* sdkCall(
-                "session.promptAsync",
-                {
-                  sessionID: sessionId,
-                  messageID: turn.admissionMessageId,
-                  model: parsedModel,
-                  parts,
-                },
-                (signal) =>
-                  client.session.promptAsync(
-                    {
-                      sessionID: sessionId,
-                      messageID: turn.admissionMessageId!,
-                      model: parsedModel,
-                      parts,
-                    },
-                    { signal: AbortSignal.any([signal, admissionAbortController.signal]) },
+              const nativeCommand = yield* resolveNativeCommand(steerInput.message.text);
+              if (nativeCommand !== null) {
+                yield* submitNativeCommand(state, turn, nativeCommand, files, true);
+              } else {
+                yield* sdkCall(
+                  "session.promptAsync",
+                  {
+                    sessionID: sessionId,
+                    messageID: turn.admissionMessageId,
+                    model: parsedModel,
+                    parts,
+                  },
+                  (signal) =>
+                    client.session.promptAsync(
+                      {
+                        sessionID: sessionId,
+                        messageID: turn.admissionMessageId!,
+                        model: parsedModel,
+                        parts,
+                      },
+                      { signal: AbortSignal.any([signal, admissionAbortController.signal]) },
+                    ),
+                ).pipe(
+                  Effect.ensuring(
+                    Effect.all([
+                      Deferred.succeed(admissionSettled, undefined).pipe(Effect.ignore),
+                      Effect.sync(() => {
+                        if (turn.admissionAbortController === admissionAbortController) {
+                          turn.admissionAbortController = null;
+                        }
+                      }),
+                    ]).pipe(Effect.asVoid),
                   ),
-              ).pipe(
-                Effect.ensuring(
-                  Effect.all([
-                    Deferred.succeed(admissionSettled, undefined).pipe(Effect.ignore),
-                    Effect.sync(() => {
-                      if (turn.admissionAbortController === admissionAbortController) {
-                        turn.admissionAbortController = null;
-                      }
-                    }),
-                  ]).pipe(Effect.asVoid),
-                ),
-              );
+                );
+              }
               if (state.activeTurn === turn && !turn.finalized) {
                 const admissionAction = advanceOpenCodePromptAdmission(turn, "accepted");
                 if (admissionAction === "reconcile-idle") {

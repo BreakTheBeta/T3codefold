@@ -2691,7 +2691,11 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           if (Result.isFailure(result)) {
             assert.equal(
               result.failure.detail,
-              failure === "timeout" ? "Git command timed out." : "git fetch origin failed",
+              failure === "timeout"
+                ? "Git command timed out."
+                : failure === "auth"
+                  ? "Git could not authenticate with the remote. Check Git credentials or SSH access on the server, then retry."
+                  : "Git could not reach the remote. Check the server's network connection and remote host, then retry.",
             );
           }
         }),

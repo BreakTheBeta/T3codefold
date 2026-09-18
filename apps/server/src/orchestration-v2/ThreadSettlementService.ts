@@ -1,5 +1,6 @@
-import { CommandId, type OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import { CommandId, type OrchestrationV2ThreadShell, type ThreadId } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -127,7 +128,39 @@ export function resolveAutoSettlementAt(input: {
   readonly autoSettleAfterDays: number | null;
   readonly autoSettleOnMerge: boolean;
 }): DateTime.Utc | null {
-  const { thread, pullRequest } = input;
+  const { thread } = input;
+  let pullRequest = input.pullRequest;
+  const links = visibleThreadPullRequests(thread.pullRequests ?? []);
+  if (links.some((link) => link.snapshot === null || link.snapshot.state === "open")) return null;
+  if (links.length > 0) {
+    const terminalAt = (link: (typeof links)[number]) => {
+      const snapshot = link.snapshot;
+      const value =
+        snapshot?.state === "merged"
+          ? snapshot.mergedAt
+          : snapshot?.state === "closed"
+            ? snapshot.closedAt
+            : null;
+      const millis = Date.parse(value ?? "");
+      return Number.isNaN(millis) ? Number.NEGATIVE_INFINITY : millis;
+    };
+    const latest = links.reduce((current, candidate) =>
+      terminalAt(candidate) > terminalAt(current) ? candidate : current,
+    );
+    const snapshot = latest.snapshot;
+    pullRequest =
+      snapshot === null
+        ? null
+        : {
+            state: snapshot.state,
+            updatedAt:
+              snapshot.state === "merged"
+                ? (snapshot.mergedAt ?? null)
+                : snapshot.state === "closed"
+                  ? (snapshot.closedAt ?? null)
+                  : null,
+          };
+  }
   if (!isAutoSettlementCandidate(thread, input.nowMs)) return null;
   const activityAtMs = latestMillis([
     toMillis(thread.latestUserMessageAt),
@@ -164,6 +197,7 @@ export const make = Effect.gen(function* () {
 
   const sweep = Effect.fn("ThreadSettlementServiceV2.sweep")(function* (
     mergedPullRequest: PullRequestService.PullRequestMergeEvent | null,
+    threadId?: ThreadId,
   ) {
     const threads = yield* projections.getSettlementCandidates();
     const projectShells = yield* snapshots.getProjectShellsWithoutEnrichment();
@@ -173,7 +207,11 @@ export const make = Effect.gen(function* () {
     // the merged pull request: most threads carry no link and settle from
     // their branch lookup, which would otherwise wait for the next minute's
     // sweep on a possibly stale cached answer.
-    const candidates = threads.filter((thread) => isAutoSettlementCandidate(thread, nowMs));
+    const candidates = threads.filter(
+      (thread) =>
+        (threadId === undefined || thread.id === threadId) &&
+        isAutoSettlementCandidate(thread, nowMs),
+    );
     // Use the same cwd as the sidebar so both paths share GitManager's PR cache.
     const lookupCwdByThreadId = new Map<string, string>();
     yield* Effect.forEach(
@@ -181,7 +219,12 @@ export const make = Effect.gen(function* () {
       (thread) =>
         Effect.gen(function* () {
           const project = projects.get(thread.projectId);
-          if (project === undefined || thread.linkedPullRequest != null) return;
+          if (
+            project === undefined ||
+            thread.linkedPullRequest != null ||
+            visibleThreadPullRequests(thread.pullRequests ?? []).length > 0
+          )
+            return;
           const worktreeExists =
             thread.worktreePath !== null &&
             (yield* fileSystem.exists(thread.worktreePath).pipe(Effect.orElseSucceed(() => false)));
@@ -208,6 +251,11 @@ export const make = Effect.gen(function* () {
       });
     }
     const lookupKey = (thread: (typeof candidates)[number]) => {
+      // Snapshot-backed multi-links have no Git lookup. Keep each separate so
+      // their null lookup cannot suppress a same-branch thread in the group.
+      if (visibleThreadPullRequests(thread.pullRequests ?? []).length > 0) {
+        return JSON.stringify(["multi-links", thread.id]);
+      }
       if (thread.linkedPullRequest != null) {
         return JSON.stringify([
           "linked",
@@ -227,6 +275,10 @@ export const make = Effect.gen(function* () {
     const pullRequestFor = Effect.fn("ThreadSettlementServiceV2.pullRequestFor")(function* (
       thread: (typeof candidates)[number],
     ) {
+      // A visible multi-link is authoritative for settlement. Its snapshots are
+      // refreshed by PullRequestSyncReactor; do not let an unrelated branch
+      // lookup bypass an open/unsynced stack link before policy evaluates it.
+      if (visibleThreadPullRequests(thread.pullRequests ?? []).length > 0) return null;
       if (thread.linkedPullRequest != null) {
         // The event carries the merged state, so only the threads linked to
         // that exact pull request settle from it. Every other linked thread
@@ -325,8 +377,11 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  const runSweep = (mergedPullRequest: PullRequestService.PullRequestMergeEvent | null) =>
-    sweep(mergedPullRequest).pipe(
+  const runSweep = (
+    mergedPullRequest: PullRequestService.PullRequestMergeEvent | null,
+    threadId?: ThreadId,
+  ) =>
+    sweep(mergedPullRequest, threadId).pipe(
       Effect.catchCause((cause) =>
         Cause.hasInterruptsOnly(cause)
           ? Effect.failCause(cause)
@@ -335,13 +390,16 @@ export const make = Effect.gen(function* () {
             }),
       ),
     );
-  const worker = yield* makeDrainableWorker(() => runSweep(null));
+  const worker = yield* makeDrainableWorker((threadId: ThreadId | undefined) =>
+    runSweep(null, threadId),
+  );
 
   const start: ThreadSettlementServiceV2["Service"]["start"] = Effect.fn(
     "ThreadSettlementServiceV2.start",
   )(function* () {
     const settingsChanges = yield* settingsService.subscribeChanges;
     const mergedPullRequests = yield* pullRequests.subscribeMerges;
+    const events = orchestrator.streamDomainEvents;
     const initialSettings = yield* settingsService.getSettings.pipe(Effect.orDie);
     let lastAfterDays = initialSettings.sidebarAutoSettleAfterDays;
     let lastOnMerge = initialSettings.sidebarAutoSettleOnMerge;
@@ -364,7 +422,20 @@ export const make = Effect.gen(function* () {
         return worker.enqueue(undefined);
       }),
     );
-    yield* forkParked(Stream.runForEach(mergedPullRequests, runSweep));
+    yield* forkParked(Stream.runForEach(mergedPullRequests, (event) => runSweep(event)));
+    yield* forkParked(
+      Stream.runForEach(events, (event) =>
+        event.type === "thread.metadata-updated" || event.type === "thread.pull-request-synced"
+          ? worker.enqueue(event.threadId)
+          : event.type === "run.updated" &&
+              (event.payload.status === "completed" ||
+                event.payload.status === "interrupted" ||
+                event.payload.status === "failed" ||
+                event.payload.status === "cancelled")
+            ? worker.enqueue(event.threadId)
+            : Effect.void,
+      ),
+    );
   });
 
   return { start, drain: worker.drain } satisfies ThreadSettlementServiceV2["Service"];

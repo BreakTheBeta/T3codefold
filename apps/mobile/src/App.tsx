@@ -92,7 +92,6 @@ function AppContent() {
                 this, React Navigation defaults to its light theme and every native
                 header (glass buttons, title, materials) is forced light even when
                 the system is in dark mode. */}
-            {/* Blur target for Android dropdown backdrops — see appBlurTarget.ts. */}
             <View style={{ flex: 1 }}>
               <VoiceWorkspaceProvider>
                 <IncomingShareProvider>

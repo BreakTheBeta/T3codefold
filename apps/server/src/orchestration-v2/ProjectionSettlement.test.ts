@@ -229,6 +229,28 @@ for (const [name, testLayer] of [
         yield* createItem(rolledBack, yield* createRun(rolledBack, "rolled_back"), "running");
         yield* createRun(rolledBack, "completed", 2);
         const roster = yield* createThread("provider-roster");
+        const multiLink = [
+          {
+            host: "github.com",
+            repository: "owner/repository",
+            number: 42,
+            url: "https://example.test/owner/repository/pull/42",
+            source: "stack" as const,
+            linkedAt: "2026-08-20T00:00:00.000Z",
+            snapshot: {
+              state: "merged" as const,
+              title: "Merged stack layer",
+              headBranch: "feature",
+              baseBranch: "main",
+              isDraft: false,
+              updatedAt: "2026-08-25T00:00:00.000Z",
+              syncedAt: "2026-08-25T00:00:00.000Z",
+              mergedAt: "2026-08-25T00:00:00.000Z",
+            },
+            stack: null,
+          },
+        ];
+        const linked = yield* createThread("multi-link", { pullRequests: multiLink });
         yield* createRun(roster);
         yield* store.apply({
           id: EventId.make("event:settlement:roster"),
@@ -261,7 +283,7 @@ for (const [name, testLayer] of [
         );
         assert.deepEqual(
           new Set(eligible.map((thread) => thread.id)),
-          new Set([idle, completed, queued, woke, persistent, rolledBack]),
+          new Set([idle, completed, queued, woke, persistent, rolledBack, linked]),
         );
         assert.deepEqual(
           new Set(eligible.map((thread) => thread.id)),
@@ -274,6 +296,7 @@ for (const [name, testLayer] of [
         for (const candidate of candidates) {
           const expected = shell.threads.find((thread) => thread.id === candidate.id)!;
           assert.deepEqual(candidate.pendingBackgroundTasks, expected.pendingBackgroundTasks);
+          assert.deepEqual(candidate.pullRequests, expected.pullRequests);
           const settings = {
             pullRequest: null,
             nowMs: DateTime.toEpochMillis(now),
@@ -292,6 +315,10 @@ for (const [name, testLayer] of [
         assert.equal(
           (yield* store.getThread(ThreadId.make("missing")).pipe(Effect.flip))._tag,
           "ProjectionStoreThreadNotFoundError",
+        );
+        assert.deepEqual(
+          candidates.find((candidate) => candidate.id === linked)?.pullRequests,
+          multiLink,
         );
       }).pipe(Effect.provide(testLayer)),
   );

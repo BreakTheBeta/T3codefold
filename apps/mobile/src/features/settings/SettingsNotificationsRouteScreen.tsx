@@ -58,6 +58,7 @@ function useDeviceRegistered(): boolean {
 
 export function SettingsNotificationsRouteScreen() {
   if (!hasCloudPublicConfig()) {
+    if (Platform.OS === "android") return <LocalSettingsNotificationsRouteScreen />;
     return (
       <SettingsScreen title="Notifications">
         <ScrollView
@@ -73,6 +74,70 @@ export function SettingsNotificationsRouteScreen() {
   }
 
   return <ConfiguredSettingsNotificationsRouteScreen />;
+}
+
+function LocalSettingsNotificationsRouteScreen() {
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const [granted, setGranted] = useState(false);
+  const [busy, setBusy] = useState(true);
+  useEffect(() => {
+    const refresh = async () => {
+      const result = await settlePromise(() => Notifications.getPermissionsAsync());
+      if (result._tag === "Success") setGranted(result.value.granted);
+      else reportAtomCommandResult(result, { label: "notification permission refresh" });
+      setBusy(false);
+    };
+    void refresh();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refresh();
+    });
+    return () => subscription.remove();
+  }, []);
+  const changeEnabled = async (enabled: boolean) => {
+    if (!enabled) {
+      savePreferences({ notificationsEnabled: false });
+      return;
+    }
+    setBusy(true);
+    const result = await settleAsyncResult(() =>
+      runtime.runPromiseExit(requestAgentNotificationPermission),
+    );
+    setBusy(false);
+    if (result._tag === "Failure") {
+      reportAtomCommandResult(result, { label: "notification permission request" });
+      return;
+    }
+    const allowed = result.value.type === "granted";
+    setGranted(allowed);
+    if (allowed) savePreferences({ notificationsEnabled: true });
+    else if (result.value.type === "denied" && !result.value.canAskAgain) {
+      Alert.alert("Notifications disabled", "Open system Settings to enable notifications.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Open Settings", onPress: () => void Linking.openSettings() },
+      ]);
+    }
+  };
+  return (
+    <SettingsScreen title="Notifications">
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerClassName="px-5 pt-4">
+        <SettingsSection title="Agent activity">
+          <SettingsSwitchRow
+            icon="bell.badge"
+            label="Device Notifications"
+            subtitle="While connected in the background"
+            disabled={busy || !AsyncResult.isSuccess(preferences)}
+            value={
+              granted &&
+              AsyncResult.isSuccess(preferences) &&
+              preferences.value.notificationsEnabled === true
+            }
+            onValueChange={(enabled) => void changeEnabled(enabled)}
+          />
+        </SettingsSection>
+      </ScrollView>
+    </SettingsScreen>
+  );
 }
 
 function ConfiguredSettingsNotificationsRouteScreen() {
@@ -152,9 +217,7 @@ function ConfiguredSettingsNotificationsRouteScreen() {
       runtime.runPromiseExit(
         requestAgentNotificationPermission.pipe(
           Effect.tap((permission) =>
-            permission.type === "granted" && Platform.OS !== "android"
-              ? refreshAgentAwarenessRegistration()
-              : Effect.void,
+            permission.type === "granted" ? refreshAgentAwarenessRegistration() : Effect.void,
           ),
         ),
       ),

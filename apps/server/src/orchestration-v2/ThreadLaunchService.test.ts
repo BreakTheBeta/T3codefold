@@ -1055,6 +1055,33 @@ it.effect("renames a temporary branch on an existing worktree to a generated nam
   }),
 );
 
+it.effect("fetches only the selected base branch before an origin worktree launch", () => {
+  const fetchRemote = vi.fn<GitWorkflow.GitWorkflowService["Service"]["fetchRemote"]>(
+    () => Effect.void,
+  );
+  const harness = makeHarness({ fetchRemote });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "scoped-origin",
+        thread: "scoped-origin",
+        message: "Use the latest base",
+        workspace: { type: "worktree", baseRef: "main", startFromOrigin: true },
+      }),
+    );
+    yield* tracker.stream(launched.threadId).pipe(
+      Stream.filter((snapshot) => snapshot?.phase === "done"),
+      Stream.runHead,
+    );
+    assert.deepEqual(fetchRemote.mock.calls, [
+      [{ cwd: "/repo", remoteName: "origin", refName: "main" }],
+    ]);
+    assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.refName, "remote-main-sha");
+  }).pipe(Effect.provide(harness.layer));
+});
+
 it.effect("shows the fetch diagnosis when preparing a worktree from origin fails", () => {
   const detail =
     "Git could not authenticate with the remote. Check Git credentials or SSH access on the server, then retry.";
@@ -1321,6 +1348,68 @@ it.effect("does not depend on the legacy launch workflow table", () => {
   }).pipe(Effect.provide(harness.layer));
 });
 
+it.effect.each([0, 1])(
+  "releases the run while async setup is still running (exit %s)",
+  (exitCode) =>
+    Effect.gen(function* () {
+      const waiting = yield* Deferred.make<void>();
+      const completion =
+        yield* Deferred.make<ProjectSetupScriptRunner.ProjectSetupScriptCompletion>();
+      const harness = makeHarness({
+        runSetup: () =>
+          Effect.succeed({
+            status: "started",
+            async: true,
+            scriptId: "setup",
+            scriptName: "Setup",
+            scriptCommand: "npm install",
+            terminalId: "setup",
+            cwd: "/repo",
+            completion: Deferred.succeed(waiting, undefined).pipe(
+              Effect.andThen(Deferred.await(completion)),
+            ),
+          }),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const input = launchInput({
+          command: `async:${exitCode}`,
+          thread: `async:${exitCode}`,
+          message: "Start while setup runs",
+          workspace: { type: "worktree", baseRef: "main" },
+        });
+        const launched = yield* launches.launch(input);
+        yield* Deferred.await(waiting);
+        assert.lengthOf(
+          yield* outbox.listByCommandId(CommandId.make(`${input.commandId}:release`)),
+          1,
+        );
+        assert.equal((yield* tracker.get(launched.threadId))?.phase, "running");
+        const projection = yield* threads.getThreadProjection(launched.threadId);
+        assert.isTrue(
+          projection.turnItems.some(
+            (item) => item.type === "command_execution" && item.worktreeSetup?.phase === "running",
+          ),
+        );
+        yield* Deferred.succeed(completion, { exitCode, durationMs: 10 });
+        const result = yield* tracker.stream(launched.threadId).pipe(
+          Stream.filter((snapshot) => snapshot?.phase === "done"),
+          Stream.runHead,
+        );
+        assert.isTrue(Option.isSome(result));
+        assert.equal(
+          (yield* tracker.get(launched.threadId))?.stages.find(
+            (stage) => stage.id === "setup-script",
+          )?.status,
+          exitCode === 0 ? "done" : "failed",
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
 it.effect.each(["done", "failed", "cancelled"] as const)(
   "waits for setup completion before continuing or cancelling: %s",
   (outcome) =>
@@ -1415,6 +1504,37 @@ it.effect.each(["not-repository", "unborn-base"] as const)(
       assert.equal(projection.thread.worktreePath, null);
       assert.equal(projection.runs[0]?.status, "starting");
       assert.equal(harness.createWorktree.mock.calls.length, 0);
+      assert.equal(harness.runSetup.mock.calls.length, 0);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
+
+it.effect.each(["not-repository", "unborn-base"] as const)(
+  "never falls back to the shared checkout when isolation is required: %s",
+  (reason) => {
+    const harness = makeHarness({
+      isRepository: reason !== "not-repository",
+      hasCommit: reason !== "unborn-base",
+    });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const input = launchInput({
+        command: `required:${reason}`,
+        thread: `required:${reason}`,
+        message: "Run separately",
+        workspace: { type: "worktree", baseRef: "main", requireWorktree: true },
+      });
+      const launched = yield* launches.launch(input);
+      yield* tracker.stream(launched.threadId).pipe(
+        Stream.filter((snapshot) => snapshot?.phase === "failed"),
+        Stream.runHead,
+      );
+      assert.isEmpty(yield* outbox.listByCommandId(CommandId.make(`${input.commandId}:release`)));
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(projection.runs[0]?.status, "failed");
       assert.equal(harness.runSetup.mock.calls.length, 0);
     }).pipe(Effect.provide(harness.layer));
   },

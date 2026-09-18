@@ -2,6 +2,7 @@ import * as Notifications from "expo-notifications";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { Platform } from "react-native";
+import { ensureAndroidAgentNotificationChannel } from "./localNotificationChannel";
 
 export type NotificationPermissionResult =
   | { readonly type: "unsupported" }
@@ -40,11 +41,13 @@ export const requestAgentNotificationPermission: Effect.Effect<
 
   if (Platform.OS === "android") {
     yield* Effect.tryPromise({
-      try: () =>
-        Notifications.setNotificationChannelAsync("agent-alerts", {
+      try: async () => {
+        await Notifications.setNotificationChannelAsync("agent-alerts", {
           name: "Agent alerts",
           importance: Notifications.AndroidImportance.HIGH,
-        }),
+        });
+        await ensureAndroidAgentNotificationChannel();
+      },
       catch: (cause) => new NotificationPermissionRequestError({ cause }),
     });
   }

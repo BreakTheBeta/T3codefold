@@ -226,6 +226,304 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
   };
 });
 
+it.effect.each(["start", "steer"] as const)(
+  "dispatches native commands from %s without waiting for generation and reports later failures",
+  (mode) =>
+    Effect.gen(function* () {
+      const sessionId = "native-command";
+      const nativeEvents = asyncEventStream();
+      const commandCalls = yield* Queue.unbounded<{
+        messageID: string;
+        command: string;
+        arguments: string;
+        model: string;
+      }>();
+      const finish = promiseGate<void>();
+      let promptCalls = 0;
+      const harness = yield* makeOpenCodeRuntimeHarness("native-command", sessionId, {
+        event: {
+          subscribe: async (_input: unknown, options: { signal?: AbortSignal }) => {
+            options.signal?.addEventListener("abort", () => nativeEvents.close(), { once: true });
+            return { stream: nativeEvents.stream };
+          },
+        },
+        command: { list: async () => ({ data: [{ name: "review", hints: [] }] }) },
+        session: {
+          create: async () => ({ data: { id: sessionId, time: { created: 1, updated: 1 } } }),
+          command: async (input: {
+            messageID: string;
+            command: string;
+            arguments: string;
+            model: string;
+          }) => {
+            Queue.offerUnsafe(commandCalls, input);
+            await finish.promise;
+            throw new Error("command failed after admission");
+          },
+          promptAsync: async () => {
+            promptCalls += 1;
+            return { data: true };
+          },
+          abort: async () => ({ data: true }),
+          status: async () => ({ data: { [sessionId]: { type: "busy" } } }),
+          messages: async () => ({ data: [] }),
+        },
+        mcp: { add: async () => ({ data: true }) },
+      });
+      const terminal = yield* harness.runtime.events.pipe(
+        Stream.filter(
+          (event) =>
+            event.type === "turn.terminal" ||
+            (event.type === "turn_item.updated" && event.turnItem.type === "system_notice"),
+        ),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      if (mode === "steer") yield* harness.startTurn();
+      const submit =
+        mode === "start"
+          ? harness.startTurn("/review staged changes")
+          : Effect.gen(function* () {
+              const snapshot = yield* harness.runtime.readThreadSnapshot({
+                providerThread: harness.providerThread,
+              });
+              return yield* harness.runtime.steerTurn({
+                threadId: harness.threadId,
+                runId: harness.runId,
+                providerThread: harness.providerThread,
+                providerTurnId: snapshot.providerTurns.at(-1)!.id,
+                message: {
+                  messageId: MessageId.make("steer-command"),
+                  text: "/review staged changes",
+                  attachments: [],
+                  createdBy: "user",
+                  creationSource: "web",
+                },
+              });
+            });
+      const start = yield* submit.pipe(Effect.forkScoped);
+      const command = yield* Queue.take(commandCalls);
+      assert.equal(command.command, "review");
+      assert.equal(command.arguments, "staged changes");
+      assert.equal(command.model, "anthropic/claude-sonnet");
+      yield* Effect.promise(() =>
+        nativeEvents.push({
+          type: "message.updated",
+          properties: {
+            sessionID: sessionId,
+            info: {
+              id: command.messageID,
+              sessionID: sessionId,
+              role: "user",
+              time: { created: DateTime.toEpochMillis(harness.now) },
+            },
+          },
+        }),
+      );
+      // Joining before releasing generation proves command admission does not block the runtime.
+      yield* Fiber.join(start);
+      assert.equal(promptCalls, mode === "start" ? 0 : 1);
+      finish.resolve();
+      const events = Array.from(yield* Fiber.join(terminal));
+      if (mode === "start") {
+        assert.equal(events[0]?.type, "turn.terminal");
+        if (events[0]?.type === "turn.terminal") assert.equal(events[0].status, "failed");
+      } else {
+        assert.equal(events[0]?.type, "turn_item.updated");
+        const snapshot = yield* harness.runtime.readThreadSnapshot({
+          providerThread: harness.providerThread,
+        });
+        assert.equal(snapshot.providerTurns.at(-1)?.status, "running");
+      }
+    }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+);
+
+it.effect("bounds command admission and aborts a command that never acknowledges it", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const aborted = promiseGate<void>();
+    let abortCalls = 0;
+    const harness = yield* makeOpenCodeRuntimeHarness("command-timeout", "command-timeout", {
+      event: { subscribe: async () => ({ stream: { async *[Symbol.asyncIterator]() {} } }) },
+      command: { list: async () => ({ data: [{ name: "review", hints: [] }] }) },
+      session: {
+        create: async () => ({ data: { id: "command-timeout", time: { created: 1, updated: 1 } } }),
+        command: async (_input: unknown, options: { signal: AbortSignal }) => {
+          Deferred.doneUnsafe(started, Effect.void);
+          await new Promise((_resolve, reject) =>
+            options.signal.addEventListener(
+              "abort",
+              () => {
+                aborted.resolve();
+                reject(options.signal.reason);
+              },
+              { once: true },
+            ),
+          );
+        },
+        abort: async () => {
+          abortCalls += 1;
+          return { data: true };
+        },
+      },
+      mcp: { add: async () => ({ data: true }) },
+    });
+    const start = yield* harness.startTurn("/review").pipe(Effect.forkScoped);
+    yield* Deferred.await(started);
+    yield* TestClock.adjust("10 seconds");
+    const result = yield* Fiber.await(start);
+    assert.isTrue(Exit.isFailure(result));
+    yield* Effect.promise(() => aborted.promise);
+    assert.equal(abortCalls, 1);
+  }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+);
+
+it.effect("fails admission when the remote abort also fails", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const harness = yield* makeOpenCodeRuntimeHarness(
+      "command-timeout-abort-failure",
+      "command-timeout-abort-failure",
+      {
+        event: { subscribe: async () => ({ stream: { async *[Symbol.asyncIterator]() {} } }) },
+        command: { list: async () => ({ data: [{ name: "review", hints: [] }] }) },
+        session: {
+          create: async () => ({
+            data: { id: "command-timeout-abort-failure", time: { created: 1, updated: 1 } },
+          }),
+          command: async (_input: unknown, options: { signal: AbortSignal }) => {
+            Deferred.doneUnsafe(started, Effect.void);
+            await new Promise<void>((_resolve, reject) =>
+              options.signal.addEventListener("abort", () => reject(options.signal.reason), {
+                once: true,
+              }),
+            );
+          },
+          abort: async () => {
+            throw new Error("remote abort failed");
+          },
+          messages: async () => ({ data: [] }),
+        },
+        mcp: { add: async () => ({ data: true }) },
+      },
+    );
+    const start = yield* harness.startTurn("/review").pipe(Effect.forkScoped);
+    yield* Deferred.await(started);
+    yield* TestClock.adjust("11 seconds");
+    yield* Effect.yieldNow;
+    const result = yield* Fiber.await(start);
+    assert.isTrue(Exit.isFailure(result));
+  }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+);
+
+it.effect.each([false, true])(
+  "interrupts a native command without a false failure (admitted=%s)",
+  (admitted) =>
+    Effect.gen(function* () {
+      const nativeEvents = asyncEventStream();
+      const calls = yield* Queue.unbounded<string>();
+      const sessionId = "command-interrupt";
+      let abortCalls = 0;
+      const harness = yield* makeOpenCodeRuntimeHarness("command-interrupt", sessionId, {
+        event: {
+          subscribe: async (_input: unknown, options: { signal?: AbortSignal }) => {
+            options.signal?.addEventListener("abort", () => nativeEvents.close(), { once: true });
+            return { stream: nativeEvents.stream };
+          },
+        },
+        command: { list: async () => ({ data: [{ name: "review", hints: [] }] }) },
+        session: {
+          create: async () => ({ data: { id: sessionId, time: { created: 1, updated: 1 } } }),
+          command: async (input: { messageID: string }, options: { signal: AbortSignal }) => {
+            Queue.offerUnsafe(calls, input.messageID);
+            await new Promise((_resolve, reject) =>
+              options.signal.addEventListener("abort", () => reject(options.signal.reason), {
+                once: true,
+              }),
+            );
+          },
+          abort: async () => {
+            abortCalls += 1;
+            return { data: true };
+          },
+          messages: async () => ({ data: [] }),
+          children: async () => ({ data: [] }),
+        },
+        mcp: { add: async () => ({ data: true }) },
+      });
+      const terminal = yield* harness.runtime.events.pipe(
+        Stream.filter((event) => event.type === "turn.terminal"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      const start = yield* harness.startTurn("/review").pipe(Effect.forkScoped);
+      const messageID = yield* Queue.take(calls);
+      if (admitted) {
+        yield* Effect.promise(() =>
+          nativeEvents.push({
+            type: "message.updated",
+            properties: {
+              sessionID: sessionId,
+              info: {
+                id: messageID,
+                sessionID: sessionId,
+                role: "user",
+                time: { created: DateTime.toEpochMillis(harness.now) },
+              },
+            },
+          }),
+        );
+        yield* Fiber.join(start);
+      }
+      const snapshot = yield* harness.runtime.readThreadSnapshot({
+        providerThread: harness.providerThread,
+      });
+      yield* harness.runtime.interruptTurn({
+        providerThread: harness.providerThread,
+        providerTurnId: snapshot.providerTurns.at(-1)!.id,
+      });
+      yield* Fiber.join(start);
+      assert.equal(abortCalls, 1);
+      yield* Effect.promise(() =>
+        nativeEvents.push({
+          type: "session.status",
+          properties: { sessionID: sessionId, status: { type: "idle" } },
+        }),
+      );
+      const events = Array.from(yield* Fiber.join(terminal));
+      assert.equal(events[0]?.status, "interrupted");
+    }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+);
+
+it.effect("keeps unknown slash commands on the ordinary prompt path", () =>
+  Effect.gen(function* () {
+    let prompts = 0;
+    let commands = 0;
+    const harness = yield* makeOpenCodeRuntimeHarness("unknown-command", "unknown-command", {
+      event: { subscribe: async () => ({ stream: { async *[Symbol.asyncIterator]() {} } }) },
+      command: { list: async () => ({ data: [{ name: "review", hints: [] }] }) },
+      session: {
+        create: async () => ({ data: { id: "unknown-command", time: { created: 1, updated: 1 } } }),
+        command: async () => {
+          commands += 1;
+          return { data: true };
+        },
+        promptAsync: async () => {
+          prompts += 1;
+          return { data: true };
+        },
+        abort: async () => ({ data: true }),
+      },
+      mcp: { add: async () => ({ data: true }) },
+    });
+    yield* harness.startTurn("/unknown argument");
+    assert.equal(prompts, 1);
+    assert.equal(commands, 0);
+  }).pipe(Effect.provide(idAllocatorLayer), Effect.scoped),
+);
+
 describe("OpenCodeAdapterV2", () => {
   it.effect(
     "preserves tool lifecycle, approval kinds, and late assistant text without cached tool payloads",
