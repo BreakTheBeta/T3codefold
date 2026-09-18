@@ -61,6 +61,63 @@ const setup = (
     }),
     Layer.mock(FleetRouter)({ invoke }),
   );
+const electedAs = (roleThreadId: typeof threadId) =>
+  Layer.mock(WorkStore)({
+    read: () =>
+      Effect.succeed({
+        revision: 1,
+        role: {
+          threadId: roleThreadId,
+          projectId: ProjectId.make("local-project"),
+          generation: 1,
+          paused: false,
+          brief: {
+            priorities: "Ship",
+            quality: "Prove behavior",
+            projectIds: [ProjectId.make("local-project")],
+            maxWorkers: 1,
+            maxAttempts: 1,
+            workerModel: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          },
+        },
+        tasks: [],
+        messages: [],
+      }),
+  });
+it.effect("keeps GLaDOS out of untracked delegation and leaves other threads alone", () =>
+  Effect.gen(function* () {
+    const refused = yield* handlers.delegate_task({ task: "Do bounded work" }).pipe(
+      Effect.provide(
+        Layer.merge(
+          electedAs(threadId),
+          setup(() => Effect.die("must not route")),
+        ),
+      ),
+      Effect.match({ onFailure: (error) => error.message, onSuccess: () => "unexpected_success" }),
+    );
+    assert.match(refused, /work_command/);
+
+    const otherThread = yield* handlers.delegate_task({ task: "Do bounded work" }).pipe(
+      Effect.provide(
+        Layer.merge(
+          electedAs(ThreadId.make("some-other-glados")),
+          setup(() => Effect.die("must not route")),
+        ),
+      ),
+      Effect.matchCause({
+        onFailure: (cause) => String(cause),
+        onSuccess: () => "unexpected-success",
+      }),
+    );
+    // Reaching the unimplemented delegation service proves the guard did not refuse it.
+    assert.match(otherThread, /delegateTask/);
+  }),
+);
+
+/** No elected role, so ledger delegation checks fall through to the routing behavior under test. */
+const ledger = Layer.mock(WorkStore)({
+  read: () => Effect.succeed({ revision: 0, role: null, tasks: [], messages: [] }),
+});
 it.effect("passes the authenticated caller runtime mode to durable work launches", () =>
   Effect.gen(function* () {
     const calls: Array<Parameters<WorkStore["Service"]["command"]>> = [];
@@ -142,21 +199,24 @@ it.effect(
         })
         .pipe(
           Effect.provide(
-            setup((...args) => {
-              calls.push(args);
-              return Effect.succeed({
-                environmentId: remote,
-                projectId: ProjectId.make("destination-project"),
-                threadId: ThreadId.make("created"),
-                runId: null,
-                status: "idle",
-                title: "Work",
-                createdBy: "agent",
-                creationSource: "mcp",
-                providerInstanceId: "destination-provider",
-                model: "destination-model",
-              });
-            }),
+            Layer.merge(
+              ledger,
+              setup((...args) => {
+                calls.push(args);
+                return Effect.succeed({
+                  environmentId: remote,
+                  projectId: ProjectId.make("destination-project"),
+                  threadId: ThreadId.make("created"),
+                  runId: null,
+                  status: "idle",
+                  title: "Work",
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                  providerInstanceId: "destination-provider",
+                  model: "destination-model",
+                });
+              }),
+            ),
           ),
         );
       assert.equal(result.environmentId, remote);
@@ -185,7 +245,12 @@ it.effect("rejects mode escalation before routing and validates destination resu
         runtimeMode: "full-access",
       })
       .pipe(
-        Effect.provide(setup(() => Effect.die("must not route"))),
+        Effect.provide(
+          Layer.merge(
+            ledger,
+            setup(() => Effect.die("must not route")),
+          ),
+        ),
         Effect.match({ onFailure: (e) => e.code, onSuccess: () => "unexpected_success" }),
       );
     assert.equal(denied, "runtime_mode_escalation_denied");

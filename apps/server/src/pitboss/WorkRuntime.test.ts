@@ -417,7 +417,7 @@ it.effect("does not echo GLaDOS's own decision request but delivers the user's a
     });
     yield* h.drain();
     expect(h.sentMessages).toHaveLength(1);
-    expect(h.sentMessages[0]?.text).toContain("User answered");
+    expect(h.sentMessages[0]?.text).toContain("Answered");
   }).pipe(Effect.provide(services)),
 );
 it.effect("delivers distinct worker questions once and preserves them across restart", () =>
@@ -1230,7 +1230,7 @@ it.effect("leaves decision requests to the user and delivers answers with new re
     });
     yield* h.drain();
     expect(h.sent).toEqual([boss]);
-    expect(h.sentMessages[0]?.text).toContain("User answered");
+    expect(h.sentMessages[0]?.text).toContain("Answered");
     expect(h.sentMessages[0]?.text).toContain(
       "Ready to assign · task newly-ready · attempt none · owner GLaDOS",
     );
