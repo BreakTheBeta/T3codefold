@@ -48,7 +48,7 @@ import { ThreadMetadataMcpService } from "../../ThreadMetadataMcpService.ts";
 
 import { FleetRouter } from "../../FleetRouter.ts";
 
-const dependencies = [McpInvocationContext.McpInvocationContext, OrchestratorMcpService];
+const dependencies = [McpInvocationContext.McpInvocationContext, OrchestratorMcpService, WorkStore];
 const fleetDependencies = [...dependencies, FleetRouter];
 const threadMetadataDependencies = [
   McpInvocationContext.McpInvocationContext,

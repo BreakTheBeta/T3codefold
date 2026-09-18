@@ -1,4 +1,5 @@
 import { WorkStore } from "../../../pitboss/WorkStore.ts";
+import { activeLeads } from "../../../pitboss/Leads.ts";
 import {
   OrchestratorMcpFailure,
   PitbossError,
@@ -65,6 +66,28 @@ const invoke = (input: FleetInvokeInput) =>
     });
   });
 
+/**
+ * Keeps GLaDOS and project leads inside the durable work ledger. Both hold the ordinary
+ * thread tools, and spawning an agent with them creates work with no task identity, no
+ * evidence and no acceptance — a second, undurable work domain beside the real one. Workers
+ * keep the tools: a subagent inside an assigned task is bounded by that task.
+ */
+const requireLedgerDelegation = (tool: string) =>
+  Effect.gen(function* () {
+    const scope = yield* McpInvocationContext;
+    const store = yield* WorkStore;
+    // An unavailable work store must not strip delegation from ordinary threads.
+    const state = yield* Effect.orElseSucceed(store.read(), () => undefined);
+    if (!state) return;
+    const coordinator = state.role?.threadId === scope.threadId;
+    const lead = activeLeads(state).some((entry) => entry.threadId === scope.threadId);
+    if (!coordinator && !lead) return;
+    return yield* new OrchestratorMcpFailure({
+      code: "orchestration_error",
+      message: `${tool} is not available to ${coordinator ? "GLaDOS" : "a project lead"}. Delegate through work_command so the work keeps a durable task identity, evidence and acceptance: create the task, then assign it.`,
+    });
+  });
+
 export const handlers = {
   work_read: () =>
     Effect.gen(function* () {
@@ -127,6 +150,7 @@ export const handlers = {
     }),
   delegate_task: (input) =>
     Effect.gen(function* () {
+      yield* requireLedgerDelegation("delegate_task");
       const scope = yield* McpInvocationContext;
       const service = yield* OrchestratorMcpService;
       return yield* service.delegateTask(scope, input);
@@ -169,12 +193,14 @@ export const handlers = {
     }),
   create_threads: (input) =>
     Effect.gen(function* () {
+      yield* requireLedgerDelegation("create_threads");
       const scope = yield* McpInvocationContext;
       const service = yield* OrchestratorMcpService;
       return yield* service.createThreads(scope, input);
     }),
   t3_thread_start: (input) =>
     Effect.gen(function* () {
+      yield* requireLedgerDelegation("t3_thread_start");
       const scope = yield* McpInvocationContext;
       const service = yield* OrchestratorMcpService;
       if (shouldRoute(scope, input)) {
