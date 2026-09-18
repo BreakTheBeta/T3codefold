@@ -13,6 +13,13 @@ const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
 const runtimeVersionPolicy =
   process.env.MOBILE_VERSION_POLICY ??
   (APP_VARIANT === "development" ? "appVersion" : "fingerprint");
+// EAS resolves the fingerprint policy to a real runtime version at build time. A local
+// prebuild cannot, so it emits the literal "file:fingerprint" and the binary can never match
+// a published manifest. Leaving updates on there costs a launch-time check against a runtime
+// version that will never resolve, which hangs the splash before JavaScript starts. Sideload
+// builds ship self-contained instead.
+const resolvesFingerprintRuntimeVersion =
+  runtimeVersionPolicy !== "fingerprint" || process.env.EAS_BUILD === "true";
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
@@ -228,7 +235,7 @@ const config: ExpoConfig = {
   updates: {
     // GitHub hosts the fork's protocol manifest and content-addressed assets.
     // Fingerprinted runtimes prevent JavaScript from crossing native revisions.
-    enabled: APP_VARIANT === "preview",
+    enabled: APP_VARIANT === "preview" && resolvesFingerprintRuntimeVersion,
     url: "https://raw.githubusercontent.com/BreakTheBeta/T3codefold/mobile-ota/manifest-android.json",
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
@@ -436,12 +443,18 @@ const config: ExpoConfig = {
   extra: {
     appVariant: APP_VARIANT,
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
-    relay: {
-      url: repoEnv.T3CODE_RELAY_URL ?? null,
-    },
+    // Same rule as the Google credentials below: the public manifest serializes
+    // null to {}, which is truthy, so an unset value read as configured and the
+    // cloud config threw inside the preferences runtime. Nothing surfaced that
+    // failure, so the app held its splash screen forever. Omit instead.
+    relay: repoEnv.T3CODE_RELAY_URL ? { url: repoEnv.T3CODE_RELAY_URL } : {},
     clerk: {
-      publishableKey: repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null,
-      jwtTemplate: repoEnv.EXPO_PUBLIC_CLERK_JWT_TEMPLATE ?? null,
+      ...(repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
+        ? { publishableKey: repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }
+        : {}),
+      ...(repoEnv.EXPO_PUBLIC_CLERK_JWT_TEMPLATE
+        ? { jwtTemplate: repoEnv.EXPO_PUBLIC_CLERK_JWT_TEMPLATE }
+        : {}),
     },
     // Native Google sign-in credentials. @clerk/expo reads these from `extra`
     // under their exact env-var names (not nested), and its config plugin reads
