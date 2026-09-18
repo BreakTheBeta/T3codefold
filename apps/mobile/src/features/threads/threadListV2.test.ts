@@ -283,6 +283,20 @@ describe("sortThreadsForListV2", () => {
 });
 
 describe("buildThreadListV2Items", () => {
+  it("excludes archived threads from the visible sections", () => {
+    const visibleId = ThreadId.make("visible");
+    const layout = buildThreadListV2Items({
+      threads: [
+        makeThread({ id: visibleId }),
+        makeThread({ id: ThreadId.make("archived"), archivedAt: NOW }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(layout.items.map((item) => item.thread.id)).toEqual([visibleId]);
+  });
+
   it("hides delegated subagent backing threads from the mobile thread list", () => {
     const parentId = ThreadId.make("parent");
     const layout = buildThreadListV2Items({

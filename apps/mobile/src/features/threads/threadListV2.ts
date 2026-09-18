@@ -54,9 +54,8 @@ export function resolveThreadListV2ProviderDrivers(
  * Thread List v2 model, ported from the web sidebar v2
  * (apps/web/src/components/Sidebar.logic.ts + SidebarV2.tsx).
  *
- * Four visual states, three colors: color is reserved for "act now"
- * (approval), "in motion" (working), and "broken" (failed). Ready is the
- * unlabeled resting state.
+ * Color distinguishes approval, input, active work, and failures. Ready is the
+ * unlabeled resting state; waiting is an idle agent with open background work.
  */
 export type ThreadListV2Status = "approval" | "input" | "working" | "waiting" | "failed" | "ready";
 export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
@@ -445,8 +444,8 @@ export function buildThreadListV2Items(input: {
   const snoozed: EnvironmentThreadShell[] = [];
   let nextSnoozeWakeAt: string | null = null;
   for (const thread of input.threads) {
-    if (isSubagentThread(thread)) continue;
-    // Callers pass live shells. The server stamps settledOverride for the tail.
+    if (thread.archivedAt !== null || isSubagentThread(thread)) continue;
+    // The server stamps settledOverride for the tail.
     if (input.environmentId !== null && thread.environmentId !== input.environmentId) continue;
     if (projectKeys !== null && !projectKeys.has(`${thread.environmentId}:${thread.projectId}`)) {
       continue;
