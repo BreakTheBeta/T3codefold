@@ -136,6 +136,11 @@
     }
 
     @variant t3-chat-light {
+      --color-clerk-page: #f2f2f7;
+      --color-clerk-foreground: #262626;
+      --color-clerk-foreground-muted: #737373;
+      --color-clerk-border: rgba(229, 229, 234, 0.06);
+      --color-clerk-danger: #dc2626;
       --color-screen: #fdf7fd;
       --color-sheet: rgba(253, 247, 253, 0.98);
       --color-sheet-solid: #fdf7fd;
@@ -278,6 +283,11 @@
     }
 
     @variant t3-chat-dark {
+      --color-clerk-page: #0e0e0e;
+      --color-clerk-foreground: #f5f5f5;
+      --color-clerk-foreground-muted: #a3a3a3;
+      --color-clerk-border: rgba(42, 42, 42, 0.06);
+      --color-clerk-danger: #fca5a5;
       --color-screen: #1f1a24;
       --color-sheet: rgba(31, 26, 36, 0.98);
       --color-sheet-solid: #1f1a24;
@@ -420,6 +430,11 @@
     }
 
     @variant grove-light {
+      --color-clerk-page: #f2f2f7;
+      --color-clerk-foreground: #262626;
+      --color-clerk-foreground-muted: #737373;
+      --color-clerk-border: rgba(229, 229, 234, 0.06);
+      --color-clerk-danger: #dc2626;
       --color-screen: #f3f7f4;
       --color-sheet: rgba(243, 247, 244, 0.98);
       --color-sheet-solid: #f3f7f4;
@@ -562,6 +577,11 @@
     }
 
     @variant grove-dark {
+      --color-clerk-page: #0e0e0e;
+      --color-clerk-foreground: #f5f5f5;
+      --color-clerk-foreground-muted: #a3a3a3;
+      --color-clerk-border: rgba(42, 42, 42, 0.06);
+      --color-clerk-danger: #fca5a5;
       --color-screen: #1b2821;
       --color-sheet: rgba(27, 40, 33, 0.98);
       --color-sheet-solid: #1b2821;
@@ -704,6 +724,11 @@
     }
 
     @variant ocean-light {
+      --color-clerk-page: #f2f2f7;
+      --color-clerk-foreground: #262626;
+      --color-clerk-foreground-muted: #737373;
+      --color-clerk-border: rgba(229, 229, 234, 0.06);
+      --color-clerk-danger: #dc2626;
       --color-screen: #f5f7f8;
       --color-sheet: rgba(245, 247, 248, 0.98);
       --color-sheet-solid: #f5f7f8;
@@ -846,6 +871,11 @@
     }
 
     @variant ocean-dark {
+      --color-clerk-page: #0e0e0e;
+      --color-clerk-foreground: #f5f5f5;
+      --color-clerk-foreground-muted: #a3a3a3;
+      --color-clerk-border: rgba(42, 42, 42, 0.06);
+      --color-clerk-danger: #fca5a5;
       --color-screen: #17212b;
       --color-sheet: rgba(23, 33, 43, 0.98);
       --color-sheet-solid: #17212b;
@@ -988,6 +1018,11 @@
     }
 
     @variant ember-light {
+      --color-clerk-page: #f2f2f7;
+      --color-clerk-foreground: #262626;
+      --color-clerk-foreground-muted: #737373;
+      --color-clerk-border: rgba(229, 229, 234, 0.06);
+      --color-clerk-danger: #dc2626;
       --color-screen: #f9f7f5;
       --color-sheet: rgba(249, 247, 245, 0.98);
       --color-sheet-solid: #f9f7f5;
@@ -1130,6 +1165,11 @@
     }
 
     @variant ember-dark {
+      --color-clerk-page: #0e0e0e;
+      --color-clerk-foreground: #f5f5f5;
+      --color-clerk-foreground-muted: #a3a3a3;
+      --color-clerk-border: rgba(42, 42, 42, 0.06);
+      --color-clerk-danger: #fca5a5;
       --color-screen: #291e1a;
       --color-sheet: rgba(41, 30, 26, 0.98);
       --color-sheet-solid: #291e1a;
@@ -1272,6 +1312,11 @@
     }
 
     @variant iris-light {
+      --color-clerk-page: #f2f2f7;
+      --color-clerk-foreground: #262626;
+      --color-clerk-foreground-muted: #737373;
+      --color-clerk-border: rgba(229, 229, 234, 0.06);
+      --color-clerk-danger: #dc2626;
       --color-screen: #f8f7f9;
       --color-sheet: rgba(248, 247, 249, 0.98);
       --color-sheet-solid: #f8f7f9;
@@ -1414,6 +1459,11 @@
     }
 
     @variant iris-dark {
+      --color-clerk-page: #0e0e0e;
+      --color-clerk-foreground: #f5f5f5;
+      --color-clerk-foreground-muted: #a3a3a3;
+      --color-clerk-border: rgba(42, 42, 42, 0.06);
+      --color-clerk-danger: #fca5a5;
       --color-screen: #1d1929;
       --color-sheet: rgba(29, 25, 41, 0.98);
       --color-sheet-solid: #1d1929;

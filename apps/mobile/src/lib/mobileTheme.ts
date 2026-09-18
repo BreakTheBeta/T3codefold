@@ -227,9 +227,33 @@ export function themeColorWithAlpha(color: string, alpha: number): string {
   return rgb ? `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})` : color;
 }
 
+/**
+ * Clerk's native profile keeps a fixed palette so custom themes cannot restyle its chrome
+ * (see the matching block in global.css and clerk-theme.json). Every theme still has to
+ * declare them: Uniwind requires all themes to carry the same variable set, and a theme that
+ * omitted one stopped the style runtime from initializing, which left the app on its splash.
+ */
+const CLERK_THEME_VARIABLES = {
+  light: {
+    "--color-clerk-page": "#f2f2f7",
+    "--color-clerk-foreground": "#262626",
+    "--color-clerk-foreground-muted": "#737373",
+    "--color-clerk-border": "rgba(229, 229, 234, 0.06)",
+    "--color-clerk-danger": "#dc2626",
+  },
+  dark: {
+    "--color-clerk-page": "#0e0e0e",
+    "--color-clerk-foreground": "#f5f5f5",
+    "--color-clerk-foreground-muted": "#a3a3a3",
+    "--color-clerk-border": "rgba(42, 42, 42, 0.06)",
+    "--color-clerk-danger": "#fca5a5",
+  },
+} as const;
+
 export function createMobileThemeVariables(colors: ThemeColors, appearance: MobileThemeAppearance) {
   const c = nativeColors(colors);
   return {
+    ...CLERK_THEME_VARIABLES[appearance],
     "--color-screen": c.canvas,
     "--color-sheet": withAlpha(c.chrome, 0.98),
     "--color-sheet-solid": c.chrome,
