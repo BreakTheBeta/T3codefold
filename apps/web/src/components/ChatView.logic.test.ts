@@ -1798,10 +1798,10 @@ describe("resolveBackgroundDraftWorkspaceOptions", () => {
 });
 
 describe("proactive completed diff guard", () => {
-  it("opens a completed turn diff only for changed files", () => {
+  it("opens a completed turn diff for substantial changes", () => {
     const changedCheckpoint = {
       status: "ready",
-      files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
+      files: [{ path: "src/app.ts", kind: "modified", additions: 50, deletions: 0 }],
     } satisfies Pick<TurnDiffSummary, "status" | "files">;
     const unchangedCheckpoint = {
       status: "ready",
@@ -1815,6 +1815,16 @@ describe("proactive completed diff guard", () => {
         activeSurfaceKind: null,
       }),
     ).toBe("open");
+    expect(
+      resolveProactiveTurnDiffAction({
+        checkpoint: {
+          ...changedCheckpoint,
+          files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
+        },
+        isGitRepo: true,
+        activeSurfaceKind: null,
+      }),
+    ).toBe("ignore");
     expect(
       resolveProactiveTurnDiffAction({
         checkpoint: unchangedCheckpoint,
