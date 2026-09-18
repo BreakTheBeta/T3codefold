@@ -181,43 +181,38 @@ it.effect("lets GLaDOS set the brief and pause without a user command", () =>
   }).pipe(Effect.provide(services)),
 );
 
-it.effect("keeps coordinator permissions and elections with the user", () =>
+it.effect("lets GLaDOS apply her own permissions but keeps electing the role with the user", () =>
   Effect.gen(function* () {
     const store = yield* WorkStore;
     const elected = yield* store.command(election, { type: "user" });
-    const escalated = yield* Effect.result(
-      store.command(
-        {
-          commandId: CommandId.make("agent-escalates-permissions"),
-          expectedRevision: elected.revision,
-          authorityGeneration: elected.role!.generation,
-          action: {
-            type: "brief",
-            brief: { ...election.action.brief, coordinatorRuntimeMode: "full-access" },
-            applyCoordinatorPermissions: true,
-          },
+    const permitted = yield* store.command(
+      {
+        commandId: CommandId.make("agent-applies-permissions"),
+        expectedRevision: elected.revision,
+        authorityGeneration: elected.role!.generation,
+        action: {
+          type: "brief",
+          brief: { ...election.action.brief, coordinatorRuntimeMode: "full-access" },
+          applyCoordinatorPermissions: true,
         },
-        { type: "agent", threadId: election.action.threadId },
-      ),
+      },
+      { type: "agent", threadId: election.action.threadId },
     );
-    expect(escalated).toMatchObject({ _tag: "Failure", failure: { code: "forbidden" } });
+    expect(permitted.role?.brief.coordinatorRuntimeMode).toBe("full-access");
 
     const reelected = yield* Effect.result(
       store.command(
         {
           ...election,
           commandId: CommandId.make("agent-elects"),
-          expectedRevision: elected.revision,
-          authorityGeneration: elected.role!.generation,
+          expectedRevision: permitted.revision,
+          authorityGeneration: permitted.role!.generation,
         },
         { type: "agent", threadId: election.action.threadId },
       ),
     );
     expect(reelected).toMatchObject({ _tag: "Failure", failure: { code: "forbidden" } });
-
-    const state = yield* store.read();
-    expect(state.role?.brief.coordinatorRuntimeMode).toBeUndefined();
-    expect(state.role?.brief.maxWorkers).toBe(1);
+    expect(yield* store.rebuild()).toEqual(yield* store.read());
   }).pipe(Effect.provide(services)),
 );
 

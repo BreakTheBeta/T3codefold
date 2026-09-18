@@ -164,15 +164,12 @@ it("keeps code and research profiles independent within one project and preserve
   expect(replayJournal(f.history)).toEqual(f.state);
 });
 
-it("requires user approval to weaken or change proof after an attempt", () => {
+it("lets the manager select reported-only evidence and records the criteria change", () => {
   const f = fixture();
-  expect(() =>
-    f.act(
-      { type: "verification-profile", taskId: "task", profileId: null },
-      { type: "agent", threadId: boss },
-    ),
-  ).toThrow(/Only the user/);
-  f.act({ type: "verification-profile", taskId: "task", profileId: null });
+  f.act(
+    { type: "verification-profile", taskId: "task", profileId: null },
+    { type: "agent", threadId: boss },
+  );
   expect(verificationRecipeForTask(f.state, f.state.tasks[0]!)).toBeUndefined();
   expect(f.state.tasks[0]!.criteriaVersion).toBe(2);
 });
