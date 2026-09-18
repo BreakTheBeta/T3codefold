@@ -57,13 +57,22 @@ export class AgentAwarenessRelay extends Context.Service<
   }
 >()("t3/relay/AgentAwarenessRelay") {}
 
-export function eventThreadId(event: OrchestrationV2DomainEvent): ThreadId {
+function eventThreadId(event: OrchestrationV2DomainEvent): ThreadId {
   return event.threadId;
 }
 
 export function shouldPublishAgentAwarenessEvent(
-  event: Pick<OrchestrationV2DomainEvent, "type">,
+  event: Pick<OrchestrationV2DomainEvent, "type"> & { readonly payload?: unknown },
 ): boolean {
+  if (
+    event.type === "thread.created" &&
+    typeof event.payload === "object" &&
+    event.payload !== null &&
+    "historyOrigin" in event.payload &&
+    event.payload.historyOrigin === "v1_import"
+  ) {
+    return false;
+  }
   // projectThreadAwarenessV2 reads thread metadata, run status, and pending requests.
   // Message bodies and tool progress cannot change the published activity.
   switch (event.type) {
@@ -72,6 +81,7 @@ export function shouldPublishAgentAwarenessEvent(
     case "thread.unarchived":
     case "thread.deleted":
     case "thread.metadata-updated":
+    case "thread.pull-request-synced":
     case "thread.model-selection-updated":
     case "thread.provider-switched":
     case "run.created":
@@ -86,6 +96,7 @@ export function shouldPublishAgentAwarenessEvent(
     case "thread.unpinned":
     case "thread.pin-reordered":
     case "thread.pull-request-synced":
+    case "thread.active-reordered":
     case "thread.visited":
     case "thread.marked-unread":
     case "thread.runtime-mode-updated":
@@ -130,7 +141,7 @@ export const makeAgentAwarenessPublishWorker = Effect.fnUntraced(function* <R>(
   return { enqueue, drain: worker.drain };
 });
 
-export function agentAwarenessPublishIdentity(state: RelayAgentActivityState | null): string {
+function agentAwarenessPublishIdentity(state: RelayAgentActivityState | null): string {
   if (state === null) {
     return "null";
   }
@@ -138,11 +149,7 @@ export function agentAwarenessPublishIdentity(state: RelayAgentActivityState | n
   return JSON.stringify(meaningfulState);
 }
 
-export function isAgentActivityPublishingEnabled(value: string | null): boolean {
-  return isAgentActivityPublishingEnabledValue(value);
-}
-
-export function resolveAgentActivityPublishingStartupState(input: {
+function resolveAgentActivityPublishingStartupState(input: {
   readonly relayConfigured: boolean;
   readonly publishEnabled: boolean;
 }): "waiting-for-link" | "disabled" | "enabled" {
@@ -156,7 +163,7 @@ const RELAY_AGENT_ACTIVITY_DETAIL_MAX_LENGTH = 160;
 const REDACTED_RELAY_AGENT_FAILURE_DETAIL = "The agent run failed.";
 const RELAY_AGENT_ACTIVITY_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as const;
 
-export function sanitizeRelayAgentActivityState(
+function sanitizeRelayAgentActivityState(
   state: RelayAgentActivityState | null,
 ): RelayAgentActivityState | null {
   if (state === null) {
@@ -213,7 +220,7 @@ function deliveryStats(
   };
 }
 
-export function signRelayAgentActivityPublishProof(input: {
+function signRelayAgentActivityPublishProof(input: {
   readonly privateKey: string;
   readonly payload: RelayAgentActivityPublishProofPayload;
 }) {
@@ -249,7 +256,7 @@ const makePublishProof = Effect.fn("makePublishProof")(function* (input: {
 });
 
 // Compact, log-safe view of the fields the awareness phase ladder reads.
-export function describeThreadShellForAwareness(
+function describeThreadShellForAwareness(
   thread: Option.Option<OrchestrationV2ThreadShell>,
 ): Record<string, unknown> {
   if (Option.isNone(thread)) {
@@ -267,7 +274,7 @@ export function describeThreadShellForAwareness(
   };
 }
 
-export function resolveAgentAwarenessRelayPublishSnapshot(input: {
+function resolveAgentAwarenessRelayPublishSnapshot(input: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly thread: Option.Option<OrchestrationV2ThreadShell>;
@@ -304,7 +311,7 @@ export function resolveAgentAwarenessRelayPublishSnapshot(input: {
   };
 }
 
-export function resolveAgentAwarenessRelayActiveThreadIds(input: {
+function resolveAgentAwarenessRelayActiveThreadIds(input: {
   readonly environmentId: EnvironmentId;
   readonly projects: ReadonlyArray<Pick<Project, "id" | "title">>;
   readonly threads: ReadonlyArray<OrchestrationV2ThreadShell>;
@@ -360,7 +367,7 @@ export const make = Effect.gen(function* () {
   });
 
   const readPublishAgentActivityEnabled = readSecretString(PUBLISH_AGENT_ACTIVITY_SECRET).pipe(
-    Effect.map(isAgentActivityPublishingEnabled),
+    Effect.map(isAgentActivityPublishingEnabledValue),
   );
 
   const makeRelayClient = (relayConfig: {

@@ -76,6 +76,7 @@ import {
   PreviewAutomationTypeInput,
   PreviewAutomationWaitForInput,
 } from "./previewAutomation.ts";
+import { SnapShotSource } from "./chatAttachment.ts";
 import type {
   OrchestrationV2Command,
   OrchestrationV2DispatchCommandResult,
@@ -84,7 +85,6 @@ import type {
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadStreamItem,
 } from "./orchestrationV2.ts";
-import { SnapShotSource } from "./chatAttachment.ts";
 import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 import { BrowserProfileId } from "./browserProfile.ts";

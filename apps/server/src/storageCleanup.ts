@@ -1,4 +1,11 @@
-import { ThreadId, ProjectId as ProjectIdSchema } from "@t3tools/contracts";
+import * as Context from "effect/Context";
+import * as Layer from "effect/Layer";
+import type * as Scope from "effect/Scope";
+import {
+  ThreadId,
+  ProjectId as ProjectIdSchema,
+  OrchestrationV2ProviderSessionJson,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as ProjectionStore from "./orchestration-v2/ProjectionStore.ts";
@@ -15,17 +22,14 @@ import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
-import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import type { PlatformError } from "effect/PlatformError";
 import * as Schedule from "effect/Schedule";
-import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "./config.ts";
@@ -44,6 +48,10 @@ export class StorageCleanup extends Context.Service<
     readonly drain: Effect.Effect<void>;
   }
 >()("t3/storageCleanup") {}
+
+const decodeCleanupSession = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(OrchestrationV2ProviderSessionJson),
+);
 
 const decodeLiveSessions = Schema.decodeUnknownEffect(
   Schema.Array(
@@ -252,7 +260,7 @@ export const make = Effect.gen(function* () {
     );
     const candidates = [
       ...[...groups.values()].flatMap((group) => (group.length === 1 ? [group[0]!] : [])),
-      ...deletedThreads.filter((thread) => !groups.has(path.resolve(thread.worktreePath))),
+      ...deletedThreads.filter((thread) => !groups.has(path.resolve(thread.worktreePath!))),
     ];
     for (const thread of candidates) {
       const settings = resolveWorktreeCleanup(serverSettings, thread.projectId);
@@ -358,6 +366,21 @@ export const make = Effect.gen(function* () {
           latest[0]!.id !== thread.id ||
           !storageCleanupThreadIdle(latest[0]!, now) ||
           storageCleanupActivityAt(latest[0]!) !== storageCleanupActivityAt(thread)
+        )
+          return;
+        // Sessions can outlive their run and can be shared across app threads.
+        const sessionRows = yield* sql<{ payload_json: string }>`
+          SELECT payload_json FROM orchestration_v2_projection_provider_sessions
+          WHERE status != 'stopped'
+        `;
+        const sessions = yield* Effect.forEach(sessionRows, (row) =>
+          decodeCleanupSession(row.payload_json),
+        );
+        if (
+          sessions.some((session) => {
+            const cwd = path.resolve(session.cwd);
+            return cwd === worktreePath || inside(worktreePath, cwd);
+          })
         )
           return;
         const finalStatus = yield* git.statusDetailsLocal(worktreePath);
@@ -517,10 +540,14 @@ export const make = Effect.gen(function* () {
         anyWorktreePolicy(lastSettings, (rules) => rules.worktreeOnDelete)
           ? worker.enqueue(undefined)
           : Effect.void,
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Storage cleanup event stream failed", { cause }),
+        ),
       ),
     );
   });
-  return { start, drain: worker.drain } satisfies StorageCleanup["Service"];
+  return { start, drain: worker.drain };
 });
 
 export const layer = Layer.effect(StorageCleanup, make);

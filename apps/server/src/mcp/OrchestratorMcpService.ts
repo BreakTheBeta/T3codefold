@@ -1,3 +1,5 @@
+import { isBuiltInProviderAdapterDriverV2 } from "../orchestration-v2/builtInProviderAdapterDrivers.ts";
+import { isRuntimeModeBroaderThan } from "@t3tools/contracts";
 import {
   CommandId,
   isProviderAvailable,
@@ -46,7 +48,6 @@ import {
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
   type RuntimeMode,
-  isRuntimeModeBroaderThan,
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
   type ServerProvider,
@@ -61,8 +62,11 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { isBuiltInProviderAdapterDriverV2 } from "../orchestration-v2/builtInProviderAdapterDrivers.ts";
-import { subagentResultForRun } from "../orchestration-v2/SubagentProjection.ts";
+import { ProviderAdapterRegistryV2 } from "../orchestration-v2/ProviderAdapterRegistry.ts";
+import {
+  subagentResultForRun,
+  delegatedTaskProgress,
+} from "../orchestration-v2/SubagentProjection.ts";
 import {
   isActiveRun,
   isTerminalRunStatus,
@@ -275,7 +279,7 @@ function invalidOptionSelections(
 }
 
 function taskStatusForRun(
-  run: OrchestrationV2Run | undefined,
+  run: Pick<OrchestrationV2Run, "status"> | undefined,
 ): OrchestratorMcpDelegateTaskResult["status"] {
   switch (run?.status) {
     case "queued":
@@ -359,12 +363,23 @@ function directAppOwnedChildTask(
 }
 
 function pageIncludesTerminalTaskResult(input: {
+  readonly parent: OrchestrationV2ThreadProjection;
   readonly page: ReadonlyArray<OrchestrationV2ThreadProjection["visibleTurnItems"][number]>;
   readonly task: OrchestrationV2Subagent;
   readonly target: OrchestrationV2ThreadProjection;
   readonly maxChars: number;
 }): boolean {
-  const run = delegatedTaskRun(input.target, input.task);
+  const transfer = input.parent.contextTransfers.find(
+    (transfer) =>
+      transfer.type === "subagent_result" &&
+      transfer.sourceThreadId === input.target.thread.id &&
+      transfer.targetThreadId === input.parent.thread.id,
+  );
+  if (transfer === undefined) return false;
+  const run =
+    transfer.sourcePoint.runId === undefined
+      ? delegatedTaskRun(input.target, input.task)
+      : input.target.runs.find((run) => run.id === transfer.sourcePoint.runId);
   if (run === undefined || !isTerminalTaskStatus(taskStatusForRun(run))) return false;
 
   const result = subagentResultForRun(input.target, run);
@@ -388,10 +403,16 @@ function latestTerminalResultRun(
   projection: OrchestrationV2ThreadProjection,
   delegatedRun: OrchestrationV2Run | undefined,
 ): OrchestrationV2Run | undefined {
+  const monitorRunIds = new Set(
+    projection.messages
+      .filter((message) => message.notification?.source.kind === "monitor")
+      .map((message) => message.runId),
+  );
   return projection.runs
     .filter(
       (run) =>
         isTerminalRunStatus(run.status) &&
+        !monitorRunIds.has(run.id) &&
         run.status !== "rolled_back" &&
         (run.id === delegatedRun?.id || run.startedAt !== null),
     )
@@ -613,6 +634,8 @@ function jsonText(value: unknown): string {
 
 function turnItemText(item: OrchestrationV2TurnItem): string | null {
   switch (item.type) {
+    case "notification":
+      return [item.summary, item.detail].filter((part) => part !== undefined).join("\n");
     case "user_message":
     case "assistant_message":
     case "reasoning":
@@ -815,6 +838,7 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService;
   const providerRegistry = yield* ProviderRegistry;
+  const providerAdapters = yield* ProviderAdapterRegistryV2;
   const scheduledTasks = yield* ScheduledTaskService;
 
   const requireCapability = (scope: McpInvocationScope) =>
@@ -858,16 +882,156 @@ const make = Effect.gen(function* () {
       return { parent, target } as const;
     });
 
+  /**
+   * A thread the user attached as context (a `thread` record on one of their own messages)
+   * is readable even outside the calling project. Only records the user authored count:
+   * an agent cannot widen its own reach by writing a record.
+   */
+  const userAttachedThreadIds = (parent: OrchestrationV2ThreadProjection): Set<ThreadId> => {
+    const ids = new Set<ThreadId>();
+    for (const message of parent.messages) {
+      if (message.role !== "user" || message.createdBy !== "user") continue;
+      for (const record of message.context?.records ?? []) {
+        if (record.kind === "thread" && "threadId" in record) ids.add(record.threadId);
+      }
+    }
+    return ids;
+  };
+
+  const loadReadableThread = (scope: McpInvocationScope, threadId: ThreadId) =>
+    Effect.gen(function* () {
+      yield* requireCapability(scope);
+      const parent = yield* loadProjection(scope.threadId);
+      if (threadId === scope.threadId) return { parent, target: parent } as const;
+      const target = yield* loadProjectThread(parent.thread.projectId, threadId).pipe(
+        Effect.catchIf(
+          (error) =>
+            error.code === "thread_not_found" && userAttachedThreadIds(parent).has(threadId),
+          () => loadProjection(threadId),
+        ),
+      );
+      if (target.thread.deletedAt !== null) {
+        return yield* failure("thread_not_found", `Thread ${threadId} is no longer available.`);
+      }
+      return { parent, target } as const;
+    });
+
   const loadProviders = providerRegistry.getProviders;
+
+  /**
+   * Instance ids the adapter registry resolves — the same lookup a
+   * `delegated_task.request` performs when it runs. Capability reporting and
+   * target resolution must not advertise a set narrower (or wider) than what
+   * dispatch can actually serve.
+   */
+  const loadOrchestrationCapableInstanceIds = () =>
+    providerAdapters.list().pipe(Effect.map((instanceIds) => new Set(instanceIds)));
 
   const resolveTarget = (input: {
     readonly parent: OrchestrationV2ThreadProjection;
     readonly target: OrchestratorMcpTarget | undefined;
     readonly providers: ReadonlyArray<ServerProvider>;
-  }) =>
-    resolveFleetModelTarget({
-      ...input,
-      defaultModelSelection: input.parent.thread.modelSelection,
+  }): Effect.Effect<ResolvedTarget, OrchestratorMcpFailure> =>
+    Effect.gen(function* () {
+      const requestedInstanceId = input.target?.providerInstanceId;
+      const requestedDriver = input.target?.driverKind;
+      const orchestrationCapableInstanceIds = yield* loadOrchestrationCapableInstanceIds();
+      let instanceId = requestedInstanceId;
+
+      if (instanceId === undefined && requestedDriver !== undefined) {
+        const candidates = input.providers.filter(
+          (provider) =>
+            provider.driver === requestedDriver &&
+            orchestrationCapableInstanceIds.has(provider.instanceId),
+        );
+        if (candidates.length === 0) {
+          return yield* failure(
+            "provider_unavailable",
+            `No V2 provider adapter is registered for driver ${requestedDriver}.`,
+          );
+        }
+        const inheritedCandidate = candidates.find(
+          (candidate) => candidate.instanceId === input.parent.thread.modelSelection.instanceId,
+        );
+        const availableCandidate = candidates.find(
+          (candidate) => providerConstraints(candidate, true).length === 0,
+        );
+        instanceId = inheritedCandidate?.instanceId ?? availableCandidate?.instanceId;
+      }
+      instanceId ??= input.parent.thread.modelSelection.instanceId;
+
+      const provider = input.providers.find((candidate) => candidate.instanceId === instanceId);
+      if (provider === undefined) {
+        return yield* failure(
+          "provider_unavailable",
+          `Provider instance ${instanceId} is not registered.`,
+        );
+      }
+      if (requestedDriver !== undefined && provider.driver !== requestedDriver) {
+        return yield* failure(
+          "invalid_request",
+          `Provider instance ${instanceId} uses driver ${provider.driver}, not ${requestedDriver}.`,
+        );
+      }
+      const constraints = providerConstraints(
+        provider,
+        orchestrationCapableInstanceIds.has(provider.instanceId),
+      );
+      if (constraints.length > 0) {
+        return yield* failure(
+          "provider_unavailable",
+          `Provider ${instanceId} cannot run a child task: ${constraints.join(" ")}`,
+        );
+      }
+
+      const inheritedSelection = input.parent.thread.modelSelection;
+      const requestedModel = input.target?.model;
+      const model =
+        requestedModel ??
+        (instanceId === inheritedSelection.instanceId
+          ? inheritedSelection.model
+          : provider?.models[0]?.slug);
+      if (model === undefined) {
+        return yield* failure(
+          "model_unavailable",
+          `Provider ${instanceId} has no model available for inheritance.`,
+        );
+      }
+      if (
+        requestedModel !== undefined &&
+        provider !== undefined &&
+        provider.models.length > 0 &&
+        !provider.models.some((candidate) => candidate.slug === requestedModel)
+      ) {
+        return yield* failure(
+          "model_unavailable",
+          `Model ${requestedModel} is not advertised by provider ${instanceId}.`,
+        );
+      }
+
+      const requestedOptions = input.target?.options;
+      if (requestedOptions !== undefined) {
+        const descriptors = provider.models.find((candidate) => candidate.slug === model)
+          ?.capabilities?.optionDescriptors;
+        const invalid = invalidOptionSelections(requestedOptions, descriptors);
+        if (invalid.length > 0) {
+          return yield* failure(
+            "invalid_request",
+            `Model ${model} on provider ${instanceId} rejected options: ${invalid.join(" ")}`,
+          );
+        }
+      }
+
+      return {
+        modelSelection:
+          instanceId === inheritedSelection.instanceId &&
+          model === inheritedSelection.model &&
+          requestedOptions === undefined
+            ? inheritedSelection
+            : requestedOptions === undefined
+              ? { instanceId, model }
+              : { instanceId, model, options: requestedOptions },
+      };
     });
 
   const requestKey = (clientRequestId: string | undefined): Effect.Effect<string> =>
@@ -900,12 +1064,28 @@ const make = Effect.gen(function* () {
       const childProjection = yield* loadProjection(task.childThreadId);
       const childRun = delegatedTaskRun(childProjection, task);
       const terminalRun = latestTerminalResultRun(childProjection, childRun);
-      const status = taskStatusForRun(childRun);
+      const progress = delegatedTaskProgress(childProjection);
+      const workState = task.result !== null ? "result_available" : progress.state;
+      const status =
+        task.result !== null
+          ? taskStatusForRun(
+              task.status === "completed" ||
+                task.status === "failed" ||
+                task.status === "cancelled" ||
+                task.status === "interrupted"
+                ? { status: task.status }
+                : childRun,
+            )
+          : workState === "result_available"
+            ? taskStatusForRun(progress.resultRun ?? childRun)
+            : taskStatusForRun(childRun) === "queued"
+              ? "queued"
+              : "running";
       const derivedResult =
         task.result !== null
           ? task.result
-          : childRun !== undefined && isTerminalTaskStatus(status)
-            ? subagentResultForRun(childProjection, childRun).text
+          : progress.resultRun !== undefined && isTerminalTaskStatus(status)
+            ? subagentResultForRun(childProjection, progress.resultRun).text
             : null;
       const resultTransfers = parentProjection.contextTransfers.filter(
         (transfer) =>
@@ -921,7 +1101,7 @@ const make = Effect.gen(function* () {
               ? resultTransfers.find((transfer) => transfer.sourcePoint.runId === undefined)
               : undefined) ??
             null);
-      const resultTransfer = resultTransferForRun(childRun);
+      const resultTransfer = resultTransfers[0] ?? null;
       const terminalStatus = terminalRun === undefined ? null : taskStatusForRun(terminalRun);
       const response = {
         taskId: task.id,
@@ -929,6 +1109,7 @@ const make = Effect.gen(function* () {
         childRunId: childRun?.id ?? null,
         childNodeId: task.id,
         status,
+        workState,
         hasPendingChildRuns: hasPendingChildRuns(childProjection, childRun),
         providerInstanceId: task.providerInstanceId,
         model: task.model,
@@ -1141,6 +1322,7 @@ const make = Effect.gen(function* () {
         yield* requireCapability(scope);
         const parent = yield* loadProjection(scope.threadId);
         const providers = yield* loadProviders;
+        const orchestrationCapableInstanceIds = yield* loadOrchestrationCapableInstanceIds();
         return {
           parentThreadId: scope.threadId,
           inheritedProviderInstanceId: parent.thread.modelSelection.instanceId,
@@ -1150,7 +1332,7 @@ const make = Effect.gen(function* () {
           providers: providers.map((provider) => {
             const constraints = providerConstraints(
               provider,
-              isBuiltInProviderAdapterDriverV2(provider.driver),
+              orchestrationCapableInstanceIds.has(provider.instanceId),
             );
             return {
               providerInstanceId: provider.instanceId,
@@ -1346,9 +1528,7 @@ const make = Effect.gen(function* () {
           } satisfies OrchestratorMcpTaskCancelResult;
         }
         const child = yield* loadProjection(current.childThreadId);
-        const activeRun = child.runs.find(
-          (run) => run.id === current.childRunId && isActiveRun(run),
-        );
+        const activeRun = latestActiveRun(child);
         if (activeRun === undefined) {
           return yield* failure(
             "task_not_cancellable",
@@ -1574,7 +1754,7 @@ const make = Effect.gen(function* () {
       }),
     readThread: (scope, input) =>
       Effect.gen(function* () {
-        const { parent, target } = yield* loadScopedThread(scope, input.threadId);
+        const { parent, target } = yield* loadReadableThread(scope, input.threadId);
         const view = input.view ?? "messages";
         const afterPosition = input.afterPosition ?? -1;
         const limit = input.limit ?? DEFAULT_THREAD_READ_LIMIT;
@@ -1613,7 +1793,7 @@ const make = Effect.gen(function* () {
         const task = directAppOwnedChildTask(parent, target);
         if (
           task !== undefined &&
-          pageIncludesTerminalTaskResult({ page, task, target, maxChars })
+          pageIncludesTerminalTaskResult({ parent, page, task, target, maxChars })
         ) {
           yield* readTask(scope, task.id, false, true, "thread-read-acknowledge");
         }
@@ -1741,5 +1921,9 @@ const make = Effect.gen(function* () {
 export const layer: Layer.Layer<
   OrchestratorMcpService,
   never,
-  Crypto.Crypto | ThreadManagementService | ProviderRegistry | ScheduledTaskService
+  | Crypto.Crypto
+  | ThreadManagementService
+  | ProviderRegistry
+  | ProviderAdapterRegistryV2
+  | ScheduledTaskService
 > = Layer.effect(OrchestratorMcpService, make);

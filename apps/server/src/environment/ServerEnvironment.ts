@@ -224,6 +224,7 @@ export const make = Effect.gen(function* () {
       questionAttachments: true,
       fileAttachments: { maxUploadBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES },
       pullRequests: true,
+      pullRequestChecks: true,
       inlineMessageContext: true,
       requiredWorktreeBootstrap: true,
       threadSettlement: true,
@@ -246,6 +247,7 @@ export const make = Effect.gen(function* () {
       pullRequestStackActions: true,
       environmentIcon: true,
       updateRepository: FOLD_REPOSITORY,
+      serverResolvedCommandContext: true,
       projectCloneTracking: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
       // V2 restart recovery uses the environment-owned opt-in. The old

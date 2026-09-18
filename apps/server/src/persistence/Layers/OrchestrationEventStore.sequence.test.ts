@@ -209,7 +209,7 @@ it.effect(
     }).pipe(Effect.provide(Layer.fresh(eventStoreLayer))),
 );
 
-it.effect("upgrades populated history to indexed high-water lookups without OR scans", () =>
+it.effect("uses indexed high-water lookups for populated history without OR scans", () =>
   Effect.gen(function* () {
     const store = yield* OrchestrationEventStore;
     const sql = yield* SqlClient.SqlClient;

@@ -1,4 +1,3 @@
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -418,9 +417,9 @@ function waitForProjection(
 
 const client = McpSchema.McpServerClient.of({
   clientId: 1,
+  protocolVersion: "2025-06-18",
   clientCapabilities: {},
   clientInfo: { name: "orchestrator-mcp-test", version: "1.0.0" },
-  protocolVersion: "2025-06-18",
   initializePayload: {
     protocolVersion: "2025-06-18",
     capabilities: {},
@@ -482,7 +481,12 @@ describe("orchestrator MCP toolkit", () => {
             makeDeterministicAdapter({
               instanceId: codexInstanceId,
               driver: ProviderDriverKind.make("codex"),
-              capabilities: CodexProviderCapabilitiesV2,
+              // Exercise queued completion ownership on a session without native steering.
+              // Native mailbox delivery and its completion races have dedicated integration tests.
+              capabilities: {
+                ...CodexProviderCapabilitiesV2,
+                turns: { ...CodexProviderCapabilitiesV2.turns, supportsActiveSteering: false },
+              },
               capturedTurns,
               shouldComplete: (turn) =>
                 turn.threadId !== parentThreadId && turn.message.text !== cancellationPrompt,
@@ -616,10 +620,13 @@ describe("orchestrator MCP toolkit", () => {
               runNow: () => Effect.die("ScheduledTaskService.runNow is unused in this test"),
             }),
           );
-          const testLayer = McpHttpServer.OrchestratorToolkitRegistrationLive.pipe(
-            Layer.provide(SqlitePersistenceMemory),
+          const testLayer = Layer.merge(
+            McpHttpServer.OrchestratorToolkitRegistrationLive,
+            McpHttpServer.ThreadToolkitRegistrationLive,
+          ).pipe(
             Layer.provideMerge(McpServer.McpServer.layer),
             Layer.provideMerge(orchestrationLayer),
+            Layer.provide(registryLayer),
             Layer.provide(providerRegistryLayer),
             Layer.provide(scheduledTaskStubLayer),
             Layer.provide(NodeServices.layer),
@@ -686,6 +693,12 @@ describe("orchestrator MCP toolkit", () => {
                 );
             const invoke = (name: string, args: Record<string, unknown>) =>
               invokeAs(invocation, name, args);
+
+            const pinned = yield* invoke("t3_thread_organize", { action: "pin" });
+            expect(pinned.structuredContent).toHaveProperty("sequence");
+            expect((yield* orchestrator.getThreadShell(parentThreadId))?.pinnedAt).not.toBeNull();
+            yield* invoke("t3_thread_organize", { action: "unpin" });
+            expect((yield* orchestrator.getThreadShell(parentThreadId))?.pinnedAt).toBeNull();
 
             if (parentRun === undefined || parentRun.rootNodeId === null) {
               return yield* Effect.die(new Error("Parent run missing."));
@@ -886,7 +899,7 @@ describe("orchestrator MCP toolkit", () => {
                 text: "Rewrite the automatic delivery.",
               })
               .pipe(Effect.flip);
-            expect(completionEditError._tag).toBe("OrchestratorDispatchError");
+            expect(completionEditError._tag).toBe("OrchestratorCommandRejectedError");
             const completionReorderError = yield* orchestrator
               .dispatch({
                 type: "queued-run.reorder",
@@ -1042,7 +1055,7 @@ describe("orchestrator MCP toolkit", () => {
               commandId: CommandId.make("command:mcp-parent:queue-race:user"),
               threadId: parentThreadId,
               messageId: queuedUserMessageId,
-              text: "Queue user follow-up work.",
+              text: "🙂".repeat(16001),
               attachments: [],
               modelSelection: codexSelection,
               dispatchMode: { type: "queue_after_active" },
@@ -1062,6 +1075,24 @@ describe("orchestrator MCP toolkit", () => {
             if (queuedUserRun === undefined) {
               return yield* Effect.die(new Error("Queued user follow-up missing."));
             }
+            const queueFirstPage = yield* invoke("t3_queue_list", { limit: 1 });
+            expect(queueFirstPage.structuredContent).toMatchObject({
+              items: [{ queuedRunId: queueRace.queuedRun.id }],
+              nextCursor: 1,
+            });
+            const queueSecondPage = yield* invoke("t3_queue_list", { cursor: 1, limit: 1 });
+            expect(queueSecondPage.structuredContent).toEqual({
+              items: [{ queuedRunId: queuedUserRun.id, text: "🙂".repeat(1000), truncated: true }],
+              nextCursor: null,
+            });
+            const queueRead = yield* invoke("t3_queue_read", { queuedRunId: queuedUserRun.id });
+            expect(queueRead.structuredContent).toEqual({
+              queuedRunId: queuedUserRun.id,
+              text: "🙂".repeat(16000),
+              truncated: true,
+            });
+            const missingQueueRead = yield* invoke("t3_queue_read", { queuedRunId: parentRun.id });
+            expect(missingQueueRead.structuredContent).toMatchObject({ code: "invalid_request" });
             const queueRaceStatus = yield* invoke("task_status", { taskId: queueRace.task.id });
             expect(queueRaceStatus.isError).toBe(false);
             yield* waitForProjection(
@@ -1081,7 +1112,7 @@ describe("orchestrator MCP toolkit", () => {
               runId: queuedUserRun.id,
             });
 
-            // A native in-place Steer keeps the parent active. Once the
+            // A user Steer keeps the parent run active. Once the
             // parent observes the child result, its queued delivery is stale.
             const steerRace = yield* queueAutomaticCompletion(
               "steer-race",
@@ -1246,9 +1277,11 @@ describe("orchestrator MCP toolkit", () => {
                   providerInstanceId: claudeInstanceId,
                   canRunCrossProviderChildTask: true,
                 }),
+                // No opencode adapter is registered in this harness, so the
+                // capability view must not claim delegation can target it.
                 expect.objectContaining({
                   providerInstanceId: "opencode",
-                  canRunChildTask: true,
+                  canRunChildTask: false,
                 }),
                 // Models advertise their option descriptors so agents can
                 // discover valid target.options ids and values.
@@ -2130,6 +2163,15 @@ describe("orchestrator MCP toolkit", () => {
               branch: null,
               worktreePath: cwd,
             });
+            const foreignOrganizeCall = yield* invoke("t3_thread_organize", {
+              threadId: foreignThreadId,
+              action: "pin",
+            });
+            expect(foreignOrganizeCall.structuredContent).toMatchObject({
+              code: "thread_not_found",
+            });
+            expect((yield* orchestrator.getThreadShell(foreignThreadId))?.pinnedAt).toBeNull();
+
             const foreignReadCall = yield* invoke("t3_thread_read", {
               threadId: foreignThreadId,
             });
@@ -2699,6 +2741,22 @@ describe("orchestrator MCP toolkit", () => {
             if (activeSuccessorRun === undefined) {
               return yield* Effect.die(new Error("Late completion successor did not start."));
             }
+            expect(activeSuccessor.turnItems).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({
+                  type: "notification",
+                  runId: activeSuccessorRun.id,
+                  source: { kind: "delegated_task", taskIds: successorDelivery.taskIds },
+                  outcome: "cancelled",
+                }),
+              ]),
+            );
+            expect(
+              activeSuccessor.turnItems.some(
+                (item) =>
+                  item.type === "user_message" && item.messageId === successorDelivery.messageId,
+              ),
+            ).toBe(false);
             const thirdLateChildProjection = yield* waitForProjection(
               orchestrator,
               thirdLateTask.childThreadId,
@@ -2914,9 +2972,11 @@ describe("orchestrator MCP toolkit", () => {
           }),
         ]);
         const testLayer = McpHttpServer.OrchestratorToolkitRegistrationLive.pipe(
-          Layer.provide(SqlitePersistenceMemory),
           Layer.provideMerge(McpServer.McpServer.layer),
           Layer.provideMerge(orchestrationLayer),
+          Layer.provide(
+            CodexOrchestratorReplayHarness.makeProviderAdapterRegistryLayer(transcript),
+          ),
           Layer.provide(providerRegistryLayer),
           Layer.provide(unusedScheduledTaskStubLayer),
           Layer.provide(NodeServices.layer),

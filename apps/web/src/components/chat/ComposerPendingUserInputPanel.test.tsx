@@ -8,6 +8,7 @@ import type { PendingUserInput } from "../../session-logic";
 const prompt: PendingUserInput = {
   requestId: RuntimeRequestId.make("request-1"),
   responseCapability: "live" as const,
+  dismissible: true,
   createdAt: "2026-08-15T00:00:00.000Z",
   questions: [
     {

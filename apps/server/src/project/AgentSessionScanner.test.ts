@@ -64,6 +64,8 @@ const makeProjectionSnapshotQueryLayer = (importedWorkspaceRoots: ReadonlyArray<
     getThreadRuntimeContext: () => Effect.die("unused"),
     getThreadDetailById: () => Effect.die("unused"),
     getThreadDetailSnapshot: () => Effect.die("unused"),
+    getImportedAgentSessionSources: () => Effect.die("unused"),
+    getTurnStartMessage: () => Effect.die("unused"),
     searchThreads: () => Effect.die("unused"),
   });
 

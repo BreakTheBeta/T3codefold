@@ -4,6 +4,7 @@ import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
+import type { ActiveTurnComposerAction } from "@t3tools/client-runtime/state/composer-dispatch";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
@@ -25,6 +26,8 @@ import {
   type CodexArtifactTemplate,
 } from "@t3tools/client-runtime/codex-artifact-templates";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
+import type { FollowUpBehavior } from "../../lib/followUpBehavior";
+import type { QueuedRunEdit } from "../../state/queued-run-edit";
 import * as Haptics from "expo-haptics";
 import {
   memo,
@@ -101,8 +104,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
-import { ThreadRelationshipsBanner } from "./ThreadRelationshipsBanner";
-import { ThreadQueueControl } from "./ThreadQueueControl";
+import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
@@ -139,6 +141,13 @@ export interface ThreadDetailScreenProps {
   readonly historyControls?: ThreadFeedHistoryControls;
   readonly activeThreadBusy: boolean;
   readonly canStopThread: boolean;
+  readonly queuedRunEdit: QueuedRunEdit | null;
+  readonly composerDraftKey: string | null;
+  readonly followUpBehavior: FollowUpBehavior;
+  readonly canSteerActiveTurn: boolean;
+  readonly isSavingQueuedEdit: boolean;
+  readonly onCancelQueuedRunEdit: () => void;
+  readonly onRemoveQueuedEditAttachment: (attachmentId: string) => void;
   readonly environmentId: EnvironmentId;
   readonly projectWorkspaceRoot: string | null;
   readonly threadCwd: string | null;
@@ -155,8 +164,9 @@ export interface ThreadDetailScreenProps {
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onSendMessage: (followUp?: ActiveTurnComposerAction) => Promise<MessageId | null>;
   readonly onReconnectEnvironment: () => void;
+  readonly canSwitchThreadProvider: boolean;
   readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateThreadInteractionMode: (interactionMode: ProviderInteractionMode) => void;
@@ -720,38 +730,41 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     selectedThreadKey,
   ]);
 
-  const handleSendMessage = useCallback(async () => {
-    const targetThreadKey = selectedThreadKey;
-    const hasUserMessage = selectedThreadFeed.some(
-      (entry) => entry.type === "message" && entry.message.role === "user",
-    );
-    const messageId = await props.onSendMessage();
-    if (messageId !== null) clearUsageLimitsFor(selectedThreadKey);
-    if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
-      return messageId;
-    }
+  const handleSendMessage = useCallback(
+    async (followUp?: ActiveTurnComposerAction) => {
+      const targetThreadKey = selectedThreadKey;
+      const hasUserMessage = selectedThreadFeed.some(
+        (entry) => entry.type === "message" && entry.message.role === "user",
+      );
+      const messageId = await props.onSendMessage(followUp);
+      if (messageId !== null) clearUsageLimitsFor(selectedThreadKey);
+      if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
+        return messageId;
+      }
 
-    setSubmittedMessageId(messageId);
-    setAnchorMessageId(
-      resolveThreadFeedSubmissionAnchor({
-        currentAnchorMessageId: anchorMessageId,
-        submittedMessageId: messageId,
-        hasStartedTurn: props.selectedThread.latestRun !== null,
-        hasUserMessage,
-        queuedMessageCount: props.selectedThreadQueueCount,
-      }),
-    );
-    composerEditorRef.current?.blur();
-    return messageId;
-  }, [
-    anchorMessageId,
-    clearUsageLimitsFor,
-    props.onSendMessage,
-    props.selectedThread.latestRun,
-    props.selectedThreadQueueCount,
-    selectedThreadFeed,
-    selectedThreadKey,
-  ]);
+      setSubmittedMessageId(messageId);
+      setAnchorMessageId(
+        resolveThreadFeedSubmissionAnchor({
+          currentAnchorMessageId: anchorMessageId,
+          submittedMessageId: messageId,
+          hasStartedTurn: props.selectedThread.latestRun !== null,
+          hasUserMessage,
+          queuedMessageCount: props.selectedThreadQueueCount,
+        }),
+      );
+      composerEditorRef.current?.blur();
+      return messageId;
+    },
+    [
+      anchorMessageId,
+      clearUsageLimitsFor,
+      props.onSendMessage,
+      props.selectedThread.latestRun,
+      props.selectedThreadQueueCount,
+      selectedThreadFeed,
+      selectedThreadKey,
+    ],
+  );
 
   const handleEditPendingMessage = useCallback(async (message: QueuedThreadMessage) => {
     try {
@@ -888,12 +901,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             }
             contentMaxWidth={contentMaxWidth}
             historyControls={props.historyControls}
-            topAccessory={
-              <ThreadRelationshipsBanner
-                environmentId={props.environmentId}
-                threadId={props.selectedThread.id}
-              />
-            }
             layoutVariant={layoutVariant}
             usesAutomaticContentInsets={props.usesAutomaticContentInsets}
             onHeaderMaterialVisibilityChange={props.onHeaderMaterialVisibilityChange}
@@ -936,11 +943,18 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 onScrollToEnd={handleScrollToEnd}
               />
               <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
-                <ThreadQueueControl
-                  environmentId={props.environmentId}
-                  threadId={props.selectedThread.id}
-                />
-
+                {props.queuedRunEdit !== null ? (
+                  <Animated.View
+                    className="shrink-0"
+                    entering={FadeInDown.duration(180)}
+                    exiting={FadeOut.duration(120)}
+                  >
+                    <ComposerQueuedEditBanner
+                      saving={props.isSavingQueuedEdit}
+                      onCancel={props.onCancelQueuedRunEdit}
+                    />
+                  </Animated.View>
+                ) : null}
                 {usageLimitsReport && activeUserInputRequestId === null ? (
                   <Animated.View
                     className="shrink-0 px-4 pb-3"
@@ -1027,8 +1041,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     draftAttachments={props.draftAttachments}
                     placeholder="Ask the repo agent, or run a command…"
                     contentMaxWidth={contentMaxWidth}
-                    connectionError={props.connectionError}
-                    onReconnectEnvironment={props.onReconnectEnvironment}
                     canStopThread={props.canStopThread}
                     activeThreadBusy={props.activeThreadBusy}
                     connectionState={props.connectionStateLabel}
@@ -1045,6 +1057,18 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     sendBlockedReason={
                       props.creationState?.kind === "preparing" ? "Starting the task…" : null
                     }
+                    draftKey={props.composerDraftKey ?? undefined}
+                    followUpBehavior={props.followUpBehavior}
+                    canSteerActiveTurn={props.canSteerActiveTurn}
+                    queuedEdit={
+                      props.queuedRunEdit === null
+                        ? null
+                        : {
+                            existingAttachments: props.queuedRunEdit.existingAttachments,
+                            saving: props.isSavingQueuedEdit,
+                            onRemoveExistingAttachment: props.onRemoveQueuedEditAttachment,
+                          }
+                    }
                     bottomInset={composerBottomInset}
                     onChangeDraftMessage={props.onChangeDraftMessage}
                     onPickDraftMedia={props.onPickDraftMedia}
@@ -1055,6 +1079,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     onStopThread={props.onStopThread}
                     onSendMessage={handleSendMessage}
                     onShowUsageLimits={showUsageLimits}
+                    canSwitchProvider={props.canSwitchThreadProvider}
                     onUpdateModelSelection={props.onUpdateThreadModelSelection}
                     onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
                     onUpdateInteractionMode={props.onUpdateThreadInteractionMode}

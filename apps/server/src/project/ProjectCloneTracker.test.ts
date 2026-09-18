@@ -1,6 +1,9 @@
-import { CommandId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
-import { ProjectMutationError, ProjectId, SourceControlRepositoryError } from "@t3tools/contracts";
+import {
+  OrchestrationDispatchCommandError,
+  ProjectId,
+  SourceControlRepositoryError,
+} from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -229,12 +232,7 @@ describe("ProjectCloneTracker", () => {
     const hooks: ProjectCloneTracker.ProjectCloneHooks = {
       ...harness.hooks,
       createProject: () =>
-        Effect.fail(
-          new ProjectMutationError({
-            commandId: CommandId.make("clone"),
-            message: "workspace root exists",
-          }),
-        ),
+        Effect.fail(new OrchestrationDispatchCommandError({ message: "workspace root exists" })),
     };
     return Effect.gen(function* () {
       const tracker = yield* ProjectCloneTracker.ProjectCloneTracker;

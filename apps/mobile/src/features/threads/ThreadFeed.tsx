@@ -3,6 +3,8 @@ import {
   WorktreeSetupCard,
   type WorktreeSetupCardProps,
 } from "./worktree-setup-card";
+import { ThreadContextDivider } from "./thread-context-divider";
+import { ThreadHandoffRow } from "./thread-handoff-row";
 import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 import { MarkdownImageAvailableWidthContext } from "./ThreadMarkdownImage";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
@@ -161,6 +163,7 @@ import {
   deriveThreadFeedPresentation,
   threadFeedRunIsUnsettled,
   isContextCompactionActivityGroup,
+  isContextHandoffActivityGroup,
   type ThreadFeedEntry,
   type ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
@@ -1523,26 +1526,29 @@ function renderFeedEntry(
     );
   }
 
+  if (entry.type === "activity-group" && isContextHandoffActivityGroup(entry)) {
+    return (
+      <ThreadHandoffRow
+        environmentId={props.environmentId}
+        projectedItem={entry.activities[0]!.projectedItem}
+        iconColor={iconSubtleColor}
+      />
+    );
+  }
+
   if (entry.type === "activity-group" && isContextCompactionActivityGroup(entry)) {
     const label = entry.activities[0]!.summary;
+    const active =
+      props.unsettledTurnId !== null &&
+      entry.runId === props.unsettledTurnId &&
+      entry.activities[0]!.projectedItem.item.status === "running";
     return (
-      <View
-        accessible
-        accessibilityLabel={label}
-        className="mb-3 flex-row items-center gap-3 px-1 py-1"
-      >
-        <View className="h-px flex-1 bg-adaptive-neutral-200-a80-white-a8" />
-        <View className="shrink-0 flex-row items-center gap-1.5">
-          <SymbolView
-            name="arrow.down.right.and.arrow.up.left"
-            size={12}
-            tintColor={iconSubtleColor}
-            type="monochrome"
-          />
-          <Text className="font-t3-medium text-xs text-foreground-muted">{label}</Text>
-        </View>
-        <View className="h-px flex-1 bg-adaptive-neutral-200-a80-white-a8" />
-      </View>
+      <ThreadContextDivider
+        label={label}
+        icon="arrow.down.right.and.arrow.up.left"
+        iconColor={iconSubtleColor}
+        active={active}
+      />
     );
   }
 
@@ -2771,7 +2777,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         case "work-toggle":
           return resolveThreadFeedFixedItemSize(entry.type);
         case "activity-group":
-          if (isContextCompactionActivityGroup(entry)) {
+          if (isContextCompactionActivityGroup(entry) || isContextHandoffActivityGroup(entry)) {
             return undefined;
           }
           // Expanded rows append a variable detail block — fall back to

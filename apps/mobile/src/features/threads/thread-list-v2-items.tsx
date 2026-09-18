@@ -18,6 +18,7 @@ import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } 
 import { Alert, Platform, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
+import type { ThreadListProvider } from "../../state/thread-list-environments";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
@@ -37,6 +38,7 @@ import {
   resolveThreadListV2SnoozeGateExpiryMs,
   threadHasUnseenCompletion,
   resolveThreadListV2Status,
+  resolveThreadListV2ProviderDrivers,
   resolveThreadListV2SwipeActions,
   type ThreadListV2Status,
 } from "./threadListV2";
@@ -676,6 +678,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       handleUnpin,
       handleUnsettle,
       handleUnsnooze,
+      setCustomSnoozeOpen,
       snoozePresets,
     ],
   );

@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
+import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import type {
   ToolActivityIcon,
   ToolActivityNativeAppReference,
@@ -8,6 +9,7 @@ import type {
 } from "@t3tools/contracts";
 
 export interface ExtractedToolActivityPresentation {
+  readonly viewedImagePath?: string;
   readonly toolSurface?: ToolActivitySurface;
   readonly toolIcon?: ToolActivityIcon;
   readonly toolSource?: ToolActivitySource;
@@ -156,9 +158,15 @@ export function extractToolActivityPresentation(
       : undefined;
   const toolIcon = activityIcon(payload?.toolIcon) ?? previewToolIcon(payload);
   const toolSource = activitySource(payload?.toolSource);
+  const viewedImagePath = trimmedString(payload?.viewedImagePath, 4096);
   return {
     ...(toolSurface ? { toolSurface } : {}),
     ...(toolIcon ? { toolIcon } : {}),
     ...(toolSource ? { toolSource } : {}),
+    ...(viewedImagePath &&
+    !/[\r\n]/.test(viewedImagePath) &&
+    isWorkspaceImagePreviewPath(viewedImagePath)
+      ? { viewedImagePath }
+      : {}),
   };
 }

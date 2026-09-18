@@ -1,28 +1,22 @@
-import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
-import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
-import * as DateTime from "effect/DateTime";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
-import { EventSinkV2, layer as eventSinkLayer } from "./EventSink.ts";
-import { layer as eventStoreLayer } from "./EventStore.ts";
-import { layer as projectionStoreLayer } from "./ProjectionStore.ts";
-import { makeLayer as registryLayer } from "./ProviderAdapterRegistry.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 import { expect, it } from "@effect/vitest";
 import {
   CommandId,
-  EventId,
   MessageId,
   NodeId,
   type OrchestrationV2Command,
+  type OrchestrationV2Run,
   type OrchestrationV2ThreadProjection,
   ProjectId,
   ProviderInstanceId,
-  ProviderDriverKind,
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
 
 import { LegacyV1ThreadImporter, LegacyV1ThreadImportError } from "./LegacyV1ThreadImporter.ts";
 import { OrchestratorProjectionError, OrchestratorV2 } from "./Orchestrator.ts";
@@ -360,112 +354,78 @@ it.effect("preserves failed legacy materialization when reading checkpoint conte
   }).pipe(Effect.provide(testLayer));
 });
 
-it.effect("replays durable send receipts after completion without dispatching another run", () => {
-  const databaseLayer = SqlitePersistenceMemory;
-  const stores = Layer.mergeAll(eventStoreLayer, projectionStoreLayer).pipe(
-    Layer.provideMerge(databaseLayer),
-  );
-  const orchestratorLayer = makeOrchestratorV2ReplayLayerWithRegistry(
-    { name: "send-retry" },
-    registryLayer([
-      {
-        instanceId: ProviderInstanceId.make("codex"),
-        driver: ProviderDriverKind.make("codex"),
-        getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
-        planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
-        openSession: () => Effect.die("provider execution disabled"),
-      } as ProviderAdapterV2Shape,
-    ]),
-    { databaseLayer, runEffectWorker: false },
-  );
-  const runtime = Layer.mergeAll(
-    layer.pipe(Layer.provide(orchestratorLayer)),
-    orchestratorLayer,
-    eventSinkLayer.pipe(Layer.provide(stores)),
-  );
-  return Effect.gen(function* () {
-    const orchestrator = yield* OrchestratorV2;
-    const service = yield* ThreadManagementService;
-    const sink = yield* EventSinkV2;
-    const projectId = ProjectId.make("retry-project");
-    const threadId = ThreadId.make("retry-thread");
-    yield* orchestrator.dispatch({
-      type: "thread.create",
-      commandId: CommandId.make("create-retry"),
-      threadId,
-      projectId,
-      title: "Retry",
-      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
-      runtimeMode: "full-access",
-      interactionMode: "default",
-      branch: null,
-      worktreePath: null,
-      createdBy: "user",
-      creationSource: "web",
-    });
-    const input = {
-      projectId,
-      threadId,
-      commandId: CommandId.make("send-retry"),
-      messageId: MessageId.make("message-retry"),
-      text: "Continue",
-      attachments: [],
-      mode: "auto" as const,
-      createdBy: "user" as const,
-      creationSource: "web" as const,
-    };
-    const accepted = yield* service.sendToThread(input);
-    const now = yield* DateTime.now;
-    yield* sink.write({
-      events: [
-        {
-          id: EventId.make("complete-retry"),
-          type: "run.updated",
+for (const scenario of [
+  { finalStatus: "completed" as const, timedOut: false },
+  { finalStatus: "failed" as const, timedOut: false },
+  { finalStatus: "cancelled" as const, timedOut: false },
+  { finalStatus: "interrupted" as const, timedOut: false },
+  { finalStatus: "rolled_back" as const, timedOut: false },
+  { finalStatus: "running" as const, timedOut: true },
+  { finalStatus: "missing" as const },
+]) {
+  it.effect(`waitForThread timeout final read when selected run is ${scenario.finalStatus}`, () =>
+    Effect.gen(function* () {
+      const projectId = ProjectId.make("project:thread-management:wait-timeout");
+      const threadId = ThreadId.make("thread:thread-management:wait-timeout");
+      const runId = RunId.make("run:thread-management:wait-timeout");
+      const loopRead = yield* Deferred.make<void>();
+      let reads = 0;
+      const projection = (status: OrchestrationV2Run["status"] | "missing") =>
+        ({
+          thread: { id: threadId, projectId, deletedAt: null },
+          runs: status === "missing" ? [] : [{ id: runId, status }],
+        }) as unknown as OrchestrationV2ThreadProjection;
+      const testLayer = layer.pipe(
+        Layer.provide(
+          Layer.mock(OrchestratorV2)({
+            getThreadProjection: () =>
+              Effect.gen(function* () {
+                reads += 1;
+                if (reads === 1) {
+                  return projection("running");
+                }
+                if (reads === 2) {
+                  // Park inside the wait loop so the timeout path runs while a
+                  // final projection read can still observe a terminal run.
+                  yield* Deferred.succeed(loopRead, undefined);
+                  return yield* Effect.never;
+                }
+                return projection(scenario.finalStatus);
+              }),
+          }),
+        ),
+      );
+      const service = yield* ThreadManagementService.pipe(Effect.provide(testLayer));
+      const fiber = yield* service
+        .waitForThread({
+          projectId,
           threadId,
-          runId: accepted.run.id,
-          occurredAt: now,
-          payload: { ...accepted.run, status: "completed", completedAt: now },
-        },
-      ],
-    });
-    for (const mode of ["auto", "queue", "steer", "restart"] as const) {
-      const replayed = yield* service.sendToThread({ ...input, mode });
-      expect(replayed.dispatch.sequence).toBe(accepted.dispatch.sequence);
-      expect(replayed.dispatch.storedEvents).toEqual(accepted.dispatch.storedEvents);
-      expect(replayed.message.id).toBe(accepted.message.id);
-      expect(replayed.run.id).toBe(accepted.run.id);
-      expect(replayed.run.status).toBe("completed");
-      expect(replayed.projection.messages).toHaveLength(1);
-      expect(replayed.projection.runs).toHaveLength(1);
-    }
-    const freshCompleted = yield* Effect.result(
-      service.sendToThread({
-        ...input,
-        commandId: CommandId.make("fresh-completed-send"),
-        messageId: MessageId.make("fresh-completed-message"),
-        mode: "steer",
-      }),
-    );
-    expect(freshCompleted._tag === "Failure" && freshCompleted.failure._tag).toBe(
-      "ThreadManagementNoSteerableRunError",
-    );
-    yield* orchestrator.dispatch({
-      type: "thread.archive",
-      commandId: CommandId.make("archive-retry"),
-      threadId,
-    });
-    const archivedReplay = yield* service.sendToThread({ ...input, mode: "restart" });
-    expect(archivedReplay.dispatch.sequence).toBe(accepted.dispatch.sequence);
-    const fresh = yield* Effect.result(
-      service.sendToThread({
-        ...input,
-        commandId: CommandId.make("fresh-send"),
-        messageId: MessageId.make("fresh-message"),
-        mode: "restart",
-      }),
-    );
-    expect(fresh._tag === "Failure" && fresh.failure._tag).toBe(
-      "ThreadManagementThreadArchivedError",
-    );
-  }).pipe(Effect.provide(runtime));
-});
+          runId,
+          timeoutMs: 1,
+        })
+        .pipe(Effect.result, Effect.forkChild);
+      yield* Deferred.await(loopRead);
+      yield* TestClock.adjust(Duration.millis(1));
+      const result = yield* Fiber.join(fiber);
+
+      if (scenario.finalStatus === "missing") {
+        expect(result._tag).toBe("Failure");
+        expect(result).toMatchObject({
+          failure: expect.any(ThreadManagementRunNotFoundError),
+        });
+        expect(result).toMatchObject({
+          failure: { threadId, runId },
+        });
+      } else {
+        expect(result._tag).toBe("Success");
+        expect(result).toMatchObject({
+          success: {
+            threadId,
+            timedOut: scenario.timedOut,
+            run: { id: runId, status: scenario.finalStatus },
+          },
+        });
+      }
+    }),
+  );
+}

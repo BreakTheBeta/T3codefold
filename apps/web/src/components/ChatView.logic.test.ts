@@ -1,5 +1,7 @@
 import { makeThreadProjectionFixture } from "../test-fixtures";
 import { OrchestrationV2Run, OrchestrationV2ConversationMessage } from "@t3tools/contracts";
+import { EMPTY_ENVIRONMENT_THREAD_STATE } from "@t3tools/client-runtime/state/threads";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   recallCheckoutIsRepo,
@@ -2108,12 +2110,16 @@ describe("rewind draft recovery", () => {
       createdBy: "user",
       creationSource: "web",
     });
-    return { environmentId, projection: { ...projection, messages: [storedMessage], runs: [run] } };
+    return {
+      ...EMPTY_ENVIRONMENT_THREAD_STATE,
+      data: Option.some({ ...projection, messages: [storedMessage], runs: [run] }),
+      status: "live" as const,
+    };
   };
 
   it("waits past command acceptance until V2 marks the retained message's run rolled back", async () => {
     const atom = Atom.make(makeRewindThread());
-    vi.spyOn(environmentThreadDetails, "threadAtom").mockReturnValue(atom);
+    vi.spyOn(environmentThreadDetails, "stateAtom").mockReturnValue(atom);
     let accepted = false;
     const result = waitForRevertedMessage({ environmentId, threadId }, message.id, 0, async () => {
       accepted = true;
@@ -2128,12 +2134,12 @@ describe("rewind draft recovery", () => {
     expect(completed).toBe(false);
     appAtomRegistry.set(atom, makeRewindThread(true));
     await result;
-    expect(appAtomRegistry.get(atom).projection.messages).toHaveLength(1);
+    expect(Option.getOrNull(appAtomRegistry.get(atom).data)?.messages).toHaveLength(1);
   });
 
   it("rejects failed command acceptance without restoring a draft", async () => {
     const atom = Atom.make(makeRewindThread());
-    vi.spyOn(environmentThreadDetails, "threadAtom").mockReturnValue(atom);
+    vi.spyOn(environmentThreadDetails, "stateAtom").mockReturnValue(atom);
     await expect(
       waitForRevertedMessage({ environmentId, threadId }, message.id, 0, async () => {
         throw new Error("Native history unavailable");
@@ -2146,7 +2152,7 @@ describe("rewind draft recovery", () => {
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
     const atom = Atom.make(makeRewindThread());
-    vi.spyOn(environmentThreadDetails, "threadAtom").mockReturnValue(atom);
+    vi.spyOn(environmentThreadDetails, "stateAtom").mockReturnValue(atom);
     const result = waitForRevertedMessage(
       { environmentId, threadId },
       message.id,
@@ -2221,11 +2227,13 @@ describe("restorePlanFollowUpComposer", () => {
         },
       ],
       previewAnnotations: [],
+      threadContexts: [],
     };
     const writePrompt = vi.fn();
     const writeTerminalContexts = vi.fn();
     const writeReviewComments = vi.fn();
     const writePreviewAnnotations = vi.fn();
+    const writeThreadContexts = vi.fn();
     const resetCursor = vi.fn();
 
     restorePlanFollowUpComposer({
@@ -2234,6 +2242,7 @@ describe("restorePlanFollowUpComposer", () => {
       writeTerminalContexts,
       writeReviewComments,
       writePreviewAnnotations,
+      writeThreadContexts,
       resetCursor,
     });
 
@@ -2245,6 +2254,7 @@ describe("restorePlanFollowUpComposer", () => {
     expect(writeReviewComments).toHaveBeenCalledWith(snapshot.reviewComments);
     expect(writePreviewAnnotations).toHaveBeenCalledTimes(1);
     expect(writePreviewAnnotations).toHaveBeenCalledWith(snapshot.previewAnnotations);
+    expect(writeThreadContexts).toHaveBeenCalledWith(snapshot.threadContexts);
     expect(resetCursor).toHaveBeenCalledTimes(1);
     expect(resetCursor).toHaveBeenCalledWith({
       cursor: expect.any(Number),

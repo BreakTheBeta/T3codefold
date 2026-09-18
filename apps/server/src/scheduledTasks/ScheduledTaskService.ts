@@ -21,6 +21,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
@@ -33,6 +34,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import { isMissedFixedTimeRun, isSameSchedule, nextScheduledRunAt } from "./Schedule.ts";
 
 const decodeTask = Schema.decodeUnknownEffect(ScheduledTask);
+const decodeTaskId = Schema.decodeUnknownOption(ScheduledTaskId);
 const decodeScheduleJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ScheduledTask.fields.schedule),
 );
@@ -96,10 +98,6 @@ function taskError(message: string, input?: { taskId?: ScheduledTaskId; cause?: 
   });
 }
 
-function automationPrompt(task: ScheduledTask): string {
-  return `[Triggered by schedule task: ${task.title}]\n\n${task.prompt}`;
-}
-
 function iso(value: DateTime.DateTime): string {
   return DateTime.formatIso(DateTime.toUtc(value));
 }
@@ -111,8 +109,14 @@ function nextRunAt(
   from: DateTime.DateTime,
 ): string | null {
   if (!task.enabled) return null;
-  const next = nextScheduledRunAt(task.schedule, from);
-  return next === null ? null : iso(next);
+  // A stored interval can decode yet overflow the representable DateTime
+  // range; an unrepresentable occurrence means the task has no next run.
+  try {
+    const next = nextScheduledRunAt(task.schedule, from);
+    return next !== null && Number.isFinite(DateTime.toEpochMillis(next)) ? iso(next) : null;
+  } catch {
+    return null;
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -123,12 +127,13 @@ function errorMessage(error: unknown): string {
 
 const decodeRow = (row: ScheduledTaskRow) =>
   Effect.gen(function* () {
-    const id = ScheduledTaskId.make(row.task_id);
     const schedule = yield* decodeScheduleJson(row.schedule_json);
     const workspaceStrategy = yield* decodeWorkspaceStrategyJson(row.workspace_strategy_json);
     const modelSelection = yield* decodeModelSelectionJson(row.model_selection_json);
     return yield* decodeTask({
-      id,
+      // The stored id decodes through the task schema so a corrupt value fails
+      // as a typed parse error, not a `ScheduledTaskId.make` defect.
+      id: row.task_id,
       title: row.title,
       prompt: row.prompt,
       enabled: row.enabled === 1,
@@ -150,13 +155,52 @@ const decodeRow = (row: ScheduledTaskRow) =>
       runCount: row.run_count,
     });
   }).pipe(
-    Effect.mapError((cause) =>
-      taskError("Could not decode schedule task row.", {
-        taskId: ScheduledTaskId.make(row.task_id),
+    Effect.mapError((cause) => {
+      // The typed diagnostic can only carry an id that itself decodes; a
+      // corrupt stored id is omitted rather than re-thrown as a defect.
+      const taskId = decodeTaskId(row.task_id);
+      return taskError("Could not decode schedule task row.", {
+        ...(Option.isSome(taskId) ? { taskId: taskId.value } : {}),
         cause,
-      }),
-    ),
+      });
+    }),
   );
+
+/** Select poll candidates before decoding their schedules or other JSON payloads. */
+export const listDueTasks = Effect.fn("ScheduledTaskService.listDueTasks")(function* (
+  now: DateTime.DateTime,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<ScheduledTaskRow>`
+    SELECT * FROM scheduled_tasks
+    WHERE enabled = 1 AND next_run_at IS NOT NULL
+      AND next_run_at <= ${iso(now)} AND last_run_status <> 'running'
+    ORDER BY next_run_at ASC, task_id ASC
+  `;
+  const tasks: ScheduledTask[] = [];
+  for (const row of rows) {
+    const decoded = yield* Effect.result(decodeRow(row));
+    if (Result.isSuccess(decoded)) {
+      const task = decoded.success;
+      // next_run_at is a freeform string at the schema level; a stored value
+      // that cannot parse as a DateTime would defect the poll below, so the
+      // row is skipped here like any other corrupt row.
+      if (task.nextRunAt === null || Option.isSome(DateTime.make(task.nextRunAt))) {
+        tasks.push(task);
+      } else {
+        yield* Effect.logWarning("Skipping schedule task row with invalid next_run_at", {
+          taskId: row.task_id,
+        });
+      }
+    } else {
+      yield* Effect.logWarning("Skipping undecodable schedule task row", {
+        taskId: row.task_id,
+        cause: decoded.failure,
+      });
+    }
+  }
+  return tasks;
+});
 
 export const layer = Layer.effect(
   ScheduledTaskService,
@@ -202,25 +246,6 @@ export const layer = Layer.effect(
     const listRows = Effect.fn("ScheduledTaskService.listRows")(function* () {
       const rows = yield* selectAllRows();
       return yield* Effect.forEach(rows, decodeRow, { concurrency: 1 });
-    });
-
-    // Lenient decode for the scheduler: one corrupt row must never halt the
-    // poll loop or crash recovery for every other task — skip it and log.
-    const listTasksLenient = Effect.fn("ScheduledTaskService.listTasksLenient")(function* () {
-      const rows = yield* selectAllRows();
-      const tasks: ScheduledTask[] = [];
-      for (const row of rows) {
-        const decoded = yield* Effect.result(decodeRow(row));
-        if (Result.isSuccess(decoded)) {
-          tasks.push(decoded.success);
-        } else {
-          yield* Effect.logWarning("Skipping undecodable schedule task row", {
-            taskId: row.task_id,
-            cause: decoded.failure,
-          });
-        }
-      }
-      return tasks;
     });
 
     const getRows = (id: ScheduledTaskId) => sql<ScheduledTaskRow>`
@@ -453,12 +478,15 @@ export const layer = Layer.effect(
           }
           return task;
         }
+        // A next_run_at corrupted between the poll read and this re-read must
+        // not defect the poll; an unparseable value is treated as not due.
+        const parsedNextRunAt =
+          active.nextRunAt === null ? Option.none() : DateTime.make(active.nextRunAt);
         if (
           trigger === "scheduled" &&
           (!active.enabled ||
-            active.nextRunAt === null ||
-            DateTime.toEpochMillis(DateTime.makeUnsafe(active.nextRunAt)) >
-              DateTime.toEpochMillis(startedAt))
+            Option.isNone(parsedNextRunAt) ||
+            DateTime.toEpochMillis(parsedNextRunAt.value) > DateTime.toEpochMillis(startedAt))
         ) {
           return active;
         }
@@ -471,7 +499,7 @@ export const layer = Layer.effect(
         const messageId = MessageId.make(`scheduled-task-message:${fireKey}`);
         // Dispatch from the fresh row so prompt/model/binding edits made
         // after the poll read are honoured.
-        const prompt = automationPrompt(active);
+        const prompt = active.prompt;
 
         // Effect.exit (not Effect.result) so defects and interruptions in the
         // dispatch are also captured and recorded as a failed run instead of
@@ -489,6 +517,7 @@ export const layer = Layer.effect(
                   workspaceStrategy: active.workspaceStrategy,
                   initialMessage: {
                     messageId,
+                    scheduledTaskId: active.id,
                     text: prompt,
                     attachments: [],
                   },
@@ -502,6 +531,7 @@ export const layer = Layer.effect(
                   commandId,
                   threadId: ThreadId.make(active.threadId),
                   messageId,
+                  scheduledTaskId: active.id,
                   text: prompt,
                   attachments: [],
                   modelSelection: active.modelSelection,
@@ -581,18 +611,13 @@ export const layer = Layer.effect(
     });
 
     const runDueTasks = Effect.fn("ScheduledTaskService.runDueTasks")(function* () {
-      const tasks = yield* listTasksLenient().pipe(
+      const now = yield* localNow;
+      const tasks = yield* listDueTasks(now).pipe(
         Effect.mapError((cause) => taskError("Could not list schedule tasks.", { cause })),
       );
-      const now = yield* localNow;
-      const nowEpochMillis = DateTime.toEpochMillis(now);
-      const due = tasks.flatMap((task) => {
-        if (!task.enabled || task.nextRunAt === null || task.lastRunStatus === "running") {
-          return [];
-        }
-        const dueAt = DateTime.makeUnsafe(task.nextRunAt);
-        return DateTime.toEpochMillis(dueAt) <= nowEpochMillis ? [{ task, dueAt }] : [];
-      });
+      const due = tasks.flatMap((task) =>
+        task.nextRunAt === null ? [] : [{ task, dueAt: DateTime.makeUnsafe(task.nextRunAt) }],
+      );
       yield* Effect.forEach(
         due,
         ({ task, dueAt }) =>
@@ -633,7 +658,7 @@ export const layer = Layer.effect(
                     next_run_at = ${nextRunAt(decoded.success, now)},
                     updated_at = ${iso(now)},
                     run_count = run_count + 1
-                WHERE task_id = ${row.task_id} AND last_run_status = 'running'
+                WHERE task_id IS ${row.task_id} AND last_run_status = 'running'
               `;
               return;
             }
@@ -650,7 +675,7 @@ export const layer = Layer.effect(
                   last_run_error = 'Run was interrupted by a server restart.',
                   updated_at = ${iso(now)},
                   run_count = run_count + 1
-              WHERE task_id = ${row.task_id} AND last_run_status = 'running'
+              WHERE task_id IS ${row.task_id} AND last_run_status = 'running'
             `;
           }),
         { concurrency: 1, discard: true },

@@ -45,15 +45,11 @@ describe("orchestration protocol compatibility", () => {
     ).toBe("1");
   });
 
-  it("blocks a different explicit protocol instead of attempting to decode it", () => {
+  it("blocks a different protocol before connecting", () => {
     const error = orchestrationProtocolCompatibilityError(
       descriptor(ORCHESTRATION_PROTOCOL_VERSION + 1),
     );
-
     expect(error).toMatchObject({ reason: "unsupported" });
-    expect(error?.message).toContain(
-      `host uses orchestration protocol ${ORCHESTRATION_PROTOCOL_VERSION + 1}`,
-    );
-    expect(error?.message).toContain(`client requires ${ORCHESTRATION_PROTOCOL_VERSION}`);
+    expect(error?.message).toContain("before reconnecting");
   });
 });

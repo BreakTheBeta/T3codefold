@@ -28,6 +28,7 @@ import {
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
+import { subagentGroupSummary } from "@t3tools/client-runtime/state/subagent-display";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
   readTimelinePosition,
@@ -98,6 +99,7 @@ import {
 } from "../../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import ChatMarkdown, { ChatMarkdownAssetImage } from "../ChatMarkdown";
+import { ThreadContextChip } from "../ThreadContextChip";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   BotIcon,
@@ -273,7 +275,7 @@ interface TimelineRowSharedState {
   /** Projection runs, for recovering handoff models on legacy items. */
   runs: ReadonlyArray<HandoffTimelineRun>;
   activeThreadEnvironmentId: EnvironmentId;
-  onRevertUserMessage: (messageId: MessageId) => void;
+  onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
@@ -387,7 +389,7 @@ interface MessagesTimelineProps {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   latestRun: TimelineLatestRun | null;
   runningRunId?: RunId | null;
-  turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
+  turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
   routeThreadKey: string;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
@@ -403,8 +405,8 @@ interface MessagesTimelineProps {
     readonly checkpointId: string;
     readonly scopeId: string;
   }) => void;
-  revertTurnCountByUserMessageId: Map<MessageId, number>;
-  onRevertUserMessage: (messageId: MessageId) => void;
+  supportsConversationRollback: boolean;
+  onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onFileOpen?: (attachment: ChatFileAttachment) => void;
@@ -462,7 +464,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timelineEntries,
   latestRun,
   runningRunId = null,
-  turnDiffSummaryByAssistantMessageId,
+  turnDiffSummaries,
   routeThreadKey,
   displayThreadKey,
   onOpenTurnDiff,
@@ -470,8 +472,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   parentThreadLink = null,
   onForkFromRun,
   onRollbackCheckpoint,
-  revertTurnCountByUserMessageId,
-  onRevertUserMessage,
+  supportsConversationRollback,
+  onRevertToTurnCount,
   isRevertingCheckpoint,
   onImageExpand,
   onFileOpen = NOOP_OPEN_ATTACHMENT,
@@ -702,8 +704,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedWorkGroupIds,
         isWorking,
         activeTurnStartedAt,
-        turnDiffSummaryByAssistantMessageId,
-        revertTurnCountByUserMessageId,
+        turnDiffSummaries,
+        supportsConversationRollback,
         worktreeSetup,
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
@@ -724,8 +726,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     expandedWorkGroupIds,
     isWorking,
     activeTurnStartedAt,
-    turnDiffSummaryByAssistantMessageId,
-    revertTurnCountByUserMessageId,
+    turnDiffSummaries,
+    supportsConversationRollback,
     worktreeSetup,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
@@ -1084,7 +1086,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       providerStatuses,
       runs,
       activeThreadEnvironmentId,
-      onRevertUserMessage,
+      onRevertToTurnCount,
       onImageExpand,
       onFileOpen,
       onUseArtifactTemplate,
@@ -1116,7 +1118,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       providerStatuses,
       runs,
       activeThreadEnvironmentId,
-      onRevertUserMessage,
+      onRevertToTurnCount,
       onImageExpand,
       onFileOpen,
       onUseArtifactTemplate,
@@ -2107,7 +2109,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </Tooltip>
           <div className="flex items-center gap-0.5">
             {typeof revertTurnCount === "number" && (
-              <RevertUserMessageButton messageId={row.message.id} />
+              <RevertUserMessageButton messageId={row.message.id} turnCount={revertTurnCount} />
             )}
             {resolvedContext.text && (
               <MessageCopyButton
@@ -2202,7 +2204,13 @@ function UserMessageIntentMarker({
   );
 }
 
-function RevertUserMessageButton({ messageId }: { messageId: MessageId }) {
+function RevertUserMessageButton({
+  messageId,
+  turnCount,
+}: {
+  messageId: MessageId;
+  turnCount: number;
+}) {
   const ctx = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
 
@@ -2215,8 +2223,8 @@ function RevertUserMessageButton({ messageId }: { messageId: MessageId }) {
             size="xs"
             variant="ghost"
             disabled={activity.isRevertingCheckpoint || activity.isWorking}
-            onClick={() => ctx.onRevertUserMessage(messageId)}
-            aria-label="Revert to this message"
+            onClick={() => ctx.onRevertToTurnCount(turnCount, messageId)}
+            aria-label="Edit from here"
           />
         }
       >
@@ -2617,10 +2625,15 @@ function v2EventPresentation(item: OrchestrationV2TurnItem): {
 function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
   const ctx = use(TimelineRowCtx);
   const { item, visibility, sourceThreadId } = row.projectedItem;
+  if (item.type === "subagent") {
+    return <V2SubagentGroup row={row} />;
+  }
   if (isV2LifecycleItem(item)) {
     return (
       <V2LifecycleRow
+        environmentId={ctx.activeThreadEnvironmentId}
         item={item}
+        resourceSummary={row.resourceSummary}
         createdAt={row.createdAt}
         timestampFormat={ctx.timestampFormat}
         providerStatuses={ctx.providerStatuses}
@@ -2782,6 +2795,59 @@ function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event"
           </div>
         </div>
       </div>
+    </section>
+  );
+}
+
+function V2SubagentGroup({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
+  const ctx = use(TimelineRowCtx);
+  const groupId = `subagent-group:${row.id}`;
+  const [expanded, setExpanded] = useState(() =>
+    ctx.workGroupViewState.expandedEntries.has(groupId),
+  );
+  const members = row.subagents ?? [row.projectedItem];
+  const summary = subagentGroupSummary(members.map(({ item }) => item));
+  const toggleExpanded = () => {
+    ctx.onToggleWorkEntry(row.id, expanded);
+    if (expanded) ctx.workGroupViewState.expandedEntries.delete(groupId);
+    else ctx.workGroupViewState.expandedEntries.add(groupId);
+    setExpanded(!expanded);
+  };
+  return (
+    <section className="rounded-md border border-border/60 px-2 py-1" data-subagent-group>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={toggleExpanded}
+        className="flex w-full items-center gap-2 text-left text-xs text-muted-foreground"
+      >
+        <BotIcon className="size-3.5" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{summary.label}</span>
+        {summary.active ? <span className="text-[10px]">Working</span> : null}
+        {expanded ? (
+          <ChevronDownIcon className="size-3" />
+        ) : (
+          <ChevronRightIcon className="size-3" />
+        )}
+      </button>
+      {expanded ? (
+        <div className="mt-1 space-y-1 border-t border-border/45 pt-1">
+          {members.map((projected) =>
+            projected.item.type === "subagent" ? (
+              <V2LifecycleRow
+                environmentId={ctx.activeThreadEnvironmentId}
+                key={projected.item.id}
+                item={projected.item}
+                createdAt={row.createdAt}
+                timestampFormat={ctx.timestampFormat}
+                providerStatuses={ctx.providerStatuses}
+                runs={ctx.runs}
+                onOpenThread={ctx.onOpenThread}
+              />
+            ) : null,
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -3267,6 +3333,8 @@ function toolGroupSummaryIconName(
       return "wrench";
     case "dynamic-tool":
       return "hammer";
+    case "reasoning":
+      return "brain";
     case "agent-tool":
       return "bot";
     case "tone-tool":
@@ -3275,6 +3343,7 @@ function toolGroupSummaryIconName(
     case "mixed":
       return "hammer";
   }
+  return "hammer";
 }
 
 function WorkGroupToggleTimelineRow({
@@ -3671,6 +3740,21 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
             tooltip={`$${record.name}`}
             copyMarkdown={context.copyMarkdown}
             toneClassName={CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES.skill}
+          />
+        ) : (
+          <UnavailableUserMessageContextChip {...context} />
+        ),
+    },
+    {
+      kind: "thread",
+      canRender: (record) => record.kind === "thread",
+      render: (record, context) =>
+        record.kind === "thread" ? (
+          <ThreadContextChip
+            record={record}
+            className={CHAT_INLINE_CHIP_CLASS_NAME}
+            labelClassName={CHAT_INLINE_CHIP_LABEL_CLASS_NAME}
+            copyMarkdown={context.copyMarkdown}
           />
         ) : (
           <UnavailableUserMessageContextChip {...context} />

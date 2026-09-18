@@ -164,7 +164,10 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
           capabilities: { repositoryIdentity: true },
         }),
       )) satisfies typeof fetch),
-    Layer.succeed(ConnectionProfileStore.ConnectionProfileStore, profileStore),
+    Layer.succeed(
+      ConnectionProfileStore.ConnectionProfileStore,
+      options?.profileStore ?? profileStore,
+    ),
     Layer.succeed(ConnectionCredentialStore.ConnectionCredentialStore, credentialStore),
     Layer.succeed(
       ClientCapabilities.PrimaryEnvironmentAuth,
@@ -262,6 +265,26 @@ describe("ConnectionResolver", () => {
 
       expect(prepared.legacyOrchestration).toBe(true);
       expect(new URL(prepared.socketUrl).searchParams.has("orchestrationProtocol")).toBe(false);
+    }),
+  );
+
+  it.effect("blocks an incompatible host during discovery before opening orchestration RPC", () =>
+    Effect.gen(function* () {
+      const brokerLayer = yield* makeDependencies({
+        descriptorProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION + 1,
+      });
+      const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
+      const target = new PrimaryConnectionTarget({
+        environmentId: ENVIRONMENT_ID,
+        label: "Primary",
+        httpBaseUrl: "http://127.0.0.1:3777",
+        wsBaseUrl: "ws://127.0.0.1:3777",
+      });
+
+      const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
+
+      expect(error).toMatchObject({ reason: "unsupported" });
+      expect(error.message).toContain("This client is not supported");
     }),
   );
 

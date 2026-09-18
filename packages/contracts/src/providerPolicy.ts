@@ -1,3 +1,4 @@
+import { UserInputAttachments } from "./chatAttachment.ts";
 import * as Schema from "effect/Schema";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -78,3 +79,11 @@ export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unkn
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 
 export { UserInputAttachments } from "./chatAttachment.ts";
+
+export const UserInputAttachmentAnswerPayload = Schema.Struct({
+  requestId: TrimmedNonEmptyString,
+  questionTextById: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  answers: ProviderUserInputAnswers,
+  attachmentsByQuestionId: UserInputAttachments,
+});
+export type UserInputAttachmentAnswerPayload = typeof UserInputAttachmentAnswerPayload.Type;

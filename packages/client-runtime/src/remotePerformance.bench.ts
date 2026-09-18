@@ -28,12 +28,12 @@ const thread: OrchestrationV2ThreadProjection = {
     threadId: v2Projection.thread.id,
     runId: null,
     nodeId: null,
-    createdBy: "agent",
-    creationSource: "provider",
     role: "assistant",
     text: "Message text. ".repeat(40),
     attachments: [],
     streaming: false,
+    createdBy: "agent",
+    creationSource: "provider",
     createdAt: v2Now,
     updatedAt: v2Now,
   })),
@@ -102,12 +102,12 @@ describe("remote HTTP processing with an in-memory transport", () => {
   }
 });
 
-const delta: OrchestrationV2DomainEvent = {
+const delta: Extract<OrchestrationV2DomainEvent, { type: "message.updated" }> = {
   id: EventId.make("delta"),
   type: "message.updated",
   threadId: thread.thread.id,
   occurredAt: v2Now,
-  payload: { ...thread.messages[99]!, text: "Updated message text", streaming: true },
+  payload: { ...thread.messages[99]!, text: " next", streaming: true },
 };
 
 describe("remote message replay", () => {
@@ -128,8 +128,11 @@ describe("remote message replay", () => {
       () => {
         let current: OrchestrationV2ThreadProjection = loaded;
         for (let index = 0; index < 200; index += 1) {
-          const result = applyOrchestrationV2ProjectionEvent(current, event);
-          if (result !== null) current = result;
+          current =
+            applyOrchestrationV2ProjectionEvent(current, {
+              ...event,
+              payload: { ...event.payload, text: ` next ${index}` },
+            }) ?? current;
         }
       },
       { warmupTime: 1_000, time: 1_500 },

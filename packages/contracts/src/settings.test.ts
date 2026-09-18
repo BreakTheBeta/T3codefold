@@ -7,7 +7,6 @@ import {
   ClientSettingsPatch,
   ClaudeSettings,
   DEFAULT_SERVER_SETTINGS,
-  defaultEnabledForDriver,
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
@@ -20,6 +19,34 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
+
+describe("ServerSettings response streaming", () => {
+  it("defaults to paragraph buffering", () => {
+    expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");
+  });
+
+  it.each(["turn", "paragraph"])(
+    "round-trips %s as an environment setting and project override",
+    (responseStreamingMode) => {
+      const input = {
+        responseStreamingMode,
+        projectSettingsOverrides: { project: { responseStreamingMode } },
+      };
+      expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+      expect(decodeServerSettingsPatch(input)).toEqual(input);
+    },
+  );
+
+  it.each(["token", "unsupported"])("rejects %s in settings snapshots and writes", (mode) => {
+    for (const input of [
+      { responseStreamingMode: mode },
+      { projectSettingsOverrides: { project: { responseStreamingMode: mode } } },
+    ]) {
+      expect(() => decodeServerSettings(input)).toThrow();
+      expect(() => decodeServerSettingsPatch(input)).toThrow();
+    }
+  });
+});
 
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
@@ -219,6 +246,101 @@ describe("ClaudeSettings auto-compaction", () => {
     expect(
       decodeServerSettingsPatch({ providers: { claudeAgent: { autoCompactWindow: "300000" } } }),
     ).toBeDefined();
+  });
+});
+
+describe("ClientSettings notifications", () => {
+  it("requires opt-in when existing settings omit notification preferences", () => {
+    expect(decodeClientSettings({}).notificationMode).toBe("off");
+    expect(decodeClientSettings({}).inAppNotificationsEnabled).toBe(false);
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("inAppNotificationsEnabled");
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("notificationMode");
+  });
+
+  it.each([true, false])(
+    "round-trips in-app notifications set to %s",
+    (inAppNotificationsEnabled) => {
+      const settings = decodeClientSettings({ inAppNotificationsEnabled });
+      expect(encodeClientSettings(settings).inAppNotificationsEnabled).toBe(
+        inAppNotificationsEnabled,
+      );
+      expect(
+        decodeClientSettingsPatch({ inAppNotificationsEnabled }).inAppNotificationsEnabled,
+      ).toBe(inAppNotificationsEnabled);
+    },
+  );
+
+  it.each(["true", 1, null])(
+    "rejects an invalid in-app notification preference %s",
+    (inAppNotificationsEnabled) => {
+      expect(() => decodeClientSettings({ inAppNotificationsEnabled })).toThrow();
+      expect(() => decodeClientSettingsPatch({ inAppNotificationsEnabled })).toThrow();
+    },
+  );
+
+  it.each(["off", "notifications", "sound", "notifications-and-sound"])(
+    "round-trips the %s mode",
+    (notificationMode) => {
+      const settings = decodeClientSettings({ notificationMode });
+      expect(encodeClientSettings(settings).notificationMode).toBe(notificationMode);
+      expect(decodeClientSettingsPatch({ notificationMode }).notificationMode).toBe(
+        notificationMode,
+      );
+    },
+  );
+
+  it.each(["always", true, null])(
+    "rejects unsupported notification mode %s",
+    (notificationMode) => {
+      expect(() => decodeClientSettings({ notificationMode })).toThrow();
+      expect(() => decodeClientSettingsPatch({ notificationMode })).toThrow();
+    },
+  );
+});
+
+describe("ClientSettings default diff file state", () => {
+  it("keeps files collapsed when existing settings omit the preference", () => {
+    expect(decodeClientSettings({}).diffFilesCollapsed).toBe(true);
+  });
+
+  it.each([true, false])("preserves a saved collapsed preference of %s", (diffFilesCollapsed) => {
+    const settings = decodeClientSettings({ diffFilesCollapsed });
+    expect(encodeClientSettings(settings).diffFilesCollapsed).toBe(diffFilesCollapsed);
+    expect(decodeClientSettingsPatch({ diffFilesCollapsed }).diffFilesCollapsed).toBe(
+      diffFilesCollapsed,
+    );
+  });
+});
+
+describe("ClientSettings diff colors", () => {
+  it("keeps red and green for existing settings without a saved palette", () => {
+    expect(decodeClientSettings({}).diffColorScheme).toBe("red-green");
+  });
+
+  it.each(["red-green", "blue-orange"])("round-trips the %s palette", (diffColorScheme) => {
+    const settings = decodeClientSettings({ diffColorScheme });
+    expect(encodeClientSettings(settings).diffColorScheme).toBe(diffColorScheme);
+    expect(decodeClientSettingsPatch({ diffColorScheme }).diffColorScheme).toBe(diffColorScheme);
+  });
+
+  it("rejects unsupported palettes", () => {
+    expect(() => decodeClientSettings({ diffColorScheme: "purple-yellow" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ diffColorScheme: "purple-yellow" })).toThrow();
+  });
+});
+
+describe("ClientSettings load balancing", () => {
+  it("requires opt-in when settings are new or omit load balancing", () => {
+    expect(decodeClientSettings({}).loadBalancingEnabled).toBe(false);
+    expect(decodeClientSettings({ loadBalancingWeights: {} }).loadBalancingEnabled).toBe(false);
+  });
+
+  it.each([true, false])("preserves a saved choice of %s", (loadBalancingEnabled) => {
+    const settings = decodeClientSettings({ loadBalancingEnabled });
+    expect(encodeClientSettings(settings).loadBalancingEnabled).toBe(loadBalancingEnabled);
+    expect(decodeClientSettingsPatch({ loadBalancingEnabled }).loadBalancingEnabled).toBe(
+      loadBalancingEnabled,
+    );
   });
 });
 
@@ -763,14 +885,6 @@ describe("provider enabled defaults", () => {
     expect(decoded.providers.opencode.enabled).toBe(false);
   });
 
-  it("derives per-driver defaults from the settings schemas", () => {
-    expect(defaultEnabledForDriver(ProviderDriverKind.make("codex"))).toBe(true);
-    expect(defaultEnabledForDriver(ProviderDriverKind.make("cursor"))).toBe(false);
-    expect(defaultEnabledForDriver(ProviderDriverKind.make("grok"))).toBe(false);
-    // Unknown fork drivers stay enabled; their own build decides otherwise.
-    expect(defaultEnabledForDriver(ProviderDriverKind.make("ollama"))).toBe(true);
-  });
-
   it("keeps Cursor enabled when an existing user explicitly opted in", () => {
     const cursor = ProviderDriverKind.make("cursor");
     const cursorId = ProviderInstanceId.make("cursor");
@@ -791,6 +905,10 @@ describe("provider enabled defaults", () => {
     // No flags anywhere: driver default applies.
     expect(resolveProviderInstanceEnabled({ driver: grok, config: {} })).toBe(false);
     expect(resolveProviderInstanceEnabled({ driver: codex, config: {} })).toBe(true);
+    // Unknown fork drivers stay enabled.
+    expect(
+      resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("ollama"), config: {} }),
+    ).toBe(true);
     // Envelope flag wins over the driver default.
     expect(resolveProviderInstanceEnabled({ driver: grok, enabled: true, config: {} })).toBe(true);
     expect(resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: {} })).toBe(
@@ -821,7 +939,7 @@ describe("ServerSettings worktree defaults", () => {
 });
 
 describe("ServerSettings Cursor legacy settings", () => {
-  it("ignores obsolete Cursor CLI settings when reading server settings", () => {
+  it("preserves V1 Cursor CLI settings when reading and writing shared settings", () => {
     const decoded = decodeServerSettings({
       providers: {
         cursor: {
@@ -833,8 +951,10 @@ describe("ServerSettings Cursor legacy settings", () => {
     });
 
     expect(decoded.providers.cursor.enabled).toBe(true);
-    expect(decoded.providers.cursor).not.toHaveProperty("binaryPath");
-    expect(decoded.providers.cursor).not.toHaveProperty("apiEndpoint");
+    expect(encodeServerSettings(decoded).providers?.cursor).toMatchObject({
+      binaryPath: "cursor-agent",
+      apiEndpoint: "http://127.0.0.1:3774",
+    });
   });
 
   it("ignores obsolete Cursor CLI settings in patches", () => {
@@ -980,6 +1100,7 @@ describe("ServerSettings environment icon", () => {
 
   it("keeps a kind this build knows", () => {
     expect(decodeServerSettings({ environmentIcon: "mac-mini" }).environmentIcon).toBe("mac-mini");
+    expect(decodeServerSettings({ environmentIcon: "linux" }).environmentIcon).toBe("linux");
   });
 
   it("decodes a kind from a newer server as null instead of failing the snapshot", () => {
@@ -989,6 +1110,9 @@ describe("ServerSettings environment icon", () => {
   it("round-trips through encode", () => {
     const settings = decodeServerSettings({ environmentIcon: "laptop" });
     expect(encodeServerSettings(settings).environmentIcon).toBe("laptop");
+
+    const linuxSettings = decodeServerSettings({ environmentIcon: "linux" });
+    expect(encodeServerSettings(linuxSettings).environmentIcon).toBe("linux");
   });
 });
 

@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import { listLinkedPullRequestThreads } from "../pullRequest/linkedThreads.ts";
 import { EventSinkV2, layer as eventSinkLayer } from "./EventSink.ts";
 import { layer as eventStoreLayer } from "./EventStore.ts";
 import {
@@ -114,45 +115,6 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
           NULL
         )
       `;
-      yield* sql`UPDATE projection_threads SET active_order_key = 'active-m' WHERE thread_id = ${threadId}`;
-      yield* sql`
-        CREATE TABLE projection_thread_pull_requests (
-          thread_id TEXT NOT NULL,
-          host TEXT NOT NULL,
-          repository TEXT NOT NULL,
-          number INTEGER NOT NULL,
-          url TEXT NOT NULL,
-          source TEXT NOT NULL,
-          linked_at TEXT NOT NULL,
-          snapshot_json TEXT,
-          stack_json TEXT,
-          PRIMARY KEY (thread_id, host, repository, number)
-        )
-      `;
-      yield* sql`
-        INSERT INTO projection_thread_pull_requests (
-          thread_id,
-          host,
-          repository,
-          number,
-          url,
-          source,
-          linked_at,
-          snapshot_json,
-          stack_json
-        ) VALUES (
-          ${threadId},
-          'github.com',
-          'pingdotgg/t3code',
-          9001,
-          'https://github.com/pingdotgg/t3code/pull/9001',
-          'manual',
-          '2026-01-04T00:00:00.000Z',
-          NULL,
-          NULL
-        )
-      `;
-
       yield* sql`
         INSERT INTO projection_thread_messages (
           message_id,
@@ -211,6 +173,19 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
         )
       `;
 
+      yield* sql`
+        INSERT INTO projection_thread_pull_requests (
+          thread_id, host, repository, number, url, source, linked_at, snapshot_json
+        ) VALUES
+          (${threadId}, 'github.com', 'pingdotgg/t3code', 9002,
+            'https://github.com/pingdotgg/t3code/pull/9002', 'created',
+            '2026-01-03T00:00:00.000Z',
+            '{"state":"open","title":"Second PR","headBranch":"feature-two","baseBranch":"main","isDraft":false,"updatedAt":"2026-01-03T00:00:00.000Z","syncedAt":"2026-01-03T00:00:00.000Z"}'),
+          (${threadId}, 'github.com', 'pingdotgg/t3code', 9003,
+            'https://github.com/pingdotgg/t3code/pull/9003', 'manual',
+            '2026-01-04T00:00:00.000Z', NULL)
+      `;
+
       assert.equal(yield* importer.pendingThreadCount, 1);
       const shellImport = yield* importer.reconcileShells;
       assert.equal(yield* importer.pendingThreadCount, 1);
@@ -227,8 +202,7 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
       `;
       assert.equal(shellEventCount[0]?.count, 6);
 
-      const rebuilt = yield* maintenance.rebuild;
-      assert.isTrue(rebuilt.valid);
+      assert.isTrue((yield* maintenance.verify).valid);
       const shellProjection = yield* projections.getThreadProjection(threadId);
       assert.equal(shellProjection.thread.historyOrigin, "v1_import");
       assert.equal(shellProjection.thread.branch, "main");
@@ -238,7 +212,6 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
         DateTime.makeUnsafe("2026-01-02T00:00:00.000Z"),
       );
       assert.equal(shellProjection.thread.pinOrderKey, "m");
-      assert.equal(shellProjection.thread.activeOrderKey, "active-m");
       assert.deepEqual(
         shellProjection.thread.snoozedUntil,
         DateTime.makeUnsafe("2026-02-01T00:00:00.000Z"),
@@ -249,8 +222,17 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
       );
       assert.equal(shellProjection.thread.linkedPullRequest?.number, 9000);
       assert.deepStrictEqual(
-        shellProjection.thread.pullRequests?.map((pullRequest) => pullRequest.number),
-        [9001],
+        (shellProjection.thread.pullRequests ?? []).map((link) => link.number),
+        [9002, 9003, 9000],
+      );
+      assert.equal(shellProjection.thread.pullRequests?.[0]?.snapshot?.title, "Second PR");
+      assert.deepStrictEqual(
+        (yield* listLinkedPullRequestThreads({
+          host: "github.com",
+          repository: "pingdotgg/t3code",
+          number: 9002,
+        })).threads.map((thread) => thread.id),
+        [threadId],
       );
       const shellSnapshot = yield* projections.getShellSnapshot();
       assert.equal(
@@ -340,7 +322,8 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
           '$.snoozedUntil',
           '$.snoozedAt',
           '$.unsettledAt',
-          '$.linkedPullRequest'
+          '$.linkedPullRequest',
+          '$.pullRequests'
         )
         WHERE thread_id = ${threadId}
       `;
@@ -360,6 +343,11 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
         DateTime.makeUnsafe("2026-01-03T12:00:00.000Z"),
       );
       assert.equal(repaired.thread.linkedPullRequest?.number, 9000);
+      assert.deepStrictEqual(
+        (repaired.thread.pullRequests ?? []).map((link) => link.number),
+        [9002, 9003, 9000],
+      );
+      assert.equal(repaired.thread.pullRequests?.[0]?.snapshot?.title, "Second PR");
       const eventCountBeforeRetry = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count
         FROM orchestration_events
@@ -383,6 +371,125 @@ it.layer(TestLayer)("LegacyV1ThreadImporter", (it) => {
           AND stream_id = ${threadId}
       `;
       assert.equal(eventCountAfterRetry[0]?.count, eventCountBeforeRetry[0]?.count);
+    }),
+  );
+
+  it.effect("repairs newly added metadata after an earlier metadata repair", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const importer = yield* LegacyV1ThreadImporter;
+      const maintenance = yield* ProjectionMaintenanceV2;
+      const projections = yield* ProjectionStoreV2;
+      const eventSink = yield* EventSinkV2;
+      const threadId = ThreadId.make("thread:legacy-metadata-upgrade");
+      const previousRepairId = EventId.make(`migration:v1:thread:${threadId}:metadata-repair`);
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES (
+          'project:legacy-metadata-upgrade',
+          'Legacy project',
+          '/tmp/legacy-metadata-upgrade',
+          '[]',
+          '2026-01-01T00:00:00.000Z',
+          '2026-01-01T00:00:00.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode,
+          interaction_mode, created_at, updated_at, pinned_at, pin_order_key,
+          linked_pull_request_json, branch_pull_request_json, active_order_key
+        ) VALUES (
+          ${threadId},
+          'project:legacy-metadata-upgrade',
+          'Original v1 title',
+          '{"instanceId":"codex","model":"gpt-5.4"}',
+          'full-access',
+          'default',
+          '2026-01-01T00:00:00.000Z',
+          '2026-01-01T00:00:00.000Z',
+          '2026-01-02T00:00:00.000Z',
+          'm',
+          '{"projectId":"project:legacy-metadata-upgrade","repository":"pingdotgg/t3code","number":9000,"url":"https://github.com/pingdotgg/t3code/pull/9000"}',
+          '{"projectId":"project:legacy-metadata-upgrade","repository":"pingdotgg/t3code","number":9001,"url":"https://github.com/pingdotgg/t3code/pull/9001"}',
+          'az'
+        )
+      `;
+      yield* importer.reconcileShells;
+      yield* maintenance.rebuild;
+      const shellProjection = yield* projections.getThreadProjection(threadId);
+      assert.deepStrictEqual(
+        (shellProjection.thread.pullRequests ?? []).map((link) => link.number),
+        [9000],
+      );
+      const previousRepairThread = {
+        ...shellProjection.thread,
+        title: "Renamed in v2",
+        pinnedAt: null,
+        pinOrderKey: null,
+        linkedPullRequest: null,
+        pullRequests: [],
+      };
+      delete previousRepairThread.branchPullRequest;
+      delete previousRepairThread.activeOrderKey;
+      yield* eventSink.write({
+        events: [
+          {
+            id: previousRepairId,
+            type: "thread.metadata-updated",
+            threadId,
+            providerInstanceId: previousRepairThread.providerInstanceId,
+            occurredAt: DateTime.makeUnsafe("2026-01-03T00:00:00.000Z"),
+            payload: previousRepairThread,
+          },
+        ],
+      });
+
+      assert.deepStrictEqual(yield* importer.reconcileShells, {
+        importedThreadCount: 1,
+        importedMessageCount: 0,
+      });
+      const repaired = yield* projections.getThreadProjection(threadId);
+      assert.equal(repaired.thread.title, "Renamed in v2");
+      assert.isNull(repaired.thread.pinnedAt);
+      assert.isNull(repaired.thread.pinOrderKey);
+      assert.isNull(repaired.thread.linkedPullRequest);
+      assert.deepStrictEqual(repaired.thread.pullRequests, []);
+      assert.equal(repaired.thread.branchPullRequest?.number, 9001);
+      assert.equal(repaired.thread.activeOrderKey, "az");
+
+      const eventsBeforeRetry = yield* sql<{ readonly event_id: string }>`
+        SELECT event_id
+        FROM orchestration_events
+        WHERE application_event_version = 2 AND stream_id = ${threadId}
+        ORDER BY sequence
+      `;
+      assert.equal(eventsBeforeRetry.length, 4);
+      assert.isTrue(eventsBeforeRetry.some((event) => event.event_id === previousRepairId));
+      assert.deepStrictEqual(yield* importer.reconcileShells, {
+        importedThreadCount: 0,
+        importedMessageCount: 0,
+      });
+
+      assert.isTrue((yield* maintenance.rebuild).valid);
+      const replayed = yield* projections.getThreadProjection(threadId);
+      assert.deepStrictEqual(replayed.thread, repaired.thread);
+      assert.deepStrictEqual(
+        yield* Effect.gen(function* () {
+          const restartedImporter = yield* LegacyV1ThreadImporter;
+          return yield* restartedImporter.reconcileShells;
+        }).pipe(Effect.provide(legacyV1ThreadImporterLayer)),
+        { importedThreadCount: 0, importedMessageCount: 0 },
+      );
+      const eventsAfterRestart = yield* sql<{ readonly event_id: string }>`
+        SELECT event_id
+        FROM orchestration_events
+        WHERE application_event_version = 2 AND stream_id = ${threadId}
+        ORDER BY sequence
+      `;
+      assert.deepStrictEqual(eventsAfterRestart, eventsBeforeRetry);
     }),
   );
 });

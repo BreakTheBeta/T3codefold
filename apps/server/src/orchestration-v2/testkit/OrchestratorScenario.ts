@@ -126,20 +126,20 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.unpin":
     case "thread.pin.reorder":
     case "thread.active.reorder":
+    case "thread.visit":
+    case "thread.mark-unread":
+    case "thread.metadata.update":
     case "thread.pull-request.link":
     case "thread.pull-request.unlink":
     case "thread.pull-request-link.sync":
     case "thread.pull-request.sync":
-    case "thread.history.import":
-    case "thread.visit":
-    case "thread.mark-unread":
-    case "thread.metadata.update":
     case "thread.title.regeneration.complete":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
     case "thread.model-selection.set":
     case "provider-session.detach":
     case "message.dispatch":
+    case "notification.delivery.accept":
     case "prepared-run.release":
     case "prepared-run.progress":
     case "prepared-run.fail":
@@ -149,7 +149,9 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "queued-run.cancel":
     case "queued-run.edit":
     case "runtime-request.dismiss":
+    case "thread.history.import":
     case "runtime-request.respond":
+    case "thread.user-input.dismiss":
     case "checkpoint.rollback":
     case "provider.switch":
       return [command.threadId];

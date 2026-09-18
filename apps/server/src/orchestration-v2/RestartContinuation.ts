@@ -1,18 +1,22 @@
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   CommandId,
   MessageId,
   type OrchestrationV2Run,
-  type OrchestrationV2ThreadProjection,
   type RunId,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import type { ProjectionRuntimeRecoveryState } from "./ProjectionStore.ts";
 
 import { ServerSettingsService } from "../serverSettings.ts";
 import { ThreadManagementService } from "./ThreadManagementService.ts";
 
 export function restartContinuationRun(
-  projection: OrchestrationV2ThreadProjection,
+  projection: Pick<
+    ProjectionRuntimeRecoveryState,
+    "thread" | "runs" | "providerThreads" | "providerSessions" | "providerTurns"
+  >,
 ): OrchestrationV2Run | undefined {
   if (projection.thread.archivedAt !== null || projection.thread.deletedAt !== null) return;
   const run = projection.runs.reduce<OrchestrationV2Run | undefined>(
@@ -66,13 +70,15 @@ export function restartContinuationRun(
 export const continueRestartedRun = Effect.fn("RestartContinuation.continueRestartedRun")(
   function* (input: { readonly threadId: ThreadId; readonly sourceRunId: RunId }) {
     const settings = yield* ServerSettingsService;
-    const enabled = yield* settings.getSettings.pipe(
-      Effect.map((value) => value.continueThreadsAfterServerUpdate),
-      Effect.orElseSucceed(() => false),
-    );
+    const enabled = yield* settings.getSettings.pipe(Effect.orElseSucceed(() => null));
     if (!enabled) return;
     const threads = yield* ThreadManagementService;
     const projection = yield* threads.getThreadProjection(input.threadId);
+    if (
+      !resolveProjectSettings(enabled, projection.thread.projectId).settings
+        .continueThreadsAfterServerUpdate
+    )
+      return;
     if (projection.thread.archivedAt !== null || projection.thread.deletedAt !== null) return;
     const messageId = MessageId.make(`message:restart-continuation:${input.sourceRunId}`);
     if (projection.messages.some((message) => message.id === messageId)) return;

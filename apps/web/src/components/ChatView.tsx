@@ -84,7 +84,7 @@ import {
   deriveLatestThreadRun,
   deriveThreadRuntime,
 } from "@t3tools/client-runtime/state/thread-execution";
-import { resolveThreadProviderSession } from "@t3tools/client-runtime/state/thread-workflows";
+import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
 import {
   parseCodexFeedbackCommand,
   shouldShowLoadEarlierControl,
@@ -161,7 +161,6 @@ import {
   deriveTimelineEntriesFromVisibleTurnItemsWithState,
   selectHandoffImageResources,
   type TimelineEntriesProjection,
-  deriveRevertTurnCountByUserMessageId,
   deriveActivePlanState,
   deriveActiveWorkStartedAt,
   findLatestProposedPlan,
@@ -196,7 +195,6 @@ import {
   type ChatMessage,
   type SessionPhase,
   type Thread,
-  type TurnDiffSummary,
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
@@ -440,7 +438,7 @@ import {
   MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME,
   runMobileComposerTransition,
 } from "./chat/draftHeroTransition";
-import type { ComposerDispatchMode } from "./chat/composerDispatch";
+import type { ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   agentControlledBrowserCloseConfirmation,
@@ -1450,10 +1448,9 @@ function chatActionErrorMessage(error: unknown): string {
 }
 
 const ENVIRONMENT_UNAVAILABLE_SEND_TOAST_TRAIL_SIZE = 3;
-const EMPTY_HELD_TURN_DIFF_SUMMARIES = new Map<MessageId, TurnDiffSummary>();
-const EMPTY_HELD_REVERT_COUNTS = new Map<MessageId, number>();
+const EMPTY_HELD_TURN_DIFF_SUMMARIES: readonly never[] = [];
 const noopHeldTurnDiff = (_turnId: RunId, _filePath?: string) => {};
-const noopHeldRevert = () => {};
+const noopHeldRevert = (_targetTurnCount: number, _messageId: MessageId) => {};
 const noopHeldAttachment = (_attachment: ChatFileAttachment) => {};
 
 /**
@@ -1711,6 +1708,7 @@ export default function ChatView(props: ChatViewProps) {
     (store) => store.setPreviewAnnotations,
   );
   const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
+  const setComposerDraftThreadContexts = useComposerDraftStore((store) => store.setThreadContexts);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
@@ -1988,12 +1986,8 @@ export default function ChatView(props: ChatViewProps) {
     () => (serverProjection === null ? null : deriveThreadRuntime(serverProjection)),
     [serverProjection],
   );
-  const activeProviderSession = useMemo(
-    () => (serverProjection === null ? null : resolveThreadProviderSession(serverProjection)),
-    [serverProjection],
-  );
   const supportsProviderSwitchingViaHandoff =
-    activeProviderSession?.capabilities.sessions.supportsProviderSwitchingViaHandoff === true;
+    serverProjection !== null && threadSupportsProviderHandoff(serverProjection);
   const activeLatestRun = isServerThread ? serverLatestRun : (activeThread?.latestRun ?? null);
   const activeActivityRun = isServerThread ? serverActivityRun : (activeThread?.latestRun ?? null);
   const activeRuntime = isServerThread ? serverRuntime : (activeThread?.runtime ?? null);
@@ -2762,17 +2756,18 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.modelSelection.instanceId ??
     activeProjectDefaultModelSelection?.instanceId ??
     null;
-  const lockedProvider = deriveLockedProvider({
-    thread: activeThread,
-    selectedProvider: selectedProviderByThreadId,
-    threadProvider,
-  });
-  const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
   // Once a thread selects an environment, never substitute the primary
   // environment's config while the selected environment is still loading.
   const serverConfig = activeThread
     ? (activeEnvironment?.serverConfig ?? null)
     : (primaryEnvironment?.serverConfig ?? null);
+  const lockedProvider = deriveLockedProvider({
+    thread: activeThread,
+    selectedProvider: selectedProviderByThreadId,
+    threadProvider,
+    providers: serverConfig?.providers ?? EMPTY_PROVIDERS,
+  });
+  const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;
@@ -3807,25 +3802,6 @@ export default function ChatView(props: ChatViewProps) {
   const draftHeroTransition = useDraftHeroLayoutTransition(isDraftHeroState);
   const captureDraftHeroComposerRect = draftHeroTransition.captureComposerRect;
   const { turnDiffSummaries } = useTurnDiffSummaries(serverProjection);
-  const turnDiffSummaryByAssistantMessageId = useMemo(() => {
-    const byMessageId = new Map<MessageId, TurnDiffSummary>();
-    for (const summary of turnDiffSummaries) {
-      if (!summary.assistantMessageId) continue;
-      byMessageId.set(summary.assistantMessageId, summary);
-    }
-    return byMessageId;
-  }, [turnDiffSummaries]);
-  const revertTurnCountByUserMessageId = useMemo(
-    () =>
-      supportsConversationRollback
-        ? deriveRevertTurnCountByUserMessageId({
-            timelineEntries,
-            checkpoints: turnDiffSummaries,
-          })
-        : new Map<MessageId, number>(),
-    [supportsConversationRollback, timelineEntries, turnDiffSummaries],
-  );
-
   /**
    * The latest settled item after which files on disk may have changed.
    * File tools are explicit; completed commands are included because a shell
@@ -3986,12 +3962,16 @@ export default function ChatView(props: ChatViewProps) {
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
   const mountComposerContextStrip = shouldShowComposerContextStrip({
+    isDraftHeroState,
+    persistInActiveThreads: routeKind === "server",
     hasActiveProject: activeProject !== null,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
+    isDraftHeroState,
+    persistInActiveThreads: routeKind === "server",
     hasActiveProject: activeProject !== null,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
@@ -7704,7 +7684,8 @@ export default function ChatView(props: ChatViewProps) {
   );
   const onSend = async (
     e?: { preventDefault: () => void },
-    dispatchIntent: ComposerDispatchMode | ComposerSubmissionIntent = "auto",
+    dispatchMode: ComposerDispatchMode = "auto",
+    submissionIntent: ComposerSubmissionIntent = "foreground",
     directAnnotation?: {
       annotation: PreviewAnnotationPayload;
       image: ComposerImageAttachment | null;
@@ -7786,17 +7767,6 @@ export default function ChatView(props: ChatViewProps) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    const submissionIntent = dispatchIntent === "background" ? "background" : "foreground";
-    const dispatchMode: ComposerDispatchMode =
-      dispatchIntent === "foreground" || dispatchIntent === "alternate"
-        ? phase === "running"
-          ? (settings.followUpBehavior === "queue") !== (dispatchIntent === "alternate")
-            ? "queue"
-            : "steer"
-          : "auto"
-        : dispatchIntent === "background"
-          ? "auto"
-          : dispatchIntent;
     const sendCtx = composerRef.current?.getSendContext();
     if (!sendCtx?.providerAvailable) {
       notifyDirectAnnotationAttached();
@@ -7833,6 +7803,7 @@ export default function ChatView(props: ChatViewProps) {
       terminalContexts: composerTerminalContexts,
       previewAnnotations: sendContextPreviewAnnotations,
       reviewComments: composerReviewComments,
+      threadContexts: composerThreadContexts,
     } = sendCtx;
     const {
       selectedProvider: ctxSelectedProvider,
@@ -7964,7 +7935,10 @@ export default function ChatView(props: ChatViewProps) {
       prompt: promptForSend,
       imageCount: composerImages.length + composerFiles.length,
       terminalContexts: composerTerminalContexts,
-      elementContextCount: composerPreviewAnnotations.length + composerReviewComments.length,
+      elementContextCount:
+        composerPreviewAnnotations.length +
+        composerReviewComments.length +
+        composerThreadContexts.length,
     });
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
@@ -7972,7 +7946,8 @@ export default function ChatView(props: ChatViewProps) {
       composerFiles.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
-      composerReviewComments.length === 0
+      composerReviewComments.length === 0 &&
+      composerThreadContexts.length === 0
         ? parseCodexFeedbackCommand(trimmed)
         : null;
     if (feedbackCommand && multipleModelSelections === null) {
@@ -8087,6 +8062,7 @@ export default function ChatView(props: ChatViewProps) {
       const followUpTerminalContexts = [...sendableComposerTerminalContexts];
       const followUpReviewComments = [...composerReviewComments];
       const followUpPreviewAnnotations = [...composerPreviewAnnotations];
+      const followUpThreadContexts = [...composerThreadContexts];
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();
@@ -8096,6 +8072,7 @@ export default function ChatView(props: ChatViewProps) {
           terminalContexts: sendableComposerTerminalContexts,
           reviewComments: composerReviewComments,
           previewAnnotations: composerPreviewAnnotations,
+          threadContexts: composerThreadContexts,
         }),
         interactionMode: followUp.interactionMode,
       });
@@ -8108,6 +8085,7 @@ export default function ChatView(props: ChatViewProps) {
             terminalContexts: followUpTerminalContexts,
             reviewComments: followUpReviewComments,
             previewAnnotations: followUpPreviewAnnotations,
+            threadContexts: followUpThreadContexts,
           },
           writePrompt: (prompt) => setComposerDraftPrompt(composerDraftTarget, prompt),
           writeTerminalContexts: (contexts) =>
@@ -8116,6 +8094,8 @@ export default function ChatView(props: ChatViewProps) {
             setComposerDraftReviewComments(composerDraftTarget, [...comments]),
           writePreviewAnnotations: (annotations) =>
             setComposerDraftPreviewAnnotations(composerDraftTarget, [...annotations]),
+          writeThreadContexts: (records) =>
+            setComposerDraftThreadContexts(composerDraftTarget, [...records]),
           resetCursor: (options) => composerRef.current?.resetCursorState(options),
         });
       }
@@ -8204,6 +8184,7 @@ export default function ChatView(props: ChatViewProps) {
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
+    const composerThreadContextsSnapshot = [...composerThreadContexts];
     // Expired terminal excerpts are not sent; their chips leave the text with them.
     const messageTextForSend = composerTerminalContexts
       .filter((context) => !composerTerminalContextsSnapshot.includes(context))
@@ -8221,6 +8202,7 @@ export default function ChatView(props: ChatViewProps) {
         terminalContexts: composerTerminalContextsSnapshot,
         reviewComments: composerReviewCommentsSnapshot,
         previewAnnotations: composerPreviewAnnotationsSnapshot,
+        threadContexts: composerThreadContextsSnapshot,
         attachments: composerAttachmentsSnapshot.map((attachment, index) => ({
           attachment,
           attachmentId: attachmentIds[index] ?? attachment.id,
@@ -8607,6 +8589,7 @@ export default function ChatView(props: ChatViewProps) {
               composerPreviewAnnotationsSnapshot,
             );
             setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
+            setComposerDraftThreadContexts(composerDraftTarget, composerThreadContextsSnapshot);
             if (composerRef.current && currentRouteThreadKeyRef.current === routeThreadKey) {
               promptRef.current = messageTextForSend;
               composerRef.current.resetCursorState({
@@ -8953,6 +8936,8 @@ export default function ChatView(props: ChatViewProps) {
             (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)
               ?.previewAnnotations.length ?? 0) === 0 &&
             (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.reviewComments
+              .length ?? 0) === 0 &&
+            (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.threadContexts
               .length ?? 0) === 0
       ) {
         setOptimisticUserMessages((existing) => {
@@ -8974,6 +8959,7 @@ export default function ChatView(props: ChatViewProps) {
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
         setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
         setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
+        setComposerDraftThreadContexts(composerDraftTarget, composerThreadContextsSnapshot);
         composerRef.current?.resetCursorState({
           cursor: collapseExpandedComposerCursor(messageTextForSend, messageTextForSend.length),
           prompt: messageTextForSend,
@@ -9845,17 +9831,11 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
   );
-  // Both the Map and the revert handler are read from refs at call-time so
-  // the callback reference is fully stable and never busts context identity.
-  const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
-  revertTurnCountRef.current = revertTurnCountByUserMessageId;
+  // The rollback target is derived with the current timeline rows. Keep the
+  // command reference stable so streaming updates do not churn every row.
   const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
   onRevertToTurnCountRef.current = onRevertToTurnCount;
-  const onRevertUserMessage = useCallback((messageId: MessageId) => {
-    const targetTurnCount = revertTurnCountRef.current.get(messageId);
-    if (typeof targetTurnCount !== "number") {
-      return;
-    }
+  const onRevertTimelineTurn = useCallback((targetTurnCount: number, messageId: MessageId) => {
     void onRevertToTurnCountRef.current(targetTurnCount, messageId);
   }, []);
 
@@ -9921,7 +9901,7 @@ export default function ChatView(props: ChatViewProps) {
           configuredUrls={configuredPreviewUrls}
           visible
           onSendAnnotation={(annotation, image) => {
-            void onSend(undefined, "foreground", { annotation, image });
+            void onSend(undefined, "auto", "foreground", { annotation, image });
           }}
         />
       </Suspense>
@@ -10274,13 +10254,11 @@ export default function ChatView(props: ChatViewProps) {
           {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
           <ChatHeader
             activeThreadEnvironmentId={activeThread.environmentId}
+            activeThreadId={activeThread.id}
+            isServerThread={isServerThread}
             activeThreadTitle={activeThread.title}
-            activeProjectName={activeProject?.title}
-            activeProjectCwd={activeProject?.workspaceRoot ?? null}
+            activeProject={activeProject ?? null}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
-            activeProjectFaviconPath={activeProject?.faviconPath ?? null}
-            activeProjectIcon={activeProject?.projectIcon ?? null}
-
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettings }
@@ -10379,12 +10357,16 @@ export default function ChatView(props: ChatViewProps) {
                 {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
                 listRef={legendListRef}
                 timelineEntries={displayedTimeline.entries}
+                providerStatuses={
+                  environmentById.get(
+                    displayedThreadRef?.environmentId ?? activeThread.environmentId,
+                  )?.serverConfig?.providers ?? EMPTY_PROVIDERS
+                }
+                runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
                 latestRun={paintOnlyDisplayedTimeline ? null : activeActivityRun}
                 runningRunId={paintOnlyDisplayedTimeline ? null : activeRunningTurnId}
-                turnDiffSummaryByAssistantMessageId={
-                  paintOnlyDisplayedTimeline
-                    ? EMPTY_HELD_TURN_DIFF_SUMMARIES
-                    : turnDiffSummaryByAssistantMessageId
+                turnDiffSummaries={
+                  paintOnlyDisplayedTimeline ? EMPTY_HELD_TURN_DIFF_SUMMARIES : turnDiffSummaries
                 }
                 activeThreadEnvironmentId={
                   displayedThreadRef?.environmentId ?? activeThread.environmentId
@@ -10398,13 +10380,11 @@ export default function ChatView(props: ChatViewProps) {
                 onRollbackCheckpoint={(input) => {
                   if (!paintOnlyDisplayedTimeline) void onRollbackCheckpoint(input);
                 }}
-                revertTurnCountByUserMessageId={
-                  paintOnlyDisplayedTimeline
-                    ? EMPTY_HELD_REVERT_COUNTS
-                    : revertTurnCountByUserMessageId
+                supportsConversationRollback={
+                  !paintOnlyDisplayedTimeline && supportsConversationRollback
                 }
-                onRevertUserMessage={
-                  paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertUserMessage
+                onRevertToTurnCount={
+                  paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertTimelineTurn
                 }
                 onUseArtifactTemplate={paintOnlyDisplayedTimeline ? () => {} : useArtifactTemplate}
                 isRevertingCheckpoint={!paintOnlyDisplayedTimeline && isRevertingCheckpoint}

@@ -1089,6 +1089,8 @@ function toolGroupSummarySymbolName(kind: ToolGroupSummaryKind): AppSymbolName {
       return { ios: "sparkles", android: "auto_awesome" };
     case "tone-tool":
       return { ios: "bolt", android: "bolt" };
+    default:
+      return { ios: "wrench", android: "build" };
     case "dynamic-tool":
     case "update":
     case "mixed":

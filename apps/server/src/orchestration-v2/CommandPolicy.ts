@@ -1,6 +1,7 @@
 import {
   CommandId,
   ModelSelection,
+  type OrchestrationV2Command,
   OrchestrationV2ProviderCapabilities,
   OrchestrationV2ThreadProjection,
   ProviderInstanceId,
@@ -109,6 +110,59 @@ export const CommandPolicyV2Error = Schema.Union([
 ]);
 export type CommandPolicyV2Error = typeof CommandPolicyV2Error.Type;
 
+type MessageDispatchMode = Extract<
+  OrchestrationV2Command,
+  { readonly type: "message.dispatch" }
+>["dispatchMode"];
+
+/** Resolve client intent from the state serialized by the thread dispatch lock. */
+export function resolveMessageDispatchIntent(
+  projection: OrchestrationV2ThreadProjection,
+  requestedMode: MessageDispatchMode,
+  deliveryIntent?: "auto" | "steer" | "restart",
+): MessageDispatchMode {
+  if (deliveryIntent === undefined) return requestedMode;
+
+  const activeRun = projection.runs.findLast(
+    (run) =>
+      run.status === "preparing" ||
+      run.status === "starting" ||
+      run.status === "running" ||
+      run.status === "waiting",
+  );
+  if (activeRun === undefined) return { type: "start_immediately" };
+  if (deliveryIntent === "steer") {
+    return { type: "steer_active", targetRunId: activeRun.id };
+  }
+  if (deliveryIntent === "restart") {
+    return { type: "restart_active", targetRunId: activeRun.id };
+  }
+  if (activeRun.status === "preparing" || activeRun.status === "starting") {
+    return { type: "queue_after_active" };
+  }
+
+  const providerThread = projection.providerThreads.find(
+    (candidate) => candidate.id === activeRun.providerThreadId,
+  );
+  const providerSession =
+    providerThread?.providerSessionId == null
+      ? undefined
+      : projection.providerSessions.find(
+          (candidate) => candidate.id === providerThread.providerSessionId,
+        );
+  const capabilities = providerSession?.capabilities.turns;
+  if (capabilities?.supportsActiveSteering === true) {
+    return { type: "steer_active", targetRunId: activeRun.id };
+  }
+  if (capabilities?.supportsQueuedMessages === true) {
+    return { type: "queue_after_active" };
+  }
+  if (capabilities?.supportsSteeringByInterruptRestart === true) {
+    return { type: "restart_active", targetRunId: activeRun.id };
+  }
+  return { type: "queue_after_active" };
+}
+
 interface CapabilityCheckInput {
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
@@ -203,8 +257,12 @@ const decideSteeringExecution: CommandPolicyV2Shape["decideSteeringExecution"] =
   return Effect.fail(
     unsupported(
       input,
-      input.capabilities.turns.supportsInterrupt ? "interrupt_restart_steering" : "active_steering",
-      "providerInstanceId cannot steer active turns directly or by interrupt-and-restart",
+      input.forceRestart || input.capabilities.turns.supportsInterrupt
+        ? "interrupt_restart_steering"
+        : "active_steering",
+      input.forceRestart
+        ? "providerInstanceId cannot satisfy a required interrupt-and-restart"
+        : "providerInstanceId cannot steer active turns directly or by interrupt-and-restart",
     ),
   );
 };

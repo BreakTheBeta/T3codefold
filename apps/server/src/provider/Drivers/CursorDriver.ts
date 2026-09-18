@@ -1,5 +1,3 @@
-import { HttpClient } from "effect/unstable/http";
-import { readCursorUsageLimits } from "../Layers/cursorUsageLimits.ts";
 /**
  * CursorDriver — `ProviderDriver` for the Cursor Agent SDK runtime.
  *
@@ -14,6 +12,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import { HttpClient } from "effect/unstable/http";
+import { readCursorUsageLimits } from "../Layers/cursorUsageLimits.ts";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
@@ -54,9 +54,9 @@ const MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
 
 export type CursorDriverEnv =
   | CursorAdapterV2DriverEnv
-  | HttpClient.HttpClient
   | FileSystem.FileSystem
   | Path.Path
+  | HttpClient.HttpClient
   | BackgroundPolicy.BackgroundPolicy
   | ServerConfig
   | ServerSettingsService;
@@ -72,9 +72,9 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsService;
-      const httpClient = yield* HttpClient.HttpClient;
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const httpClient = yield* HttpClient.HttpClient;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -112,7 +112,7 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
       const checkProvider = checkCursorProviderStatus(effectiveConfig, processEnv).pipe(
         Effect.flatMap((snapshot) =>
           effectiveConfig.enabled && snapshot.installed && snapshot.auth.status === "authenticated"
-            ? readCursorUsageLimits({}, processEnv).pipe(
+            ? readCursorUsageLimits(effectiveConfig, processEnv).pipe(
                 Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),
               )
             : Effect.succeed(snapshot),

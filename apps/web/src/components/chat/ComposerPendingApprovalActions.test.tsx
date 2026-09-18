@@ -9,8 +9,8 @@ describe("ComposerPendingApprovalActions", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
         requestId={RuntimeRequestId.make("approval-1")}
-        isResponding={false}
         canRespond
+        isResponding={false}
         onRespondToApproval={async () => undefined}
       />,
     );
@@ -25,8 +25,8 @@ describe("ComposerPendingApprovalActions", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
         requestId={RuntimeRequestId.make("approval-safari")}
-        isResponding={false}
         canRespond
+        isResponding={false}
         options={[
           { decision: "decline", label: "Decline" },
           { decision: "acceptAlways", label: "Always allow Safari" },
@@ -45,8 +45,8 @@ describe("ComposerPendingApprovalActions", () => {
     const markup = renderToStaticMarkup(
       <ComposerPendingApprovalActions
         requestId={RuntimeRequestId.make("approval-1")}
-        isResponding={false}
         canRespond
+        isResponding={false}
         options={[
           { decision: "accept", label: "Allow once" },
           { decision: "decline", label: "Deny" },

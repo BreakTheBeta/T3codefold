@@ -1,4 +1,3 @@
-import * as ServerSettings from "../serverSettings.ts";
 import { ProjectId, type ProjectScript } from "@t3tools/contracts";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
@@ -16,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectService from "./ProjectService.ts";
 
@@ -60,7 +60,7 @@ export interface ProjectSetupScriptRunnerInput {
   readonly worktreePath: string;
   readonly preferredTerminalId?: string;
   readonly project?: {
-    readonly id?: ProjectId;
+    readonly id: ProjectId;
     readonly workspaceRoot: string;
     readonly scripts: ReadonlyArray<ProjectScript>;
   };
@@ -81,7 +81,7 @@ export class ProjectSetupScriptOperationError extends Schema.TaggedError<Project
     projectId: Schema.optional(Schema.String),
     projectCwd: Schema.optional(Schema.String),
     worktreePath: Schema.String,
-    operation: Schema.Literals(["resolveProject", "openTerminal", "writeCommand"]),
+    operation: Schema.Literals(["resolveProject", "readSettings", "openTerminal", "writeCommand"]),
     cause: Schema.Defect(),
   },
 ) {
@@ -198,8 +198,8 @@ function wrapCommandForCompletion(
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
-  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const terminalManager = yield* TerminalManager.TerminalManager;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const completionShell = resolveCompletionShell(
     yield* HostProcessPlatform,
     yield* HostProcessEnvironment,
@@ -341,17 +341,12 @@ export const make = Effect.gen(function* () {
         (cause) =>
           new ProjectSetupScriptOperationError({
             ...errorContext,
-            operation: "resolveProject",
+            operation: "readSettings",
             cause,
           }),
       ),
     );
-    const script = setupProjectScript(
-      resolveProjectScripts(settings, {
-        id: ProjectId.make(input.projectId ?? project.id ?? "setup"),
-        scripts: project.scripts,
-      }),
-    );
+    const script = setupProjectScript(resolveProjectScripts(settings, project));
     if (!script) {
       return {
         status: "no-script",
@@ -360,10 +355,16 @@ export const make = Effect.gen(function* () {
 
     const terminalId = input.preferredTerminalId ?? `setup-${script.id}`;
     const cwd = input.worktreePath;
-    const env = projectScriptRuntimeEnv({
-      project: { cwd: project.workspaceRoot },
-      worktreePath: input.worktreePath,
-    });
+    const env = {
+      ...projectScriptRuntimeEnv({
+        project: { cwd: project.workspaceRoot },
+        worktreePath: input.worktreePath,
+      }),
+      // Setup can run before a client attaches. Truecolor probes in tools such
+      // as Vite+ wait for terminal replies that nobody can send at that point.
+      // Keep TERM's 256-color support without advertising truecolor here.
+      COLORTERM: "",
+    };
     const observe = input.observeCompletion;
     const completionToken = observe ? NodeCrypto.randomUUID().replaceAll("-", "") : null;
     const commandLine =

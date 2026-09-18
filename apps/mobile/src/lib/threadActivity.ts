@@ -197,6 +197,12 @@ export function isContextCompactionActivityGroup(entry: ThreadFeedActivityGroup)
   );
 }
 
+export function isContextHandoffActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return (
+    entry.activities.length === 1 && entry.activities[0]?.projectedItem.item.type === "handoff"
+  );
+}
+
 function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return entry.activities.some((activity) => activity.workEntry.questionAnswer !== undefined);
 }
@@ -384,6 +390,8 @@ function itemIcon(item: OrchestrationV2TurnItem): ThreadFeedActivity["icon"] {
     case "fork":
     case "thread_created":
       return "zap";
+    default:
+      return "wrench";
   }
 }
 
@@ -444,6 +452,8 @@ function itemSummary(
       return "User message";
     case "assistant_message":
       return "Assistant message";
+    default:
+      return "Activity";
   }
 }
 
@@ -490,6 +500,8 @@ function itemPreview(item: OrchestrationV2TurnItem): string | null {
     case "user_message":
     case "assistant_message":
       return item.text || null;
+    default:
+      return null;
   }
 }
 
@@ -674,9 +686,11 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
       continue;
     }
 
-    const isCompaction = entry.activity.projectedItem.item.type === "compaction";
+    const isContextBoundary =
+      entry.activity.projectedItem.item.type === "compaction" ||
+      entry.activity.projectedItem.item.type === "handoff";
     if (
-      isCompaction ||
+      isContextBoundary ||
       entry.activity.prominent ||
       firstActivityEntry?.runId !== entry.runId ||
       firstActivityEntry?.activity.attemptId !== entry.activity.attemptId
@@ -685,7 +699,7 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
     }
     firstActivityEntry ??= entry;
     openGroupActivities.push(entry.activity);
-    if (isCompaction || entry.activity.prominent) {
+    if (isContextBoundary || entry.activity.prominent) {
       flushGroup();
     }
   }
@@ -814,7 +828,10 @@ function deriveThreadFeedRunFolds(
             !(
               entry.type === "activity-group" &&
               entry.activities.some(
-                (activity) => activity.prominent || activity.workEntry.questionAnswer !== undefined,
+                (activity) =>
+                  activity.prominent ||
+                  activity.projectedItem.item.type === "handoff" ||
+                  activity.workEntry.questionAnswer !== undefined,
               )
             ),
         )
@@ -827,7 +844,10 @@ function deriveThreadFeedRunFolds(
     const hidesNonCompactionWork = group.entries.some(
       (entry) =>
         hiddenEntryIds.has(entry.id) &&
-        !(entry.type === "activity-group" && isContextCompactionActivityGroup(entry)),
+        !(
+          entry.type === "activity-group" &&
+          (isContextCompactionActivityGroup(entry) || isContextHandoffActivityGroup(entry))
+        ),
     );
     if (!hidesNonCompactionWork) continue;
     const terminalEntry = terminalAssistantId
@@ -943,7 +963,11 @@ function appendPresentedFeedEntry(
     result.push(entry);
     return;
   }
-  if (isContextCompactionActivityGroup(entry) || isUserInputActivityGroup(entry)) {
+  if (
+    isContextCompactionActivityGroup(entry) ||
+    isContextHandoffActivityGroup(entry) ||
+    isUserInputActivityGroup(entry)
+  ) {
     result.push(entry);
     return;
   }

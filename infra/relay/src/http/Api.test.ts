@@ -1,3 +1,12 @@
+import * as HttpServer from "effect/unstable/http/HttpServer";
+import {
+  RelayClientAuth,
+  RelayClientPrincipal,
+  type RelayClientDeviceRecord,
+} from "@t3tools/contracts/relay";
+import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
+import * as RelayTokens from "../auth/RelayTokens.ts";
+import * as Devices from "../agentActivity/Devices.ts";
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -29,6 +38,7 @@ import {
   RelayEnvironmentAuth,
   RelayEnvironmentPrincipal,
   type RelayClientDeviceRecord,
+  RelayApi,
 } from "@t3tools/contracts/relay";
 
 import {

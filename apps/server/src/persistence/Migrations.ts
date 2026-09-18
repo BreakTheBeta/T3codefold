@@ -1,3 +1,4 @@
+import Migration0068 from "./Migrations/068_ProjectionThreadPullRequests.ts";
 import Migration0066 from "./Migrations/066_ProjectionThreadTitleState.ts";
 import Migration0067 from "./Migrations/067_PullRequestFilesViewed.ts";
 import Migration0065 from "./Migrations/065_ProjectionThreadMessageContext.ts";
@@ -160,6 +161,7 @@ export const migrationEntries = [
   [65, "ProjectionThreadMessageContext", Migration0065],
   [66, "ProjectionThreadTitleState", Migration0066],
   [67, "PullRequestFilesViewed", Migration0067],
+  [68, "ProjectionThreadPullRequests", Migration0068],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -226,5 +228,29 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")
     : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
+  // The migrator keys on migration_id: a database that recorded a different
+  // migration under a shared id (local or fork builds) keeps that id and
+  // silently skips this build's migration at it. Surface the divergence so the
+  // skipped schema change is diagnosable.
+  const sql = yield* SqlClient.SqlClient;
+  const recorded = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+  }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
+  const divergent = recorded.flatMap((row) => {
+    const expected = manifestNames.get(row.migration_id);
+    if (expected === undefined) {
+      return [`${row.migration_id}:${row.name} (unknown to this build)`];
+    }
+    return expected === row.name
+      ? []
+      : [`${row.migration_id}:${row.name} (this build: ${expected})`];
+  });
+  if (divergent.length > 0) {
+    yield* Effect.logWarning(
+      "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
+    ).pipe(Effect.annotateLogs({ divergent }));
+  }
   return executedMigrations;
 });

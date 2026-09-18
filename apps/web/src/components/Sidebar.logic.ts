@@ -1,20 +1,20 @@
+import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
+import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
+import * as React from "react";
+import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import {
   isAtomCommandInterrupted,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import type { AsyncResult } from "effect/unstable/reactivity";
-import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
-import * as React from "react";
-import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
-import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import type { AsyncResult } from "effect/unstable/reactivity";
+import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
 import {
   effectiveSnoozed,
   type ThreadSnoozeShell,
 } from "@t3tools/client-runtime/state/thread-settled";
 import {
-  activeThreadAnchorTimestampMs,
   getThreadSortTimestamp,
   resolveSettledThreadTimestamp,
   sortThreads,
@@ -23,7 +23,6 @@ import {
   type ThreadSortInput,
 } from "../lib/threadSort";
 import type { SidebarThreadSummary, Thread } from "../types";
-import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
@@ -44,7 +43,7 @@ export function shouldNavigateAfterThreadPark(input: {
   );
 }
 
-export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
+const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
 // Visible sidebar rows are prewarmed into the thread-detail cache so opening a
 // nearby thread usually reuses an already-hot subscription. Each prewarmed
@@ -52,10 +51,10 @@ export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
 // activities, growing as agents work) for as long as the row stays visible,
 // so this limit is a direct renderer-heap and server-load multiplier — keep
 // it small; cold opens still render instantly from the cached snapshot.
-export const SIDEBAR_THREAD_PREWARM_LIMIT = 3;
+const SIDEBAR_THREAD_PREWARM_LIMIT = 3;
 // A small buffer keeps the next few rows warm without leasing every row that
 // content-visibility leaves mounted below the scroll viewport.
-export const SIDEBAR_ROW_SUBSCRIPTION_OVERSCAN_PX = 160;
+const SIDEBAR_ROW_SUBSCRIPTION_OVERSCAN_PX = 160;
 
 export function useSidebarRowSubscriptionLease(isActive: boolean): {
   readonly leaseLiveStatus: boolean;
@@ -105,12 +104,6 @@ export function useRetainedValue<T>(key: string | null, value: T | null): T | nu
   return key !== null && retained.current?.key === key ? retained.current.value : null;
 }
 
-// The list already reaches its destination through sortable transforms while
-// the pointer is down. dnd-kit's default also animates the committed DOM order
-// after release, replaying the same movement across every affected row.
-export const animatePinnedLayoutChanges: AnimateLayoutChanges = (args) =>
-  args.isSorting ? defaultAnimateLayoutChanges(args) : false;
-
 // Sidebar.motion handles ordinary section changes. Sortable transforms own
 // dragging; replaying their committed DOM order would animate the drop twice.
 export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
@@ -123,6 +116,19 @@ export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
 // supported because snoozing requires a wake time.
 
 export type SidebarSection = "pinned" | "active" | "snoozed" | "settled";
+
+/** Resolve the shelf a visible thread belongs to. Snooze is temporary and
+ * wins until its wake boundary; settlement then wins over a stale pin. */
+export function resolveSidebarThreadSection(input: {
+  readonly snoozed: boolean;
+  readonly settled: boolean;
+  readonly pinned: boolean;
+}): SidebarSection {
+  if (input.snoozed) return "snoozed";
+  if (input.settled) return "settled";
+  if (input.pinned) return "pinned";
+  return "active";
+}
 
 /** Sortable ids: thread rows use their scoped key; structural items use a
     colon-free prefix: scoped thread keys always contain a colon. */
@@ -406,6 +412,10 @@ type LogicalSidebarProject = SidebarProject & {
 
 export type ThreadTraversalDirection = "previous" | "next";
 
+/**
+ * Shared-worktree checks must exclude only successful deletions, never the
+ * whole batch. A null result skips an entry that the caller can no longer find.
+ */
 export async function deleteSelectedThreadEntries<
   TEntry extends { readonly threadKey: string },
 >(input: {
@@ -779,17 +789,6 @@ export function orderItemsByPreferredIds<TItem, TId>(input: {
   return [...ordered, ...remaining];
 }
 
-export function getVisibleSidebarThreadIds<TThreadId>(
-  renderedProjects: readonly {
-    shouldShowThreadPanel?: boolean;
-    renderedThreadIds: readonly TThreadId[];
-  }[],
-): TThreadId[] {
-  return renderedProjects.flatMap((renderedProject) =>
-    renderedProject.shouldShowThreadPanel === false ? [] : renderedProject.renderedThreadIds,
-  );
-}
-
 export function getSidebarThreadIdsToPrewarm<TThreadId>(
   visibleThreadIds: readonly TThreadId[],
   limit = SIDEBAR_THREAD_PREWARM_LIMIT,
@@ -822,28 +821,6 @@ export function resolveAdjacentThreadId<T>(input: {
   }
 
   return currentIndex < threadIds.length - 1 ? (threadIds[currentIndex + 1] ?? null) : null;
-}
-
-export function shouldNavigateAfterProjectRemoval(input: {
-  routeTarget: ThreadRouteTarget | null;
-  projectThreads: readonly {
-    environmentId: string;
-    id: string;
-  }[];
-  projectDraftId: string | null;
-}): boolean {
-  const { projectDraftId, projectThreads, routeTarget } = input;
-  if (routeTarget?.kind === "draft") {
-    return projectDraftId === routeTarget.draftId;
-  }
-  if (routeTarget?.kind !== "server") {
-    return false;
-  }
-  return projectThreads.some(
-    (thread) =>
-      thread.environmentId === routeTarget.threadRef.environmentId &&
-      thread.id === routeTarget.threadRef.threadId,
-  );
 }
 
 export function isContextMenuPointerDown(input: {
@@ -982,13 +959,6 @@ export function shouldShowSidebarV2Duration(status: SidebarThreadStatus): boolea
   return status === "working";
 }
 
-/** NaN-safe Date.parse for sort comparators: a malformed timestamp must not
-    poison the whole ordering, so it sinks to the epoch instead. */
-export function parseTimestampMs(isoDate: string): number {
-  const parsed = Date.parse(isoDate);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
 /** First VALID timestamp wins: `a ?? b` falls through on null, but a present-
     yet-malformed string must also fall through to the next candidate rather
     than sink the row to the epoch. */
@@ -1003,46 +973,11 @@ export function firstValidTimestampMs(
   return 0;
 }
 
-/** String twin of firstValidTimestampMs for callers that need the ISO string
-    (display labels, tick anchors) rather than epoch ms. */
-export function firstValidTimestamp(
-  ...candidates: ReadonlyArray<string | null | undefined>
-): string | null {
-  for (const candidate of candidates) {
-    if (candidate == null) continue;
-    if (!Number.isNaN(Date.parse(candidate))) return candidate;
-  }
-  return null;
-}
-
-// Sidebar sort: static order, newest anchor on top. Activity NEVER reorders
-// the list — a row holds its position between lifecycle transitions, so the
-// screen only moves when a thread enters or leaves the active list. The
-// anchor is creation time until an un-settle re-anchors it (see
-// activeThreadAnchorTimestampMs), so an un-settled thread surfaces at the
-// top instead of sinking back to its creation-order slot. Status (including
-// pending approval) is carried by each card's edge strip, not by position.
-export function sortThreadsForSidebar<
-  T extends {
-    readonly id: string;
-    readonly createdAt: string;
-    readonly unsettledAt?: string | null | undefined;
-  },
->(threads: readonly T[]): T[] {
-  return [...threads].toSorted(
-    (left, right) =>
-      activeThreadAnchorTimestampMs(right) - activeThreadAnchorTimestampMs(left) ||
-      left.id.localeCompare(right.id),
-  );
-}
+export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 
 // Pinned-reorder key math and the keyed sort live in client-runtime
 // (state/thread-sort) so web and mobile compute identical pinned orders.
-export {
-  generateSpreadPinOrderKeys,
-  pinOrderKeyBetween,
-  planPinnedReorder,
-} from "@t3tools/client-runtime/state/thread-sort";
+export { pinOrderKeyBetween, planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
 export { sortPinnedThreadsByOrderKey as sortPinnedThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 
 /**
@@ -1096,34 +1031,6 @@ export function reduceSidebarProjectScopeMenuState(
   }
 }
 
-type SettledTimestampInput = Pick<
-  SidebarThreadSummary,
-  "settledAt" | "latestUserMessageAt" | "latestRun" | "updatedAt"
->;
-
-/** The timestamp a settled row sorts and labels by: settledAt when stamped,
-    otherwise the latest message or turn stamp. updatedAt is the final net. */
-export function resolveSettledTimestamp(thread: SettledTimestampInput): string | null {
-  const settledAt = firstValidTimestamp(thread.settledAt);
-  if (settledAt !== null) return settledAt;
-  let latest: string | null = null;
-  let latestMs = Number.NEGATIVE_INFINITY;
-  for (const candidate of [
-    thread.latestUserMessageAt,
-    thread.latestRun?.requestedAt,
-    thread.latestRun?.startedAt,
-    thread.latestRun?.completedAt,
-  ]) {
-    if (candidate == null) continue;
-    const parsed = Date.parse(candidate);
-    if (!Number.isNaN(parsed) && parsed > latestMs) {
-      latest = candidate;
-      latestMs = parsed;
-    }
-  }
-  return latest ?? firstValidTimestamp(thread.updatedAt);
-}
-
 // Settled rows are history, so they order by when the work ENDED, not when
 // the thread was created or last touched.
 export function sortSettledThreadsForSidebar<
@@ -1138,18 +1045,10 @@ export function sortSettledThreadsForSidebar<
   );
 }
 
-/** The timestamp a working thread's elapsed label counts from: the running
-    turn's start (request time until adoption), falling back to the session's
-    last transition when the turn projection lags behind. Malformed
-    timestamps fall through to the next candidate, not just missing ones. */
 export function resolveWorkingStartedAt(
   thread: Pick<SidebarThreadSummary, "latestRun" | "runtime">,
 ): string | null {
-  const run = thread.latestRun;
-  if (run && run.completedAt === null) {
-    return firstValidTimestamp(run.startedAt, run.requestedAt, thread.runtime?.updatedAt);
-  }
-  return firstValidTimestamp(thread.runtime?.updatedAt);
+  return resolveThreadWorkingStartedAt(thread);
 }
 
 export function formatWorkingDurationLabel(elapsedMs: number): string {
@@ -1256,54 +1155,6 @@ export function resolveProjectStatusIndicator(
   }
 
   return highestPriorityStatus;
-}
-
-export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input: {
-  threads: readonly T[];
-  activeThreadId: T["id"] | undefined;
-  isThreadListExpanded: boolean;
-  previewLimit: number;
-}): {
-  hasHiddenThreads: boolean;
-  visibleThreads: T[];
-  hiddenThreads: T[];
-} {
-  const { activeThreadId, isThreadListExpanded, previewLimit, threads } = input;
-  const hasHiddenThreads = threads.length > previewLimit;
-
-  if (!hasHiddenThreads || isThreadListExpanded) {
-    return {
-      hasHiddenThreads,
-      hiddenThreads: [],
-      visibleThreads: [...threads],
-    };
-  }
-
-  const previewThreads = threads.slice(0, previewLimit);
-  if (!activeThreadId || previewThreads.some((thread) => thread.id === activeThreadId)) {
-    return {
-      hasHiddenThreads: true,
-      hiddenThreads: threads.slice(previewLimit),
-      visibleThreads: previewThreads,
-    };
-  }
-
-  const activeThread = threads.find((thread) => thread.id === activeThreadId);
-  if (!activeThread) {
-    return {
-      hasHiddenThreads: true,
-      hiddenThreads: threads.slice(previewLimit),
-      visibleThreads: previewThreads,
-    };
-  }
-
-  const visibleThreadIds = new Set([...previewThreads, activeThread].map((thread) => thread.id));
-
-  return {
-    hasHiddenThreads: true,
-    hiddenThreads: threads.filter((thread) => !visibleThreadIds.has(thread.id)),
-    visibleThreads: threads.filter((thread) => visibleThreadIds.has(thread.id)),
-  };
 }
 
 export function getFallbackThreadIdAfterDelete<

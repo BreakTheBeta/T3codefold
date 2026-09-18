@@ -231,6 +231,7 @@ export function makeCursorAgentSdkReplayRunner(
 
   const recordFailure = <Error extends CursorAgentSdkReplayError>(error: Error): Error => {
     failure = error;
+    cursorAdvanced.resolve();
     return error;
   };
 
@@ -498,7 +499,7 @@ export function makeCursorAgentSdkReplayRunner(
   };
 }
 
-export function makeCursorAgentSdkReplayLayer(
+function makeCursorAgentSdkReplayLayer(
   transcript: CursorAgentSdkReplayTranscript,
   options?: {
     readonly runner?: CursorAgentSdkRunnerShape;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId, TurnItemId, type OrchestrationV2TurnItem } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 
 import {
   commandDetailRepeatsCommand,
@@ -10,22 +11,74 @@ import {
   summarizeToolGroup,
   toolGroupAction,
   toolGroupSummaryKind,
+  toolItemForDisplay,
   type WorkLogPresentationEntry,
   type WorkLogToolLifecycleStatus,
   workEntryViewedImagePath,
+  workEntryIndicatesToolFailure,
   workEntryDisplayIndicatesToolFailure,
+  workEntryIndicatesToolSuccess,
 } from "./presentation.js";
 
-describe("workEntryDisplayIndicatesToolFailure", () => {
+function commandItem(
+  fields: Partial<Extract<OrchestrationV2TurnItem, { type: "command_execution" }>> = {},
+): OrchestrationV2TurnItem {
+  return {
+    id: TurnItemId.make("command"),
+    threadId: ThreadId.make("thread"),
+    runId: null,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status: "completed",
+    title: null,
+    startedAt: null,
+    completedAt: null,
+    updatedAt: DateTime.makeUnsafe("2026-09-08T00:00:00.000Z"),
+    type: "command_execution",
+    input: 'rg "command not found"',
+    exitCode: 0,
+    ...fields,
+  };
+}
+
+describe("workEntryIndicatesToolFailure", () => {
   const base = {
     id: "w1",
     createdAt: "2026-01-01T00:00:00.000Z",
     label: "Read",
   };
 
+  it.each([
+    [{ outputIndicatesFailure: true }, true],
+    [{ exitCode: 2 }, true],
+    [{ output: "sh: missing-command: command not found" }, true],
+    [{ output: "Found 3 matches" }, false],
+    [{ output: `${"x".repeat(32_768)} command not found` }, false],
+    [{}, false],
+  ] as const)(
+    "preserves command failure state after removing displayed output: %j",
+    (fields, failed) => {
+      const structuredPayload = commandItem(fields);
+      const entry: WorkLogPresentationEntry = {
+        ...base,
+        tone: "tool",
+        itemType: "command_execution",
+        toolLifecycleStatus: "completed",
+        structuredPayload,
+      };
+      expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(failed);
+      expect(workEntryIndicatesToolSuccess(entry)).toBe(!failed);
+      expect(JSON.stringify(toolItemForDisplay(structuredPayload))).not.toContain('"output":');
+    },
+  );
+
   it("is true for error tone", () => {
     expect(
-      workEntryDisplayIndicatesToolFailure({
+      workEntryIndicatesToolFailure({
         ...base,
         tone: "error",
         detail: "nothing special",
@@ -35,7 +88,7 @@ describe("workEntryDisplayIndicatesToolFailure", () => {
 
   it("is true when lifecycle says failed even if detail is empty", () => {
     expect(
-      workEntryDisplayIndicatesToolFailure({
+      workEntryIndicatesToolFailure({
         ...base,
         tone: "tool",
         toolLifecycleStatus: "failed",
@@ -45,7 +98,7 @@ describe("workEntryDisplayIndicatesToolFailure", () => {
 
   it("detects file-not-found style tool output with completed lifecycle", () => {
     expect(
-      workEntryDisplayIndicatesToolFailure({
+      workEntryIndicatesToolFailure({
         ...base,
         tone: "tool",
         toolLifecycleStatus: "completed",
@@ -56,7 +109,7 @@ describe("workEntryDisplayIndicatesToolFailure", () => {
 
   it("detects glob no files and PowerShell command errors", () => {
     expect(
-      workEntryDisplayIndicatesToolFailure({
+      workEntryIndicatesToolFailure({
         ...base,
         label: "Glob",
         tone: "tool",
@@ -64,7 +117,7 @@ describe("workEntryDisplayIndicatesToolFailure", () => {
       }),
     ).toBe(true);
     expect(
-      workEntryDisplayIndicatesToolFailure({
+      workEntryIndicatesToolFailure({
         ...base,
         label: "Bash",
         tone: "tool",
@@ -76,7 +129,7 @@ describe("workEntryDisplayIndicatesToolFailure", () => {
 
   it("is false for successful completed tools", () => {
     expect(
-      workEntryDisplayIndicatesToolFailure({
+      workEntryIndicatesToolFailure({
         ...base,
         tone: "tool",
         toolLifecycleStatus: "completed",
@@ -96,12 +149,40 @@ describe("workEntryDisplayIndicatesToolFailure", () => {
     } satisfies WorkLogPresentationEntry;
 
     expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(false);
+    // Older activities can store output in this field, so that path stays separate.
+    expect(workEntryIndicatesToolFailure(entry)).toBe(true);
     expect(workEntryDisplayIndicatesToolFailure({ ...entry, detail: "File not found" })).toBe(true);
+  });
+
+  it("treats successful tool rows as success candidates", () => {
+    expect(
+      workEntryIndicatesToolSuccess({
+        ...base,
+        tone: "tool",
+        toolLifecycleStatus: "completed",
+        detail: "ok",
+      }),
+    ).toBe(true);
+    expect(
+      workEntryIndicatesToolSuccess({
+        ...base,
+        tone: "tool",
+        toolLifecycleStatus: "inProgress",
+        detail: "…",
+      }),
+    ).toBe(false);
+    expect(workEntryIndicatesToolSuccess({ ...base, tone: "thinking", detail: "…" })).toBe(false);
+    expect(
+      workEntryIndicatesToolSuccess({ ...base, tone: "tool", toolLifecycleStatus: "stopped" }),
+    ).toBe(false);
+    expect(
+      workEntryIndicatesToolSuccess({ ...base, tone: "tool", toolLifecycleStatus: "idle" }),
+    ).toBe(false);
   });
 
   it("does not run heuristics on non-tool info rows", () => {
     expect(
-      workEntryDisplayIndicatesToolFailure({
+      workEntryIndicatesToolFailure({
         ...base,
         label: "Context compacted",
         tone: "info",
@@ -121,6 +202,38 @@ describe("summarizeToolGroup", () => {
     label: "Tool call",
     tone: "tool",
     ...overrides,
+  });
+
+  it("excludes reasoning from mixed tool counts and icons", () => {
+    const thought = entry("thought", {
+      itemType: "reasoning",
+      tone: "thinking",
+      detail: "Check the source",
+    });
+    const command = entry("command", { itemType: "command_execution", command: "vp test run" });
+    expect(summarizeToolGroup([thought, command, { ...thought, id: "thought-2" }])).toEqual({
+      summary: "Ran 1 command",
+      hasFailure: false,
+    });
+    expect(toolGroupSummaryKind([thought, command])).toBe("command");
+    expect(summarizeToolGroup([thought]).summary).toBe("Thought");
+    expect(summarizeToolGroup([thought, { ...thought, id: "thought-2" }]).summary).toBe(
+      "Thought (×2)",
+    );
+    expect(toolGroupSummaryKind([thought])).toBe("reasoning");
+  });
+
+  it("counts created threads alongside adjacent commands", () => {
+    expect(
+      summarizeToolGroup([
+        entry("command", { itemType: "command_execution", command: "vp test run" }),
+        entry("created", {
+          itemType: "thread_created",
+
+          label: "Created thread",
+        }),
+      ]).summary,
+    ).toBe("Ran 1 command and created 1 thread");
   });
 
   it("deduplicates named sources ahead of ordinary actions", () => {
@@ -565,11 +678,12 @@ describe("pull request tool presentation", () => {
     "t3code/link_pull_request",
     "link_pull_request",
   ])("recognizes the native linking tool: %s", (label) => {
-    const entry = {
-      ...baseEntry,
+    const entry: WorkLogPresentationEntry = {
+      id: "link",
+      createdAt: "2026-09-10T00:00:00.000Z",
       label,
-      tone: "tool" as const,
-      toolLifecycleStatus: "completed" as const,
+      tone: "tool",
+      toolLifecycleStatus: "completed",
     };
     expect(resolveWorkEntryToolPresentation(entry)).toMatchObject({
       displayName: "Linked a pull request",
@@ -584,7 +698,7 @@ describe("pull request tool presentation", () => {
     ["failed", "Failed to link PR #42"],
     ["declined", "Declined to link PR #42"],
     ["stopped", "Stopped linking PR #42"],
-  ])("describes the target and %s status", (toolLifecycleStatus, displayName) => {
+  ] as const)("describes the target and %s status", (toolLifecycleStatus, displayName) => {
     expect(
       resolveWorkEntryToolPresentation({
         ...baseEntry,
@@ -616,7 +730,8 @@ describe("pull request tool presentation", () => {
 
   it("summarizes native PR work separately from ordinary tools and integration metadata", () => {
     const link: WorkLogPresentationEntry = {
-      ...baseEntry,
+      id: "link",
+      createdAt: "2026-09-10T00:00:00.000Z",
       label: "T3-code · link_pull_request",
       tone: "tool",
       itemType: "dynamic_tool",
@@ -643,10 +758,10 @@ describe("pull request tool presentation", () => {
 
 describe("device group summaries", () => {
   const deviceEntry = (tool: string): WorkLogPresentationEntry => ({
+    id: tool,
+    createdAt: "2026-09-10T00:00:00.000Z",
     label: "MCP tool call",
     toolData: { server: "t3-code", tool },
-    id: "device",
-    createdAt: "2026-01-01T00:00:00Z",
     itemType: "dynamic_tool",
     toolLifecycleStatus: "completed",
     tone: "tool",
@@ -665,8 +780,8 @@ describe("device group summaries", () => {
     expect(
       summarizeToolGroup([
         {
-          id: "shell",
-          createdAt: "2026-01-01T00:00:00Z",
+          id: "command",
+          createdAt: "2026-09-10T00:00:00.000Z",
           label: "Ran command",
           itemType: "command_execution",
           command: "pwd",

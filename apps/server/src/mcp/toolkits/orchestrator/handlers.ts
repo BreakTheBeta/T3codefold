@@ -9,7 +9,6 @@ import {
   OrchestratorMcpThreadReadResult,
   OrchestratorMcpThreadSendResult,
   OrchestratorMcpThreadWaitResult,
-  FleetProjectList,
   type FleetInvokeInput,
   type EnvironmentId,
   type ProjectId,
@@ -25,7 +24,6 @@ import { McpInvocationContext } from "../../McpInvocationContext.ts";
 import { OrchestratorMcpService } from "../../OrchestratorMcpService.ts";
 import { ThreadMetadataMcpService } from "../../ThreadMetadataMcpService.ts";
 
-const decodeFleetProjectList = Schema.decodeUnknownEffect(FleetProjectList);
 const decodeOrchestratorMcpCapabilitiesResult = Schema.decodeUnknownEffect(
   OrchestratorMcpCapabilitiesResult,
 );
@@ -126,11 +124,6 @@ export const handlers = {
       const scope = yield* McpInvocationContext;
       yield* (yield* OrchestratorMcpService).capabilities(scope);
       return yield* (yield* FleetRouter).environments;
-    }),
-  t3_project_list: (input) =>
-    Effect.gen(function* () {
-      const result = yield* invoke({ ...input, operation: "t3_project_list", input: {} });
-      return yield* decodeFleetProjectList(result).pipe(Effect.mapError(invalidResult));
     }),
   orchestrator_capabilities: (input) =>
     Effect.gen(function* () {

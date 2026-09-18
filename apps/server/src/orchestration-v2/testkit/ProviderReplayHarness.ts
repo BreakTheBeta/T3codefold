@@ -1,5 +1,4 @@
 import { layer as workStoreLayer } from "../../pitboss/WorkStore.ts";
-import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ProviderDriverKind, ProviderReplayTranscript } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -13,6 +12,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ThreadManagementService } from "../ThreadManagementService.ts";
@@ -30,8 +30,9 @@ import {
   executorLayer as effectExecutorLayer,
   layer as effectWorkerLayer,
   runDaemon as runEffectWorkerDaemon,
+  OrchestrationEffectWorkerV2,
 } from "../EffectWorker.ts";
-import { layerFromStores as eventSinkLayer } from "../EventSink.ts";
+import { EventSinkV2, layerFromStores as eventSinkLayer } from "../EventSink.ts";
 import { layer as eventStoreLayer } from "../EventStore.ts";
 import { layer as idAllocatorLayer } from "../IdAllocator.ts";
 import { layer as orchestratorLayer } from "../Orchestrator.ts";
@@ -107,9 +108,9 @@ export function makeReplayServerConfig(
       traceBatchWindowMs: 200,
       traceMaxBytes: 10 * 1024 * 1024,
       traceMaxFiles: 10,
-      otlpHeaders: undefined,
-      otlpProtocol: "http/json",
       otlpTracesUrl: undefined,
+      otlpProtocol: "http/json",
+      otlpHeaders: undefined,
       otlpMetricsUrl: undefined,
       otlpExportIntervalMs: 10_000,
       otlpServiceName: "t3-server",
@@ -183,7 +184,6 @@ export function runOrchestratorV2ProviderReplayScenario<
       SqlClient.SqlClient,
       MigrationError | PlatformError.PlatformError | SqlError
     >;
-    readonly enableLegacyTokenStreaming?: boolean;
     readonly runEffectWorker?: boolean;
   } = {},
 ): Effect.Effect<
@@ -222,11 +222,13 @@ export function makeOrchestratorV2ProviderReplayLayer<
       SqlClient.SqlClient,
       MigrationError | PlatformError.PlatformError | SqlError
     >;
-    readonly enableLegacyTokenStreaming?: boolean;
     readonly runEffectWorker?: boolean;
     readonly replayGate?: ProviderReplayGate;
   } = {},
-): Layer.Layer<OrchestratorV2, Error | MigrationError | PlatformError.PlatformError | SqlError> {
+): Layer.Layer<
+  OrchestratorV2 | OrchestrationEffectWorkerV2 | EventSinkV2,
+  Error | MigrationError | PlatformError.PlatformError | SqlError
+> {
   const registryLayer = harness.makeProviderAdapterRegistryLayer(
     scenario.transcript,
     options.replayGate === undefined ? {} : { replayGate: options.replayGate },
@@ -242,10 +244,12 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
       SqlClient.SqlClient,
       MigrationError | PlatformError.PlatformError | SqlError
     >;
-    readonly enableLegacyTokenStreaming?: boolean;
     readonly runEffectWorker?: boolean;
   } = {},
-): Layer.Layer<OrchestratorV2, Error | MigrationError | PlatformError.PlatformError | SqlError> {
+): Layer.Layer<
+  OrchestratorV2 | OrchestrationEffectWorkerV2 | EventSinkV2,
+  Error | MigrationError | PlatformError.PlatformError | SqlError
+> {
   const serverConfigLayer = Layer.effect(
     ServerConfig,
     makeReplayServerConfig(scenario.name).pipe(Effect.orDie),
@@ -258,7 +262,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         );
   const databaseLayer = options.databaseLayer ?? SqlitePersistenceMemory;
   const serverSettingsLayer = ServerSettingsService.layerTest({
-    responseStreamingMode: options.enableLegacyTokenStreaming ? "token" : "turn",
+    responseStreamingMode: "turn",
   }).pipe(Layer.orDie);
   const storesLayer = Layer.mergeAll(
     eventStoreLayer,
@@ -290,8 +294,6 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     Layer.provide(idAllocatorLayer),
   );
   const persistenceLayer = Layer.mergeAll(
-    workStoreLayer.pipe(Layer.provide(databaseLayer)),
-    ProjectionProjectRepositoryLive.pipe(Layer.provide(databaseLayer)),
     storesLayer,
     eventSinkProvided,
     commandReceiptStoreProvided,
@@ -307,6 +309,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         eventSinkProvided,
         idAllocatorLayer,
         mcpSessionRegistryTestLayer,
+        providerEventIngestorProvided,
         storesLayer,
       ),
     ),
@@ -326,7 +329,6 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     ),
   );
   const providerTurnStartServiceProvided = providerTurnStartServiceLayer.pipe(
-    Layer.provide(workStoreLayer.pipe(Layer.provide(databaseLayer))),
     Layer.provide(
       Layer.mergeAll(
         contextHandoffServiceProvided,
@@ -344,7 +346,6 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     Layer.provide(Layer.merge(storesLayer, providerSessionManagerProvided)),
   );
   const runtimeRequestServiceProvided = runtimeRequestServiceLayer.pipe(
-    Layer.provide(serverConfigLayer),
     Layer.provide(Layer.merge(storesLayer, providerSessionManagerProvided)),
   );
   const checkpointRollbackServiceProvided = checkpointRollbackServiceLayer.pipe(
@@ -371,6 +372,23 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     ThreadTitleRegenerationService,
     ThreadTitleRegenerationService.of({ execute: () => Effect.void }),
   );
+  const orchestratorProvided = orchestratorLayer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        checkpointServiceProvided,
+        commandPolicyLayer,
+        contextHandoffServiceProvided,
+        persistenceLayer,
+        ProjectionProjectRepositoryLive.pipe(Layer.provide(databaseLayer)),
+        registryLayer,
+        runtimeLayer,
+        providerSessionManagerProvided,
+        providerSwitchServiceProvided,
+        runExecutionServiceProvided,
+        threadForkServiceLayer,
+      ),
+    ),
+  );
   const effectExecutorProvided = effectExecutorLayer.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -382,30 +400,28 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         runtimeRequestServiceProvided,
         threadTitleRegenerationTestLayer,
         serverSettingsLayer,
-        Layer.mock(ThreadManagementService)({}),
+        Layer.unwrap(
+          Effect.gen(function* () {
+            const orchestrator = yield* OrchestratorV2;
+            return Layer.mock(ThreadManagementService)({
+              dispatch: orchestrator.dispatch,
+              getThreadProjection: orchestrator.getThreadProjection,
+            });
+          }),
+        ).pipe(Layer.provide(orchestratorProvided)),
       ),
     ),
   );
   const effectWorkerProvided = effectWorkerLayer.pipe(
     Layer.provide(Layer.merge(storesLayer, effectExecutorProvided)),
   );
-  const orchestratorProvided = orchestratorLayer.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        checkpointServiceProvided,
-        commandPolicyLayer,
-        contextHandoffServiceProvided,
-        persistenceLayer,
-        registryLayer,
-        runtimeLayer,
-        providerSessionManagerProvided,
-        providerSwitchServiceProvided,
-        runExecutionServiceProvided,
-        threadForkServiceLayer,
-      ),
-    ),
-  );
-  const replayRuntime = Layer.merge(orchestratorProvided, effectWorkerProvided).pipe(
+  const replayRuntime = Layer.mergeAll(
+    orchestratorProvided,
+    effectWorkerProvided,
+    eventSinkProvided,
+  ).pipe(
+    Layer.provide(workStoreLayer.pipe(Layer.provide(databaseLayer))),
+    Layer.provide(serverConfigLayer),
     Layer.provide(worktreeRepairDependenciesTestLayer),
     Layer.provide(NodeServices.layer),
   );
@@ -414,7 +430,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
   // orchestrator. Keeping this acquisition in the replay layer makes the
   // outbox lifecycle explicit and prevents test-only command-side draining.
   if (options.runEffectWorker === false) {
-    return orchestratorProvided.pipe(Layer.provide(NodeServices.layer));
+    return replayRuntime;
   }
   return Layer.effect(
     OrchestratorV2,
@@ -423,5 +439,5 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
       yield* runEffectWorkerDaemon.pipe(Effect.forkScoped);
       return orchestrator;
     }),
-  ).pipe(Layer.provide(replayRuntime));
+  ).pipe(Layer.provideMerge(replayRuntime));
 }

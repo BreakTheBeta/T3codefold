@@ -15,7 +15,7 @@ import {
   resolveWorkspaceDisplayName,
   type EnvMode,
 } from "./BranchToolbar.logic";
-import { composerFloatingLayerProps } from "./chat/composerEventScope";
+import { useComposerMenuProps } from "./chat/composerEventScope";
 import {
   Select,
   SelectGroup,
@@ -55,6 +55,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   const workspacePath = displayMode === "panel" ? (activeWorktreePath ?? workspaceRoot) : null;
   const workspaceDisplayName = resolveWorkspaceDisplayName(workspacePath);
   const workspaceKind = activeWorktreePath ? "Worktree" : "Project folder";
+  const composerFloatingLayerProps = useComposerMenuProps();
   const showPreviousWorktree = Boolean(previousWorktreeLabel && onUsePreviousWorktree);
   const envModeItems = useMemo(
     () => [
@@ -79,7 +80,11 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         )}
         data-composer-context-control
       >
-        {activeWorktreePath ? (
+        {forceNewWorktree ? (
+          <FolderGit2Icon
+            className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3"}
+          />
+        ) : activeWorktreePath ? (
           <FolderGitIcon
             className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3"}
           />
@@ -105,24 +110,26 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
             )}
           >
             {forceNewWorktree
-              ? "New worktree per model"
+              ? resolveEnvModeLabel("worktree")
               : (workspaceDisplayName ?? resolveLockedWorkspaceLabel(activeWorktreePath))}
           </span>
         </span>
         {displayMode === "panel" ? (
           <span className="shrink-0 text-[10px] font-normal text-muted-foreground/70">
-            {workspaceKind}
+            {forceNewWorktree ? "Worktree" : workspaceKind}
           </span>
         ) : null}
       </span>
     );
 
-    if (!workspacePath) return lockedRow;
-
     return (
       <Tooltip>
         <TooltipTrigger render={lockedRow} />
-        <TooltipPopup side="left">{workspacePath}</TooltipPopup>
+        <TooltipPopup side={displayMode === "panel" ? "left" : undefined}>
+          {forceNewWorktree
+            ? "Each model starts in its own worktree."
+            : (workspacePath ?? resolveLockedWorkspaceLabel(activeWorktreePath))}
+        </TooltipPopup>
       </Tooltip>
     );
   }
@@ -196,7 +203,12 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
             </span>
           ) : null}
         </TooltipTrigger>
-        {workspacePath ? <TooltipPopup side="left">{workspacePath}</TooltipPopup> : null}
+        <TooltipPopup side={displayMode === "panel" ? "left" : undefined}>
+          {workspacePath ??
+            (effectiveEnvMode === "worktree"
+              ? resolveEnvModeLabel("worktree")
+              : resolveCurrentWorkspaceLabel(activeWorktreePath))}
+        </TooltipPopup>
       </Tooltip>
       <SelectPopup
         alignItemWithTrigger={false}

@@ -29,6 +29,7 @@ import type {
   PullRequestListInput,
   PreviewAnnotationPayload,
   ProviderApprovalDecision,
+  ThreadContextRecord,
   ProviderInteractionMode,
   ResolvedKeybindingsConfig,
   RuntimeMode,
@@ -74,7 +75,7 @@ import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
   collapseExpandedComposerCursor,
-  composerSubmissionIntentForEnter,
+  composerSubmissionIntentForKey,
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
@@ -238,7 +239,12 @@ import {
   terminalContextDraftFromRecord,
   terminalContextReference,
   terminalContextRecord,
+  threadContextRecord,
+  threadContextReference,
 } from "~/lib/composerContextRecords";
+import { THREAD_CONTEXT_DROP_EVENT, threadContextDropTargetProps } from "./threadContextDrag";
+import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
+import { readThreadShell, useThreadShells } from "~/state/entities";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import type { ComposerContextClipboardFragment, ComposerContextRecord } from "@t3tools/contracts";
@@ -977,7 +983,10 @@ import type {
   PendingApproval,
   PendingUserInput,
 } from "../../session-logic";
-import { type ComposerDispatchMode } from "./composerDispatch";
+import {
+  resolveComposerDispatchMode,
+  type ComposerDispatchMode,
+} from "@t3tools/client-runtime/state/composer-dispatch";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import {
   formatProviderSkillDisplayName,
@@ -1282,6 +1291,7 @@ export interface ChatComposerHandle {
     terminalContexts: TerminalContextDraft[];
     previewAnnotations: PreviewAnnotationPayload[];
     reviewComments: ReviewCommentContext[];
+    threadContexts: ThreadContextRecord[];
     selectedPromptEffort: string | null;
     selectedModelOptionsForDispatch: unknown;
     selectedModelSelection: ModelSelection;
@@ -1437,7 +1447,8 @@ export interface ChatComposerProps {
   onCompactContext: () => void;
   onSend: (
     e?: { preventDefault: () => void },
-    dispatchMode?: ComposerDispatchMode | ComposerSubmissionIntent,
+    dispatchMode?: ComposerDispatchMode,
+    submissionIntent?: ComposerSubmissionIntent,
   ) => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -1653,6 +1664,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerTerminalContexts = composerDraft.terminalContexts;
   const composerPreviewAnnotations = composerDraft.previewAnnotations;
   const composerReviewComments = composerDraft.reviewComments;
+  const composerThreadContexts = composerDraft.threadContexts;
   const pendingSnapShotAnimations = useSyncExternalStore(
     subscribeToPendingSnapShotAnimations,
     getPendingSnapShotAnimations,
@@ -1717,6 +1729,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         terminalContexts: composerTerminalContexts,
         reviewComments: composerReviewComments,
         previewAnnotations: composerPreviewAnnotations,
+        threadContexts: composerThreadContexts,
         images: composerImages,
         files: composerFiles,
         uploadsByImageId,
@@ -1727,6 +1740,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerPreviewAnnotations,
       composerReviewComments,
       composerTerminalContexts,
+      composerThreadContexts,
       uploadsByImageId,
     ],
   );
@@ -1772,6 +1786,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
   );
+  const addComposerDraftThreadContexts = useComposerDraftStore((store) => store.addThreadContexts);
+  const setComposerDraftThreadContexts = useComposerDraftStore((store) => store.setThreadContexts);
   const removeComposerDraftPreviewAnnotation = useComposerDraftStore(
     (store) => store.removePreviewAnnotation,
   );
@@ -2254,13 +2270,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         prompt,
         imageCount: composerImages.length + composerFiles.length,
         terminalContexts: composerTerminalContexts,
-        elementContextCount: composerPreviewAnnotations.length + composerReviewComments.length,
+        elementContextCount:
+          composerPreviewAnnotations.length +
+          composerReviewComments.length +
+          composerThreadContexts.length,
       }),
     [
       composerFiles.length,
       composerImages.length,
       composerPreviewAnnotations.length,
       composerReviewComments.length,
+      composerThreadContexts.length,
       composerTerminalContexts,
       prompt,
     ],
@@ -2282,6 +2302,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const settledPullRequestTextQuery =
     pullRequestTextQuery === debouncedPullRequestTextQuery ? pullRequestTextQuery : null;
   const isPathTrigger = composerTriggerKind === "path";
+  const environmentThreadShells = useThreadShells();
   const workspaceEntries = useComposerPathSearch({
     environmentId,
     cwd: isPathTrigger ? gitCwd : null,
@@ -2296,7 +2317,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerDraft.persistedAttachments.length === 0 &&
     composerTerminalContexts.length === 0 &&
     composerPreviewAnnotations.length === 0 &&
-    composerReviewComments.length === 0;
+    composerReviewComments.length === 0 &&
+    composerThreadContexts.length === 0;
 
   const pullRequestListTargets = useMemo(
     () =>
@@ -2363,14 +2385,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
-      return workspaceEntries.entries.map((entry) => ({
-        id: `path:${entry.kind}:${entry.path}`,
-        type: "path",
-        path: entry.path,
-        pathKind: entry.kind,
-        label: basenameOfPath(entry.path),
-        description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
-      }));
+      return [
+        ...matchComposerThreadItems({
+          shells: environmentThreadShells,
+          environmentId,
+          excludeThreadId: activeThreadId,
+          query: composerTrigger.query,
+        }),
+        ...workspaceEntries.entries.map((entry) => ({
+          id: `path:${entry.kind}:${entry.path}`,
+          type: "path" as const,
+          path: entry.path,
+          pathKind: entry.kind,
+          label: basenameOfPath(entry.path),
+          description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
+        })),
+      ];
     }
     if (composerTrigger.kind === "slash-command") {
       const builtInSlashCommandItems = [
@@ -2502,8 +2532,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return [];
   }, [
+    activeThreadId,
     compactSlashCommandAvailable,
     composerTrigger,
+    environmentId,
+    environmentThreadShells,
     exactPullRequestLookup.data,
     planModeUiEnabled,
     pullRequestLookup.data,
@@ -2801,6 +2834,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ...composerReviewComments
           .filter((c) => wanted.has(reviewCommentContextId(c.id)))
           .map(reviewCommentContextRecord),
+        ...composerThreadContexts.filter((record) => wanted.has(record.contextId)),
         ...composerPreviewAnnotations
           .filter((a) => wanted.has(previewAnnotationContextId(a.id)))
           .map((annotation) =>
@@ -2836,6 +2870,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerPreviewAnnotations,
       composerReviewComments,
       composerTerminalContexts,
+      composerThreadContexts,
       environmentId,
       uploadsByImageId,
     ],
@@ -2977,9 +3012,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               ? reviewCommentContextRecord(existing.record)
               : existing?.kind === "preview-annotation"
                 ? previewAnnotationContextRecord(existing.record)
-                : existing
-                  ? (uploadedContextRecordFromDraft(existing) ?? undefined)
-                  : undefined;
+                : existing?.kind === "thread"
+                  ? existing.record
+                  : existing
+                    ? (uploadedContextRecordFromDraft(existing) ?? undefined)
+                    : undefined;
         if (existingRecord && isSameComposerContextPayload(existingRecord, record)) {
           if (record.kind === "preview-annotation" && record.screenshotContextId) {
             skippedDependentAttachmentIds.add(record.screenshotContextId);
@@ -3024,6 +3061,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             rewritten.set(record.contextId, previewAnnotationContextId(annotation.id));
             break;
           }
+          case "thread": {
+            if (record.environmentId !== environmentId) break;
+            addComposerDraftThreadContexts(composerDraftTarget, [record], {
+              appendReference: false,
+            });
+            rewritten.set(record.contextId, record.contextId);
+            break;
+          }
           case "image":
           case "file": {
             if (skippedDependentAttachmentIds.has(record.contextId)) break;
@@ -3049,8 +3094,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       addComposerDraftPreviewAnnotation,
       addComposerDraftReviewComment,
       addComposerDraftTerminalContexts,
+      addComposerDraftThreadContexts,
       composerContextRecords,
       composerDraftTarget,
+      environmentId,
       importAttachmentRecord,
     ],
   );
@@ -3347,7 +3394,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const removedContextPayloadsRef = useRef<{
     terminals: Map<string, TerminalContextDraft>;
     reviewComments: Map<string, ReviewCommentContext>;
-  }>({ terminals: new Map(), reviewComments: new Map() });
+    threads: Map<string, ThreadContextRecord>;
+  }>({ terminals: new Map(), reviewComments: new Map(), threads: new Map() });
   const removedAttachmentContextPayloadsRef = useRef<RetainedAttachmentContextPayloads>({
     files: new Map(),
     previewAnnotations: new Map(),
@@ -3414,6 +3462,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         setComposerDraftTerminalContexts(composerDraftTarget, nextTerminals);
       }
 
+      const liveThreadIds = new Set<string>(
+        composerThreadContexts.map((record) => record.contextId),
+      );
+      const restoredThreads = [...referenced].flatMap((contextId) => {
+        if (liveThreadIds.has(contextId)) return [];
+        const record = retained.threads.get(contextId);
+        return record ? [record] : [];
+      });
+      const nextThreads = [
+        ...composerThreadContexts.filter((record) => referenced.has(record.contextId)),
+        ...restoredThreads,
+      ];
+      for (const record of composerThreadContexts) {
+        if (!referenced.has(record.contextId)) retained.threads.set(record.contextId, record);
+      }
+      if (nextThreads.length !== composerThreadContexts.length || restoredThreads.length > 0) {
+        setComposerDraftThreadContexts(composerDraftTarget, nextThreads);
+      }
+
       for (const comment of composerReviewComments) {
         const contextId = reviewCommentContextId(comment.id);
         if (!referenced.has(contextId)) {
@@ -3471,6 +3538,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerDraftTarget,
       composerTerminalContexts,
       setComposerDraftTerminalContexts,
+      composerThreadContexts,
+      setComposerDraftThreadContexts,
       composerReviewComments,
       composerPreviewAnnotations,
       composerImages,
@@ -3721,9 +3790,35 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
         return;
       }
+      if (item.type === "thread") {
+        if (trigger.kind !== "path") return;
+        const shell = readThreadShell(item.thread);
+        if (!shell) return;
+        const record = threadContextRecord(item.thread, shell.title);
+        const replacement = `${formatInlineContextReference(threadContextReference(record))} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          addComposerDraftThreadContexts(composerDraftTarget, [record], {
+            appendReference: false,
+          });
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
     },
     [
       addComposerDraftReviewComment,
+      addComposerDraftThreadContexts,
       applyPromptReplacement,
       composerDraftTarget,
       handleInteractionModeChange,
@@ -3804,7 +3899,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const submitComposer = useCallback(
     (
       event?: { preventDefault: () => void },
-      dispatchMode?: ComposerDispatchMode | ComposerSubmissionIntent,
+      dispatchMode?: ComposerDispatchMode,
+      submissionIntent?: ComposerSubmissionIntent,
     ) => {
       if (noProviderAvailable || isSendDisabled) {
         event?.preventDefault();
@@ -3845,7 +3941,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           // ChatView reports its final composed-input preflight through the
           // composer handle before its first asynchronous send step.
           providerInputRejectedRef.current = false;
-          onSend(sendEvent, dispatchMode ?? "foreground");
+          onSend(
+            sendEvent,
+            dispatchMode ??
+              resolveComposerDispatchMode({
+                running: phase === "running",
+                alternateModifier: false,
+                activeTurnDefault: settings.followUpBehavior,
+              }),
+            submissionIntent,
+          );
           return !providerInputRejectedRef.current;
         },
       });
@@ -3863,6 +3968,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       isSendDisabled,
       noProviderAvailable,
       onSend,
+      settings.followUpBehavior,
       phase,
       promptRef,
       shouldBlurMobileComposerOnSubmit,
@@ -3871,13 +3977,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const handleSubmitMessage = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
-      submitComposer(event, event.metaKey || event.ctrlKey ? "alternate" : "foreground");
+      submitComposer(
+        event,
+        resolveComposerDispatchMode({
+          running: phase === "running",
+          alternateModifier: event.metaKey || event.ctrlKey,
+          activeTurnDefault: settings.followUpBehavior,
+        }),
+      );
     },
-    [submitComposer],
+    [phase, settings.followUpBehavior, submitComposer],
   );
   const submitCitationAndSend = useCallback(() => {
-    submitComposer(undefined, "foreground");
-  }, [submitComposer]);
+    submitComposer(
+      undefined,
+      resolveComposerDispatchMode({
+        running: phase === "running",
+        alternateModifier: false,
+        activeTurnDefault: settings.followUpBehavior,
+      }),
+    );
+  }, [phase, settings.followUpBehavior, submitComposer]);
   const compactThreadContext = useCallback(() => {
     if (
       compactDisabled ||
@@ -3968,7 +4088,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         composerFilesRef.current.length > 0 ||
         composerTerminalContextsRef.current.length > 0 ||
         composerPreviewAnnotations.length > 0 ||
-        composerReviewComments.length > 0
+        composerReviewComments.length > 0 ||
+        composerThreadContexts.length > 0
       ) {
         return false;
       }
@@ -3998,6 +4119,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerImagesRef,
       composerPreviewAnnotations.length,
       composerReviewComments.length,
+      composerThreadContexts.length,
       isComposerApprovalState,
       pendingUserInputs.length,
       promptRef,
@@ -4008,11 +4130,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Callbacks: command key
   // ------------------------------------------------------------------
-  const onComposerCommandKey = (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
-    event: KeyboardEvent,
-    isTaskItem = false,
-  ) => {
+  const onComposerCommandKey = (key: string, event: KeyboardEvent, isTaskItem = false) => {
     if (key === "Tab" && event.shiftKey) {
       if (!planModeUiEnabled) return false;
       toggleInteractionMode();
@@ -4041,10 +4159,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     const submissionIntent =
       key === "Enter"
-        ? composerSubmissionIntentForEnter({
+        ? composerSubmissionIntentForKey({
+            event,
+            keybindings,
             isMobileViewport,
-            shiftKey: event.shiftKey,
-            modifierKey: event.metaKey || event.ctrlKey,
             isDraftThread: routeKind === "draft",
             isRunning: phase === "running",
             sendShortcut: settings.sendShortcut,
@@ -4052,7 +4170,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           })
         : null;
     if (submissionIntent) {
-      submitComposer(undefined, submissionIntent);
+      submitComposer(
+        undefined,
+        resolveComposerDispatchMode({
+          running: phase === "running",
+          alternateModifier: submissionIntent === "alternate",
+          activeTurnDefault: settings.followUpBehavior,
+        }),
+        submissionIntent,
+      );
       return true;
     }
     // Native task splitting preserves marks and chips on both sides of the caret.
@@ -4461,6 +4587,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const stashedRecords: ComposerContextRecord[] = [
       ...composerTerminalContextsRef.current.map(terminalContextRecord),
       ...composerReviewComments.map(reviewCommentContextRecord),
+      ...composerThreadContexts,
       ...composerPreviewAnnotations.map((annotation) =>
         previewAnnotationContextRecord(annotation, {
           screenshotContextId: images.some((image) => image.id === annotation.id)
@@ -4469,7 +4596,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }),
       ),
     ];
-    if (prompt.length === 0 && images.length === 0 && files.length === 0) {
+    if (
+      prompt.length === 0 &&
+      images.length === 0 &&
+      files.length === 0 &&
+      stashedRecords.length === 0
+    ) {
       const entries = usePromptStashStore.getState().entries;
       const entry = entries.length === 1 ? entries[0] : undefined;
       if (entry && !entry.pendingImageCount) {
@@ -4514,6 +4646,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const attachmentKey = images
       .map((image) => `image:${image.id}`)
       .concat(files.map((file) => `file:${file.id}`))
+      .concat(stashedRecords.map((record) => `context:${record.contextId}`))
       .join(",");
     const snapshotKey = [String(composerDraftTarget), prompt, attachmentKey].join("\n");
     if (stashInFlightRef.current.has(snapshotKey)) return;
@@ -4570,6 +4703,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       promptRef.current = "";
       clearComposerDraftPromptAndImages(stashTarget);
       clearComposerDraftTerminalContexts(stashTarget);
+      setComposerDraftThreadContexts(stashTarget, []);
       for (const comment of composerReviewComments) {
         removeComposerDraftReviewComment(stashTarget, comment.id);
       }
@@ -4676,6 +4810,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerFilesRef,
     composerImagesRef,
     composerTerminalContextsRef,
+    composerThreadContexts,
+    setComposerDraftThreadContexts,
     composerReviewComments,
     composerPreviewAnnotations,
     removeComposerDraftReviewComment,
@@ -5102,6 +5238,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         <CompactComposerControlsMenu
           interactionMode={interactionMode}
           runtimeMode={runtimeMode}
+          runtimeModeOptions={runtimeModeOptions.map((mode) => ({
+            mode,
+            label: runtimeModeConfig[mode].label,
+          }))}
           showInteractionModeToggle={planModeUiEnabled}
           traitsMenuContent={providerTraitsMenuContent}
           onToggleInteractionMode={toggleInteractionMode}
@@ -5142,6 +5282,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               <CompactComposerControlsMenu
                 interactionMode={interactionMode}
                 runtimeMode={runtimeMode}
+                runtimeModeOptions={runtimeModeOptions.map((mode) => ({
+                  mode,
+                  label: runtimeModeConfig[mode].label,
+                }))}
                 size="xs"
                 hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
                 showInteractionModeToggle={
@@ -5746,6 +5890,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
   });
 
+  // Sidebar thread drops arrive as a DOM event on the form. Keeping this
+  // handoff at the form boundary avoids coupling the sidebar to composer state.
+  useEffect(() => {
+    const form = composerFormRef.current;
+    if (!form) return;
+    const onThreadDrop = (event: Event) => {
+      const refs = (event as CustomEvent<ReadonlyArray<ScopedThreadRef>>).detail;
+      if (refs.some((ref) => ref.environmentId !== environmentId)) {
+        toastManager.add({
+          type: "error",
+          title: "Use threads from this environment",
+          description: "The agent can only read threads on its own server.",
+        });
+        return;
+      }
+      const records = refs.flatMap((ref) => {
+        const shell = readThreadShell(ref);
+        return shell ? [threadContextRecord(ref, shell.title)] : [];
+      });
+      if (records.length > 0) addComposerDraftThreadContexts(composerDraftTarget, records);
+    };
+    form.addEventListener(THREAD_CONTEXT_DROP_EVENT, onThreadDrop);
+    return () => form.removeEventListener(THREAD_CONTEXT_DROP_EVENT, onThreadDrop);
+  }, [addComposerDraftThreadContexts, composerDraftTarget, environmentId]);
+
   const onComposerMentionDragLeaveCapture = (event: React.DragEvent<HTMLFormElement>) => {
     if (!dataTransferHasComposerMention(event.dataTransfer.types)) return;
     event.stopPropagation();
@@ -6061,6 +6230,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         terminalContexts: composerTerminalContextsRef.current,
         previewAnnotations: composerPreviewAnnotations,
         reviewComments: composerReviewComments,
+        threadContexts: composerThreadContexts,
         selectedPromptEffort,
         selectedModelOptionsForDispatch,
         selectedModelSelection,
@@ -6110,6 +6280,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerTerminalContextsRef,
       composerPreviewAnnotations,
       composerReviewComments,
+      composerThreadContexts,
       focusComposer,
       environmentId,
       primaryEnvironmentId,
@@ -6231,6 +6402,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }}
       className="mx-auto w-full min-w-0 max-w-3xl"
       data-chat-composer-form="true"
+      {...threadContextDropTargetProps()}
     >
       {composerControlsInStrip && restingControlsHost
         ? createPortal(

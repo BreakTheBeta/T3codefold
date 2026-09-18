@@ -470,20 +470,43 @@ const makeEventStore = Effect.gen(function* () {
       ),
     );
 
-  const readAgentEvents: OrchestrationEventStoreShape["readAgentEvents"] = (input) =>
-    Stream.fromEffect(
-      readApplicationRows({
-        afterSequence: input?.afterSequence ?? 0,
-        ...(input?.throughSequence === undefined ? {} : { throughSequence: input.throughSequence }),
-        ...(input?.threadId === undefined ? {} : { threadId: input.threadId }),
-        ...(input?.commandId === undefined ? {} : { commandId: input.commandId }),
-        onlyAgentEvents: true,
-        limit: input?.limit ?? DEFAULT_READ_FROM_SEQUENCE_LIMIT,
-      }).pipe(
-        Effect.mapError(toPersistenceSqlError("OrchestrationEventStore.readAgentEvents:query")),
-      ),
+  const readAgentEvents: OrchestrationEventStoreShape["readAgentEvents"] = (input) => {
+    const totalLimit =
+      input?.limit === undefined ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.floor(input.limit));
+    if (totalLimit === 0) {
+      return Stream.empty;
+    }
+    return Stream.paginate(
+      { cursor: input?.afterSequence ?? 0, remaining: totalLimit },
+      ({ cursor, remaining }) => {
+        const pageLimit = Math.min(remaining, READ_PAGE_SIZE);
+        return readApplicationRows({
+          afterSequence: cursor,
+          ...(input?.throughSequence === undefined
+            ? {}
+            : { throughSequence: input.throughSequence }),
+          ...(input?.threadId === undefined ? {} : { threadId: input.threadId }),
+          ...(input?.commandId === undefined ? {} : { commandId: input.commandId }),
+          onlyAgentEvents: true,
+          limit: pageLimit,
+        }).pipe(
+          Effect.mapError(toPersistenceSqlError("OrchestrationEventStore.readAgentEvents:query")),
+          Effect.map((rows) => {
+            const last = rows.at(-1);
+            const nextRemaining = remaining - rows.length;
+            return [
+              rows,
+              last === undefined ||
+              rows.length < pageLimit ||
+              nextRemaining <= 0 ||
+              (input?.throughSequence !== undefined && last.sequence >= input.throughSequence)
+                ? Option.none()
+                : Option.some({ cursor: last.sequence, remaining: nextRemaining }),
+            ] as const;
+          }),
+        );
+      },
     ).pipe(
-      Stream.flatMap(Stream.fromIterable),
       Stream.mapEffect((row) =>
         rowToV2StoredEvent(row).pipe(
           Effect.mapError(
@@ -492,16 +515,17 @@ const makeEventStore = Effect.gen(function* () {
         ),
       ),
     );
+  };
 
   const getAgentReplayStats: OrchestrationEventStoreShape["getAgentReplayStats"] = (input) =>
     sql<{
       readonly eventCount: number;
-      readonly payloadBytes: number;
+      readonly rawPayloadBytes: number;
       readonly hasCreateEvent: number;
     }>`
       SELECT
         COUNT(*) AS "eventCount",
-        COALESCE(SUM(octet_length(payload_json)), 0) AS "payloadBytes",
+        COALESCE(SUM(octet_length(payload_json)), 0) AS "rawPayloadBytes",
         COALESCE(MAX(event_type = 'thread.created'), 0) AS "hasCreateEvent"
       FROM (
         SELECT payload_json, event_type
@@ -518,7 +542,7 @@ const makeEventStore = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("OrchestrationEventStore.getAgentReplayStats:query")),
       Effect.map((rows) => ({
         eventCount: rows[0]?.eventCount ?? 0,
-        payloadBytes: rows[0]?.payloadBytes ?? 0,
+        rawPayloadBytes: rows[0]?.rawPayloadBytes ?? 0,
         hasCreateEvent: (rows[0]?.hasCreateEvent ?? 0) !== 0,
       })),
     );
@@ -587,12 +611,14 @@ const makeEventStore = Effect.gen(function* () {
       }).pipe(
         Stream.runCollect,
         Effect.map((events) => {
-          const last = events.at(-1)?.sequence;
+          const last = events.at(-1);
           return [
             events,
-            last === undefined || events.length < READ_PAGE_SIZE || last >= input.throughSequence
+            last === undefined ||
+            events.length < READ_PAGE_SIZE ||
+            last.sequence >= input.throughSequence
               ? Option.none()
-              : Option.some(last),
+              : Option.some(last.sequence),
           ] as const;
         }),
       ),

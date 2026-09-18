@@ -5,12 +5,7 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import type {
-  EnvironmentId,
-  ScopedProjectRef,
-  ScopedThreadRef,
-  ServerConfig,
-} from "@t3tools/contracts";
+import { EnvironmentId, ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
 import { environmentProjects } from "./projects";
@@ -58,6 +53,10 @@ export function useProjects(): ReadonlyArray<EnvironmentProject> {
 
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return useAtomValue(environmentThreadShells.threadShellsAtom);
+}
+
+export function useNavigationThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
+  return useAtomValue(environmentThreadShells.navigationThreadShellsAtom);
 }
 
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {

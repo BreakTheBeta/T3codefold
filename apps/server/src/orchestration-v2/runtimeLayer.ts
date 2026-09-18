@@ -13,8 +13,11 @@ import {
   OrchestrationLayerLive,
 } from "../orchestration/runtimeLayer.ts";
 import { ProjectionProjectRepositoryLive } from "../persistence/Layers/ProjectionProjects.ts";
+import { layer as providerSessionRuntimeLayer } from "../persistence/ProviderSessionRuntime.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { ProviderAuthServiceLive } from "../provider/Layers/ProviderAuthService.ts";
+import { layer as agentSessionImporterLayer } from "../project/AgentSessionImporter.ts";
+import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import { layer as projectServiceLayer } from "../project/ProjectService.ts";
 import { layer as projectSetupScriptRunnerLayer } from "../project/ProjectSetupScriptRunner.ts";
 import { layer as checkpointCaptureServiceLayer } from "./CheckpointCaptureService.ts";
@@ -81,7 +84,7 @@ export const OrchestrationV2EventSinkLayerLive = eventSinkLayer.pipe(Layer.provi
 const eventSinkProvided = OrchestrationV2EventSinkLayerLive;
 const projectionMaintenanceProvided = projectionMaintenanceLayer.pipe(Layer.provide(storesLayer));
 const legacyV1ThreadImporterProvided = legacyV1ThreadImporterLayer.pipe(
-  Layer.provide(Layer.mergeAll(eventSinkProvided, eventStoreProvided)),
+  Layer.provide(eventSinkProvided),
 );
 
 export const ProjectServiceLayerLive = projectServiceLayer.pipe(
@@ -117,6 +120,7 @@ const providerSessionManagerProvided = providerSessionManagerLayer.pipe(
       providerAdapterRegistryProvided,
       eventSinkProvided,
       idAllocatorLayer,
+      providerEventIngestorProvided,
       projectionStoreLayer,
     ),
   ),
@@ -196,6 +200,7 @@ const orchestratorProvided = orchestratorLayer.pipe(
       commandReceiptStoreProvided,
       contextHandoffServiceProvided,
       idAllocatorLayer,
+      ProjectionProjectRepositoryLive,
       providerAdapterRegistryProvided,
       // Same layer reference as the continuation worker and the adapter
       // infrastructure so layer memoization yields one shared request queue.
@@ -206,6 +211,19 @@ const orchestratorProvided = orchestratorLayer.pipe(
       providerSwitchServiceProvided,
       runExecutionServiceProvided,
       threadForkServiceLayer,
+    ),
+  ),
+);
+
+const agentSessionImporterProvided = agentSessionImporterLayer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      AgentSessionScanner.layer,
+      ProjectServiceLayerLive,
+      orchestratorProvided,
+      eventSinkProvided,
+      idAllocatorLayer,
+      providerSessionRuntimeLayer,
     ),
   ),
 );
@@ -285,7 +303,6 @@ export const OrchestrationV2LayerLive = Layer.mergeAll(
 );
 
 export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
-  OrchestrationLayerLive,
   OrchestrationV2LayerLive.pipe(Layer.provide(ProjectServiceLayerLive)),
   ProjectServiceLayerLive,
   threadLaunchProvided,
@@ -314,4 +331,5 @@ export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
     ),
   ),
   providerContinuationWorkerProvided,
-);
+  agentSessionImporterProvided,
+).pipe(Layer.provideMerge(OrchestrationLayerLive));

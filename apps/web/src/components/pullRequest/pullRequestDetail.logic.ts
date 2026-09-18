@@ -258,13 +258,6 @@ export function isStackedPullRequestBase(
   return defaultBranch !== baseBranch;
 }
 
-/** Plain-language state, shown beside the author. Conflicts are a merge signal, not a state. */
-export function describePullRequestState(state: PullRequestState, isDraft: boolean): string {
-  if (state === "merged") return "Merged";
-  if (state === "closed") return "Closed";
-  return isDraft ? "Draft" : "Ready for review";
-}
-
 /** The slice of a detail that decides which actions it offers. */
 export type PullRequestActionableDetail = Pick<
   PullRequestDetail,
@@ -296,7 +289,7 @@ export function resolveSelectedMergeMethod(
  * this account may. A reader with read access on someone else's project sees the pull request and
  * none of the buttons that would only ever be refused.
  */
-export function canPerformPullRequestAction(
+function canPerformPullRequestAction(
   detail: Pick<PullRequestActionableDetail, "capabilities" | "viewerPermissions"> | null,
   action: PullRequestAction,
 ): boolean {
@@ -313,20 +306,6 @@ export function isPullRequestConflicting(
   return detail?.state === "open" && detail.mergeability === "conflicting";
 }
 
-/**
- * One live action holds the slot. A conflicting change cannot be merged now, so the slot goes to
- * the thing that would help instead of a Merge button that only ever says no.
- */
-export function resolvePullRequestPrimaryAction(
-  detail: PullRequestActionableDetail | null,
-): "ready" | "merge" | "resolve" | null {
-  if (detail === null || detail.state !== "open") return null;
-  if (detail.isDraft && canPerformPullRequestAction(detail, "ready")) return "ready";
-  if (!canPerformPullRequestAction(detail, "merge")) return null;
-  if (isPullRequestConflicting(detail)) return "resolve";
-  return allowedPullRequestMergeMethods(detail).length > 0 ? "merge" : null;
-}
-
 /** The checks as one word. Failing outranks running: a red run is already worth acting on. */
 export type PullRequestChecksState = "none" | "pending" | "failing" | "passing";
 
@@ -337,7 +316,9 @@ export function classifyPullRequestChecks(
   if (checks.some((check) => check.status === "failure" || check.status === "cancelled")) {
     return "failing";
   }
-  if (checks.some((check) => check.status === "pending")) return "pending";
+  if (checks.some((check) => check.status === "pending" || check.status === "action-required")) {
+    return "pending";
+  }
   return "passing";
 }
 
@@ -352,16 +333,28 @@ export function describePullRequestChecks(checks: ReadonlyArray<PullRequestCheck
     (check) => check.status === "failure" || check.status === "cancelled",
   ).length;
   const pending = checks.filter((check) => check.status === "pending").length;
+  const actionRequired = checks.filter((check) => check.status === "action-required").length;
   const passed = checks.filter((check) => check.status === "success").length;
   const parts: string[] = [];
   if (pending > 0) parts.push(`${pending} of ${checks.length} running`);
+  if (actionRequired > 0) parts.push(`${actionRequired} of ${checks.length} awaiting action`);
   if (failed > 0) {
-    parts.push(pending > 0 ? `${failed} failed` : `${failed} of ${checks.length} failing`);
+    parts.push(parts.length > 0 ? `${failed} failed` : `${failed} of ${checks.length} failing`);
   }
   if (parts.length === 0) {
     return passed === checks.length ? "All checks passed" : `${passed} of ${checks.length} passing`;
   }
   return parts.join(" · ");
+}
+
+export function groupPullRequestChecks(checks: ReadonlyArray<PullRequestCheck>) {
+  return {
+    attention: checks.filter((check) =>
+      ["failure", "cancelled", "action-required"].includes(check.status),
+    ),
+    running: checks.filter((check) => check.status === "pending"),
+    completed: checks.filter((check) => ["success", "skipped", "neutral"].includes(check.status)),
+  };
 }
 
 export type ThreadPanelPullRequestAction = "resolve" | "ready" | "fix" | "merge";

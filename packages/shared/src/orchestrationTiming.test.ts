@@ -38,6 +38,7 @@ describe("deriveActiveWorkStartedAt", () => {
         deriveActiveWorkStartedAt(
           {
             runId: "old",
+            requestedAt: "2026-09-06T23:33:00.000Z",
             startedAt: null,
             completedAt: null,
           },
@@ -52,7 +53,8 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: null,
           completedAt: "2026-09-06T23:33:05.000Z",
         },
@@ -65,7 +67,8 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: null,
           completedAt: null,
         },
@@ -79,11 +82,12 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: "2026-09-06T23:33:05.000Z",
           completedAt: null,
         },
-        { orchestrationStatus: "running", activeRunId: "run-1" },
+        { orchestrationStatus: "running", activeRunId: "turn-1" },
         null,
       ),
     ).toBe("2026-09-06T23:33:05.000Z");
@@ -93,7 +97,8 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: "2026-09-06T23:33:05.000Z",
           completedAt: "2026-09-06T23:33:09.000Z",
         },
@@ -108,7 +113,8 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          runId: "run-1",
+          runId: "turn-1",
+          requestedAt: "2026-09-06T23:33:00.000Z",
           startedAt: "2026-09-06T23:33:05.000Z",
           completedAt: "2026-09-06T23:33:09.000Z",
         },

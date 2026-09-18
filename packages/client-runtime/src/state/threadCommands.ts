@@ -1,4 +1,3 @@
-import * as DateTime from "effect/DateTime";
 import { subscribe, type EnvironmentRpcInput } from "../rpc/client.ts";
 import * as Stream from "effect/Stream";
 import { reduceVoiceFeed, emptyVoiceFeed } from "../realtime-voice/feed.ts";
@@ -15,6 +14,7 @@ import {
 
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
 import { canSnooze } from "./threadSettled.ts";
+import * as DateTime from "effect/DateTime";
 
 import {
   createAtomCommandScheduler,
@@ -29,12 +29,12 @@ import {
   type DeleteThreadInput,
   type EditQueuedRunInput,
   type InterruptThreadTurnInput,
-  type LinkThreadPullRequestInput,
   type MarkThreadUnreadInput,
   type ForkThreadFromRunInput,
   type MergeThreadBackInput,
   type PromoteQueuedRunInput,
   type ReorderQueuedRunInput,
+  type LinkThreadPullRequestInput,
   type RespondToThreadApprovalInput,
   type RespondToThreadUserInputInput,
   type DismissThreadUserInputInput,
@@ -61,12 +61,12 @@ import {
   deleteThread,
   editQueuedRun,
   interruptThreadTurn,
-  linkThreadPullRequest,
   forkThreadFromRun,
   markThreadUnread,
   mergeThreadBack,
   promoteQueuedRun,
   reorderQueuedRun,
+  linkThreadPullRequest,
   respondToThreadApproval,
   respondToThreadUserInput,
   dismissThreadUserInput,
@@ -114,6 +114,7 @@ export type {
   ReorderQueuedRunInput,
   RespondToThreadApprovalInput,
   RespondToThreadUserInputInput,
+  DismissThreadUserInputInput,
   RevertThreadCheckpointInput,
   SetThreadInteractionModeInput,
   SetThreadRuntimeModeInput,
@@ -411,7 +412,8 @@ export function createThreadEnvironmentAtoms<R, E>(
         thread.status === "preparing" ||
         thread.status === "queued" ||
         thread.status === "starting" ||
-        thread.status === "running")
+        thread.status === "running" ||
+        thread.status === "waiting")
         ? thread
         : {
             ...thread,
@@ -436,7 +438,8 @@ export function createThreadEnvironmentAtoms<R, E>(
       (!accepted &&
         (thread.pendingRuntimeRequest !== null ||
           thread.status === "preparing" ||
-          thread.status === "queued")) ||
+          thread.status === "queued" ||
+          thread.status === "waiting")) ||
       !(Date.parse(input.snoozedUntil) > DateTime.toEpochMillis(now))
         ? thread
         : {

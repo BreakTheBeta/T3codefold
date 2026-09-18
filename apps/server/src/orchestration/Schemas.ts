@@ -1,4 +1,9 @@
 import {
+  ThreadPullRequestLinkedPayload as ContractsThreadPullRequestLinkedPayloadSchema,
+  ThreadPullRequestUnlinkedPayload as ContractsThreadPullRequestUnlinkedPayloadSchema,
+  ThreadPullRequestSyncedPayload as ContractsThreadPullRequestSyncedPayloadSchema,
+} from "@t3tools/contracts";
+import {
   ProjectCreatedPayload as ContractsProjectCreatedPayloadSchema,
   ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
   ProjectDeletedPayload as ContractsProjectDeletedPayloadSchema,
@@ -64,3 +69,6 @@ export const ThreadApprovalResponseRequestedPayload =
 export const ThreadCheckpointRevertRequestedPayload =
   ContractsThreadCheckpointRevertRequestedPayloadSchema;
 export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;
+export const ThreadPullRequestLinkedPayload = ContractsThreadPullRequestLinkedPayloadSchema;
+export const ThreadPullRequestUnlinkedPayload = ContractsThreadPullRequestUnlinkedPayloadSchema;
+export const ThreadPullRequestSyncedPayload = ContractsThreadPullRequestSyncedPayloadSchema;

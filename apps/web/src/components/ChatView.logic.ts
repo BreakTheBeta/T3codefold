@@ -1,4 +1,6 @@
-import type { ThreadShell } from "../types";
+import * as Option from "effect/Option";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { shouldShowComposerContextStrip as shouldShowBranchComposerContextStrip } from "./BranchToolbar.logic";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type AssetCreateUrlInput,
@@ -17,10 +19,13 @@ import {
   type ServerProvider,
   type ScopedProjectRef,
   type ScopedThreadRef,
+  type ThreadContextRecord,
   type ThreadId,
-  type RunId,
   type ThreadLinkedPullRequest,
+  type RunId,
+  type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
+import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import * as DateTime from "effect/DateTime";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
@@ -279,6 +284,26 @@ export {
   resolveVisibleWorktreeSetup,
 } from "@t3tools/client-runtime/worktree-setup";
 
+/** Keep setup visible across local dispatch, durable preparation, and the live stream. */
+export function resolveWorktreeSetupProgress(input: {
+  threadId: ThreadId;
+  localPreparing: boolean;
+  runStatus: NonNullable<Thread["latestRun"]>["status"] | undefined;
+  latest: WorktreeSetupSnapshot | null | undefined;
+  held: WorktreeSetupSnapshot | null;
+}) {
+  const latest = input.latest?.threadId === input.threadId ? input.latest : null;
+  const held = input.held?.threadId === input.threadId ? input.held : null;
+  const snapshot = latest && (!held || latest.sequence >= held.sequence) ? latest : held;
+  return {
+    snapshot,
+    isPreparingWorktree:
+      input.localPreparing ||
+      input.runStatus === "preparing" ||
+      (snapshot?.phase === "running" && !worktreeSetupAgentStarted(snapshot)),
+  };
+}
+
 export function resolveDraftHeroState(input: {
   isLocalDraftThread: boolean;
   hasTimelineEntries: boolean;
@@ -433,7 +458,7 @@ export function resolveThreadSwitchTimeline<T extends readonly unknown[]>(input:
 
 export function resolveDraftPromotionNavigationTarget(input: {
   serverThreadRef: ScopedThreadRef | null;
-  serverThread: Pick<Thread, "latestRun"> | null | undefined;
+  serverThread: Pick<Thread, "latestRun" | "latestUserMessageAt"> | null | undefined;
   backgroundSubmissionPending: boolean;
 }): ScopedThreadRef | null {
   if (input.backgroundSubmissionPending) {
@@ -445,9 +470,10 @@ export function resolveDraftPromotionNavigationTarget(input: {
     latestRun?.status === "failed" ||
     latestRun?.status === "interrupted" ||
     latestRun?.status === "cancelled";
-  // Keep local preparation feedback mounted until the server can render the
-  // running turn or its startup error on the canonical thread route.
-  return runStarted || startupStopped ? input.serverThreadRef : null;
+  // Like main, promote once the server owns the send. The shared chat view
+  // keeps the optimistic message and setup progress mounted through the route swap.
+  const messagePersisted = input.serverThread?.latestUserMessageAt != null;
+  return runStarted || startupStopped || messagePersisted ? input.serverThreadRef : null;
 }
 
 export function scheduleEnvironmentReconnectWarning(showWarning: () => void): () => void {
@@ -860,17 +886,20 @@ export function resolveSendEnvMode(input: {
   return input.isGitRepo ? input.requestedEnvMode : "local";
 }
 
+/** Compatibility wrapper for callers that do not host the resting controls. */
 export function shouldShowComposerContextStrip(input: {
   isDraftHeroState: boolean;
   isGitRepo: boolean;
   hasActiveProject: boolean;
   persistInActiveThreads: boolean;
+  showEnvironmentIndicator?: boolean;
+  hostsRestingComposerControls?: boolean;
 }): boolean {
-  return (
-    input.isGitRepo &&
-    input.hasActiveProject &&
-    (input.isDraftHeroState || input.persistInActiveThreads)
-  );
+  return shouldShowBranchComposerContextStrip({
+    ...input,
+    showEnvironmentIndicator: input.showEnvironmentIndicator ?? false,
+    hostsRestingComposerControls: input.hostsRestingComposerControls ?? false,
+  });
 }
 
 export function resolveBackgroundDraftWorkspaceOptions(input: {
@@ -1047,23 +1076,32 @@ export function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(thread && (thread.latestRun !== null || thread.itemCount > 0 || thread.runtime));
 }
 
-// `threadProvider` is the open branded driver kind carried by the session.
-// Unknown driver kinds degrade to `null` (i.e. "unlocked"), which is the safe
-// rollback / fork behavior — the routing layer is the right place to surface
-// "driver not installed" errors, not the lock state.
-//
-// `selectedProvider` takes the same open-string shape because the composer
-// now tracks the picker selection as a `ProviderInstanceId` (e.g.
-// `codex_personal`). Custom instance ids that don't directly match a
-// registered driver resolve to `null` here, which matches the existing
-// "unknown driver -> unlocked" semantics. Callers that want the lock to track
-// a custom instance's underlying driver kind should resolve the instance id
-// upstream and pass the correlated kind.
+/**
+ * Whether a thread ran at least one turn, judged from its shell alone.
+ *
+ * `threadHasStarted` needs the detail: a thread whose latest turn was cleared
+ * still has messages, and the loading shell carries none. The shell records
+ * when the last user message landed, which every started thread has.
+ */
+export function threadShellHasStarted(
+  shell:
+    | Pick<EnvironmentThreadShell, "latestRun" | "latestUserMessageAt" | "runtime">
+    | null
+    | undefined,
+): boolean {
+  return Boolean(
+    shell &&
+    (shell.latestRun !== null || shell.latestUserMessageAt !== null || shell.runtime !== null),
+  );
+}
 
+// Imported history has no session until its first prompt. Resolve its instance
+// through the environment's provider catalog before locking to a driver.
 export function deriveLockedProvider(input: {
   thread: Thread | null | undefined;
   selectedProvider: string | null;
   threadProvider: string | null;
+  providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "driver">>;
 }): ProviderDriverKind | null {
   if (!threadHasStarted(input.thread)) {
     return null;
@@ -1072,14 +1110,18 @@ export function deriveLockedProvider(input: {
   if (sessionProvider && isProviderDriverKind(sessionProvider)) {
     return sessionProvider;
   }
+  // Preserve the existing lock while an instance is missing from the catalog;
+  // a started thread must not silently fall back to a different driver.
+  const threadProvider =
+    input.providers.find((provider) => provider.instanceId === input.threadProvider)?.driver ??
+    input.threadProvider;
+  const selectedProvider =
+    input.providers.find((provider) => provider.instanceId === input.selectedProvider)?.driver ??
+    input.selectedProvider;
   const narrowedThreadProvider =
-    input.threadProvider && isProviderDriverKind(input.threadProvider)
-      ? input.threadProvider
-      : null;
+    threadProvider && isProviderDriverKind(threadProvider) ? threadProvider : null;
   const narrowedSelectedProvider =
-    input.selectedProvider && isProviderDriverKind(input.selectedProvider)
-      ? input.selectedProvider
-      : null;
+    selectedProvider && isProviderDriverKind(selectedProvider) ? selectedProvider : null;
   return narrowedThreadProvider ?? narrowedSelectedProvider ?? null;
 }
 
@@ -1151,11 +1193,13 @@ export async function waitForRevertedMessage(
   revert: () => Promise<void>,
   timeoutMs = 120_000,
 ): Promise<void> {
-  const threadAtom = environmentThreadDetails.threadAtom(threadRef);
-  const initial = appAtomRegistry.get(threadAtom)?.projection;
+  const threadAtom = environmentThreadDetails.stateAtom(threadRef);
+  const readProjection = () => Option.getOrNull(appAtomRegistry.get(threadAtom).data);
+  const initial = readProjection();
   if (!initial?.messages.some((message) => message.id === messageId)) {
     throw new Error("The message to rewind is no longer available.");
   }
+  const messageRunId = initial.messages.find((message) => message.id === messageId)?.runId;
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     let accepted = false;
@@ -1170,17 +1214,13 @@ export async function waitForRevertedMessage(
       else resolve();
     };
     const inspect = () => {
-      const projection = appAtomRegistry.get(threadAtom)?.projection;
-      if (!projection) return;
-      const message = projection.messages.find((candidate) => candidate.id === messageId);
-      const run = projection.runs.find((candidate) => candidate.id === message?.runId);
-      // V2 retains history for audit. A rewind hides the rolled-back runs rather
-      // than deleting messages, so wait on the run outcome, not message removal.
+      const thread = readProjection();
+      if (!thread) return;
       if (
         accepted &&
-        run?.status === "rolled_back" &&
-        projection.runs.every(
-          (candidate) => candidate.ordinal <= turnCount || candidate.status === "rolled_back",
+        thread.runs.some(
+          (run) =>
+            run.id === messageRunId && run.ordinal > turnCount && run.status === "rolled_back",
         )
       )
         finish();
@@ -1308,15 +1348,10 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   );
 }
 
-export function threadShellHasStarted(
-  shell: Pick<ThreadShell, "latestRun" | "latestUserMessageAt" | "runtime"> | null | undefined,
-): boolean {
-  return Boolean(
-    shell &&
-    (shell.latestRun !== null || shell.latestUserMessageAt !== null || shell.runtime !== null),
-  );
-}
-
+// Returning to the window should land the caret in the composer, so the reader can type right
+// away. The exceptions are places where focus is deliberate: another text field, a terminal in
+// the drawer or the right panel, or an open dialog or popup. A focused button outside those is
+// not one of them, so it yields to the composer.
 export function shouldRefocusComposerOnWindowFocus(
   activeElement:
     | (Pick<Element, "tagName" | "closest" | "getAttribute"> & { isContentEditable?: boolean })
@@ -1346,6 +1381,7 @@ export interface PlanFollowUpComposerSnapshot {
   readonly terminalContexts: ReadonlyArray<TerminalContextDraft>;
   readonly reviewComments: ReadonlyArray<ReviewCommentContext>;
   readonly previewAnnotations: ReadonlyArray<PreviewAnnotationPayload>;
+  readonly threadContexts: ReadonlyArray<ThreadContextRecord>;
 }
 
 /**
@@ -1359,6 +1395,7 @@ export function restorePlanFollowUpComposer(input: {
   readonly writeTerminalContexts: (contexts: ReadonlyArray<TerminalContextDraft>) => void;
   readonly writeReviewComments: (comments: ReadonlyArray<ReviewCommentContext>) => void;
   readonly writePreviewAnnotations: (annotations: ReadonlyArray<PreviewAnnotationPayload>) => void;
+  readonly writeThreadContexts: (records: ReadonlyArray<ThreadContextRecord>) => void;
   readonly resetCursor: (options: {
     cursor: number;
     prompt: string;
@@ -1369,6 +1406,7 @@ export function restorePlanFollowUpComposer(input: {
   input.writeTerminalContexts(input.snapshot.terminalContexts);
   input.writeReviewComments(input.snapshot.reviewComments);
   input.writePreviewAnnotations(input.snapshot.previewAnnotations);
+  input.writeThreadContexts(input.snapshot.threadContexts);
   input.resetCursor({
     cursor: collapseExpandedComposerCursor(input.snapshot.prompt, input.snapshot.prompt.length),
     prompt: input.snapshot.prompt,

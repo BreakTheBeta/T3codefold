@@ -685,9 +685,10 @@ export function BranchToolbarBranchSelector({
   const prNumber = currentLinkedPr?.number ?? displayedPr?.number;
   const prUrl = currentLinkedPr?.url ?? displayedPr?.url;
   const openPrLink = useOpenPrLink(threadRef);
-  const panelPrLabel = branchPr
-    ? `#${branchPr.number}${branchPr.title.trim() ? `: ${branchPr.title}` : ""}`
-    : "";
+  const panelPrLabel =
+    prNumber === undefined
+      ? ""
+      : `#${prNumber}${displayedPr?.title.trim() ? `: ${displayedPr.title}` : ""}`;
 
   function renderPickerItem(itemValue: string, index: number) {
     if (checkoutPullRequestItemValue && itemValue === checkoutPullRequestItemValue) {
@@ -797,12 +798,13 @@ export function BranchToolbarBranchSelector({
           <ThreadPullRequestBadgeControl
             variant="ghost"
             badge={prBadge}
+            pullRequests={serverThread?.pullRequests ?? []}
             number={prNumber}
             url={prUrl}
             status={displayedPrStatus}
             onOpenStack={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
-            onOpenPullRequest={(event) => {
-              if (prUrl) openPrLink(event, prUrl);
+            onOpenPullRequest={(event, targetUrl = prUrl) => {
+              if (targetUrl) openPrLink(event, targetUrl);
             }}
           />
         ) : null}
@@ -835,11 +837,7 @@ export function BranchToolbarBranchSelector({
             >
               <span
                 data-composer-label-motion
-                className={cn(
-                  "block w-full min-w-0 truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-                  displayMode === "toolbar" &&
-                    "max-w-[240px] group-data-[compact]/composer-context:opacity-0",
-                )}
+                className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
               >
                 {triggerLabel}
               </span>
@@ -853,15 +851,17 @@ export function BranchToolbarBranchSelector({
             )}
           </ComboboxTrigger>
         </span>
-        {displayMode === "panel" && displayedPr && displayedPrStatus ? (
+        {displayMode === "panel" && displayedPr && prNumber !== undefined && prUrl !== undefined ? (
           <ThreadDetailsPrRow
             environmentId={environmentId}
             pr={displayedPr}
+            number={prNumber}
+            reference={currentLinkedPr}
             status={displayedPrStatus}
             project={activeProject}
             label={panelPrLabel}
-            openAriaLabel={displayedPrStatus.tooltip}
-            onOpen={(event) => openPrLink(event, displayedPrStatus.url)}
+            openAriaLabel={prUrl ?? "Open pull request"}
+            onOpen={(event) => openPrLink(event, prUrl)}
             onActed={() => branchStatusQuery.refresh()}
           />
         ) : null}

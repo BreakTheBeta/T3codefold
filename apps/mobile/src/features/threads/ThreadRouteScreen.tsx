@@ -1138,6 +1138,13 @@ function ThreadRouteContent(
           historyControls={historyControls}
           activeThreadBusy={composer.activeThreadBusy}
           canStopThread={composer.interruptibleRunId !== null}
+          queuedRunEdit={composer.queuedRunEdit}
+          composerDraftKey={composer.composerDraftKey}
+          followUpBehavior={composer.followUpBehavior}
+          canSteerActiveTurn={composer.canSteerActiveTurn}
+          isSavingQueuedEdit={composer.isSavingQueuedEdit}
+          onCancelQueuedRunEdit={composer.cancelQueuedRunEdit}
+          onRemoveQueuedEditAttachment={composer.onRemoveQueuedEditAttachment}
           environmentId={selectedThread.environmentId}
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           threadCwd={selectedThreadCwd}
@@ -1155,6 +1162,7 @@ function ThreadRouteContent(
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}
+          canSwitchThreadProvider={composer.canSwitchThreadProvider}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}
           onUpdateThreadRuntimeMode={composer.onUpdateRuntimeMode}
           onUpdateThreadInteractionMode={composer.onUpdateInteractionMode}

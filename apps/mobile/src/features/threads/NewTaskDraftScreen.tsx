@@ -32,6 +32,7 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
+import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 
 import {
   ComposerEditor,

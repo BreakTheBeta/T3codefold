@@ -8,6 +8,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { isSubagentThread } from "@t3tools/client-runtime/state/thread-relationships";
 import {
@@ -17,6 +18,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
+import type { ThreadListProvider } from "../../state/thread-list-environments";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
 import {
@@ -26,6 +28,27 @@ import {
 } from "./threadOrder";
 
 export { snoozeWakeLabel };
+
+/**
+ * Provider drivers for a row's trailing icon stack, back to front. Instances
+ * missing from the environment's config are skipped, and an unresolved
+ * current provider yields nothing so the row never draws a stale stack.
+ */
+export function resolveThreadListV2ProviderDrivers(
+  thread: Pick<EnvironmentThreadShell, "providerInstanceHistory" | "modelSelection" | "runtime">,
+  providers: ReadonlyArray<ThreadListProvider> | undefined,
+): ReadonlyArray<string> {
+  if (providers === undefined) return [];
+  const stack = resolveThreadProviderStack(thread);
+  const drivers = stack.flatMap((instanceId) => {
+    const driver = providers.find((provider) => provider.instanceId === instanceId)?.driver;
+    return driver === undefined ? [] : [driver];
+  });
+  const currentDriver = providers.find(
+    (provider) => provider.instanceId === stack[stack.length - 1],
+  )?.driver;
+  return currentDriver === undefined ? [] : drivers;
+}
 
 /**
  * Thread List v2 model, ported from the web sidebar v2

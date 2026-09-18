@@ -5,7 +5,6 @@ import * as FleetBroker from "./mcp/FleetBroker.ts";
 import * as FleetRouter from "./mcp/FleetRouter.ts";
 import * as FleetThreadService from "./mcp/FleetThreadService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
-import * as ThreadPullRequestReactor from "./orchestration/ThreadPullRequestReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
@@ -55,6 +54,7 @@ import * as ProviderEventIngestor from "./orchestration-v2/ProviderEventIngestor
 import * as ModelManifest from "./provider/ModelManifest.ts";
 import * as ProviderEventLoggers from "./provider/Layers/ProviderEventLoggers.ts";
 import * as OpenCodeRuntime from "./provider/opencodeRuntime.ts";
+import { AcpRegistryCatalogLive } from "./provider/Layers/AcpRegistryCatalog.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
@@ -87,6 +87,7 @@ import * as NativeAppIconResolver from "./assets/NativeAppIconResolver.ts";
 import * as CodexResetCredit from "./provider/Layers/codexResetCredit.ts";
 import { AntigravityInstallation } from "./provider/AntigravityInstallation.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
+import { layerFromProviderInstanceRegistry as providerAdapterRegistryLayerFromProviderInstances } from "./orchestration-v2/ProviderAdapterRegistry.ts";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry.ts";
 import { ProviderUsageLimitsIngestionLive } from "./provider/Layers/ProviderUsageLimitsIngestion.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
@@ -146,6 +147,7 @@ import {
 } from "./orchestration-v2/runtimeLayer.ts";
 import * as ResourceCleanupService from "./orchestration-v2/ResourceCleanupService.ts";
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
+import * as ThreadPullRequestService from "./orchestration-v2/ThreadPullRequestService.ts";
 import * as RunFinalizationService from "./orchestration-v2/RunFinalizationService.ts";
 import * as ProjectionStoreV2 from "./orchestration-v2/ProjectionStore.ts";
 import {
@@ -162,7 +164,7 @@ import { forkParked, ServerActivation } from "./serverActivation.ts";
 
 // MCP handoff thread IDs include escaped provenance and can exceed find-my-way's
 // 100-character default for one path segment.
-export const HTTP_ROUTER_CONFIG = {
+const HTTP_ROUTER_CONFIG = {
   maxParamLength: 512,
 } as const;
 
@@ -378,6 +380,7 @@ const PortScannerLayerLive = PortScanner.layer.pipe(Layer.provide(ProcessRunner.
 const TerminalLayerLive = TerminalManager.layer.pipe(
   Layer.provide(PtyAdapterLive),
   Layer.provide(PortScannerLayerLive),
+  Layer.provide(NativeTelemetryLayerLive),
 );
 
 const PreviewLayerLive = Layer.empty.pipe(
@@ -451,11 +454,15 @@ const OrchestrationApplicationLayerLive = CheckpointDiffQuery.layer.pipe(
 // so every client sees the same shelf.
 const ThreadSettlementWorkerLive = Layer.effectDiscard(
   ThreadSettlementService.make.pipe(Effect.flatMap((service) => service.start())),
-).pipe(Layer.provide(PullRequestServiceLive), Layer.provide(ProjectionStoreV2.layer));
+).pipe(
+  Layer.provide(PullRequestServiceLive),
+  Layer.provide(ProjectionStoreV2.layer),
+  Layer.provide(OrchestrationInfrastructureLayerLive),
+);
 
 const ThreadPullRequestWorkerLive = Layer.effectDiscard(
-  ThreadPullRequestReactor.make.pipe(Effect.flatMap((service) => service.start())),
-).pipe(Layer.provide(PullRequestServiceLive));
+  ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
+).pipe(Layer.provide(PullRequestServiceLive), Layer.provide(OrchestrationInfrastructureLayerLive));
 
 const PullRequestSyncServiceLive = PullRequestSyncReactor.layer.pipe(
   Layer.provide(PullRequestServiceLive),
@@ -510,6 +517,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
 ).pipe(
   // Core Services
   Layer.provideMerge(OrchestrationApplicationLayerLive),
+  Layer.provideMerge(OrchestrationInfrastructureLayerLive),
   Layer.provideMerge(CheckpointWorkspaceIsolation.layer),
   Layer.provideMerge(ServerSettingsLayerLive),
   // `GitHubCli` is the registry's own instance, exposed because the asset route fetches
@@ -537,6 +545,9 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
 );
 
 const RuntimeCoreDependenciesLive = RuntimeCoreDependenciesBaseLive.pipe(
+  // Search, prepare, status inspection, and turn launch share one registry
+  // cache so every client and provider instance sees the same prepared agents.
+  Layer.provideMerge(AcpRegistryCatalogLive),
   // Shared native/canonical NDJSON writers used by both the per-instance
   // V2 drivers and the orchestration runtime. Provide resource attribution so
   // the rewritten telemetry pipeline can account for logical NDJSON writes.
@@ -593,7 +604,7 @@ const commandReadinessLayer = HttpRouter.middleware(
   { global: true },
 );
 
-export const makeRoutesLayer = Layer.mergeAll(
+const makeRoutesLayer = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
       Layer.provide(authHttpApiLayer),
@@ -612,8 +623,11 @@ export const makeRoutesLayer = Layer.mergeAll(
     websocketRpcRouteLayer,
   ),
   // The MCP session registry is provided globally (shared with V2 provider
-  // sessions) rather than inline here.
-  McpHttpServer.layer,
+  // sessions) rather than inline here. The orchestrator toolkit resolves
+  // delegation targets through the same live adapter facade the V2
+  // orchestrator uses, so MCP capability reporting can never drift from
+  // what dispatch can actually serve.
+  McpHttpServer.layer.pipe(Layer.provide(providerAdapterRegistryLayerFromProviderInstances)),
   PitbossPeerHttp.layer,
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients

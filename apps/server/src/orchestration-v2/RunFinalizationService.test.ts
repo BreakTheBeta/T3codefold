@@ -33,8 +33,8 @@ it.effect("captures the root checkpoint independently of workspace refresh", () 
           getThreadProjection: () => Effect.succeed(projection),
         }),
         Layer.succeed(RunFinalization.RunFinalizationObserver, {
-          refresh,
           drain: Effect.void,
+          refresh,
           refreshAfterTurn: () => Effect.void,
         }),
       ),

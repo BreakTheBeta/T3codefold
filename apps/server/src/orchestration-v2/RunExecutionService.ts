@@ -1,6 +1,5 @@
-import { makeAssistantDelivery } from "./AssistantDelivery.ts";
+import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import * as Clock from "effect/Clock";
 import {
   CommandId,
   type EventId,
@@ -768,7 +767,7 @@ export const layer: Layer.Layer<
     return RunExecutionServiceV2.of({
       startRootRun: (input) =>
         Effect.gen(function* () {
-          const streamingMode = yield* serverSettings.getSettings.pipe(
+          const responseStreamingMode = yield* serverSettings.getSettings.pipe(
             Effect.map(
               (settings) =>
                 resolveProjectSettings(settings, input.appThread.projectId).settings
@@ -789,6 +788,14 @@ export const layer: Layer.Layer<
               ordinalWithinScope: Math.max(0, input.run.ordinal - 1),
             })
             .pipe(
+              Effect.catchCause((cause) =>
+                Cause.hasInterruptsOnly(cause)
+                  ? Effect.failCause(cause)
+                  : Effect.logWarning(
+                      "orchestration V2 checkpoint baseline capture failed; starting provider without a baseline",
+                      { runId: input.run.id },
+                    ),
+              ),
               Effect.mapError(
                 (cause) =>
                   new RunExecutionStartError({
@@ -1109,7 +1116,7 @@ export const layer: Layer.Layer<
             }
             return true;
           });
-          const deliverAssistant = makeAssistantDelivery(streamingMode);
+          const filterAssistantEvent = makeAssistantStreamingFilter(responseStreamingMode);
           const providerEventFiber = yield* eventSubscription.events.pipe(
             Stream.filterEffect((event) =>
               Ref.modify(eventRouting, (state) => routeProviderEvent(event, routeIdentity, state)),
@@ -1117,9 +1124,11 @@ export const layer: Layer.Layer<
             Stream.tap((event) =>
               Effect.gen(function* () {
                 let storedEventCount = 0;
-                const deliveredEvent = deliverAssistant(event, yield* Clock.currentTimeMillis);
-                const shouldDeliver = deliveredEvent !== null;
-                if (shouldDeliver) {
+                const deliveredEvent = filterAssistantEvent(
+                  event,
+                  DateTime.toEpochMillis(yield* DateTime.now),
+                );
+                if (deliveredEvent) {
                   // Root provider_thread.updated always uses an ownership gate:
                   // pre-terminal writeIfRunCurrent (attempt still running), or
                   // post-terminal writeIfProviderThreadOwner so late roster
@@ -1190,7 +1199,7 @@ export const layer: Layer.Layer<
                   yield* Ref.set(rootTerminalSeen, true);
                   yield* finalizeRootRun(event);
                 }
-                yield* trackChildLifecycle(event, shouldDeliver);
+                yield* trackChildLifecycle(event, deliveredEvent !== null);
               }),
             ),
             Stream.takeUntilEffect(() => shouldStopProviderEventIngestion),

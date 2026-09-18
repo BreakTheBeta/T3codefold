@@ -1,10 +1,10 @@
 import type { OrchestrationV2ThreadDetailSnapshot, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { HttpClient } from "effect/unstable/http";
 
 import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";

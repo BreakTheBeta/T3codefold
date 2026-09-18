@@ -32,6 +32,7 @@ interface VersionMismatchIssue {
 }
 
 export interface ThreadDetailsPanelProps {
+  forceNewWorktree?: boolean;
   mode: "inline" | "popover";
   onClose?: () => void;
   environmentId: EnvironmentId;
@@ -101,6 +102,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
       ? { onActiveThreadBranchOverrideChange: props.onActiveThreadBranchOverrideChange }
       : {}),
     envLocked: props.envLocked,
+    forceNewWorktree: props.forceNewWorktree ?? false,
     onComposerFocusRequest: props.onComposerFocusRequest,
     ...(props.onCheckoutPullRequestRequest
       ? { onCheckoutPullRequestRequest: props.onCheckoutPullRequestRequest }

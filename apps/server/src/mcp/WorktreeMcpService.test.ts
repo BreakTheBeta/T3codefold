@@ -278,7 +278,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
           async: false,
           scriptId: "setup",
           scriptName: "Setup",
-          scriptCommand: "npm install",
+          scriptCommand: "vp install",
           terminalId: "setup-terminal",
           cwd: input.worktreePath,
         } as const);
@@ -396,7 +396,10 @@ describe("t3_worktree_handoff", () => {
       expect(result.baseRef).toBe("dev");
       expect(result.startedFromOrigin).toBe(false);
       expect(result.worktreePath).toBe("/worktrees/project/feature/handoff");
-      expect(result.setupScript).toMatchObject({ status: "started", scriptName: "Setup" });
+      expect(result.setupScript).toMatchObject({
+        status: "started",
+        scriptName: "Setup",
+      });
 
       expect(harness.fetchRemote).not.toHaveBeenCalled();
       expect(harness.createWorktree).toHaveBeenCalledWith({
@@ -420,7 +423,7 @@ describe("t3_worktree_handoff", () => {
         projectId,
         projectCwd: workspaceRoot,
         worktreePath: "/worktrees/project/feature/handoff",
-        project: { workspaceRoot, scripts: [] },
+        project: { id: projectId, workspaceRoot, scripts: [] },
       });
     });
   });

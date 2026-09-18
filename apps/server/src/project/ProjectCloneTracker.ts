@@ -4,11 +4,11 @@ import type {
   ProjectCloneStartInput,
   ProjectCloneStartResult,
   ProjectId,
+  CommandId,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import {
-  ProjectMutationError,
-  CommandId,
+  OrchestrationDispatchCommandError,
   PROJECT_CLONE_DETAIL_MAX_LENGTH,
   PROJECT_CLONE_ERROR_MAX_LENGTH,
   SourceControlRepositoryError,
@@ -55,7 +55,7 @@ export class ProjectCloneTracker extends Context.Service<
       hooks: ProjectCloneHooks,
     ) => Effect.Effect<
       ProjectCloneStartResult,
-      SourceControlRepositoryError | ProjectMutationError
+      SourceControlRepositoryError | OrchestrationDispatchCommandError
     >;
     /** Interrupts a running clone and deletes the partial checkout. */
     readonly cancel: (projectId: ProjectId) => Effect.Effect<boolean>;
@@ -83,7 +83,7 @@ export interface ProjectCloneHooks {
     readonly title: string;
     readonly workspaceRoot: string;
     readonly createdAt: string;
-  }) => Effect.Effect<void, ProjectMutationError>;
+  }) => Effect.Effect<void, OrchestrationDispatchCommandError>;
   /** Runs after a successful clone so cached repository identity and git status refresh. */
   readonly onCloned: (input: {
     readonly projectId: ProjectId;
@@ -441,22 +441,51 @@ const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
  * client can start a thread on an empty tree, and no attachment copies are
  * made for a command that is about to be refused.
  */
-export const ensureProjectCloneReady = (
+export const rejectCommandsDuringClone = (
   tracker: ProjectCloneTracker["Service"],
-  projectId: ProjectId,
-  commandId: CommandId,
-) =>
+  command: { readonly type: string; readonly projectId?: ProjectId; readonly bootstrap?: unknown },
+): Effect.Effect<void, OrchestrationDispatchCommandError> =>
   Effect.gen(function* () {
+    const projectId =
+      command.type === "thread.create"
+        ? (command.projectId ?? null)
+        : command.type === "thread.turn.start"
+          ? bootstrapProjectId(command.bootstrap)
+          : null;
+    if (projectId === null) return;
     const clone = yield* tracker.get(projectId);
     if (clone === null || clone.phase === "done") return;
-    return yield* new ProjectMutationError({
-      commandId,
+    return yield* new OrchestrationDispatchCommandError({
       message:
         clone.phase === "running"
           ? "The repository is still being cloned."
           : "The repository was not cloned. Retry the clone first.",
     });
   });
+
+/** Guards V2 dispatches that need a populated project workspace. */
+export const ensureProjectCloneReady = (
+  tracker: ProjectCloneTracker["Service"],
+  projectId: ProjectId,
+  commandId: CommandId,
+): Effect.Effect<void, OrchestrationDispatchCommandError> =>
+  Effect.gen(function* () {
+    const clone = yield* tracker.get(projectId);
+    if (clone === null || clone.phase === "done") return;
+    return yield* new OrchestrationDispatchCommandError({
+      message:
+        clone.phase === "running"
+          ? "The repository is still being cloned."
+          : "The repository was not cloned. Retry the clone first.",
+      cause: { projectId, commandId, phase: clone.phase },
+    });
+  });
+
+function bootstrapProjectId(bootstrap: unknown): ProjectId | null {
+  if (typeof bootstrap !== "object" || bootstrap === null) return null;
+  const createThread = (bootstrap as { createThread?: { projectId?: ProjectId } }).createThread;
+  return createThread?.projectId ?? null;
+}
 
 function describeCloneFailure(cause: Cause.Cause<unknown>): string {
   const error = Cause.squash(cause);

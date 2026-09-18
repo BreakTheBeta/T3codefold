@@ -14,6 +14,7 @@ import {
   type OrchestrationV2TurnItem,
   ProjectId,
   RunId,
+  type ScheduledTaskId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -103,6 +104,7 @@ export interface ThreadManagementSendInput {
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
   readonly messageId: MessageId;
+  readonly scheduledTaskId?: ScheduledTaskId;
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly modelSelection?: ModelSelection;
@@ -345,7 +347,7 @@ export function latestActiveRun(
     .toSorted((left, right) => right.ordinal - left.ordinal)[0];
 }
 
-export function latestSteerableRun(
+function latestSteerableRun(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2Run | undefined {
   return projection.runs
@@ -521,6 +523,7 @@ const make = Effect.gen(function* () {
         commandId: input.commandId,
         threadId: input.threadId,
         messageId: input.messageId,
+        ...(input.scheduledTaskId === undefined ? {} : { scheduledTaskId: input.scheduledTaskId }),
         text: input.text,
         attachments: input.attachments,
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
@@ -612,7 +615,10 @@ const make = Effect.gen(function* () {
           runId: selectedRun.id,
         });
       }
-      return { threadId: input.threadId, run, timedOut: true };
+      // The run may have reached a terminal status while the timeout was
+      // winning the race; the final projection read decides what actually
+      // happened, so only a still-active run counts as timed out.
+      return { threadId: input.threadId, run, timedOut: !isTerminalRunStatus(run.status) };
     });
 
   const interruptThread: ThreadManagementServiceShape["interruptThread"] = (input) =>

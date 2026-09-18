@@ -9,9 +9,14 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
+import {
+  isCheckpointRestoreIsolated,
+  SHARED_WORKSPACE_RESTORE_MESSAGE,
+} from "./CheckpointRestoreSafety.ts";
 import { CheckpointServiceV2 } from "./CheckpointService.ts";
 import { EventSinkV2 } from "./EventSink.ts";
 import { IdAllocatorV2 } from "./IdAllocator.ts";
@@ -24,11 +29,11 @@ export class CheckpointRollbackExecutionError extends Schema.TaggedError<Checkpo
   "CheckpointRollbackExecutionError",
   {
     reason: Schema.Literals([
-      "shared-workspace",
       "rollback-target-invalid",
       "active-provider-changed",
       "provider-turn-unavailable",
       "unexpected-failure",
+      "shared-workspace",
     ]),
     threadId: ThreadId,
     providerThreadId: ProviderThreadId,
@@ -38,14 +43,14 @@ export class CheckpointRollbackExecutionError extends Schema.TaggedError<Checkpo
 ) {
   override get message(): string {
     switch (this.reason) {
-      case "shared-workspace":
-        return "File restore requires an isolated worktree. Rewind the conversation without restoring files instead.";
       case "rollback-target-invalid":
         return `Rollback target ${this.checkpointId} for provider thread ${this.providerThreadId} on thread ${this.threadId} is incomplete or invalid.`;
       case "active-provider-changed":
         return `Active provider changed before rollback target ${this.checkpointId} could execute on thread ${this.threadId}.`;
       case "provider-turn-unavailable":
         return `Provider turn for rollback target ${this.checkpointId} is unavailable on provider thread ${this.providerThreadId}.`;
+      case "shared-workspace":
+        return SHARED_WORKSPACE_RESTORE_MESSAGE;
       case "unexpected-failure":
         return `Failed to execute rollback target ${this.checkpointId} on provider thread ${this.providerThreadId} for thread ${this.threadId}.`;
     }
@@ -78,16 +83,18 @@ export const layer: Layer.Layer<
   | ProjectionStoreV2
   | ProviderSessionManagerV2
   | RuntimePolicyV2
+  | FileSystem.FileSystem
 > = Layer.effect(
   CheckpointRollbackServiceV2,
   Effect.gen(function* () {
     const checkpoints = yield* CheckpointServiceV2;
-    const isolation = yield* CheckpointWorkspaceIsolation;
     const eventSink = yield* EventSinkV2;
     const ids = yield* IdAllocatorV2;
     const projections = yield* ProjectionStoreV2;
     const sessions = yield* ProviderSessionManagerV2;
     const runtimePolicy = yield* RuntimePolicyV2;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const isolation = yield* CheckpointWorkspaceIsolation;
 
     const execute = Effect.fn("orchestrationV2.checkpointRollback.execute")(function* (input: {
       readonly threadId: ThreadId;
@@ -131,6 +138,22 @@ export const layer: Layer.Layer<
         });
       }
 
+      if (
+        input.restoreFiles !== false &&
+        !(yield* isCheckpointRestoreIsolated(projection.thread, scope, {
+          fileSystem,
+          projections,
+          isolation,
+        }))
+      ) {
+        return yield* new CheckpointRollbackExecutionError({
+          reason: "shared-workspace",
+          threadId: input.threadId,
+          providerThreadId: input.providerThreadId,
+          checkpointId: input.checkpointId,
+        });
+      }
+
       const modelSelection = projection.thread.modelSelection;
       const resolvedRuntimePolicy = yield* runtimePolicy.resolve({
         thread: projection.thread,
@@ -145,13 +168,19 @@ export const layer: Layer.Layer<
         modelSelection,
         runtimePolicy: resolvedRuntimePolicy,
         ...(existingSession === undefined ? {} : { resumeFromSession: existingSession }),
+        ...(providerThread.nativeThreadRef?.nativeId == null
+          ? {}
+          : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
+        ...(providerThread.nativeMetadata?.itemIdentityVersion === undefined
+          ? {}
+          : {
+              initialProviderItemIdentityVersion: providerThread.nativeMetadata.itemIdentityVersion,
+            }),
       });
 
       const targetOrdinal = checkpoint.appRunOrdinal ?? 0;
       const runsToRollback = projection.runs.filter(
-        (run) =>
-          run.ordinal > targetOrdinal &&
-          ["completed", "interrupted", "failed", "cancelled"].includes(run.status),
+        (run) => run.ordinal > targetOrdinal && run.status === "completed",
       );
       const providerThreadTurns = projection.providerTurns.filter(
         (turn) => turn.providerThreadId === providerThread.id,
@@ -189,23 +218,6 @@ export const layer: Layer.Layer<
               };
             });
 
-      if (input.restoreFiles !== false) {
-        if (
-          !(yield* isolation.isIsolated({
-            threadId: input.threadId,
-            worktreePath: projection.thread.worktreePath,
-            cwd: scope.cwd,
-          }))
-        ) {
-          return yield* new CheckpointRollbackExecutionError({
-            reason: "shared-workspace",
-            threadId: input.threadId,
-            providerThreadId: input.providerThreadId,
-            checkpointId: input.checkpointId,
-          });
-        }
-        yield* checkpoints.restore({ scope, checkpoint });
-      }
       const snapshot =
         runsToRollback.length === 0
           ? { providerThread }
@@ -214,6 +226,7 @@ export const layer: Layer.Layer<
               target: rollbackTarget,
               providerThreadTurns,
             });
+      if (input.restoreFiles !== false) yield* checkpoints.restore({ scope, checkpoint });
       const staleCheckpoints = projection.checkpoints.filter(
         (candidate) =>
           candidate.scopeId === scope.id &&

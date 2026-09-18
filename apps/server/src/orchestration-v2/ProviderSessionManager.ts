@@ -1,3 +1,4 @@
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { ensureAgentDeviceShim } from "../device/AgentDeviceShim.ts";
 import { DeviceService } from "../device/DeviceService.ts";
 import { ServerConfig } from "../config.ts";
@@ -28,15 +29,18 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSession from "../mcp/McpProviderSession.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import { EventSinkV2 } from "./EventSink.ts";
 import { IdAllocatorV2 } from "./IdAllocator.ts";
 import { makeKeyedSerialExecutor } from "./KeyedSerialExecutor.ts";
+import { ProviderEventIngestorV2 } from "./ProviderEventIngestor.ts";
 import {
   ProviderAdapterEventStreamError,
   ProviderAdapterV2RuntimePolicy,
@@ -148,12 +152,18 @@ export interface ProviderSessionManagerV2Shape {
     readonly modelSelection: ModelSelection;
     readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
     readonly resumeFromSession?: OrchestrationV2ProviderSession;
+    readonly initialNativeThreadId?: string;
+    readonly initialProviderItemIdentityVersion?: 2;
   }) => Effect.Effect<ProviderAdapterV2SessionRuntime, ProviderSessionManagerV2Error>;
   readonly get: (
     providerSessionId: ProviderSessionId,
   ) => Effect.Effect<Option.Option<ProviderAdapterV2SessionRuntime>, ProviderSessionManagerV2Error>;
   readonly close: (
     providerSessionId: ProviderSessionId,
+  ) => Effect.Effect<void, ProviderSessionManagerV2Error>;
+  /** Closes every live runtime owned by one provider instance. */
+  readonly closeInstance: (
+    instanceId: ProviderInstanceId,
   ) => Effect.Effect<void, ProviderSessionManagerV2Error>;
   readonly release: (input: {
     readonly providerSessionId: ProviderSessionId;
@@ -195,6 +205,7 @@ interface LiveSessionEntry {
   readonly eventSubscribers: Ref.Ref<
     ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
   >;
+  readonly requestEventPermit: Semaphore.Semaphore;
   readonly scope: Scope.Closeable;
   readonly idleGeneration: number;
   readonly busyCount: number;
@@ -235,6 +246,29 @@ function sessionKey(providerSessionId: ProviderSessionId): string {
   return String(providerSessionId);
 }
 
+/**
+ * Runtime requests with no provider turn belong to the live session itself.
+ * Their node and transcript item are runless too, so they bypass the normal
+ * per-run subscriber and are persisted by the session event pump.
+ */
+function sessionScopedRuntimeRequestThreadId(event: ProviderAdapterV2Event): ThreadId | undefined {
+  switch (event.type) {
+    case "runtime_request.updated":
+      return event.runtimeRequest.providerTurnId === null ? event.threadId : undefined;
+    case "node.updated":
+      return event.node.runId === null && event.node.runtimeRequestId !== null
+        ? event.node.threadId
+        : undefined;
+    case "turn_item.updated":
+      return event.turnItem.runId === null &&
+        (event.turnItem.type === "approval_request" || event.turnItem.type === "user_input_request")
+        ? event.turnItem.threadId
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 function providerThreadRuntimeKey(
   providerThread: Parameters<ProviderAdapterV2SessionRuntime["resumeThread"]>[0]["providerThread"],
 ): string {
@@ -268,6 +302,7 @@ export const layerWithOptions = (
   | IdAllocatorV2
   | McpSessionRegistry.McpSessionRegistry
   | ProjectionStoreV2
+  | ProviderEventIngestorV2
   | ProviderAdapterRegistryV2
 > =>
   Layer.effect(
@@ -285,6 +320,7 @@ export const layerWithOptions = (
        * reverse costs an agent one toolset and is visible immediately (#7083).
        */
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+      const projectService = yield* Effect.serviceOption(ProjectService.ProjectService);
       const deviceEnvironment = Effect.gen(function* () {
         const devices = yield* Effect.serviceOption(DeviceService);
         const config = yield* Effect.serviceOption(ServerConfig);
@@ -317,30 +353,48 @@ export const layerWithOptions = (
           Effect.logWarning("Agent device CLI unavailable", { cause }).pipe(Effect.as(undefined)),
         ),
       );
-      const deviceAccessEnabled = Option.match(serverSettings, {
-        onNone: () => Effect.succeed(false),
-        onSome: (settings) =>
-          settings.getSettings.pipe(
-            Effect.map((s) => s.enableAgentDeviceAccess),
-            Effect.orElseSucceed(() => false),
-          ),
-      });
-      const agentBrowserAccessEnabled = Option.match(serverSettings, {
-        onNone: () => Effect.succeed(true),
-        onSome: (settings) =>
-          settings.getSettings.pipe(
-            Effect.map((resolved) => resolved.enableAgentBrowserAccess),
-            Effect.catch((cause) =>
-              Effect.logWarning(
-                "Could not read server settings; withholding agent browser access for this session.",
-                { cause },
-              ).pipe(Effect.as(false)),
-            ),
-          ),
-      });
       const eventSink = yield* EventSinkV2;
       const idAllocator = yield* IdAllocatorV2;
+      const providerEventIngestor = yield* ProviderEventIngestorV2;
       const projectionStore = yield* ProjectionStoreV2;
+      const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
+        function* (threadId: ThreadId) {
+          if (Option.isNone(serverSettings)) return { browser: true, device: false };
+          return yield* Effect.gen(function* () {
+            const settings = yield* serverSettings.value.getSettings;
+            const thread = yield* projectionStore.getThread(threadId);
+            const entries = Object.values(settings.projectSettingsOverrides);
+            const browserOverridden = entries.some(
+              (entry) => entry.enableAgentBrowserAccess !== undefined,
+            );
+            const deviceOverridden = entries.some(
+              (entry) => entry.enableAgentDeviceAccess !== undefined,
+            );
+            if (browserOverridden || deviceOverridden) {
+              const project = Option.isSome(projectService)
+                ? yield* projectService.value.getById(thread.projectId)
+                : Option.none();
+              if (Option.isNone(project))
+                return {
+                  browser: browserOverridden ? false : settings.enableAgentBrowserAccess,
+                  device: deviceOverridden ? false : settings.enableAgentDeviceAccess,
+                };
+            }
+            const effective = resolveProjectSettings(settings, thread.projectId).settings;
+            return {
+              browser: effective.enableAgentBrowserAccess,
+              device: effective.enableAgentDeviceAccess,
+            };
+          }).pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning(
+                "Could not resolve agent access; withholding browser and device tools.",
+                { threadId, cause },
+              ).pipe(Effect.as({ browser: false, device: false })),
+            ),
+          );
+        },
+      );
       const layerScope = yield* Effect.scope;
       const sessions = yield* Ref.make(new Map<string, LiveSessionEntry>());
       const nextSubscriberId = yield* Ref.make(0);
@@ -363,7 +417,7 @@ export const layerWithOptions = (
        */
       const mcpCredentialReservations = new Map<string, number>();
       const mcpReservationKey = (threadId: ThreadId, mcpCredentialId: string) =>
-        `${threadId} ${mcpCredentialId}`;
+        `${threadId}\0${mcpCredentialId}`;
       const reserveMcpCredential = (threadId: ThreadId, mcpCredentialId: string) => {
         const key = mcpReservationKey(threadId, mcpCredentialId);
         mcpCredentialReservations.set(key, (mcpCredentialReservations.get(key) ?? 0) + 1);
@@ -405,16 +459,12 @@ export const layerWithOptions = (
                 // the credential it started with, so a thread that detaches and
                 // re-attaches across a workspace handoff must come back to the
                 // same token or the process's tool calls fail auth.
-                const browserToolsAvailable = yield* agentBrowserAccessEnabled;
-                // Cursor SDK local agents expose no per-session environment option.
-                // Withhold CLI-dependent tools until the SDK can receive the pinned shim.
-                const deviceToolsAvailable =
-                  supportsDeviceEnvironment && (yield* deviceAccessEnabled);
-                const capabilities = new Set<McpCapability>([
-                  "orchestration",
-                  "worktree",
-                  "pull-requests",
-                ]);
+                const { browser: browserToolsAvailable, device: deviceEnabled } =
+                  yield* agentAccessSettings(threadId);
+                const deviceToolsAvailable = supportsDeviceEnvironment && deviceEnabled;
+                const capabilities = new Set<
+                  import("../mcp/McpInvocationContext.ts").McpCapability
+                >(["orchestration", "worktree", "pull-requests"]);
                 if (browserToolsAvailable) capabilities.add("preview");
                 if (deviceToolsAvailable) capabilities.add("device");
                 const existing = McpProviderSession.readMcpProviderSession(threadId);
@@ -524,6 +574,17 @@ export const layerWithOptions = (
             (queue) => Queue.clear(queue).pipe(Effect.andThen(Queue.end(queue))),
             { discard: true },
           );
+        });
+
+      // Preserve already-published terminal events while ending subscriptions.
+      // Server shutdown intentionally clears them; a provider-announced Stop
+      // must let consumers drain them before the stream completes.
+      const endSubscribers = (entry: LiveSessionEntry) =>
+        Effect.gen(function* () {
+          const subscribers = yield* Ref.getAndSet(entry.eventSubscribers, new Map());
+          yield* Effect.forEach(subscribers.values(), (queue) => Queue.end(queue), {
+            discard: true,
+          });
         });
 
       const cancelIdleFiber = (fiber: Fiber.Fiber<void, never> | null) =>
@@ -649,7 +710,9 @@ export const layerWithOptions = (
               }
 
               const turnItem = projection.turnItems.find(
-                (item) => item.type === "approval_request" && item.requestId === request.id,
+                (item) =>
+                  (item.type === "approval_request" || item.type === "user_input_request") &&
+                  item.requestId === request.id,
               );
               if (turnItem !== undefined) {
                 events.push({
@@ -685,6 +748,7 @@ export const layerWithOptions = (
         readonly detail?: string;
         readonly cancelIdleFiber?: boolean;
         readonly onlyIfIdleGeneration?: number;
+        readonly gracefulSubscribers?: boolean;
       }) =>
         Effect.acquireUseRelease(
           Ref.modify(sessions, (current) => {
@@ -711,7 +775,9 @@ export const layerWithOptions = (
                   if (input.cancelIdleFiber !== false) {
                     yield* cancelIdleFiber(entry.idleFiber);
                   }
-                  if (input.reason === "server_shutdown") {
+                  if (input.gracefulSubscribers === true) {
+                    yield* endSubscribers(entry);
+                  } else if (input.reason === "server_shutdown") {
                     yield* closeSubscribers(entry);
                   } else {
                     yield* failSubscribers(
@@ -770,7 +836,7 @@ export const layerWithOptions = (
                   yield* writeReleasedRuntimeRequestEvents({
                     entry,
                     reason: input.reason,
-                  });
+                  }).pipe(entry.requestEventPermit.withPermits(1));
                   if (Option.isSome(closeExit) && Exit.isFailure(closeExit.value)) {
                     return yield* Effect.failCause(closeExit.value.cause);
                   }
@@ -1417,10 +1483,17 @@ export const layerWithOptions = (
           ),
         );
 
-      const startEventPump = (entry: LiveSessionEntry) =>
-        entry.runtime.events.pipe(
-          Stream.runForEach((event) =>
-            observeActivity(
+      const startEventPump = (entry: LiveSessionEntry) => {
+        let stoppedByProvider = false;
+        return entry.runtime.events.pipe(
+          Stream.runForEach((event) => {
+            if (
+              event.type === "provider_session.updated" &&
+              event.providerSession.status === "stopped"
+            ) {
+              stoppedByProvider = true;
+            }
+            return observeActivity(
               entry.runtime.providerSessionId,
               event.type === "turn.terminal"
                 ? markIdle(entry.runtime.providerSessionId)
@@ -1432,10 +1505,43 @@ export const layerWithOptions = (
                   : Effect.void,
               ),
               Effect.andThen(
-                publishToSubscribers(entry.eventSubscribers, { type: "event", event }),
+                Effect.gen(function* () {
+                  // Some providers can block before a run subscriber exists
+                  // (project trust, login, or session-switch hooks). Persist
+                  // their runless request artifacts directly so the normal T3
+                  // request UI can answer them and unblock session setup.
+                  const threadId = sessionScopedRuntimeRequestThreadId(event);
+                  if (threadId !== undefined) {
+                    yield* Effect.gen(function* () {
+                      const current = (yield* Ref.get(sessions)).get(
+                        sessionKey(entry.runtime.providerSessionId),
+                      );
+                      if (current?.runtime !== entry.runtime) return;
+                      yield* providerEventIngestor
+                        .ingestNormalized({
+                          providerSessionId: entry.runtime.providerSessionId,
+                          providerInstanceId: entry.runtime.instanceId,
+                          threadId,
+                          event,
+                        })
+                        .pipe(
+                          Effect.mapError(
+                            (cause) =>
+                              new ProviderAdapterEventStreamError({
+                                driver: entry.runtime.driver,
+                                providerSessionId: entry.runtime.providerSessionId,
+                                cause,
+                              }),
+                          ),
+                        );
+                    }).pipe(entry.requestEventPermit.withPermits(1));
+                    return;
+                  }
+                  yield* publishToSubscribers(entry.eventSubscribers, { type: "event", event });
+                }),
               ),
-            ),
-          ),
+            );
+          }),
           Effect.exit,
           Effect.flatMap((exit) =>
             Effect.gen(function* () {
@@ -1443,6 +1549,14 @@ export const layerWithOptions = (
                 sessionKey(entry.runtime.providerSessionId),
               );
               if (current?.runtime !== entry.runtime) {
+                return;
+              }
+              if (stoppedByProvider && Exit.isSuccess(exit)) {
+                yield* releaseEntry({
+                  providerSessionId: entry.runtime.providerSessionId,
+                  reason: "manual_shutdown",
+                  gracefulSubscribers: true,
+                }).pipe(Effect.ignore);
                 return;
               }
               const cause = Exit.isFailure(exit)
@@ -1468,6 +1582,7 @@ export const layerWithOptions = (
           ),
           Effect.forkIn(layerScope),
         );
+      };
 
       const shutdown = Effect.gen(function* () {
         const activeSessions = [...(yield* Ref.get(sessions)).values()];
@@ -1569,6 +1684,15 @@ export const layerWithOptions = (
                   ...(input.resumeFromSession === undefined
                     ? {}
                     : { resumeFromSession: input.resumeFromSession }),
+                  ...(input.initialNativeThreadId === undefined
+                    ? {}
+                    : { initialNativeThreadId: input.initialNativeThreadId }),
+                  ...(input.initialProviderItemIdentityVersion === undefined
+                    ? {}
+                    : {
+                        initialProviderItemIdentityVersion:
+                          input.initialProviderItemIdentityVersion,
+                      }),
                 })
                 .pipe(
                   Effect.provideService(Scope.Scope, sessionScope),
@@ -1614,6 +1738,7 @@ export const layerWithOptions = (
                 runtime,
                 exposedRuntime,
                 eventSubscribers,
+                requestEventPermit: yield* Semaphore.make(1),
                 scope: sessionScope,
                 idleGeneration: 0,
                 busyCount: 0,
@@ -1674,6 +1799,36 @@ export const layerWithOptions = (
               (cause) =>
                 new ProviderSessionCloseError({
                   providerSessionId,
+                  cause,
+                }),
+            ),
+          ),
+        closeInstance: (instanceId) =>
+          Effect.gen(function* () {
+            const active = [...(yield* Ref.get(sessions)).values()].filter(
+              (entry) => entry.runtime.instanceId === instanceId,
+            );
+            const outcomes = yield* Effect.forEach(
+              active,
+              (entry) =>
+                releaseEntry({
+                  providerSessionId: entry.runtime.providerSessionId,
+                  reason: "manual_shutdown",
+                  detail: `Provider instance ${instanceId} logged out.`,
+                }).pipe(Effect.exit),
+              { concurrency: "unbounded" },
+            );
+            const failure = outcomes.find(Exit.isFailure);
+            if (failure !== undefined && Exit.isFailure(failure)) {
+              return yield* Effect.failCause(failure.cause);
+            }
+          }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderSessionCloseError({
+                  providerSessionId: ProviderSessionId.make(
+                    `provider-session:provider-instance:${instanceId}`,
+                  ),
                   cause,
                 }),
             ),
