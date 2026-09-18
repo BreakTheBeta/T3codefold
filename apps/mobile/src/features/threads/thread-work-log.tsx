@@ -958,7 +958,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                     row.workEntry.questionAnswer &&
                     hasQuestionAnswer(row.workEntry.questionAnswer)
                       ? "text-foreground"
-                      : "text-foreground-subtle"
+                      : "text-foreground-muted"
                   }
                 >{`  ${answerPreview}`}</Text>
               ) : null}
@@ -1338,7 +1338,7 @@ function ToolActivityImage(props: {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   return (
-    <View className="h-4 w-4 items-center justify-center overflow-hidden rounded-[3px] bg-background">
+    <View className="h-4 w-4 items-center justify-center overflow-hidden rounded-[3px] bg-card">
       {!loaded || failed ? <WorkLogIcon icon={props.fallback} color={props.color} /> : null}
       {!failed ? (
         <View

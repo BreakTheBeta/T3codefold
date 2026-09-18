@@ -194,6 +194,9 @@ export function PitbossWork(props: {
     }
   };
   if (!state) return null;
+  // The work bar belongs to GLaDOS's own thread. Every other thread is an ordinary
+  // conversation and must look like one, so it gets no header and no modal.
+  if (!isBoss) return null;
   const rows = gladosInboxRows(state, tab, {
     query: search,
     ...(projectFilter ? { projectId: projectFilter } : {}),
@@ -244,7 +247,7 @@ export function PitbossWork(props: {
         className="flex-row items-center justify-between border-b border-primary/20 bg-primary/5 px-4 py-2"
       >
         <Text className="font-semibold text-primary">♛ {isBoss ? "GLaDOS" : "GLaDOS work"}</Text>
-        <Text className="text-xs text-muted-foreground">
+        <Text className="text-xs text-foreground-muted">
           {isBoss
             ? role.paused
               ? "Paused"
@@ -263,7 +266,7 @@ export function PitbossWork(props: {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          className="flex-1 bg-background"
+          className="flex-1 bg-screen"
           style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
           onLayout={(event) =>
             setSurface({
@@ -275,7 +278,7 @@ export function PitbossWork(props: {
           <View className="flex-row items-center justify-between border-b border-border px-4 py-2">
             <View className="flex-1">
               <Text className="text-xl font-semibold">GLaDOS</Text>
-              <Text className="text-xs text-muted-foreground">
+              <Text className="text-xs text-foreground-muted">
                 {role?.paused ? "New work paused" : "Your projects, one conversation"}
               </Text>
             </View>
@@ -336,7 +339,7 @@ export function PitbossWork(props: {
                       className={
                         tab === key
                           ? "text-center font-semibold text-primary"
-                          : "text-center text-muted-foreground"
+                          : "text-center text-foreground-muted"
                       }
                     >
                       {label} · {inbox[key].length}
@@ -357,7 +360,7 @@ export function PitbossWork(props: {
                         value={search}
                         onChangeText={setSearch}
                         clearButtonMode="while-editing"
-                        className="min-h-11 rounded-lg bg-muted px-3 text-foreground"
+                        className="min-h-11 rounded-lg bg-subtle px-3 text-foreground"
                       />
                       <ScrollView
                         horizontal
@@ -372,7 +375,7 @@ export function PitbossWork(props: {
                                 accessibilityRole="radio"
                                 accessibilityState={{ checked: projectFilter === project.id }}
                                 onPress={() => setProjectFilter(project.id)}
-                                className={`min-h-11 justify-center rounded-lg px-3 ${projectFilter === project.id ? "bg-primary/10" : "bg-muted"}`}
+                                className={`min-h-11 justify-center rounded-lg px-3 ${projectFilter === project.id ? "bg-primary/10" : "bg-subtle"}`}
                               >
                                 <Text className="text-sm">{project.title}</Text>
                               </Pressable>
@@ -398,7 +401,7 @@ export function PitbossWork(props: {
                                   ? "Ready for your next outcome"
                                   : "Completed outcomes will appear here"}
                           </Text>
-                          <Text className="text-sm text-muted-foreground">
+                          <Text className="text-sm text-foreground-muted">
                             Describe the outcome in chat. GLaDOS prepares the task, success criteria
                             and checks, then reports back here.
                           </Text>
@@ -423,7 +426,7 @@ export function PitbossWork(props: {
                           style={{ minHeight: 88 }}
                           className={`gap-1 rounded-xl border p-3 ${selectedKey === item.key ? "border-primary bg-primary/10" : "border-transparent"}`}
                         >
-                          <Text className="text-xs text-muted-foreground">
+                          <Text className="text-xs text-foreground-muted">
                             {item.task
                               ? `${projectName(item.task.projectId)} · ${gladosWorkStatus(item.task, state)}`
                               : `GLaDOS · ${item.message.kind}`}
@@ -431,7 +434,7 @@ export function PitbossWork(props: {
                           <Text className="font-semibold" numberOfLines={2}>
                             {item.task ? item.task.title : item.message.text}
                           </Text>
-                          <Text className="text-sm text-muted-foreground" numberOfLines={2}>
+                          <Text className="text-sm text-foreground-muted" numberOfLines={2}>
                             {item.task?.note || item.task?.outcome || "A decision from your team"}
                           </Text>
                         </Pressable>
@@ -449,7 +452,7 @@ export function PitbossWork(props: {
                     {!selectedRow && (
                       <View className="gap-2 py-8">
                         <Text className="text-xl font-semibold">Choose an outcome</Text>
-                        <Text className="text-muted-foreground">
+                        <Text className="text-foreground-muted">
                           See the recommendation, evidence and next decision together.
                         </Text>
                       </View>
@@ -468,7 +471,7 @@ export function PitbossWork(props: {
                         const task = selectedTask;
                         return (
                           <View className="gap-3">
-                            <Text className="text-xs text-muted-foreground">
+                            <Text className="text-xs text-foreground-muted">
                               {projectName(task.projectId)} ·{" "}
                               {task.leadId ? `Project lead ${task.leadId}` : "Managed by GLaDOS"} ·{" "}
                               {task.homeEnvironmentId
@@ -476,14 +479,14 @@ export function PitbossWork(props: {
                                 : "This environment"}
                             </Text>
                             <Text className="text-xl font-semibold">{task.title}</Text>
-                            <Text className="text-xs text-muted-foreground">
+                            <Text className="text-xs text-foreground-muted">
                               {gladosWorkKind(task, state)} · {gladosWorkStatus(task, state)}
                             </Text>
                             {task.proposedVerificationRecipe && (
                               <View className="rounded-xl border border-primary p-3">
                                 <Text className="font-semibold">Verification setup proposed</Text>
                                 <Text>{task.proposedVerificationRecipe.name}</Text>
-                                <Text className="text-sm text-muted-foreground">
+                                <Text className="text-sm text-foreground-muted">
                                   Review the checks GLaDOS prepared. Saving approves this profile
                                   for the outcome.
                                 </Text>
@@ -512,7 +515,7 @@ export function PitbossWork(props: {
                                       </Text>
                                     </View>
                                   ))}
-                                <Text className="text-xs text-muted-foreground">
+                                <Text className="text-xs text-foreground-muted">
                                   {task.proposedVerificationRecipe.timeoutSeconds}s limit ·{" "}
                                   {task.proposedVerificationRecipe.artifacts.join(", ") ||
                                     "No captured files"}
@@ -544,7 +547,7 @@ export function PitbossWork(props: {
                                     <Text>
                                       {decision.recommendation || "No recommendation yet."}
                                     </Text>
-                                    <Text className="text-sm text-muted-foreground">
+                                    <Text className="text-sm text-foreground-muted">
                                       This decision pauses this outcome. Independent work can
                                       continue.
                                     </Text>
@@ -559,7 +562,7 @@ export function PitbossWork(props: {
                                           },
                                           !!task.homeEnvironmentId,
                                         )}
-                                        <Text className="text-xs text-muted-foreground">
+                                        <Text className="text-xs text-foreground-muted">
                                           Other choices and written replies do not change proof
                                           requirements.
                                         </Text>
@@ -641,7 +644,7 @@ export function PitbossWork(props: {
                               () => setShowCriteria(!showCriteria),
                             )}
                             {showCriteria && (
-                              <Text className="text-sm text-muted-foreground">{task.criteria}</Text>
+                              <Text className="text-sm text-foreground-muted">{task.criteria}</Text>
                             )}
                             <Text className="font-semibold">
                               {gladosReceiptStatus(task, state, now)}
@@ -650,7 +653,7 @@ export function PitbossWork(props: {
                               {task.note || "The team has not reported a recommendation yet."}
                             </Text>
                             {task.closedReason && (
-                              <Text className="text-xs text-muted-foreground">
+                              <Text className="text-xs text-foreground-muted">
                                 Closure history · {task.closedReason}
                                 {task.closedAt
                                   ? ` · ${new Date(task.closedAt).toLocaleString()}`
@@ -682,14 +685,14 @@ export function PitbossWork(props: {
                                 </View>
                               ))}
                             {task.source && (
-                              <Text className="text-xs text-muted-foreground">
+                              <Text className="text-xs text-foreground-muted">
                                 {task.source.kind} · {task.source.key} · Source:{" "}
                                 {task.source.status} · T3 work: {task.status}
                               </Text>
                             )}
 
                             {task.verification && (
-                              <View className="gap-2 rounded-lg bg-muted p-3">
+                              <View className="gap-2 rounded-lg bg-subtle p-3">
                                 <Text className="font-semibold">
                                   Captured verification · {task.verification.state}
                                 </Text>
@@ -756,7 +759,7 @@ export function PitbossWork(props: {
                             {task.decisions
                               ?.filter((decision) => decision.answer !== undefined)
                               .map((decision) => (
-                                <View key={decision.id} className="gap-1 rounded-lg bg-muted p-3">
+                                <View key={decision.id} className="gap-1 rounded-lg bg-subtle p-3">
                                   <Text className="font-semibold">Your decision recorded</Text>
                                   <Text>{decision.question}</Text>
                                   <Text>{decision.answer}</Text>
@@ -808,7 +811,7 @@ export function PitbossWork(props: {
 
                             {(showHistory ? task.evidence : task.evidence.slice(-1)).map(
                               (evidence) => (
-                                <View key={evidence.id} className="gap-1 rounded-lg bg-muted p-3">
+                                <View key={evidence.id} className="gap-1 rounded-lg bg-subtle p-3">
                                   <Text className="text-sm">
                                     {evidence.verdict} · {evidence.provenance.replaceAll("_", " ")}
                                   </Text>
@@ -928,7 +931,7 @@ export function PitbossWork(props: {
               {button("Back to outcomes", () => setPanel("inbox"))}
               {panel === "settings" && (
                 <>
-                  <Text className="text-sm text-muted-foreground">
+                  <Text className="text-sm text-foreground-muted">
                     Tell GLaDOS what you want in chat. Use these controls when you want to manage
                     the details yourself.
                   </Text>
@@ -940,11 +943,11 @@ export function PitbossWork(props: {
                         <Text className="font-semibold">
                           {lead.id} · {active ? "Managing" : "Dormant"}
                         </Text>
-                        <Text className="text-sm text-muted-foreground">
+                        <Text className="text-sm text-foreground-muted">
                           {lead.model.model} · up to {lead.maxWorkers} shared workers
                         </Text>
                         <Text className="text-sm">{lead.charter}</Text>
-                        <Text className="text-xs text-muted-foreground">
+                        <Text className="text-xs text-foreground-muted">
                           {projectName(lead.projectId)} · this environment · thread {lead.threadId}
                         </Text>
                         <Text className="text-sm">
@@ -971,7 +974,7 @@ export function PitbossWork(props: {
                     );
                   })}
                   {role && (
-                    <View className="gap-3 rounded-xl bg-muted p-4">
+                    <View className="gap-3 rounded-xl bg-subtle p-4">
                       <Text className="font-semibold">Autonomy</Text>
                       <Text className="text-sm">
                         GLaDOS preference:{" "}
@@ -993,7 +996,7 @@ export function PitbossWork(props: {
                           ? "GLaDOS prepares and saves checks"
                           : "review before saving"}
                       </Text>
-                      <Text className="text-sm text-muted-foreground">
+                      <Text className="text-sm text-foreground-muted">
                         Full auto lets GLaDOS and new workers act within your project scope and
                         prepare evidence checks. Changes to checks after work starts still need your
                         decision. Existing workers keep their assigned permissions.
@@ -1012,7 +1015,7 @@ export function PitbossWork(props: {
                         )}
                     </View>
                   )}
-                  <Text className="text-sm text-muted-foreground">Your priorities</Text>
+                  <Text className="text-sm text-foreground-muted">Your priorities</Text>
                   <TextInput
                     accessibilityLabel="GLaDOS priorities"
                     multiline
@@ -1032,7 +1035,7 @@ export function PitbossWork(props: {
                       ].map((model, index) => (
                         <Text
                           key={index === 0 ? "default" : "alternative"}
-                          className="text-sm text-muted-foreground"
+                          className="text-sm text-foreground-muted"
                         >
                           {index === 0 ? "Default" : "Alternative"}: {model.instanceId} ·{" "}
                           {model.model}
@@ -1042,11 +1045,11 @@ export function PitbossWork(props: {
                         </Text>
                       ))}
                       {role.brief.modelGuidance && (
-                        <Text className="text-sm text-muted-foreground">
+                        <Text className="text-sm text-foreground-muted">
                           {role.brief.modelGuidance}
                         </Text>
                       )}
-                      <Text className="text-xs text-muted-foreground">
+                      <Text className="text-xs text-foreground-muted">
                         {role.brief.projectIds.length} projects ·{" "}
                         {role.brief.managedPeerIds === undefined
                           ? "All configured peers"
@@ -1125,7 +1128,7 @@ export function PitbossWork(props: {
                   {button(isolatedCode ? "Use project files" : "Use isolated code checkout", () =>
                     setIsolatedCode(!isolatedCode),
                   )}
-                  <Text className="text-sm text-muted-foreground">
+                  <Text className="text-sm text-foreground-muted">
                     {isolatedCode
                       ? "Creates a Git worktree for code changes."
                       : "Uses this project's files. Suitable for research and home-server work; Git is not required."}
@@ -1193,9 +1196,9 @@ function PitbossPin({ environmentId, label }: { environmentId: EnvironmentId; la
     >
       <View>
         <Text className="font-semibold text-primary">♛ GLaDOS</Text>
-        <Text className="text-xs text-muted-foreground">{label}</Text>
+        <Text className="text-xs text-foreground-muted">{label}</Text>
       </View>
-      <Text className="text-xs text-muted-foreground">
+      <Text className="text-xs text-foreground-muted">
         {query.error ? "Offline" : role.paused ? "Paused" : "Open work"}
       </Text>
     </Pressable>
@@ -1215,7 +1218,7 @@ function MobilePitbossPeers({ environmentId }: { environmentId: EnvironmentId })
       <Text className="font-semibold">Connected GLaDOS peers</Text>
       {(error || query.error) && <Text accessibilityRole="alert">{error ?? query.error}</Text>}
       {query.data?.peers.length === 0 && (
-        <Text className="text-xs text-muted-foreground">
+        <Text className="text-xs text-foreground-muted">
           Connect shared tracker scopes from the web or desktop work panel. Each environment retains
           its own GLaDOS.
         </Text>
@@ -1244,7 +1247,7 @@ function MobilePitbossPeers({ environmentId }: { environmentId: EnvironmentId })
               </Text>
               {query.data &&
                 peer.view.rejections?.[query.data.environmentId]?.includes(proposal.id) && (
-                  <Text className="text-xs text-muted-foreground">Declined locally</Text>
+                  <Text className="text-xs text-foreground-muted">Declined locally</Text>
                 )}
               {query.data &&
                 !peer.view.rejections?.[query.data.environmentId]?.includes(proposal.id) && (
