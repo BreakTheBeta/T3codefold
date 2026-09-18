@@ -18,7 +18,15 @@ export function ThreadContextDivider(props: {
       <View className="shrink flex-row flex-wrap items-center justify-center gap-1.5">
         <SymbolView name={props.icon} size={12} tintColor={props.iconColor} type="monochrome" />
         {props.active ? (
-          <Text className="font-t3-medium text-xs text-foreground-muted">{props.label}</Text>
+          <ShimmeringWorkContent
+            className="flex-none"
+            textClassName="font-t3-medium"
+            compact
+            icon="brain"
+            iconSubtleColor={props.iconColor}
+            label={props.label}
+            showIcon={false}
+          />
         ) : (
           <Text
             className={

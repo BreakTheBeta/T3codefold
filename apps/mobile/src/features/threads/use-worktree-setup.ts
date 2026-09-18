@@ -6,6 +6,7 @@ import {
 import { useEffect, useState } from "react";
 import { useEnvironmentQuery } from "../../state/query";
 import { vcsEnvironment } from "../../state/vcs";
+import { resolveWorktreeSetupSnapshot } from "./worktree-setup-state";
 
 /** Retain the last live snapshot when its subscription closes after setup. */
 export function useWorktreeSetup(input: {
@@ -22,29 +23,27 @@ export function useWorktreeSetup(input: {
   const recorded = input.threadId
     ? findRecordedWorktreeSetup(input.activities, input.threadId)
     : null;
-  const latest = resolveVisibleWorktreeSetup({
-    live,
-    recorded,
-    turnStarted: false,
-    followUpSent: false,
-  });
   const query = useEnvironmentQuery(
     input.environmentId &&
       input.threadId &&
-      (latest?.phase === "running" || (!latest && input.preparing))
+      (live?.phase === "running" || (!live && input.preparing))
       ? vcsEnvironment.worktreeSetup({
           environmentId: input.environmentId,
           input: { threadId: input.threadId },
         })
       : null,
   );
+  const snapshot = resolveWorktreeSetupSnapshot(input.threadId, query.data, live);
   useEffect(() => {
-    if (query.data?.threadId === input.threadId) setHeld({ key, snapshot: query.data });
-  }, [key, input.threadId, query.data]);
-  return resolveVisibleWorktreeSetup({
-    live: query.data ?? live,
-    recorded,
-    turnStarted: input.turnStarted,
-    followUpSent: input.followUpSent,
-  });
+    if (snapshot && snapshot !== live) setHeld({ key, snapshot });
+  }, [key, live, snapshot]);
+  return {
+    snapshot,
+    visible: resolveVisibleWorktreeSetup({
+      live: snapshot,
+      recorded,
+      turnStarted: input.turnStarted,
+      followUpSent: input.followUpSent,
+    }),
+  };
 }

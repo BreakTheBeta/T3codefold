@@ -1,4 +1,3 @@
-import { useProject } from "../../state/entities";
 import { useRecyclingState } from "@legendapp/list/react-native";
 import type {
   EnvironmentProject,
@@ -494,9 +493,7 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
     onNewThreadOnBranch,
   } = props;
   const status = resolveThreadStatus(thread);
-  const project = useProject({ environmentId: thread.environmentId, projectId: thread.projectId });
-  const projectCwd = project?.workspaceRoot ?? null;
-  const pr = useThreadPr(thread, projectCwd);
+  const pr = useThreadPr(thread);
   const timestamp = relativeTime(
     thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
   );

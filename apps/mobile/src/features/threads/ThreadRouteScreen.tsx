@@ -923,7 +923,7 @@ function ThreadRouteContent(
       }),
     );
   }, [navigation, routeThreadIdentity, selectedThreadCreation, selectedThreadProject]);
-  const worktreeSetup = useWorktreeSetup({
+  const { snapshot: worktreeSetupSnapshot, visible: worktreeSetup } = useWorktreeSetup({
     environmentId: selectedThread?.environmentId ?? null,
     threadId: selectedThread?.id ?? null,
     activities: recordedWorktreeSetupActivities(selectedThreadDetail?.turnItems ?? []),
@@ -940,7 +940,9 @@ function ThreadRouteContent(
       1,
   });
   const awaitingBootstrapTurn =
-    worktreeSetup?.phase === "running" && !worktreeSetupAgentStarted(worktreeSetup);
+    worktreeSetup !== null
+      ? worktreeSetup.phase === "running" && !worktreeSetupAgentStarted(worktreeSetup)
+      : (selectedThreadDetail?.runs.some((run) => run.status === "preparing") ?? false);
   const cancelWorktreeSetup = useAtomCommand(vcsEnvironment.cancelWorktreeSetup);
   const handleCancelWorktreeSetup = useCallback(() => {
     if (!selectedThread) return;
@@ -1094,6 +1096,8 @@ function ThreadRouteContent(
           screenTone={connectionTone(routeConnectionState)}
           connectionError={routeConnectionError}
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
+          feedbackSubmissions={composer.feedbackSubmissions}
+          onDismissFeedback={composer.dismissFeedback}
           selectedThreadFeed={composer.selectedThreadFeed}
           activityRun={composer.selectedThreadActivityRun}
           activeWorkStartedAt={composer.activeWorkStartedAt}
@@ -1113,7 +1117,7 @@ function ThreadRouteContent(
           worktreeSetup={
             worktreeSetup
               ? {
-                  snapshot: worktreeSetup,
+                  snapshot: worktreeSetupSnapshot ?? worktreeSetup,
                   turnStartedAt: composer.selectedThreadActivityRun?.startedAt ?? null,
                   working: composer.activeWorkStartedAt !== null,
                   turnStarted: composer.selectedThreadActivityRun?.startedAt != null,

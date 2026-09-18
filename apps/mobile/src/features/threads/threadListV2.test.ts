@@ -287,8 +287,8 @@ describe("buildThreadListV2Items", () => {
     const visibleId = ThreadId.make("visible");
     const layout = buildThreadListV2Items({
       threads: [
-        makeThread({ id: visibleId }),
-        makeThread({ id: ThreadId.make("archived"), archivedAt: NOW }),
+        makeThread({ id: visibleId, title: "Visible" }),
+        makeThread({ id: ThreadId.make("archived"), title: "Archived", archivedAt: NOW }),
       ],
       environmentId: null,
       searchQuery: "",
