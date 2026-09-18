@@ -118,16 +118,6 @@
       --color-dot-separator: rgba(0, 0, 0, 0.2);
       --color-wordmark: #262626;
       --color-chevron: rgba(0, 0, 0, 0.2);
-
-      /* Clerk native profile. Fixed palette mirroring clerk-theme.json so the SDK's own
-         screens match ours; every theme carries the same values, so a custom theme still
-         cannot restyle Clerk's chrome. Declared here because every theme must expose the
-         same variable set. Keep in sync with clerk-theme.json. */
-      --color-clerk-page: #f2f2f7;
-      --color-clerk-foreground: #262626;
-      --color-clerk-foreground-muted: #737373;
-      --color-clerk-border: rgba(229, 229, 234, 0.06);
-      --color-clerk-danger: #dc2626;
     }
 
     @variant dark {
@@ -239,16 +229,6 @@
       --color-dot-separator: rgba(255, 255, 255, 0.2);
       --color-wordmark: #f5f5f5;
       --color-chevron: rgba(255, 255, 255, 0.2);
-
-      /* Clerk native profile. Fixed palette mirroring clerk-theme.json so the SDK's own
-         screens match ours; every theme carries the same values, so a custom theme still
-         cannot restyle Clerk's chrome. Declared here because every theme must expose the
-         same variable set. Keep in sync with clerk-theme.json. */
-      --color-clerk-page: #0e0e0e;
-      --color-clerk-foreground: #f5f5f5;
-      --color-clerk-foreground-muted: #a3a3a3;
-      --color-clerk-border: rgba(42, 42, 42, 0.06);
-      --color-clerk-danger: #fca5a5;
     }
   }
 }
