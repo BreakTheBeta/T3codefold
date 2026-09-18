@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { StatusBar, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import { createStaticNavigation } from "@react-navigation/native";
 
 import { RegistryContext } from "@effect/atom-react";
@@ -82,7 +82,10 @@ function AppContent() {
         style={{ backgroundColor: navigationTheme.colors.background }}
       >
         <KeyboardProvider statusBarTranslucent>
-          <SafeAreaProvider>
+          {/* Without initialMetrics SafeAreaProvider renders null until native insets
+              arrive, and everything below it — the navigator included — never mounts,
+              leaving the app on its splash screen. */}
+          <SafeAreaProvider initialMetrics={initialWindowMetrics}>
             <StatusBar
               barStyle={themeAppearance === "dark" ? "light-content" : "dark-content"}
               translucent
