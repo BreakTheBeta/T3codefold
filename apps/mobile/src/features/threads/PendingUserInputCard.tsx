@@ -1,6 +1,7 @@
 import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
 import type { RuntimeRequestId } from "@t3tools/contracts";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
+import { RequestActionButton } from "./RequestActionButton";
 import { QuestionAttachments } from "./QuestionAttachments";
 
 import { useCallback, useRef } from "react";
@@ -341,20 +342,17 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
           );
         })}
       </ScrollView>
-      <Pressable
-        className={cn(
-          "items-center justify-center rounded-2xl px-4 py-3.5",
-          props.answers ? "bg-blue-500" : "bg-adaptive-neutral-200-700-a60",
-        )}
+      <RequestActionButton
+        label="Submit answers"
+        size="large"
+        tone={props.answers ? "primary" : "secondary"}
         disabled={
           !canRespond ||
           props.answers === null ||
           props.respondingUserInputId === props.pendingUserInput.requestId
         }
         onPress={() => void props.onSubmit()}
-      >
-        <Text className="font-t3-extrabold text-sm text-white">Submit answers</Text>
-      </Pressable>
+      />
       {props.pendingUserInput.responseMode === "message" ? (
         <Pressable
           accessibilityRole="button"
