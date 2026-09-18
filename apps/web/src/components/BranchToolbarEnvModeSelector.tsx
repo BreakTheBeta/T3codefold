@@ -1,3 +1,4 @@
+import { ComposerContextLabel } from "./ComposerContextLabel";
 import { FolderGit2Icon, FolderGitIcon, FolderIcon, HistoryIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 import { cn } from "../lib/utils";
@@ -93,27 +94,11 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
             className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3"}
           />
         )}
-        <span
-          data-composer-label
-          className={
-            displayMode === "panel"
-              ? "min-w-0 flex-1 truncate"
-              : "min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
-          }
-        >
-          <span
-            data-composer-label-motion
-            className={cn(
-              "block w-full min-w-0 truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-              displayMode === "toolbar" &&
-                "max-w-[240px] group-data-[compact]/composer-context:opacity-0",
-            )}
-          >
-            {forceNewWorktree
-              ? resolveEnvModeLabel("worktree")
-              : (workspaceDisplayName ?? resolveLockedWorkspaceLabel(activeWorktreePath))}
-          </span>
-        </span>
+        <ComposerContextLabel displayMode={displayMode}>
+          {forceNewWorktree
+            ? resolveEnvModeLabel("worktree")
+            : (workspaceDisplayName ?? resolveLockedWorkspaceLabel(activeWorktreePath))}
+        </ComposerContextLabel>
         {displayMode === "panel" ? (
           <span className="shrink-0 text-[10px] font-normal text-muted-foreground/70">
             {forceNewWorktree ? "Worktree" : workspaceKind}
@@ -176,27 +161,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
               className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3"}
             />
           )}
-          <span
-            data-composer-label
-            className={
-              displayMode === "panel"
-                ? // flex-1 pushes the kind label and chevron cell to the right edge, so the
-                  // chevron lines up with every other row's trigger.
-                  "min-w-0 flex-1 truncate text-left"
-                : "min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
-            }
-          >
-            <span
-              data-composer-label-motion
-              className={cn(
-                "block w-full min-w-0 truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-                displayMode === "toolbar" &&
-                  "max-w-[240px] group-data-[compact]/composer-context:opacity-0",
-              )}
-            >
-              <SelectValue />
-            </span>
-          </span>
+          <ComposerContextLabel displayMode={displayMode}>
+            <SelectValue />
+          </ComposerContextLabel>
           {displayMode === "panel" ? (
             <span className="shrink-0 text-[10px] font-normal text-muted-foreground/70">
               {effectiveEnvMode === "worktree" && !activeWorktreePath ? "Create" : workspaceKind}
