@@ -18,6 +18,7 @@ import * as Connectivity from "./connectivity.ts";
 import * as ConnectionDriver from "./driver.ts";
 import {
   type ConnectionAttemptError,
+  type ConnectionAttemptStage,
   type ConnectionTarget,
   ConnectionTransientError,
   type NetworkStatus,
@@ -29,9 +30,25 @@ import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
 
-const RETRY_DELAYS_MS = [3_000, 4_000, 8_000, 16_000] as const;
-const CONNECTION_ESTABLISHMENT_TIMEOUT = "15 seconds";
-const CONNECTION_PROBE_TIMEOUT = "15 seconds";
+const RETRY_DELAYS_MS = [3_000, 4_000, 8_000, 16_000, 30_000] as const;
+// Each stage of an attempt carries its own budget, restarted whenever the
+// attempt advances, so a host that is merely slow is not mistaken for one that
+// has stopped answering. Transport setup either happens promptly or is wedged.
+// The initial sync is server work whose cost grows with the project count and
+// with whatever else the machine is running, so it gets far more room; a wedged
+// socket is still caught by the session's own open timeout.
+const CONNECTION_STAGE_TIMEOUTS = {
+  preparing: "15 seconds",
+  opening: "15 seconds",
+  synchronizing: "60 seconds",
+} as const satisfies Record<ConnectionAttemptStage, string>;
+// A wake probe is a trivial round trip, but it queues behind everything else the
+// server is doing. Failing it replaces a working lease with a full reconnect and
+// initial sync, which a busy host can least afford.
+const CONNECTION_PROBE_TIMEOUT = "30 seconds";
+// Mobile keeps a short window: a resume can land on a socket the OS or a network
+// change killed without a close event, and only a probe reveals that. Longer
+// suspensions skip the probe and replace the lease outright.
 const MOBILE_CONNECTION_PROBE_TIMEOUT = "3 seconds";
 const BACKOFF_RESET_AFTER_MS = 30_000;
 
@@ -102,7 +119,7 @@ export interface EnvironmentSupervisorOptions {
 }
 
 function retryDelayMs(failureCount: number): number {
-  return RETRY_DELAYS_MS[Math.min(failureCount, RETRY_DELAYS_MS.length - 1)] ?? 16_000;
+  return RETRY_DELAYS_MS[Math.min(failureCount, RETRY_DELAYS_MS.length - 1)] ?? 30_000;
 }
 
 function annotateTarget(target: ConnectionTarget) {
@@ -234,6 +251,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   };
   const intent = yield* Ref.make(initialIntent);
   const signals = yield* Queue.unbounded<SupervisorSignal>();
+  // Every stage the current attempt reaches, so the establishment deadline can
+  // restart its budget instead of capping the attempt as a whole.
+  const stageAdvances = yield* Queue.unbounded<ConnectionAttemptStage>();
   const resetRetryState = yield* Ref.make(false);
   // Set when a foreground wake probe fails or times out: the user is actively
   // returning to the app on a dead transport, so the follow-up reconnect skips
@@ -282,9 +302,27 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     if ("prepared" in progress) {
       yield* SubscriptionRef.set(prepared, Option.some(progress.prepared));
     }
+    yield* Queue.offer(stageAdvances, progress.stage);
     yield* setState(
       connectingState(yield* Ref.get(intent), generation, attempt, lastFailure, progress.stage),
     );
+  });
+
+  // Finishes only once the stage the attempt is sitting in overruns its own
+  // budget. Reaching the next stage is progress, so it restarts the clock.
+  const awaitEstablishmentTimeout = Effect.fnUntraced(function* () {
+    let stage: ConnectionAttemptStage = "preparing";
+    for (;;) {
+      const advanced: Option.Option<ConnectionAttemptStage> = yield* Queue.take(stageAdvances).pipe(
+        Effect.asSome,
+        Effect.timeoutOrElse({
+          duration: CONNECTION_STAGE_TIMEOUTS[stage],
+          orElse: () => Effect.succeedNone,
+        }),
+      );
+      if (Option.isNone(advanced)) return;
+      stage = advanced.value;
+    }
   });
 
   const establishConnection = Effect.fnUntraced(function* (
@@ -493,6 +531,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     pendingRetry: Option.Option<PendingRetryTrace>,
   ) {
     yield* SubscriptionRef.set(prepared, Option.none());
+    // The previous attempt's trailing progress must not grant this one a free
+    // budget restart.
+    yield* Queue.clear(stageAdvances);
     const establishment = yield* Effect.raceAllFirst([
       exitUnlessInterrupted(
         establishTracedConnection(attempt, generation, lastFailure, pendingRetry),
@@ -508,9 +549,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           resetRetry,
         })),
       ),
-      Effect.sleep(CONNECTION_ESTABLISHMENT_TIMEOUT).pipe(
-        Effect.as<EstablishmentEvent>({ _tag: "TimedOut" }),
-      ),
+      awaitEstablishmentTimeout().pipe(Effect.as<EstablishmentEvent>({ _tag: "TimedOut" })),
     ]);
 
     if (establishment._tag === "Interrupted") {
@@ -785,7 +824,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     Effect.withSpan("EnvironmentSupervisor.retryNow"),
   );
 
-  yield* Effect.addFinalizer(() => Queue.shutdown(signals).pipe(Effect.andThen(clearLease)));
+  yield* Effect.addFinalizer(() =>
+    Queue.shutdown(signals).pipe(
+      Effect.andThen(Queue.shutdown(stageAdvances)),
+      Effect.andThen(clearLease),
+    ),
+  );
 
   return EnvironmentSupervisor.of({
     target,
