@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { memo } from "react";
-import { useWindowDimensions } from "react-native";
+import { Image as RNImage, useWindowDimensions } from "react-native";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 
 /**
@@ -14,9 +14,12 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
  * platform SVG decoder, which rasterizes once and caches the bitmap, so the
  * backdrop costs two static image layers no matter how detailed the art gets.
  *
+ * The grain tile on top goes through React Native's own Image instead, the
+ * only one of the two that can repeat a texture natively.
+ *
  * Geometry mirrors the phone branch of the web rule in apps/web/src/index.css:
- * two corner clusters, the lower one lifted clear of the composer. Keep the
- * two in step when either moves.
+ * two corner clusters, the lower one lifted clear of the composer, then grain
+ * over both. Keep the two in step when either moves.
  */
 const CLUSTERS = {
   dark: {
@@ -28,6 +31,11 @@ const CLUSTERS = {
     b: require("../../../assets/themes/cyberpunk-splatter-light-b.svg"),
   },
 } as const;
+
+const GRAIN = require("../../../assets/themes/canvas-grain.png");
+
+/** Matches the per-appearance grain alpha the web canvas uses. */
+const GRAIN_OPACITY = { dark: 0.12, light: 0.07 } as const;
 
 /** Cluster width as a multiple of screen width; the art is square. */
 const LEAD_SCALE = 1.25;
@@ -42,7 +50,8 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
 
   if (themeId !== "cyberpunk") return null;
 
-  const cluster = CLUSTERS[themeAppearance === "dark" ? "dark" : "light"];
+  const appearance = themeAppearance === "dark" ? "dark" : "light";
+  const cluster = CLUSTERS[appearance];
   const lead = width * LEAD_SCALE;
   const trailing = width * TRAILING_SCALE;
 
@@ -67,6 +76,18 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
         }}
         contentFit="contain"
         cachePolicy="memory-disk"
+      />
+      <RNImage
+        source={GRAIN}
+        resizeMode="repeat"
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width,
+          height,
+          opacity: GRAIN_OPACITY[appearance],
+        }}
       />
     </>
   );

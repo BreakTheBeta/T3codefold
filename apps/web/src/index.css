@@ -1769,18 +1769,26 @@ body {
    throws the composition away. Corner-anchored clusters sized in vw keep their
    proportions and stay clear of the centre column at every aspect ratio.
 
-   They paint onto the canvas's own background rather than a fixed overlay on
-   top of it, and neither layer repeats or animates, so each rasterizes once
-   and is never re-blended afterwards. See the --surface-grain note above for
-   what a full-viewport overlay cost us last time. */
+   A third layer carries a grain tile. The chat canvas paints over the inset's
+   own grain, so without it the splatter would sit on the one surface in the
+   app with no texture beneath it. It is a separate tile from --surface-grain
+   rather than a reuse: the shared one is tuned to be almost subliminal on
+   chrome, and at that strength it disappears entirely behind the splatter.
+
+   Everything paints onto the canvas's own background rather than a fixed
+   overlay on top of it, and nothing animates, so the layers rasterize once and
+   are never re-blended afterwards. See the --surface-grain note above for what
+   a full-viewport overlay cost us last time. */
 [data-chat-canvas] {
-  background-repeat: no-repeat, no-repeat;
+  background-repeat: no-repeat, no-repeat, repeat;
   background-position:
     top right,
-    bottom left;
+    bottom left,
+    0 0;
   background-size:
     min(58vw, 720px) auto,
-    min(66vw, 820px) auto;
+    min(66vw, 820px) auto,
+    200px 200px;
 }
 
 /* On a phone both clusters scale up to stay legible, and the lower one lifts
@@ -1789,21 +1797,31 @@ body {
   [data-chat-canvas] {
     background-position:
       top right,
-      left -18vw bottom 12%;
+      left -18vw bottom 12%,
+      0 0;
     background-size:
       125vw auto,
-      130vw auto;
+      130vw auto,
+      200px 200px;
   }
 }
 
 html[data-theme-id="cyberpunk"] [data-chat-canvas] {
+  /* Desaturated, so the grain thickens the surface instead of tinting it the
+     way the app-wide tile's raw RGBA turbulence would once it got this strong.
+     The light half takes less: the same noise over a near-white canvas reads
+     as dirt long before it reads as texture. */
+  --canvas-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.07'/%3E%3C/svg%3E");
   background-image:
-    url("./assets/cyberpunk-splatter-light-a.svg"), url("./assets/cyberpunk-splatter-light-b.svg");
+    url("./assets/cyberpunk-splatter-light-a.svg"), url("./assets/cyberpunk-splatter-light-b.svg"),
+    var(--canvas-grain);
 }
 
 html[data-theme-id="cyberpunk"].dark [data-chat-canvas] {
+  --canvas-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.12'/%3E%3C/svg%3E");
   background-image:
-    url("./assets/cyberpunk-splatter-dark-a.svg"), url("./assets/cyberpunk-splatter-dark-b.svg");
+    url("./assets/cyberpunk-splatter-dark-a.svg"), url("./assets/cyberpunk-splatter-dark-b.svg"),
+    var(--canvas-grain);
 }
 
 /* The live T3 Chat texture is a 128px grayscale tile with a constant 7/255

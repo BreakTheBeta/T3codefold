@@ -16,9 +16,11 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import { PNG } from "pngjs";
 
 /** Web loads these from CSS; the mobile backdrop loads the same files from here. */
-const OUTPUT_DIRECTORIES = ["apps/web/src/assets", "apps/mobile/assets/themes"];
+const MOBILE_DIRECTORY = "apps/mobile/assets/themes";
+const OUTPUT_DIRECTORIES = ["apps/web/src/assets", MOBILE_DIRECTORY];
 
 /* ---------------------------------------------------------------- color -- */
 
@@ -77,6 +79,9 @@ function makeRandom(seed: number): Random {
 type Point = readonly [number, number];
 
 const round = (n: number) => Math.round(n * 10) / 10;
+/** Whole units, for the overspray: at these sizes the lost tenth is invisible
+ *  and there are enough particles for the saved digits to matter. */
+const coarse = (n: number) => Math.round(n);
 const pt = (p: Point) => `${round(p[0])} ${round(p[1])}`;
 
 /** Closed Catmull-Rom spline through the points, emitted as cubic Béziers. */
@@ -111,7 +116,7 @@ function mass(
     amplitude: [0.26, 0.19, 0.15, 0.11, 0.08, 0.05][index]! * random.range(0.5, 1.45),
     phase: random() * Math.PI * 2,
   }));
-  const steps = 32;
+  const steps = Math.min(32, Math.max(14, Math.round(12 + radius * 0.5)));
   const points: Array<Point> = [];
   for (let i = 0; i < steps; i += 1) {
     const angle = (i / steps) * Math.PI * 2;
@@ -222,10 +227,10 @@ function splatter(cx: number, cy: number, radius: number, random: Random) {
     }
   }
 
-  for (let i = 0; i < 70 + Math.floor(random() * 50); i += 1) {
+  for (let i = 0; i < 95 + Math.floor(random() * 65); i += 1) {
     const angle = random() < 0.7 ? random.gauss(throwAngle, 1.15) : random() * Math.PI * 2;
     const reach = radius * random.skewed(1.0, 4.6, 1.5);
-    const size = radius * random.skewed(0.01, 0.11, 2.4);
+    const size = radius * random.skewed(0.006, 0.11, 2.8);
     drops.push({
       cx: cx + Math.cos(angle) * reach,
       cy: cy + Math.sin(angle) * reach,
@@ -236,7 +241,25 @@ function splatter(cx: number, cy: number, radius: number, random: Random) {
     });
   }
 
-  return { paths, drops };
+  // Atomized haze: the fine particles that drift well past the mist and never
+  // resolve into shapes. Sized in absolute units rather than as a fraction of
+  // the splat, so spray from a big throw is no coarser than from a small one --
+  // which is what makes the whole cluster read as one sprayed surface.
+  const haze: Array<Drop> = [];
+  for (let i = 0; i < Math.round(radius * 1.7); i += 1) {
+    const angle = random() < 0.62 ? random.gauss(throwAngle, 1.35) : random() * Math.PI * 2;
+    const reach = radius * random.skewed(1.2, 7.5, 2.1);
+    const size = random.skewed(0.3, 1.9, 2.5);
+    haze.push({
+      cx: cx + Math.cos(angle) * reach,
+      cy: cy + Math.sin(angle) * reach,
+      rx: size,
+      ry: size,
+      angle: 0,
+    });
+  }
+
+  return { paths, drops, haze };
 }
 
 /* ------------------------------------------------------------- artwork -- */
@@ -251,17 +274,29 @@ const CLUSTERS: Record<"a" | "b", ReadonlyArray<Placement>> = {
     { x: 0.8, y: 0.14, radius: 42, hue: 0, seed: 0x5eed07 },
     { x: 0.52, y: 0.33, radius: 24, hue: 0, seed: 0x5eed02 },
     { x: 0.92, y: 0.52, radius: 17, hue: 1, seed: 0x5eed23 },
+    { x: 0.63, y: 0.05, radius: 14, hue: 0, seed: 0x5eed61 },
     { x: 0.66, y: 0.66, radius: 11, hue: 0, seed: 0x5eed14 },
+    { x: 0.21, y: 0.29, radius: 10, hue: 0, seed: 0x5eed62 },
     { x: 0.34, y: 0.62, radius: 8, hue: 0, seed: 0x5eed36 },
+    { x: 0.87, y: 0.8, radius: 7, hue: 0, seed: 0x5eed63 },
+    { x: 0.44, y: 0.47, radius: 6, hue: 1, seed: 0x5eed64 },
     { x: 0.58, y: 0.87, radius: 6, hue: 2, seed: 0x5eed05 },
+    { x: 0.11, y: 0.71, radius: 5, hue: 0, seed: 0x5eed65 },
+    { x: 0.75, y: 0.38, radius: 4, hue: 0, seed: 0x5eed66 },
   ],
   b: [
     { x: 0.22, y: 0.84, radius: 46, hue: 0, seed: 0x5eed31 },
     { x: 0.53, y: 0.63, radius: 23, hue: 0, seed: 0x5eed12 },
     { x: 0.07, y: 0.47, radius: 16, hue: 1, seed: 0x5eed43 },
+    { x: 0.42, y: 0.95, radius: 14, hue: 0, seed: 0x5eed71 },
     { x: 0.78, y: 0.88, radius: 12, hue: 0, seed: 0x5eed24 },
+    { x: 0.71, y: 0.44, radius: 10, hue: 0, seed: 0x5eed72 },
     { x: 0.33, y: 0.38, radius: 8, hue: 0, seed: 0x5eed56 },
+    { x: 0.14, y: 0.16, radius: 7, hue: 0, seed: 0x5eed73 },
+    { x: 0.88, y: 0.66, radius: 6, hue: 1, seed: 0x5eed74 },
     { x: 0.62, y: 0.3, radius: 6, hue: 2, seed: 0x5eed15 },
+    { x: 0.37, y: 0.17, radius: 5, hue: 0, seed: 0x5eed75 },
+    { x: 0.05, y: 0.68, radius: 4, hue: 0, seed: 0x5eed76 },
   ],
 };
 
@@ -270,6 +305,8 @@ type Palette = {
   hues: ReadonlyArray<string>;
   paint: number;
   glow: number;
+  /** Overspray alpha as a fraction of `paint`. */
+  haze: number;
 };
 
 const PALETTES: Record<"dark" | "light", Palette> = {
@@ -278,6 +315,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     hues: [oklchToHex(0.88, 0.26, 145), oklchToHex(0.88, 0.16, 195), oklchToHex(0.76, 0.27, 335)],
     paint: 0.085,
     glow: 0.07,
+    haze: 0.6,
   },
   // The light half is a pale mint sheet, so the same hues are darkened to read
   // as pigment on paper rather than washing out into the canvas.
@@ -285,6 +323,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     hues: [oklchToHex(0.6, 0.2, 148), oklchToHex(0.62, 0.13, 198), oklchToHex(0.54, 0.21, 338)],
     paint: 0.105,
     glow: 0.062,
+    haze: 0.55,
   },
 };
 
@@ -312,12 +351,24 @@ function renderCluster(cluster: ReadonlyArray<Placement>, palette: Palette): str
       `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(spec.radius * 4.6)}" fill="url(#${id})"/>`,
     );
 
-    const { paths, drops } = splatter(cx, cy, spec.radius, random);
+    const { paths, drops, haze } = splatter(cx, cy, spec.radius, random);
+    // Its own group at a lower alpha: overspray that matched the paint would
+    // read as a field of dots instead of as haze hanging behind the throw.
+    paint.push(
+      `<g fill="${color}" fill-opacity="${round(palette.paint * palette.haze)}">` +
+        haze
+          .map((d) => `<circle cx="${coarse(d.cx)}" cy="${coarse(d.cy)}" r="${round(d.rx)}"/>`)
+          .join("") +
+        `</g>`,
+    );
     paint.push(
       `<g fill="${color}" fill-opacity="${palette.paint}">` +
         paths.map((d) => `<path d="${d}"/>`).join("") +
         drops
           .map((d) => {
+            if (d.rx < 0.8) {
+              return `<circle cx="${coarse(d.cx)}" cy="${coarse(d.cy)}" r="${round(d.ry)}"/>`;
+            }
             const at = `cx="${round(d.cx)}" cy="${round(d.cy)}"`;
             if (Math.abs(d.rx - d.ry) < 0.05) return `<circle ${at} r="${round(d.rx)}"/>`;
             return (
@@ -336,15 +387,50 @@ function renderCluster(cluster: ReadonlyArray<Placement>, palette: Palette): str
   );
 }
 
+/* --------------------------------------------------------------- grain -- */
+
+/**
+ * The grain tile mobile uses, as a PNG it can repeat natively.
+ *
+ * Web gets its grain from an feTurbulence data URI in index.css, which is the
+ * pattern already established there and costs no request. React Native has no
+ * equivalent -- SVG filter support across the two platform decoders is not
+ * something to rely on -- so the same texture ships as pixels and renders
+ * through RN's `resizeMode="repeat"`. Alpha stays flat; the appearances differ
+ * only in the opacity the component applies.
+ */
+const GRAIN_TILE = 128;
+
+function renderGrainTile(): Buffer {
+  const png = new PNG({ width: GRAIN_TILE, height: GRAIN_TILE });
+  const random = makeRandom(0x6a1f);
+  for (let i = 0; i < png.data.length; i += 4) {
+    // Monochrome, so compositing it lightens and darkens the canvas without
+    // dragging a hue across it.
+    const value = Math.round(random.gauss(128, 56));
+    png.data[i] = Math.min(255, Math.max(0, value));
+    png.data[i + 1] = png.data[i]!;
+    png.data[i + 2] = png.data[i]!;
+    png.data[i + 3] = 255;
+  }
+  return PNG.sync.write(png, { colorType: 0 });
+}
+
 /* ----------------------------------------------------------------- run -- */
 
-const renderAll = () =>
-  (["dark", "light"] as const).flatMap((appearance) =>
+type Output = { name: string; contents: string | Uint8Array; directories: ReadonlyArray<string> };
+
+const renderAll = (): ReadonlyArray<Output> => [
+  ...(["dark", "light"] as const).flatMap((appearance) =>
     (["a", "b"] as const).map((cluster) => ({
       name: `cyberpunk-splatter-${appearance}-${cluster}.svg`,
-      svg: renderCluster(CLUSTERS[cluster], PALETTES[appearance]),
+      contents: renderCluster(CLUSTERS[cluster], PALETTES[appearance]),
+      directories: OUTPUT_DIRECTORIES,
     })),
-  );
+  ),
+  // Web builds its grain in CSS, so the tile is mobile's alone.
+  { name: "canvas-grain.png", contents: renderGrainTile(), directories: [MOBILE_DIRECTORY] },
+];
 
 const generateSplatter = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -353,16 +439,24 @@ const generateSplatter = Effect.gen(function* () {
   const check = process.argv.includes("--check");
   let stale = false;
 
-  for (const { name, svg } of renderAll()) {
-    for (const directory of OUTPUT_DIRECTORIES) {
+  for (const { name, contents, directories } of renderAll()) {
+    const bytes =
+      typeof contents === "string" ? new TextEncoder().encode(contents) : new Uint8Array(contents);
+    for (const directory of directories) {
       const file = path.join(repositoryRoot, directory, name);
       if (!check) {
-        yield* fs.writeFileString(file, svg);
-        yield* Console.log(`wrote ${directory}/${name} (${(svg.length / 1024).toFixed(1)} kB)`);
+        yield* fs.writeFile(file, bytes);
+        yield* Console.log(`wrote ${directory}/${name} (${(bytes.length / 1024).toFixed(1)} kB)`);
         continue;
       }
-      const current = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => null));
-      if (current === svg) continue;
+      const current = yield* fs.readFile(file).pipe(Effect.orElseSucceed(() => null));
+      if (
+        current !== null &&
+        current.length === bytes.length &&
+        current.every((b, i) => b === bytes[i])
+      ) {
+        continue;
+      }
       stale = true;
       yield* Console.error(`stale: ${directory}/${name}`);
     }
