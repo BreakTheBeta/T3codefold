@@ -1,4 +1,5 @@
 import {
+  taskAwaitingApproval,
   verificationRecipeForTask,
   workNeedsUserInput,
   isUserWorkMessage,
@@ -37,7 +38,9 @@ export function gladosInboxRows(
           ? "delivered"
           : task.status === "cancelled"
             ? "all"
-            : workNeedsUserInput(task) || questions.has(task.id)
+            : workNeedsUserInput(task) ||
+                questions.has(task.id) ||
+                taskAwaitingApproval(task, state.awaitingApproval)
               ? "needs-you"
               : "working";
       return (

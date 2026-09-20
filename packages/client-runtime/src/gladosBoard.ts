@@ -1,5 +1,6 @@
 import {
   isUserWorkMessage,
+  taskAwaitingApproval,
   workNeedsUserInput,
   type PitbossMessage,
   type PitbossSnapshot,
@@ -29,10 +30,15 @@ export interface ManagedWorkerRow {
   readonly model: string;
   readonly state: PitbossAttempt["state"];
   readonly threadId: PitbossAttempt["threadId"];
+  /** Live and parked on a runtime permission prompt only the user can answer. */
+  readonly awaitingApproval: boolean;
 }
 
 /** Current worker first, while retaining prior attempts as navigable history. */
-export function managedWorkerRows(task: PitbossTask): ManagedWorkerRow[] {
+export function managedWorkerRows(
+  task: PitbossTask,
+  awaitingApproval?: PitbossSnapshot["awaitingApproval"],
+): ManagedWorkerRow[] {
   const current = task.attempts.at(-1)?.id;
   return [...task.attempts].reverse().map((attempt) => ({
     attemptId: attempt.id,
@@ -41,17 +47,29 @@ export function managedWorkerRows(task: PitbossTask): ManagedWorkerRow[] {
     model: attempt.model.model,
     state: attempt.state,
     threadId: attempt.threadId,
+    awaitingApproval: attempt.id === current && !!awaitingApproval?.includes(attempt.id),
   }));
+}
+
+/** The row says what the user must do, not what the run status happens to be. */
+export function managedWorkerStateLabel(
+  worker: Pick<ManagedWorkerRow, "state" | "awaitingApproval">,
+) {
+  return worker.awaitingApproval ? "waiting for your approval" : worker.state;
 }
 
 export function isManagedWorkerLive(attempt: PitbossAttempt | undefined): boolean {
   return !!attempt && ["pending", "running", "submitted", "stop_requested"].includes(attempt.state);
 }
 
-export function gladosTaskLane(task: PitbossTask, hasQuestion = false): GladosBoardLaneId {
+export function gladosTaskLane(
+  task: PitbossTask,
+  hasQuestion = false,
+  awaitingApproval = false,
+): GladosBoardLaneId {
   if (task.status === "done") return "done";
   if (task.status === "cancelled") return "closed";
-  if (hasQuestion || workNeedsUserInput(task)) return "needs-you";
+  if (hasQuestion || awaitingApproval || workNeedsUserInput(task)) return "needs-you";
   switch (task.status) {
     case "queued":
       return "queued";
@@ -66,7 +84,7 @@ export function gladosTaskLane(task: PitbossTask, hasQuestion = false): GladosBo
 
 /** One card per outcome; task questions stay with their outcome and evidence. */
 export function buildGladosBoard(
-  state: Pick<PitbossSnapshot, "tasks" | "messages">,
+  state: Pick<PitbossSnapshot, "tasks" | "messages" | "awaitingApproval">,
   filter: { query?: string; projectId?: string } = {},
 ) {
   const query = filter.query?.trim().toLocaleLowerCase() ?? "";
@@ -84,7 +102,14 @@ export function buildGladosBoard(
     if (filter.projectId && task.projectId !== filter.projectId) continue;
     if (query && !`${task.title} ${task.outcome} ${task.note}`.toLocaleLowerCase().includes(query))
       continue;
-    add(gladosTaskLane(task, questions.has(task.id)), { key: `task:${task.id}`, task });
+    add(
+      gladosTaskLane(
+        task,
+        questions.has(task.id),
+        taskAwaitingApproval(task, state.awaitingApproval),
+      ),
+      { key: `task:${task.id}`, task },
+    );
   }
   for (const message of state.messages) {
     if (message.acknowledged || (message.taskId && ids.has(message.taskId)) || filter.projectId)

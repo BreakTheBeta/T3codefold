@@ -4,6 +4,7 @@ import {
   buildGladosBoard,
   gladosBoardColumnWidth,
   managedWorkerRows,
+  managedWorkerStateLabel,
 } from "@t3tools/client-runtime/glados-board";
 import {
   pitbossMessageHeadline,
@@ -72,21 +73,21 @@ export function GladosBoard(props: {
         </Text>
         <Text>{task.outcome}</Text>
         {!!task.note && <Text className="text-foreground-muted">{task.note}</Text>}
-        {managedWorkerRows(task).length > 0 && (
+        {managedWorkerRows(task, props.state.awaitingApproval).length > 0 && (
           <View className="gap-2">
             <Text accessibilityRole="header" className="font-semibold">
               Managed workers
             </Text>
-            {managedWorkerRows(task).map((worker) => (
+            {managedWorkerRows(task, props.state.awaitingApproval).map((worker) => (
               <Pressable
                 key={worker.attemptId}
                 accessibilityRole="button"
-                accessibilityLabel={`Open worker ${worker.generation}, ${worker.state}`}
+                accessibilityLabel={`Open worker ${worker.generation}, ${managedWorkerStateLabel(worker)}`}
                 onPress={() => props.onOpenWorker(task, worker.threadId)}
                 className="min-h-12 justify-center rounded-xl border border-border px-3"
               >
                 <Text>
-                  Worker {worker.generation} · {worker.state}
+                  Worker {worker.generation} · {managedWorkerStateLabel(worker)}
                 </Text>
                 <Text numberOfLines={1} className="text-xs text-foreground-muted">
                   {worker.model} · {worker.current ? "current" : "history"}
@@ -206,18 +207,18 @@ export function GladosBoard(props: {
                         {item.task.attempts.at(-1)?.model.model ?? "GLaDOS"}
                       </Text>
                     </Pressable>
-                    {managedWorkerRows(item.task)
+                    {managedWorkerRows(item.task, props.state.awaitingApproval)
                       .slice(0, 1)
                       .map((worker) => (
                         <Pressable
                           key={worker.attemptId}
                           accessibilityRole="button"
-                          accessibilityLabel={`Open worker ${worker.generation}, ${worker.state}`}
+                          accessibilityLabel={`Open worker ${worker.generation}, ${managedWorkerStateLabel(worker)}`}
                           onPress={() => props.onOpenWorker(item.task, worker.threadId)}
                           className="mx-2 mb-2 min-h-12 justify-center rounded-lg bg-subtle px-3"
                         >
                           <Text className="text-sm">
-                            Worker {worker.generation} · {worker.state}
+                            Worker {worker.generation} · {managedWorkerStateLabel(worker)}
                           </Text>
                         </Pressable>
                       ))}

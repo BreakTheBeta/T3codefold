@@ -6,7 +6,13 @@ import {
   type PitbossSnapshot,
   type PitbossTask,
 } from "@t3tools/contracts";
-import { evidenceKind, filterWork, needsAttention, nextActionLabel } from "./workView";
+import {
+  evidenceKind,
+  filterWork,
+  needsAttention,
+  nextActionLabel,
+  workNeedsYou,
+} from "./workView";
 
 function task(title: string, status: PitbossTask["status"] = "queued", priority = 50) {
   return {
@@ -62,6 +68,34 @@ describe("GLaDOS work discovery", () => {
     ).toBe(false);
     expect(filterWork([blocked, done, cancelled], "Delivered", "", "")).toEqual([done]);
     expect(needsAttention(cancelled)).toBe(false);
+  });
+  it("counts a worker parked on a permission prompt wherever it lists it", () => {
+    const attempts: PitbossTask["attempts"] = [
+      {
+        id: "attempt-parked",
+        threadId: ThreadId.make("worker"),
+        generation: 1,
+        state: "running",
+        model: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+        createdAt: "2026-09-16T00:00:00Z",
+        detail: "",
+      },
+    ];
+    const parked = { ...task("Permission prompt", "active"), attempts };
+    const awaiting = ["attempt-parked"];
+    expect(filterWork([parked], "Needs you", "", "", awaiting)).toEqual([parked]);
+    expect(filterWork([parked], "Working", "", "", awaiting)).toEqual([]);
+    expect(filterWork([parked], "Needs you", "", "", [])).toEqual([]);
+    expect(filterWork([parked], "Working", "", "", [])).toEqual([parked]);
+    // The badge that opens the filter must count exactly what the filter lists.
+    expect(workNeedsYou(parked, awaiting)).toBe(true);
+    expect(workNeedsYou(parked)).toBe(false);
+    // Only the current worker is the user's to answer; a finished attempt is history.
+    const replaced = {
+      ...parked,
+      attempts: [...attempts, { ...attempts[0]!, id: "attempt-next", generation: 2 }],
+    };
+    expect(workNeedsYou(replaced, awaiting)).toBe(false);
   });
   it("does not label unconfigured or file outcomes as code", () => {
     expect(evidenceKind(undefined)).toBe("Outcome");

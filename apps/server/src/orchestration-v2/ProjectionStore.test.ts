@@ -2156,6 +2156,31 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
             capturedAt: now,
           },
         });
+        const secondCheckpointId = CheckpointId.make("checkpoint:checkpoint-context:2");
+        const secondRef = CheckpointRef.make("refs/t3/checkpoint-context/2");
+        yield* projectionStore.apply({
+          id: EventId.make("event:checkpoint-context:checkpoint:2"),
+          type: "checkpoint.captured",
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: secondCheckpointId,
+            threadId,
+            scopeId,
+            runId,
+            nodeId,
+            parentCheckpointId: checkpointId,
+            ordinalWithinScope: 2,
+            appRunOrdinal: 2,
+            ref: secondRef,
+            status: "ready",
+            files: [
+              { path: "src/one.ts", kind: "M", additions: 3, deletions: 1 },
+              { path: "src/two.ts", kind: "A", additions: 9, deletions: 0 },
+            ],
+            capturedAt: now,
+          },
+        });
         // Old transcript shapes must not make a metadata-only diff unreadable.
         yield* sql`
         INSERT INTO orchestration_v2_projection_turn_items (
@@ -2179,7 +2204,18 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         assert.deepEqual(yield* projectionStore.getCheckpointContext(threadId), {
           runs: [{ id: runId, ordinal: 1, status: "completed" }],
           checkpointScopes: [{ id: scopeId, runId, kind: "root_run", cwd: "/repo/worktree" }],
-          checkpoints: [{ scopeId, runId, appRunOrdinal: 1, status: "ready", ref }],
+          // The count is read from the stored summaries, and a legacy non-array shape reads zero.
+          checkpoints: [
+            { scopeId, runId, appRunOrdinal: 1, status: "ready", ref, fileCount: 0 },
+            {
+              scopeId,
+              runId,
+              appRunOrdinal: 2,
+              status: "ready",
+              ref: secondRef,
+              fileCount: 2,
+            },
+          ],
         });
         const missing = yield* projectionStore
           .getCheckpointContext(ThreadId.make("thread:checkpoint-context:missing"))

@@ -11,6 +11,7 @@ import {
   gladosBoardColumnWidth,
   gladosTaskLane,
   managedWorkerRows,
+  managedWorkerStateLabel,
 } from "./gladosBoard.ts";
 
 const task = (id: string, status: PitbossTask["status"]): PitbossTask => ({
@@ -56,9 +57,13 @@ const message = (taskId: string | null): PitbossMessage => ({
   createdAt: "2026-09-18",
   acknowledged: false,
 });
-const contents = (tasks: PitbossTask[], messages: PitbossMessage[] = []) =>
+const contents = (
+  tasks: PitbossTask[],
+  messages: PitbossMessage[] = [],
+  awaitingApproval?: readonly string[],
+) =>
   Object.fromEntries(
-    buildGladosBoard({ tasks, messages }).map((lane) => [
+    buildGladosBoard({ tasks, messages, awaitingApproval }).map((lane) => [
       lane.id,
       lane.items.map((item) => item.key),
     ]),
@@ -168,6 +173,21 @@ describe("GLaDOS board", () => {
         { ...task("urgent", "queued"), priority: 1 },
       ]).queued,
     ).toEqual(["task:urgent", "task:new", "task:old"]);
+  });
+  it("moves a task whose live worker waits for a permission answer into the user lane", () => {
+    const blocked = task("blocked", "active");
+    expect(contents([blocked]).working).toEqual(["task:blocked"]);
+    const waiting = contents([blocked], [], ["attempt-blocked"]);
+    expect(waiting["needs-you"]).toEqual(["task:blocked"]);
+    expect(waiting.working).toEqual([]);
+    expect(gladosTaskLane(blocked, false, true)).toBe("needs-you");
+  });
+  it("labels the current worker row with what the user owes it", () => {
+    const blocked = task("blocked", "active");
+    const [current] = managedWorkerRows(blocked, ["attempt-blocked"]);
+    expect(current?.awaitingApproval).toBe(true);
+    expect(managedWorkerStateLabel(current!)).toBe("waiting for your approval");
+    expect(managedWorkerStateLabel(managedWorkerRows(blocked)[0]!)).toBe("running");
   });
   it("adapts columns to folded and unfolded modal widths", () => {
     expect(gladosBoardColumnWidth(280)).toBe(240);
