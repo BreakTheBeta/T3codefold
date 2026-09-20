@@ -174,6 +174,7 @@ const command = Effect.fn("nativeClient.command")(function* (
   args: string[],
   inherit = false,
   cwd?: string,
+  environmentOverrides: Record<string, string> = {},
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const environment = yield* HostProcessEnvironment;
@@ -189,6 +190,7 @@ const command = Effect.fn("nativeClient.command")(function* (
         T3CODE_IOS_PERSONAL_TEAM: "0",
         CI: "1",
         EXPO_NO_GIT_STATUS: "1",
+        ...environmentOverrides,
       },
       stdin: "ignore",
       stdout: inherit ? "inherit" : "pipe",
@@ -205,6 +207,50 @@ const command = Effect.fn("nativeClient.command")(function* (
     });
   return stdout.trim();
 }, Effect.scoped);
+
+const ANDROID_ABIS = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"] as const;
+export type AndroidAbi = (typeof ANDROID_ABIS)[number];
+
+export function parseAndroidAbi(value: string): AndroidAbi {
+  const abi = value.trim();
+  if (!ANDROID_ABIS.some((candidate) => candidate === abi)) {
+    throw new NativeClientError({
+      message: `Unsupported Android emulator ABI: ${abi || "empty"}.`,
+    });
+  }
+  return abi as AndroidAbi;
+}
+
+/** Debug clients run on one emulator, so the other three ABIs are pure build time. */
+export function androidGradleBuildArgs(abi: AndroidAbi): string[] {
+  return ["app:assembleDebug", "--build-cache", `-PreactNativeArchitectures=${abi}`];
+}
+
+/** Expo fingerprinting decides when native inputs changed; --clean would discard every intermediate. */
+export function incrementalPrebuildArgs(platform: NativePlatform): string[] {
+  return ["exec", "expo", "prebuild", "--platform", platform, "--no-install"];
+}
+
+/**
+ * Gradle's build cache covers JVM and packaging tasks, but externalNativeBuild is not cacheable,
+ * and pnpm materializes each worktree's node_modules separately. ccache is what lets one host's
+ * NDK objects serve every checkout, so its settings exist to make a compile hash identically
+ * regardless of which worktree ran it.
+ */
+export function ccacheEnvironment(repoRoot: string): Record<string, string> {
+  return {
+    CMAKE_C_COMPILER_LAUNCHER: "ccache",
+    CMAKE_CXX_COMPILER_LAUNCHER: "ccache",
+    // Rewrites checkout-absolute paths to CWD-relative. The NDK sits outside the checkout and
+    // stays absolute, which is what keeps toolchain changes a miss.
+    CCACHE_BASEDIR: repoRoot,
+    // The same dependency unpacked into two worktrees differs only in timestamps.
+    CCACHE_SLOPPINESS: "include_file_ctime,include_file_mtime,time_macros,pch_defines",
+    // Debug info records the build directory; hashing it would make every worktree a miss.
+    CCACHE_NOHASHDIR: "1",
+    CCACHE_COMPILERCHECK: "content",
+  };
+}
 
 const fingerprint = Effect.fn("nativeClient.fingerprint")(function* (platform: NativePlatform) {
   const output = yield* command(yield* HostProcessExecutablePath, [
@@ -334,14 +380,9 @@ const main = Command.make(
         );
         if (tracked)
           return yield* new NativeClientError({
-            message:
-              "Native directory contains tracked files; clean prebuild would overwrite them.",
+            message: "Native directory contains tracked files; prebuild would overwrite them.",
           });
-        yield* command(
-          "vp",
-          ["exec", "expo", "prebuild", "--clean", "--platform", platform, "--no-install"],
-          true,
-        );
+        yield* command("vp", incrementalPrebuildArgs(platform), true);
         if (platform === "ios") {
           const output = yield* fs.makeTempDirectoryScoped({ prefix: "t3-native-client-" });
           const { mobile } = yield* roots;
@@ -376,17 +417,31 @@ const main = Command.make(
             true,
           );
         } else {
+          const { mobile, repo } = yield* roots;
+          const abi = parseAndroidAbi(
+            yield* command("adb", ["-s", device, "shell", "getprop", "ro.product.cpu.abi"]),
+          );
+          const hasCcache = yield* isCommandAvailable("ccache");
+          if (!hasCcache)
+            yield* Console.error(
+              "ccache is not installed, so this build cannot reuse NDK objects compiled in another worktree. Install ccache to share them.",
+            );
+          const gradle =
+            (yield* HostProcessPlatform) === "win32"
+              ? path.join(mobile, "android/gradlew.bat")
+              : path.join(mobile, "android/gradlew");
+          yield* command(gradle, androidGradleBuildArgs(abi), true, path.join(mobile, "android"), {
+            ANDROID_SERIAL: device,
+            ...(hasCcache ? ccacheEnvironment(repo) : {}),
+          });
           yield* command(
-            "vp",
+            "adb",
             [
-              "exec",
-              "expo",
-              "run:android",
-              "--device",
+              "-s",
               device,
-              "--no-bundler",
-              "--variant",
-              "debug",
+              "install",
+              "-r",
+              path.join(mobile, "android/app/build/outputs/apk/debug/app-debug.apk"),
             ],
             true,
           );

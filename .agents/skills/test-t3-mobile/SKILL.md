@@ -37,6 +37,20 @@ node scripts/mobile-native-client.ts ensure <ios|android> <device-id>
 This reuses a matching native client or builds and installs one. Authorized
 mobile verification includes that build step unless the user prohibits it.
 
+The Android path is incremental and must stay that way. It keeps this worktree's
+generated `android/` project, builds only the connected emulator's ABI, and
+installs by adb serial. After an interruption, rerun the same command so Gradle
+resumes from completed work. Do not reach for `expo prebuild --clean` or delete
+`android/`: the rebuild costs roughly an hour, and Expo's fingerprint plus
+Gradle's task invalidation already handle changed native inputs.
+
+Two caches are shared across every worktree on the host, so a dependency another
+checkout already compiled is usually free here: Gradle's local build cache in the
+Gradle user home, and ccache for NDK objects. Install ccache if `ensure` warns it
+is missing. What is _not_ shareable is the generated `android/` tree and its
+`.gradle`, `build`, and `.cxx` directories — they embed absolute paths, so never
+symlink or copy them between worktrees. Let the content-addressed caches do it.
+
 Start `vp run dev:client` from `apps/mobile`, or reuse a healthy Metro belonging
 to this checkout. Open its printed development-client URL with AgentDevice
 `open com.t3tools.t3code.dev <url>` and all returned target arguments.
@@ -63,3 +77,16 @@ Confirm the intended projects appear, exercise the affected flow, and capture
 evidence. Retain the app and environment while iterating. At teardown, remove
 the disposable connection, close the AgentDevice session, call `device_close`,
 and stop only your backend and Metro processes.
+
+## Troubleshooting
+
+- **Android build cannot find a device matching the adb serial:** rerun `ensure`.
+  It targets the serial directly through Gradle and adb, and never passes it to
+  Expo's device-name lookup.
+- **Android cannot reach Metro:** verify `adb reverse` for the exact Metro port,
+  then relaunch the development-client URL.
+- **Android cannot reach the backend:** use `10.0.2.2`, not `127.0.0.1`, for the
+  Android Emulator.
+- **An Android build is slower than expected:** check `ccache -s` for hits. A
+  fresh worktree whose `.cxx` is empty still recompiles, but ccache should serve
+  most objects. Zero hits usually means the NDK or compiler flags changed.
