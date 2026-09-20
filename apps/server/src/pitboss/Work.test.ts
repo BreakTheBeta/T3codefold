@@ -913,9 +913,9 @@ it("separates coordinator recovery from worker execution", () => {
   const coordinatorContext = workContext(f.state, threadId)!;
   const workerContext = workContext(f.state, worker.threadId)!;
 
-  expect(coordinatorContext).toContain("Strict coordination");
+  expect(coordinatorContext).toContain("## Coordination");
   expect(coordinatorContext).toContain("A failed or rejected launch is a recovery obligation");
-  expect(coordinatorContext).toContain("do not take over implementation");
+  expect(coordinatorContext).toContain("Never take over implementation");
   expect(workerContext).toContain("You are the worker for this assignment");
   expect(workerContext).toContain("repository edits, builds, debugging, test execution");
 });

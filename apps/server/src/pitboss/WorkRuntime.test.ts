@@ -1039,7 +1039,7 @@ it.effect("changes a submitted result from await-writer to review after the work
       `Result ready for review · task submitted-result · attempt ${attempt.id} · owner GLaDOS`,
     );
     expect(h.sentMessages[1]?.text).toContain(
-      "Next: inspect the reported evidence and record review; do not accept the stopped turn itself.",
+      "Next: inspect the reported evidence and record review. Do not accept the stopped turn itself",
     );
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
@@ -1312,7 +1312,7 @@ it.effect("wakes once with an honest review action when a worker finishes withou
       `Recovery needed · task unfinished-result · attempt ${attempt.id} · owner GLaDOS`,
     );
     expect(h.sentMessages[0]?.text).toContain(
-      "Next: inspect the retained thread, then rework or cancel with an honest superseded reason; do not invent evidence for historical work.",
+      "Next: inspect the retained thread, then rework or cancel with an honest superseded reason. Never invent evidence for historical work.",
     );
     expect(h.sentMessages[0]?.text).not.toContain("work_read");
     expect(h.sentMessages[0]?.text).not.toContain("Pending user decisions");
@@ -1491,7 +1491,7 @@ it.effect("leaves decision requests to the user and delivers answers with new re
     expect(h.sentMessages[0]?.text).toContain(
       "Ready to assign · task newly-ready · attempt none · owner GLaDOS",
     );
-    expect(h.sentMessages[0]?.text).not.toContain("decision · task decision-task");
+    expect(h.sentMessages[0]?.text).not.toContain("Decision needed · task decision-task");
   }).pipe(Effect.provide(services)),
 );
 it.effect("redelivers a mirrored task obligation when ownership returns to a prior manager", () =>

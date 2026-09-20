@@ -36,6 +36,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 
 const isDomainEvent = Schema.is(OrchestrationV2DomainEvent);
 
@@ -148,6 +149,8 @@ function makeLocalCommandHarness(input: {
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
   readonly logoutFailure?: string;
+  /** Present when the turn should actually start, carrying this thread's managed-work rules. */
+  readonly managedWork?: string | null;
 }) {
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
   const threadId = ThreadId.make("thread-native-account-command");
@@ -320,18 +323,44 @@ function makeLocalCommandHarness(input: {
     updatedAt: now,
   };
   const events: Array<OrchestrationV2DomainEvent> = [];
-  const open = vi.fn(() => Effect.die("A local command must not open a native session."));
-  const startRootRun = vi.fn(() => Effect.die("A local command must not start a native turn."));
+  const contextCalls: Array<ReadonlyArray<unknown>> = [];
+  const starts = input.managedWork !== undefined;
+  const open = vi.fn(() =>
+    starts
+      ? Effect.succeed({
+          driver: ProviderDriverKind.make("codex"),
+          providerSession: {
+            id: providerSessionId,
+            driver: ProviderDriverKind.make("codex"),
+            providerInstanceId: newInstanceId,
+            status: "ready",
+            cwd: "/tmp/native-account-command",
+            model: "gpt-5.4",
+            capabilities: CodexProviderCapabilitiesV2,
+            createdAt: now,
+            updatedAt: now,
+            lastError: null,
+          },
+          ensureThread: () => Effect.succeed(providerThread),
+        } as never)
+      : Effect.die("A local command must not open a native session."),
+  );
+  const startRootRun = vi.fn(
+    (_input: RunExecutionService.RunExecutionServiceV2StartRootRunInput) =>
+      starts ? Effect.void : Effect.die("A local command must not start a native turn."),
+  );
   const tryHandlePromptCommand = vi.fn(() =>
-    input.logoutFailure === undefined
-      ? Effect.succeed(true)
-      : Effect.fail(
-          new ProviderSetupError({
-            instanceId: oldInstanceId,
-            operation: "logout",
-            detail: input.logoutFailure,
-          }),
-        ),
+    starts
+      ? Effect.succeed(false)
+      : input.logoutFailure === undefined
+        ? Effect.succeed(true)
+        : Effect.fail(
+            new ProviderSetupError({
+              instanceId: oldInstanceId,
+              operation: "logout",
+              detail: input.logoutFailure,
+            }),
+          ),
   );
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
@@ -364,12 +393,18 @@ function makeLocalCommandHarness(input: {
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ open }),
         Layer.mock(ProviderAuthService)({ tryHandlePromptCommand }),
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
-        Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
-        Layer.mock(WorkStore)({ context: () => Effect.succeed(null) }),
+        starts ? RuntimePolicy.layer : Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
+        Layer.mock(WorkStore)({
+          context: (...args: ReadonlyArray<unknown>) => {
+            contextCalls.push(args);
+            return Effect.succeed(input.managedWork ?? null);
+          },
+        }),
       ),
     ),
   );
   return {
+    contextCalls,
     open,
     startRootRun,
     tryHandlePromptCommand,
@@ -466,3 +501,40 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
       }),
   );
 }
+
+effectIt.effect("gives a starting turn its managed-work rules for this thread and attempt", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Ship the dark mode toggle",
+      managedWork:
+        "<t3-pitboss-context>\nYou are this environment's elected GLaDOS.\n</t3-pitboss-context>",
+    });
+
+    yield* harness.start;
+
+    expect(harness.contextCalls).toEqual([
+      [
+        ThreadId.make("thread-native-account-command"),
+        RunAttemptId.make("attempt-native-account-command"),
+      ],
+    ]);
+    const turn = harness.startRootRun.mock.calls[0]![0];
+    expect(turn.message.text).toBe(
+      "<t3-pitboss-context>\nYou are this environment's elected GLaDOS.\n</t3-pitboss-context>\n\n<user_request>\nShip the dark mode toggle\n</user_request>",
+    );
+  }),
+);
+
+effectIt.effect("leaves an unmanaged thread's turn text untouched", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Ship the dark mode toggle",
+      managedWork: null,
+    });
+
+    yield* harness.start;
+
+    const turn = harness.startRootRun.mock.calls[0]![0];
+    expect(turn.message.text).toBe("Ship the dark mode toggle");
+  }),
+);

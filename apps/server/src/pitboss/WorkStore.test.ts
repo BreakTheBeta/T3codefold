@@ -421,6 +421,25 @@ it.effect(
     }).pipe(Effect.provide(services)),
 );
 
+it.effect("gives an unmanaged thread no packet without decoding the work snapshot", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    const sql = yield* SqlClient.SqlClient;
+    yield* store.command(election, { type: "user" });
+    // Every thread in the environment asks for a packet on every turn; only managed ones have one.
+    expect(yield* store.context(ThreadId.make("unrelated-thread"), "turn-one")).toBeNull();
+    expect(
+      yield* sql`SELECT count(*) AS n FROM pitboss_context_packets`.pipe(
+        Effect.map((rows) => (rows[0] as { n: number }).n),
+      ),
+    ).toBe(0);
+    // The coordinator's own thread still resolves through the same call.
+    expect(yield* store.context(ThreadId.make("boss"), "turn-two")).toContain(
+      "<t3-pitboss-context>",
+    );
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect("keeps a failed dispatch visible as an unresolved obligation after recovery", () =>
   Effect.gen(function* () {
     const store = yield* WorkStore;
