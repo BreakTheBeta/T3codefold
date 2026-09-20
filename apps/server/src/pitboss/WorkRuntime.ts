@@ -13,6 +13,7 @@ import {
   pitbossTaskNextAction,
   verificationRecipeForTask,
   type PitbossSnapshot,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
 import * as DateTime from "effect/DateTime";
@@ -74,6 +75,9 @@ function workerAttemptHandled(
   )
     return false;
   return ["done", "cancelled"].includes(task.status) || attemptIndex < task.attempts.length - 1;
+}
+function hasActiveShellRun(shell: OrchestrationV2ThreadShell): boolean {
+  return shell.activeRunId !== null || shell.activityRunStatus != null;
 }
 interface WakeRecipient {
   readonly id: string;
@@ -217,6 +221,19 @@ export const layer = Layer.effectDiscard(
     const launch = yield* ThreadLaunchService;
     const drainLock = yield* Semaphore.make(1);
     const settledAttempts = new Set<string>();
+    const readShell = Effect.fn("WorkRuntime.readShell")(function* (
+      threadId: ThreadId,
+      projectId?: ProjectId,
+    ) {
+      const shell = yield* threads.getThreadShell(threadId);
+      if (!shell || (projectId !== undefined && shell.projectId !== projectId)) {
+        return yield* new OrchestratorProjectionError({
+          threadId,
+          cause: new ProjectionStoreThreadNotFoundError({ threadId }),
+        });
+      }
+      return shell;
+    });
     let lastLeadId: string | undefined;
     const processWake = Effect.fn("WorkRuntime.processWake")(function* (effect: WorkEffect) {
       const intent = yield* decodeWake(effect.payload_json);
@@ -261,10 +278,8 @@ export const layer = Layer.effectDiscard(
       }
       const deliverable = matched.filter((event) => event.deliverable);
       if (deliverable.length === 0) return;
-      const thread = yield* Effect.result(
-        threads.getProjectThread({ projectId: recipient.projectId, threadId: recipient.threadId }),
-      );
-      if (thread._tag === "Success" && latestActiveRun(thread.success)) return;
+      const thread = yield* Effect.result(readShell(recipient.threadId, recipient.projectId));
+      if (thread._tag === "Success" && hasActiveShellRun(thread.success)) return;
       if (thread._tag === "Failure") {
         yield* store.retryEffect(effect.operation_id, String(thread.failure));
         return;
@@ -585,7 +600,7 @@ export const layer = Layer.effectDiscard(
         const attempt = task.attempts.at(-1);
         if (!attempt || !["running", "submitted", "stop_requested"].includes(attempt.state))
           continue;
-        const observed = yield* Effect.result(threads.getThreadProjection(attempt.threadId));
+        const observed = yield* Effect.result(readShell(attempt.threadId, task.projectId));
         if (observed._tag === "Failure" && isMissingThread(observed.failure)) {
           yield* store.updateAttempt(
             task.id,
@@ -596,21 +611,21 @@ export const layer = Layer.effectDiscard(
         }
         if (
           observed._tag === "Success" &&
-          observed.success.thread.worktreePath &&
-          attempt.workspacePath !== observed.success.thread.worktreePath
+          observed.success.worktreePath &&
+          attempt.workspacePath !== observed.success.worktreePath
         ) {
           yield* store.updateAttempt(
             task.id,
             attempt.id,
             attempt.state,
             attempt.detail,
-            observed.success.thread.worktreePath,
+            observed.success.worktreePath,
           );
         }
         if (
           observed._tag === "Success" &&
-          observed.success.runs.length > 0 &&
-          !latestActiveRun(observed.success)
+          observed.success.latestRunId !== null &&
+          !hasActiveShellRun(observed.success)
         ) {
           yield* store.updateAttempt(
             task.id,
@@ -740,29 +755,30 @@ export const layer = Layer.effectDiscard(
           if (settledAttempts.has(attempt.id) || attempt.threadId === state.role?.threadId)
             continue;
           if (!workerAttemptHandled(state, task, attemptIndex)) continue;
-          const observed = yield* Effect.result(threads.getThreadProjection(attempt.threadId));
+          const observed = yield* Effect.result(readShell(attempt.threadId, task.projectId));
           if (observed._tag === "Failure") {
             if (isMissingThread(observed.failure)) continue;
             return yield* Effect.fail(observed.failure);
           }
           const projection = observed.success;
-          if (projection.thread.settledOverride !== null) {
+          if (projection.settledOverride !== null) {
             settledAttempts.add(attempt.id);
             continue;
           }
           if (
-            projection.runs.some((run) =>
-              ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
-            ) ||
-            projection.runtimeRequests.some((request) => request.status === "pending")
+            hasActiveShellRun(projection) ||
+            projection.status === "queued" ||
+            projection.pendingRuntimeRequest !== null
           )
             continue;
           yield* threads
             .dispatch({
               type: "thread.auto-settle",
-              commandId: CommandId.make(`pitboss:settle:${attempt.id}`),
+              commandId: CommandId.make(
+                `pitboss:settle:${attempt.id}:${DateTime.toEpochMillis(projection.updatedAt)}`,
+              ),
               threadId: attempt.threadId,
-              snapshotAt: projection.thread.updatedAt,
+              snapshotAt: projection.updatedAt,
             })
             .pipe(
               Effect.tap(() => Effect.sync(() => settledAttempts.add(attempt.id))),
@@ -776,8 +792,8 @@ export const layer = Layer.effectDiscard(
       if (!role || role.paused) return;
       const leads = activeLeads(state);
       const leadRuns = yield* Effect.forEach(leads, (lead) =>
-        threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }).pipe(
-          Effect.map((thread) => ({ lead, active: !!latestActiveRun(thread), available: true })),
+        readShell(lead.threadId, lead.projectId).pipe(
+          Effect.map((thread) => ({ lead, active: hasActiveShellRun(thread), available: true })),
           Effect.catch((error) =>
             isMissingThread(error)
               ? Effect.succeed({ lead, active: false, available: false })
@@ -821,11 +837,8 @@ export const layer = Layer.effectDiscard(
           })
           .slice(0, 8);
         if (!events.length) continue;
-        const thread = yield* threads.getProjectThread({
-          projectId: recipient.projectId,
-          threadId: recipient.threadId,
-        });
-        if (latestActiveRun(thread)) continue;
+        const thread = yield* readShell(recipient.threadId, recipient.projectId);
+        if (hasActiveShellRun(thread)) continue;
         const operationId = `pitboss:wake:${NodeCrypto.createHash("sha256")
           .update(
             encodeWake([recipient.id, recipient.generation, events.map((event) => event.key)]),
