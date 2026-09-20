@@ -25,7 +25,9 @@ describe("ServerSettings response streaming", () => {
     expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");
   });
 
-  it.each(["turn", "paragraph"])(
+  // `token` is still a mode the settings UI offers, behind its own confirmation dialog, so it
+  // round-trips like the other two rather than being rejected or rewritten on read.
+  it.each(["turn", "paragraph", "token"])(
     "round-trips %s as an environment setting and project override",
     (responseStreamingMode) => {
       const input = {
@@ -37,10 +39,10 @@ describe("ServerSettings response streaming", () => {
     },
   );
 
-  it.each(["token", "unsupported"])("rejects %s in settings snapshots and writes", (mode) => {
+  it("rejects an unknown mode in settings snapshots and writes", () => {
     for (const input of [
-      { responseStreamingMode: mode },
-      { projectSettingsOverrides: { project: { responseStreamingMode: mode } } },
+      { responseStreamingMode: "unsupported" },
+      { projectSettingsOverrides: { project: { responseStreamingMode: "unsupported" } } },
     ]) {
       expect(() => decodeServerSettings(input)).toThrow();
       expect(() => decodeServerSettingsPatch(input)).toThrow();

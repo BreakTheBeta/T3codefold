@@ -81,7 +81,7 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
-  it.effect("migrates saved token delivery to paragraph buffering without resetting settings", () =>
+  it.effect("reads a saved streaming mode per project without resetting other settings", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
@@ -99,11 +99,13 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         }`,
       );
 
+      // `token` is a mode the settings UI still offers behind a confirmation, so a saved
+      // opt-in is read back as chosen rather than rewritten to the default.
       const settings = yield* service.getSettings;
-      assert.equal(settings.responseStreamingMode, "paragraph");
+      assert.equal(settings.responseStreamingMode, "token");
       assert.isFalse(settings.enableAgentBrowserAccess);
       assert.deepEqual(settings.projectSettingsOverrides, {
-        [ProjectId.make("legacy")]: { responseStreamingMode: "paragraph", defaultAutoPull: true },
+        [ProjectId.make("legacy")]: { responseStreamingMode: "token", defaultAutoPull: true },
         [ProjectId.make("buffered")]: { responseStreamingMode: "turn" },
         [ProjectId.make("inherited")]: { defaultAutoPull: false },
       });
