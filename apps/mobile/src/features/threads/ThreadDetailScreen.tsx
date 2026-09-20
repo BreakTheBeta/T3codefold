@@ -110,6 +110,7 @@ import {
   COMPOSER_TRANSITION_DURATION_MS,
   ThreadComposer,
 } from "./ThreadComposer";
+import { ThreadCanvasBackdrop } from "./ThreadCanvasBackdrop";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
@@ -967,10 +968,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             pointerEvents="none"
             className={
               Platform.OS === "android"
-                ? "absolute inset-0 bg-thread-canvas"
-                : "absolute inset-0 bg-screen"
+                ? "absolute inset-0 bg-thread-canvas overflow-hidden"
+                : "absolute inset-0 bg-screen overflow-hidden"
             }
-          />
+          >
+            <ThreadCanvasBackdrop />
+          </View>
           <ThreadFeed
             key={selectedThreadKey}
             environmentId={props.environmentId}
