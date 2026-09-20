@@ -39,5 +39,8 @@ it.effect("checks actual checkout ownership before allowing a file restore", () 
       yield* sql`UPDATE orchestration_v2_projection_threads SET deleted_at = '2026-09-18'`;
       assert.isTrue(yield* isolation.isIsolated(input));
     }).pipe(Effect.provide(layer));
-  }).pipe(Effect.provide([NodeSqliteClient.layerMemory(), NodeServices.layer]), Effect.scoped),
+  }).pipe(
+    Effect.provide([NodeSqliteClient.layer({ filename: ":memory:" }), NodeServices.layer]),
+    Effect.scoped,
+  ),
 );

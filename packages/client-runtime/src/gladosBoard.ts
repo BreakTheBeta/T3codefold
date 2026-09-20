@@ -34,7 +34,7 @@ export interface ManagedWorkerRow {
 /** Current worker first, while retaining prior attempts as navigable history. */
 export function managedWorkerRows(task: PitbossTask): ManagedWorkerRow[] {
   const current = task.attempts.at(-1)?.id;
-  return task.attempts.toReversed().map((attempt) => ({
+  return [...task.attempts].reverse().map((attempt) => ({
     attemptId: attempt.id,
     current: attempt.id === current,
     generation: attempt.generation,

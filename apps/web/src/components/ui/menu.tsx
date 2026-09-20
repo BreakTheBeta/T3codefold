@@ -8,11 +8,7 @@ import { redirectDropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { cn } from "~/lib/utils";
 import { buttonVariants } from "./button";
 
-const MenuCreateHandle = MenuPrimitive.createHandle;
-
 const Menu = MenuPrimitive.Root;
-
-const MenuPortal = MenuPrimitive.Portal;
 
 function MenuTrigger({ className, children, ...props }: MenuPrimitive.Trigger.Props) {
   return (
@@ -310,12 +306,8 @@ function MenuSubPopup({
 }
 
 export {
-  MenuCreateHandle,
-  MenuCreateHandle as DropdownMenuCreateHandle,
   Menu,
   Menu as DropdownMenu,
-  MenuPortal,
-  MenuPortal as DropdownMenuPortal,
   MenuTrigger,
   MenuTrigger as DropdownMenuTrigger,
   MenuPopup,

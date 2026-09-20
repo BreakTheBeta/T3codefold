@@ -62,6 +62,7 @@ const makeConfig = (baseDir: string) =>
       otlpHeaders: undefined,
       otlpProtocol: "http/json" as const,
       otlpTracesUrl: undefined,
+      otlpLogsUrl: undefined,
       otlpMetricsUrl: undefined,
       otlpExportIntervalMs: 10_000,
       otlpServiceName: "t3-server",

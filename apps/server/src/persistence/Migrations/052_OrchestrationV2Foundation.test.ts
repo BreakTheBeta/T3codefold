@@ -60,5 +60,5 @@ it.effect("backfills the V2 event driver from payload before the legacy provider
         provider_instance_id: "claude-agent",
       },
     ]);
-  }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

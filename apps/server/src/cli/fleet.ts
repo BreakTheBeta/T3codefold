@@ -176,7 +176,7 @@ const definedFields = (input: Record<string, unknown>) =>
   Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
 
 const optionalText = (name: string, description: string) =>
-  Flag.string(name).pipe(Flag.withDescription(description), Flag.optional);
+  Flag.String(name).pipe(Flag.withDescription(description), Flag.optional);
 const selectors = {
   ...projectLocationFlags,
   environment: optionalText(
@@ -238,7 +238,7 @@ const selected = (flags: {
   environment: Option.getOrUndefined(flags.environment),
   project: Option.getOrUndefined(flags.project),
 });
-const threadFlag = Flag.string("thread").pipe(
+const threadFlag = Flag.String("thread").pipe(
   Flag.withDescription("Thread id on the selected environment."),
 );
 export const makeFleetCommand = (execute: typeof withLiveFleet = withLiveFleet) => {
@@ -300,8 +300,8 @@ export const makeFleetCommand = (execute: typeof withLiveFleet = withLiveFleet) 
   );
   const list = Command.make("list", {
     ...selectors,
-    limit: Flag.integer("limit").pipe(Flag.optional),
-    cursor: Flag.integer("cursor").pipe(Flag.optional),
+    limit: Flag.Int("limit").pipe(Flag.optional),
+    cursor: Flag.Int("cursor").pipe(Flag.optional),
   }).pipe(
     Command.withDescription("List threads as JSON."),
     Command.withHandler((flags) =>
@@ -320,9 +320,9 @@ export const makeFleetCommand = (execute: typeof withLiveFleet = withLiveFleet) 
   const read = Command.make("read", {
     ...selectors,
     thread: threadFlag,
-    view: Flag.choice("view", ["messages", "activity"]).pipe(Flag.optional),
-    afterPosition: Flag.integer("after-position").pipe(Flag.optional),
-    limit: Flag.integer("limit").pipe(Flag.optional),
+    view: Flag.Literals("view", ["messages", "activity"]).pipe(Flag.optional),
+    afterPosition: Flag.Int("after-position").pipe(Flag.optional),
+    limit: Flag.Int("limit").pipe(Flag.optional),
   }).pipe(
     Command.withDescription("Read thread history as JSON."),
     Command.withHandler((flags) =>
@@ -344,7 +344,7 @@ export const makeFleetCommand = (execute: typeof withLiveFleet = withLiveFleet) 
     ...selectors,
     ...promptFlags,
     thread: threadFlag,
-    mode: Flag.choice("mode", ["auto", "queue", "steer", "restart"]).pipe(Flag.optional),
+    mode: Flag.Literals("mode", ["auto", "queue", "steer", "restart"]).pipe(Flag.optional),
   }).pipe(
     Command.withDescription("Send a message to a thread."),
     Command.withHandler((flags) =>
@@ -369,7 +369,7 @@ export const makeFleetCommand = (execute: typeof withLiveFleet = withLiveFleet) 
     ...selectors,
     thread: threadFlag,
     run: optionalText("run", "Run id; defaults to latest run."),
-    timeoutMs: Flag.integer("timeout-ms").pipe(Flag.optional),
+    timeoutMs: Flag.Int("timeout-ms").pipe(Flag.optional),
   }).pipe(
     Command.withDescription("Wait for a thread run and return its outcome as JSON."),
     Command.withHandler((flags) =>

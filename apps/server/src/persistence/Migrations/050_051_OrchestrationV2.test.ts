@@ -6,7 +6,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { migrationEntries, runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
-const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("050_051_OrchestrationV2", (it) => {
   it.effect("keeps released and private migration ids contiguous", () =>
@@ -59,7 +59,7 @@ layer("050_051_OrchestrationV2", (it) => {
         const events = yield* sql`SELECT event_id FROM orchestration_v2_events`;
         assert.deepStrictEqual(events, []);
         assert.deepStrictEqual(yield* runMigrations(), []);
-      }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
   it.effect("repairs upstream main's conflicting migration 50 before installing V2", () =>
@@ -104,7 +104,7 @@ layer("050_051_OrchestrationV2", (it) => {
         WHERE type = 'table' AND name = 'projection_thread_pull_requests'
       `;
       assert.deepStrictEqual(upstreamTable, [{ name: "projection_thread_pull_requests" }]);
-    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
   it.effect("installs the orchestration v2 and subagent schemas", () =>
@@ -264,7 +264,7 @@ layer("050_051_OrchestrationV2", (it) => {
         { thread_id: "thread:one", turn_item_id: "turn-item:c", ordinal: 1_000_003 },
         { thread_id: "thread:two", turn_item_id: "turn-item:d", ordinal: 1 },
       ]);
-    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 });
 
@@ -329,5 +329,5 @@ it.effect("upgrades a database already at released main migration 043", () =>
       WHERE type = 'table' AND name = 'orchestration_v2_legacy_imports'
     `;
     assert.strictEqual(legacyImportTables.length, 1);
-  }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
