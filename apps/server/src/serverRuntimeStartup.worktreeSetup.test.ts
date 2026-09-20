@@ -98,7 +98,7 @@ const run = (activities: ReadonlyArray<ReturnType<typeof recordedSetup>>) =>
       } as unknown as ThreadManagement.ThreadManagementService["Service"]),
     );
     return dispatched;
-  }).pipe(Effect.provide(NodeSqliteClient.layerMemory()));
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 it.effect("marks setups still recorded as running failed after a restart", () =>
   Effect.gen(function* () {

@@ -101,6 +101,7 @@ import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import ChatMarkdown, { ChatMarkdownAssetImage } from "../ChatMarkdown";
 import { ThreadContextChip } from "../ThreadContextChip";
 import { T3Wordmark } from "../T3Wordmark";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import {
   BotIcon,
   BrainIcon,
@@ -112,7 +113,6 @@ import {
   DownloadIcon,
   EyeIcon,
   GitForkIcon,
-  GitPullRequestIcon,
   GlobeIcon,
   type LucideIcon,
   MessageCircleIcon,
@@ -3907,7 +3907,7 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
               <UserMessageContextChip
                 icon={
                   isPullRequest ? (
-                    <GitPullRequestIcon
+                    <PullRequestGlyph.pullRequest
                       className={cn(
                         COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
                         CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES["pull-request"],
@@ -4471,7 +4471,7 @@ function ToolActivityImageIcon(props: {
 function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className: string }) {
   switch (name) {
     case "pull-request":
-      return <GitPullRequestIcon className={className} aria-hidden />;
+      return <PullRequestGlyph.pullRequest className={className} aria-hidden />;
     case "bot":
       return <BotIcon className={className} aria-hidden />;
     case "brain":

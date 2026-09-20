@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProjectId, ThreadId, type PitbossMessage, type PitbossTask } from "@t3tools/contracts";
+import {
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type PitbossMessage,
+  type PitbossTask,
+} from "@t3tools/contracts";
 import {
   buildGladosBoard,
   gladosBoardColumnWidth,
   gladosTaskLane,
   managedWorkerRows,
-} from "./gladosBoard";
+} from "./gladosBoard.ts";
 
 const task = (id: string, status: PitbossTask["status"]): PitbossTask => ({
   id,
@@ -27,7 +33,7 @@ const task = (id: string, status: PitbossTask["status"]): PitbossTask => ({
             threadId: ThreadId.make(`worker-${id}`),
             generation: 1,
             state: "running",
-            model: { instanceId: "codex", model: "gpt-5.6-sol" },
+            model: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" },
             createdAt: "2026-09-18",
             detail: "Worker launched",
           },
@@ -113,7 +119,7 @@ describe("GLaDOS board", () => {
           threadId: ThreadId.make("worker-1"),
           generation: 1,
           state: "stopped" as const,
-          model: { instanceId: "codex", model: "gpt-5.6-sol" },
+          model: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" },
           createdAt: "2026-09-18",
           detail: "Worker stopped without evidence",
         },

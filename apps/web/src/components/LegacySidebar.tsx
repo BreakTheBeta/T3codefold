@@ -13,7 +13,6 @@ import {
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
-  GitPullRequestIcon,
 } from "lucide-react";
 import {
   resolveThreadCurrentPullRequestLink,

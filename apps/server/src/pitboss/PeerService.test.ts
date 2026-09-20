@@ -24,6 +24,7 @@ import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
+import * as NetAddress from "effect/unstable/net/NetAddress";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import {
@@ -77,7 +78,9 @@ const startPeer = Effect.fn("startPeer")(function* (
     Effect.provideService(Scope.Scope, serverScope),
   );
   const address = Context.get(serverContext, HttpServer.HttpServer).address;
-  if (address._tag !== "TcpAddress") return yield* Effect.die("Expected loopback TCP listener");
+  if (!NetAddress.isInetAddress(address)) {
+    return yield* Effect.die("Expected loopback TCP listener");
+  }
   return {
     peer,
     store,

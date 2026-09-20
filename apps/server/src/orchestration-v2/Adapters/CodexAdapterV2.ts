@@ -509,16 +509,13 @@ function approvalDecisionToLegacyReviewDecision(
   }
 }
 
-function providerRequestKindFromPermissions(
+/** The paths an app asked for, so a reasonless request still says what it wants. */
+function permissionRequestPaths(
   permissions: CodexSchema.PermissionsRequestApprovalParams["permissions"],
-): ProviderRequestKind {
-  if ((permissions.fileSystem?.write?.length ?? 0) > 0) {
-    return "file-change";
-  }
-  if ((permissions.fileSystem?.read?.length ?? 0) > 0) {
-    return "file-read";
-  }
-  return "command";
+): string {
+  return [...(permissions.fileSystem?.read ?? []), ...(permissions.fileSystem?.write ?? [])].join(
+    ", ",
+  );
 }
 
 function permissionsResponseFromDecision(input: {
@@ -4260,13 +4257,17 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               );
             }
 
-            const requestKind = providerRequestKindFromPermissions(payload.permissions);
+            const requestKind = "permission" as const;
+            const requestedPaths = permissionRequestPaths(payload.permissions);
+            const prompt =
+              payload.reason ??
+              (requestedPaths.length > 0 ? `Access: ${requestedPaths}` : undefined);
             const artifacts = yield* buildApprovalRequestArtifacts({
               context,
               nativeItemId: payload.itemId,
               nativeRequestId: payload.itemId,
               requestKind,
-              ...(payload.reason === undefined ? {} : { prompt: payload.reason }),
+              ...(prompt === undefined ? {} : { prompt }),
             });
             const decision = yield* Deferred.make<ProviderApprovalDecision, never>();
             yield* Ref.update(pendingRuntimeRequests, (current) => {

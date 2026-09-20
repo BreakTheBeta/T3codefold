@@ -831,43 +831,21 @@ const make = Effect.gen(function* () {
       Stream.map(resolveTextGenerationProvider),
     );
 
-  const persistProviderEnvironmentSecrets = (
-    current: ServerSettings,
-    next: ServerSettings,
-  ): Effect.Effect<
-    {
-      readonly settings: ServerSettings;
-      readonly secretWrites: ReadonlyArray<{
-        readonly secretName: string;
-        readonly value: Uint8Array;
-        readonly providerInstanceId?: string;
-        readonly environmentVariable?: string;
-      }>;
-      readonly staleSecretRemovals: ReadonlyArray<{
-        readonly secretName: string;
-        readonly operation: "remove-secret" | "remove-stale-secret";
-        readonly providerInstanceId?: string;
-        readonly environmentVariable?: string;
-      }>;
-    },
-    ServerSettingsError
-  > =>
+  type SecretChange = {
+    readonly secretName: string;
+    readonly providerInstanceId?: string;
+    readonly environmentVariable?: string;
+  } & (
+    | { readonly kind: "write"; readonly value: Uint8Array }
+    | { readonly kind: "remove"; readonly operation: "remove-secret" | "remove-stale-secret" }
+  );
+
+  const persistProviderEnvironmentSecrets = (current: ServerSettings, next: ServerSettings) =>
     Effect.sync(() => {
       const providerInstances: Record<string, ProviderInstanceConfig> = {
         ...next.providerInstances,
       };
-      const secretWrites: Array<{
-        readonly secretName: string;
-        readonly value: Uint8Array;
-        readonly providerInstanceId?: string;
-        readonly environmentVariable?: string;
-      }> = [];
-      const staleSecretRemovals: Array<{
-        readonly secretName: string;
-        readonly operation: "remove-secret" | "remove-stale-secret";
-        readonly providerInstanceId?: string;
-        readonly environmentVariable?: string;
-      }> = [];
+      const changes: SecretChange[] = [];
 
       const nextSecretKeys = new Set<string>();
       for (const [instanceId, instance] of Object.entries(next.providerInstances)) {
@@ -876,7 +854,8 @@ const make = Effect.gen(function* () {
         for (const variable of instance.environment) {
           const secretName = providerEnvironmentSecretName({ instanceId, name: variable.name });
           if (!variable.sensitive) {
-            staleSecretRemovals.push({
+            changes.push({
+              kind: "remove",
               secretName,
               operation: "remove-secret",
               providerInstanceId: instanceId,
@@ -900,7 +879,8 @@ const make = Effect.gen(function* () {
           const value = inlineValue ?? variable.value;
           if (!variable.valueRedacted || inlineValue !== undefined) {
             if (value.length > 0) {
-              secretWrites.push({
+              changes.push({
+                kind: "write",
                 secretName,
                 value: textEncoder.encode(value),
                 providerInstanceId: instanceId,
@@ -908,7 +888,8 @@ const make = Effect.gen(function* () {
               });
               environment.push({ ...variable, value: "", valueRedacted: true });
             } else {
-              staleSecretRemovals.push({
+              changes.push({
+                kind: "remove",
                 secretName,
                 operation: "remove-secret",
                 providerInstanceId: instanceId,
@@ -933,7 +914,8 @@ const make = Effect.gen(function* () {
           if (!variable.sensitive) continue;
           const secretName = providerEnvironmentSecretName({ instanceId, name: variable.name });
           if (nextSecretKeys.has(secretName)) continue;
-          staleSecretRemovals.push({
+          changes.push({
+            kind: "remove",
             secretName,
             operation: "remove-stale-secret",
             providerInstanceId: instanceId,
@@ -950,16 +932,21 @@ const make = Effect.gen(function* () {
           continue;
         }
         if (source.managementKey.length === 0) {
-          staleSecretRemovals.push({ secretName, operation: "remove-secret" });
+          changes.push({ kind: "remove", secretName, operation: "remove-secret" });
           usageLimitSources[sourceId] = source;
           continue;
         }
-        secretWrites.push({ secretName, value: textEncoder.encode(source.managementKey) });
+        changes.push({
+          kind: "write",
+          secretName,
+          value: textEncoder.encode(source.managementKey),
+        });
         usageLimitSources[sourceId] = { ...source, managementKey: USAGE_LIMIT_SOURCE_KEY_REDACTED };
       }
       for (const sourceId of Object.keys(current.usageLimitSources)) {
         if (sourceId in next.usageLimitSources) continue;
-        staleSecretRemovals.push({
+        changes.push({
+          kind: "remove",
           secretName: usageLimitSourceSecretName(sourceId),
           operation: "remove-stale-secret",
         });
@@ -971,8 +958,7 @@ const make = Effect.gen(function* () {
           providerInstances: providerInstances as ServerSettings["providerInstances"],
           usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
         },
-        secretWrites,
-        staleSecretRemovals,
+        changes,
       };
     });
 
@@ -1002,20 +988,7 @@ const make = Effect.gen(function* () {
       { discard: true },
     );
 
-  const applyProviderEnvironmentSecretChanges = (
-    writes: ReadonlyArray<{
-      readonly secretName: string;
-      readonly value: Uint8Array;
-      readonly providerInstanceId?: string;
-      readonly environmentVariable?: string;
-    }>,
-    removals: ReadonlyArray<{
-      readonly secretName: string;
-      readonly operation: "remove-secret" | "remove-stale-secret";
-      readonly providerInstanceId?: string;
-      readonly environmentVariable?: string;
-    }>,
-  ) => {
+  const applyProviderEnvironmentSecretChanges = (changes: ReadonlyArray<SecretChange>) => {
     const applied: Array<{
       readonly secretName: string;
       readonly previousValue: Option.Option<Uint8Array>;
@@ -1023,10 +996,6 @@ const make = Effect.gen(function* () {
       readonly environmentVariable?: string;
     }> = [];
     const rollback = Effect.suspend(() => rollbackProviderEnvironmentSecretWrites(applied));
-    const changes = [
-      ...writes.map((write) => ({ ...write, kind: "write" as const })),
-      ...removals.map((removal) => ({ ...removal, kind: "remove" as const })),
-    ];
     return Effect.forEach(
       changes,
       (change) =>
@@ -1043,6 +1012,8 @@ const make = Effect.gen(function* () {
                 }),
             ),
           );
+          // A store operation may mutate before reporting an error (for example chmod after rename).
+          applied.push({ ...change, previousValue });
           yield* (
             change.kind === "write"
               ? secretStore.set(change.secretName, change.value)
@@ -1059,7 +1030,6 @@ const make = Effect.gen(function* () {
                 }),
             ),
           );
-          applied.push({ ...change, previousValue });
         }),
       { discard: true },
     ).pipe(
@@ -1080,8 +1050,7 @@ const make = Effect.gen(function* () {
         const materialized = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {
             const rollbackSecretChanges = yield* applyProviderEnvironmentSecretChanges(
-              persisted.secretWrites,
-              persisted.staleSecretRemovals,
+              persisted.changes,
             );
             const materializedExit = yield* Effect.exit(
               materializeProviderEnvironmentSecrets(next),
