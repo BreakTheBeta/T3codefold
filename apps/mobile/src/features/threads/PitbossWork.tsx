@@ -340,6 +340,13 @@ export function PitbossWork(props: {
                   }
                   selectedKey={selectedKey}
                   onSelect={setSelectedKey}
+                  onOpenWorker={(task, threadId) => {
+                    setVisible(false);
+                    navigation.navigate("Thread", {
+                      environmentId: task.homeEnvironmentId ?? props.environmentId,
+                      threadId,
+                    });
+                  }}
                   onTalkToGlados={() => {
                     composeAfterDismiss.current = true;
                     setVisible(false);

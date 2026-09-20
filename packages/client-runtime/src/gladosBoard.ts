@@ -3,6 +3,7 @@ import {
   workNeedsUserInput,
   type PitbossMessage,
   type PitbossSnapshot,
+  type PitbossAttempt,
   type PitbossTask,
 } from "@t3tools/contracts";
 
@@ -21,6 +22,32 @@ export type GladosBoardItem =
   | { key: string; task: PitbossTask; message?: never }
   | { key: string; task?: never; message: PitbossMessage };
 
+export interface ManagedWorkerRow {
+  readonly attemptId: string;
+  readonly current: boolean;
+  readonly generation: number;
+  readonly model: string;
+  readonly state: PitbossAttempt["state"];
+  readonly threadId: PitbossAttempt["threadId"];
+}
+
+/** Current worker first, while retaining prior attempts as navigable history. */
+export function managedWorkerRows(task: PitbossTask): ManagedWorkerRow[] {
+  const current = task.attempts.at(-1)?.id;
+  return task.attempts.toReversed().map((attempt) => ({
+    attemptId: attempt.id,
+    current: attempt.id === current,
+    generation: attempt.generation,
+    model: attempt.model.model,
+    state: attempt.state,
+    threadId: attempt.threadId,
+  }));
+}
+
+export function isManagedWorkerLive(attempt: PitbossAttempt | undefined): boolean {
+  return !!attempt && ["pending", "running", "submitted", "stop_requested"].includes(attempt.state);
+}
+
 export function gladosTaskLane(task: PitbossTask, hasQuestion = false): GladosBoardLaneId {
   if (task.status === "done") return "done";
   if (task.status === "cancelled") return "closed";
@@ -29,7 +56,7 @@ export function gladosTaskLane(task: PitbossTask, hasQuestion = false): GladosBo
     case "queued":
       return "queued";
     case "active":
-      return "working";
+      return isManagedWorkerLive(task.attempts.at(-1)) ? "working" : "waiting";
     case "verifying":
       return "review";
     case "blocked":

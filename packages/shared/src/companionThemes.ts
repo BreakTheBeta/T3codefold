@@ -1,4 +1,4 @@
-import type { ThemeDefinition } from "./themePalettes";
+import type { ThemeDefinition } from "./themePalettes.ts";
 
 // Palette seeds adapted from the MIT-licensed t3code-custom fork:
 // https://github.com/machirajusaisandeep/t3code-custom/tree/f693f14548

@@ -1,7 +1,11 @@
 import { useMemo } from "react";
 import { FlatList, Pressable, ScrollView, TextInput, View } from "react-native";
-import { buildGladosBoard, gladosBoardColumnWidth } from "@t3tools/client-runtime/glados-board";
-import type { PitbossSnapshot, ProjectId } from "@t3tools/contracts";
+import {
+  buildGladosBoard,
+  gladosBoardColumnWidth,
+  managedWorkerRows,
+} from "@t3tools/client-runtime/glados-board";
+import type { PitbossSnapshot, PitbossTask, ProjectId, ThreadId } from "@t3tools/contracts";
 import { AppText as Text } from "../../components/AppText";
 
 const dots = {
@@ -23,6 +27,7 @@ export function GladosBoard(props: {
   projectName: (id: ProjectId) => string;
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
+  onOpenWorker: (task: PitbossTask, threadId: ThreadId) => void;
   onTalkToGlados: () => void;
 }) {
   const lanes = useMemo(
@@ -61,6 +66,29 @@ export function GladosBoard(props: {
         </Text>
         <Text>{task.outcome}</Text>
         {!!task.note && <Text className="text-foreground-muted">{task.note}</Text>}
+        {managedWorkerRows(task).length > 0 && (
+          <View className="gap-2">
+            <Text accessibilityRole="header" className="font-semibold">
+              Managed workers
+            </Text>
+            {managedWorkerRows(task).map((worker) => (
+              <Pressable
+                key={worker.attemptId}
+                accessibilityRole="button"
+                accessibilityLabel={`Open worker ${worker.generation}, ${worker.state}`}
+                onPress={() => props.onOpenWorker(task, worker.threadId)}
+                className="min-h-12 justify-center rounded-xl border border-border px-3"
+              >
+                <Text>
+                  Worker {worker.generation} · {worker.state}
+                </Text>
+                <Text numberOfLines={1} className="text-xs text-foreground-muted">
+                  {worker.model} · {worker.current ? "current" : "history"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
         {props.state.messages
           .filter((message) => message.taskId === task.id && !message.acknowledged)
           .map((message) => (
@@ -148,29 +176,46 @@ export function GladosBoard(props: {
               }
               renderItem={({ item }) =>
                 item.task ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`${item.task.title}, ${lane.label}`}
-                    onPress={() => props.onSelect(item.key)}
-                    className="gap-2 rounded-xl border border-border bg-card p-3"
-                  >
-                    <Text numberOfLines={2} className="font-semibold">
-                      {item.task.title}
-                    </Text>
-                    <Text numberOfLines={1} className="text-xs text-foreground-muted">
-                      {props.projectName(item.task.projectId)}
-                      {item.task.workspaceStrategy.type === "worktree" ? " · Worktree" : ""}
-                    </Text>
-                    <Text numberOfLines={3} className="text-sm text-foreground-muted">
-                      {item.task.note || item.task.outcome}
-                    </Text>
-                    <Text className="text-xs text-foreground-muted">
-                      {item.task.evidence.length} evidence · {item.task.attempts.length} attempts
-                    </Text>
-                    <Text numberOfLines={1} className="text-xs text-foreground-muted">
-                      {item.task.attempts.at(-1)?.model.model ?? "GLaDOS"}
-                    </Text>
-                  </Pressable>
+                  <View className="rounded-xl border border-border bg-card">
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${item.task.title}, ${lane.label}`}
+                      onPress={() => props.onSelect(item.key)}
+                      className="gap-2 p-3"
+                    >
+                      <Text numberOfLines={2} className="font-semibold">
+                        {item.task.title}
+                      </Text>
+                      <Text numberOfLines={1} className="text-xs text-foreground-muted">
+                        {props.projectName(item.task.projectId)}
+                        {item.task.workspaceStrategy.type === "worktree" ? " · Worktree" : ""}
+                      </Text>
+                      <Text numberOfLines={3} className="text-sm text-foreground-muted">
+                        {item.task.note || item.task.outcome}
+                      </Text>
+                      <Text className="text-xs text-foreground-muted">
+                        {item.task.evidence.length} evidence · {item.task.attempts.length} attempts
+                      </Text>
+                      <Text numberOfLines={1} className="text-xs text-foreground-muted">
+                        {item.task.attempts.at(-1)?.model.model ?? "GLaDOS"}
+                      </Text>
+                    </Pressable>
+                    {managedWorkerRows(item.task)
+                      .slice(0, 1)
+                      .map((worker) => (
+                        <Pressable
+                          key={worker.attemptId}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open worker ${worker.generation}, ${worker.state}`}
+                          onPress={() => props.onOpenWorker(item.task, worker.threadId)}
+                          className="mx-2 mb-2 min-h-12 justify-center rounded-lg bg-subtle px-3"
+                        >
+                          <Text className="text-sm">
+                            Worker {worker.generation} · {worker.state}
+                          </Text>
+                        </Pressable>
+                      ))}
+                  </View>
                 ) : (
                   <View className="gap-3 rounded-xl border border-border bg-card p-3">
                     <Text className="font-semibold">GLaDOS · {item.message.kind}</Text>
