@@ -22,6 +22,7 @@ import * as Stream from "effect/Stream";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import {
   emptyProjection,
+  threadShellFromProjection,
   ProjectionStoreThreadNotFoundError,
 } from "../orchestration-v2/ProjectionStore.ts";
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
@@ -116,6 +117,7 @@ const harness = Effect.gen(function* () {
   const interrupted: ThreadId[] = [];
   const dispatched: Array<{ readonly type: string; readonly threadId?: ThreadId }> = [];
   let failSettlement = false;
+  let forbidHistoryReads = false;
   let deferInterrupt = false;
   const failLaunch = new Set<ThreadId>();
   const command = (action: PitbossAction) =>
@@ -201,7 +203,15 @@ const harness = Effect.gen(function* () {
           return { sequence: 1, storedEvents: [] };
         }),
       streamDomainEvents: Stream.never,
-      getThreadProjection: (id) => Effect.succeed(projections.get(id)!),
+      getThreadProjection: (id) =>
+        forbidHistoryReads
+          ? Effect.die("Runtime monitoring loaded full history")
+          : Effect.succeed(projections.get(id)!),
+      getThreadShell: (id) =>
+        Effect.sync(() => {
+          const p = projections.get(id);
+          return p && !p.thread.deletedAt ? threadShellFromProjection(p) : null;
+        }),
       interruptThread: (input) =>
         Effect.sync(() => {
           interrupted.push(input.threadId);
@@ -212,6 +222,7 @@ const harness = Effect.gen(function* () {
           return { type: "no_active_run" as const };
         }),
       getProjectThread: (input) => {
+        if (forbidHistoryReads) return Effect.die("Runtime monitoring loaded full history");
         const p = projections.get(input.threadId);
         return p
           ? Effect.succeed(p)
@@ -301,6 +312,9 @@ const harness = Effect.gen(function* () {
     },
     interrupted,
     dispatched,
+    forbidHistoryReads: () => {
+      forbidHistoryReads = true;
+    },
     failSettlement: () => {
       failSettlement = true;
     },
@@ -413,7 +427,7 @@ it.effect("settles handled worker attempts once without touching live or unresol
     expect(
       h.dispatched.filter((command) => command.type === "thread.auto-settle")[0],
     ).toMatchObject({
-      commandId: `pitboss:settle:${first.id}`,
+      commandId: `pitboss:settle:${first.id}:${DateTime.toEpochMillis(time)}`,
       threadId: first.threadId,
     });
     expect(
@@ -463,6 +477,45 @@ it.effect("continues manager wakes when a settlement snapshot is invalidated", (
         threadId: attempt.threadId,
       }),
     );
+    expect(h.sent).toContain(boss);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("monitors workers and wakes the coordinator without loading transcript history", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "bounded-monitor",
+      projectId: a,
+      title: "Bounded monitor",
+      outcome: "No transcript loads",
+      criteria: "Bounded reads",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    yield* h.command({ type: "assign", taskId: "bounded-monitor" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    const p = h.projections.get(attempt.threadId)!;
+    h.projections.set(attempt.threadId, {
+      ...p,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    h.forbidHistoryReads();
+    h.projections.set(attempt.threadId, {
+      ...p,
+      runs: [{ ...running(attempt.threadId), status: "waiting" }],
+    });
+    yield* h.drain();
+    expect((yield* h.store.read()).tasks[0]!.attempts[0]!.state).toBe("running");
+    h.projections.set(attempt.threadId, {
+      ...p,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    yield* h.drain();
+    expect((yield* h.store.read()).tasks[0]!.attempts[0]!.state).toBe("stopped");
     expect(h.sent).toContain(boss);
   }).pipe(Effect.provide(services)),
 );
@@ -1020,7 +1073,7 @@ it.effect("changes a submitted result from await-writer to review after the work
     expect(h.dispatched).toContainEqual(
       expect.objectContaining({
         type: "thread.auto-settle",
-        commandId: `pitboss:settle:${attempt.id}`,
+        commandId: `pitboss:settle:${attempt.id}:${DateTime.toEpochMillis(time)}`,
         threadId: attempt.threadId,
       }),
     );
