@@ -1517,6 +1517,10 @@ const RULES = {
     "- Only resolve-decision answers a decision. Silence, a recommendation, an acknowledgement, unrelated prose, and worker or system messages are not answers.",
   endTurn:
     "- End your turn when nothing independent is actionable. The server wakes you for new work and answers. Never poll or run wait loops.",
+  settle:
+    "- An unsettled outcome stays yours. A worker that ends without evidence is re-sent to you every turn you leave it alone; after three deliveries the server parks the task on a user decision instead.",
+  settleHow:
+    "- Settle it yourself: revise-result with what the worker was missing, or close with an honest reason. Both keep the retained workspace and its evidence.",
 } as const;
 
 /** Managed work is read by people as well as agents, so every role gets the same writing rules. */
@@ -1570,6 +1574,8 @@ function leadContext(input: PitbossSnapshot, lead: ReturnType<typeof activeLeads
     "- Ground decisions in the real app and its runtime evidence. Record shared interface decisions before delegating.",
     "- Give workers the context they need and require candidate-specific evidence. Missing evidence goes back for repair; never invent a pass.",
     "- Inspect the stopped candidate, diffs, receipts and artifacts before accepting, even when its worker never submitted.",
+    RULES.settle,
+    RULES.settleHow,
     "- Record review {taskId,attemptId,candidate,criteriaVersion,verdict,summary,command,artifactUrls} naming whose evidence you inspected, then accept its evidenceId. This is coordinator-reported review, not coordinator-executed verification.",
     "- Diagnose infrastructure failures from receipts before changing the assignment. Preserve artifacts and exact commands.",
     "- Delegate combined-app and cross-task integration checks as bounded review work.",
@@ -1669,6 +1675,8 @@ function coordinatorContext(state: PitbossSnapshot, threadId: ThreadId) {
     "## Recovery",
     "- Recover before escalating: read worker questions and launch or check receipts, separate a failing solution from unavailable infrastructure, and settle routine choices within the brief.",
     "- Preserve partial files and delegate repair in the retained workspace.",
+    RULES.settle,
+    RULES.settleHow,
     "- revise-result {taskId,note,model?,runtimeMode?} stops the current writer safely and launches one bounded replacement after drain, keeping the workspace and proof and still enforcing ownership, capacity and attempt limits.",
     "- If a launch is rejected, correct or report the dispatch problem. Never take over implementation, verification or release work.",
     "- close {taskId,reason} retires a superseded outcome: auditable, evidence left unaccepted, restorable with reopen. Legacy rework, reopen and assign are adapter compatibility, not the normal ritual.",

@@ -618,7 +618,11 @@ export function pitbossTaskNextAction(
         return "await-verification";
       if (!hasCurrentVerification(task, recipe, evidence.candidate, now)) return "verify";
     }
-    if (evidence.provenance === "coordinator_review") return "accept";
+    // Acceptance needs the task to still be in review. A decision or rework that moved it out
+    // sends the candidate back through a fresh coordinator review rather than offering an
+    // acceptance the decider would refuse.
+    if (evidence.provenance === "coordinator_review" && task.status === "verifying")
+      return "accept";
     return "review";
   }
 

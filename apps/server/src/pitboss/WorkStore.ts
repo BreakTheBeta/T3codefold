@@ -83,7 +83,11 @@ export class WorkStore extends Context.Service<
     subscribe: () => Stream.Stream<PitbossSnapshot, PitbossError>;
     changes: Stream.Stream<void>;
     effects: () => Effect.Effect<ReadonlyArray<WorkEffect>, PitbossError>;
-    wakeKeys: (recipientId: string, generation: number) => Effect.Effect<string[], PitbossError>;
+    /** How many wakes already carried each key, so a repeated obligation can be re-delivered. */
+    wakeDeliveries: (
+      recipientId: string,
+      generation: number,
+    ) => Effect.Effect<Map<string, number>, PitbossError>;
     queueWake: (id: string, payloadJson: string) => Effect.Effect<boolean, PitbossError>;
     retryEffect: (id: string, error: string) => Effect.Effect<void, PitbossError>;
     finishWake: (id: string, payloadJson: string) => Effect.Effect<void, PitbossError>;
@@ -417,13 +421,17 @@ export const layer = Layer.effect(
           Effect.map(({ operations, wakes }) => [...operations, ...wakes]),
           Effect.mapError(unavailable),
         ),
-      wakeKeys: (recipientId, generation) =>
-        sql<{ readonly key: string }>`SELECT DISTINCT json_each.value AS key
+      wakeDeliveries: (recipientId, generation) =>
+        sql<{
+          readonly key: string;
+          readonly deliveries: number;
+        }>`SELECT json_each.value AS key, COUNT(*) AS deliveries
           FROM pitboss_effects, json_each(json_extract(pitboss_effects.payload_json, '$.keys'))
           WHERE pitboss_effects.kind = 'wake'
             AND json_extract(pitboss_effects.payload_json, '$.recipientId') = ${recipientId}
-            AND json_extract(pitboss_effects.payload_json, '$.generation') = ${generation}`.pipe(
-          Effect.map((rows) => rows.map((row) => row.key)),
+            AND json_extract(pitboss_effects.payload_json, '$.generation') = ${generation}
+          GROUP BY json_each.value`.pipe(
+          Effect.map((rows) => new Map(rows.map((row) => [row.key, row.deliveries]))),
           Effect.mapError(unavailable),
         ),
       queueWake: (id, payloadJson) =>
