@@ -674,6 +674,14 @@ export const layer = Layer.effect(
               });
             return previous[0].content;
           }
+          // Every turn in the environment asks for its packet, but only coordinator, lead and
+          // worker threads have one, and the snapshot runs to hundreds of kilobytes. A thread the
+          // stored snapshot never mentions cannot be managed, so rule it out before decoding.
+          // A missing row still falls through, because the journal may not have been projected yet.
+          const probe = yield* sql<{
+            found: number;
+          }>`SELECT instr(payload_json, ${threadId}) AS found FROM pitboss_state WHERE id = 1`;
+          if (probe[0] && probe[0].found === 0) return null;
           const state = yield* readAll();
           const content = workContext(state, threadId);
           if (content === null) return null;
