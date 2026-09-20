@@ -628,6 +628,9 @@ export function PitbossPanel(props: {
                 projectName={projectName}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
+                onOpenWorker={(task, threadId) =>
+                  openThread(threadId, task.homeEnvironmentId ?? props.environmentId)
+                }
                 onTalkToGlados={() => setOpen(false)}
               />
             ) : (

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { FolderIcon, GitBranchIcon, BotIcon } from "lucide-react";
-import { buildGladosBoard } from "@t3tools/client-runtime/glados-board";
-import type { PitbossSnapshot, ProjectId } from "@t3tools/contracts";
+import { FolderIcon, GitBranchIcon, BotIcon, ArrowUpRightIcon } from "lucide-react";
+import { buildGladosBoard, managedWorkerRows } from "@t3tools/client-runtime/glados-board";
+import type { PitbossSnapshot, PitbossTask, ProjectId, ThreadId } from "@t3tools/contracts";
 import { Button } from "../ui/button";
 
 const dots = {
@@ -22,6 +22,7 @@ export function GladosBoard(props: {
   projectName: (id: ProjectId) => string;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onOpenWorker: (task: PitbossTask, threadId: ThreadId) => void;
   onTalkToGlados: () => void;
 }) {
   const lanes = useMemo(
@@ -91,47 +92,68 @@ export function GladosBoard(props: {
               )}
               {lane.items.slice(0, limits[lane.id] ?? 30).map((item) =>
                 item.task ? (
-                  <button
-                    type="button"
+                  <article
                     key={item.key}
-                    aria-pressed={props.selectedId === item.task.id}
-                    onClick={() => props.onSelect(item.task.id)}
-                    className={`block w-full rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/50 focus-visible:outline-2 focus-visible:outline-ring ${props.selectedId === item.task.id ? "border-primary" : "border-border/70"}`}
+                    className={`rounded-xl border bg-card transition-colors hover:border-primary/50 ${props.selectedId === item.task.id ? "border-primary" : "border-border/70"}`}
                   >
-                    <span className="flex items-start gap-2">
-                      <span className="line-clamp-2 min-w-0 flex-1 text-sm font-medium">
-                        {item.task.title}
+                    <button
+                      type="button"
+                      aria-pressed={props.selectedId === item.task.id}
+                      onClick={() => props.onSelect(item.task.id)}
+                      className="block w-full p-3 text-left focus-visible:outline-2 focus-visible:outline-ring"
+                    >
+                      <span className="flex items-start gap-2">
+                        <span className="line-clamp-2 min-w-0 flex-1 text-sm font-medium">
+                          {item.task.title}
+                        </span>
+                        <span
+                          aria-hidden
+                          className={`mt-1.5 size-2 shrink-0 rounded-full ${dots[lane.tone]}`}
+                        />
                       </span>
-                      <span
-                        aria-hidden
-                        className={`mt-1.5 size-2 shrink-0 rounded-full ${dots[lane.tone]}`}
-                      />
-                    </span>
-                    <span className="mt-2 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                      <FolderIcon className="size-3 shrink-0" />
-                      {props.projectName(item.task.projectId)}
-                    </span>
-                    {item.task.workspaceStrategy.type === "worktree" && (
-                      <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <GitBranchIcon className="size-3" />
-                        Isolated worktree
+                      <span className="mt-2 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                        <FolderIcon className="size-3 shrink-0" />
+                        {props.projectName(item.task.projectId)}
                       </span>
-                    )}
-                    <span className="mt-2 block line-clamp-2 text-xs text-muted-foreground">
-                      {item.task.note || item.task.outcome}
-                    </span>
-                    <span className="mt-3 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                      <span>
-                        {item.task.evidence.length} evidence · {item.task.attempts.length} attempts
+                      {item.task.workspaceStrategy.type === "worktree" && (
+                        <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <GitBranchIcon className="size-3" />
+                          Isolated worktree
+                        </span>
+                      )}
+                      <span className="mt-2 block line-clamp-2 text-xs text-muted-foreground">
+                        {item.task.note || item.task.outcome}
                       </span>
-                      <span className="flex min-w-0 items-center gap-1">
-                        <BotIcon className="size-3 shrink-0" />
-                        <span className="truncate">
-                          {item.task.attempts.at(-1)?.model.model ?? "GLaDOS"}
+                      <span className="mt-3 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <span>
+                          {item.task.evidence.length} evidence · {item.task.attempts.length}{" "}
+                          attempts
+                        </span>
+                        <span className="flex min-w-0 items-center gap-1">
+                          <BotIcon className="size-3 shrink-0" />
+                          <span className="truncate">
+                            {item.task.attempts.at(-1)?.model.model ?? "GLaDOS"}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                  </button>
+                    </button>
+                    {managedWorkerRows(item.task)
+                      .slice(0, 1)
+                      .map((worker) => (
+                        <Button
+                          key={worker.attemptId}
+                          size="sm"
+                          variant="ghost"
+                          className="mx-2 mb-2 w-[calc(100%-1rem)] justify-between"
+                          onClick={() => props.onOpenWorker(item.task, worker.threadId)}
+                        >
+                          <span className="truncate">
+                            Worker {worker.generation} · {worker.state}
+                          </span>
+                          <ArrowUpRightIcon className="size-3 shrink-0" />
+                        </Button>
+                      ))}
+                  </article>
                 ) : (
                   <article
                     key={item.key}

@@ -114,6 +114,8 @@ const harness = Effect.gen(function* () {
   let failNextSend = false;
   let failAllSends = false;
   const interrupted: ThreadId[] = [];
+  const dispatched: Array<{ readonly type: string; readonly threadId?: ThreadId }> = [];
+  let failSettlement = false;
   let deferInterrupt = false;
   const failLaunch = new Set<ThreadId>();
   const command = (action: PitbossAction) =>
@@ -168,6 +170,7 @@ const harness = Effect.gen(function* () {
     Layer.mock(ThreadManagementService)({
       dispatch: (command) =>
         Effect.gen(function* () {
+          dispatched.push(command);
           if (command.type === "thread.runtime-mode.set") {
             if (failPermissions) {
               failPermissions = false;
@@ -181,6 +184,18 @@ const harness = Effect.gen(function* () {
             projections.set(command.threadId, {
               ...p,
               thread: { ...p.thread, runtimeMode: command.runtimeMode },
+            });
+          }
+          if (command.type === "thread.auto-settle") {
+            if (failSettlement)
+              return yield* new OrchestratorProjectionError({
+                threadId: command.threadId,
+                cause: "Concurrent user activity invalidated snapshot",
+              });
+            const p = projections.get(command.threadId)!;
+            projections.set(command.threadId, {
+              ...p,
+              thread: { ...p.thread, settledOverride: "settled", settledAt: time },
             });
           }
           return { sequence: 1, storedEvents: [] };
@@ -285,6 +300,10 @@ const harness = Effect.gen(function* () {
       failAllSends = true;
     },
     interrupted,
+    dispatched,
+    failSettlement: () => {
+      failSettlement = true;
+    },
     deferInterrupt: () => {
       deferInterrupt = true;
     },
@@ -295,6 +314,184 @@ const harness = Effect.gen(function* () {
   };
 });
 const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
+it.effect("settles handled worker attempts once without touching live or unresolved workers", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "worker-lifecycle",
+      projectId: a,
+      title: "Worker lifecycle",
+      outcome: "Retain the result and clear handled attempts",
+      criteria: "Handled attempts settle",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "existing_worktree", worktreePath: "/tmp/worker-lifecycle" },
+    });
+    yield* h.command({ type: "assign", taskId: "worker-lifecycle" });
+    yield* h.drain();
+    const first = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    const firstProjection = h.projections.get(first.threadId)!;
+    h.projections.set(first.threadId, {
+      ...firstProjection,
+      runs: firstProjection.runs.map((run) => ({
+        ...run,
+        status: "completed",
+        completedAt: time,
+      })),
+    });
+    yield* h.store.updateAttempt(
+      "worker-lifecycle",
+      first.id,
+      "stopped",
+      "Interrupted; recover",
+      "/tmp/worker-lifecycle",
+    );
+    yield* h.command({ type: "rework", taskId: "worker-lifecycle", note: "Transfer recovery" });
+    yield* h.command({ type: "reopen", taskId: "worker-lifecycle" });
+    yield* h.command({
+      type: "assign",
+      taskId: "worker-lifecycle",
+      resumeAttemptId: first.id,
+    });
+    yield* h.drain();
+    const second = (yield* h.store.read()).tasks[0]!.attempts[1]!;
+
+    expect(h.dispatched.filter((command) => command.type === "thread.auto-settle")).toEqual([
+      expect.objectContaining({ threadId: first.threadId }),
+    ]);
+    expect(h.dispatched).not.toContainEqual(
+      expect.objectContaining({ type: "thread.auto-settle", threadId: second.threadId }),
+    );
+
+    yield* h.command({
+      type: "create",
+      taskId: "unhandled-worker",
+      projectId: a,
+      title: "Unhandled worker",
+      outcome: "Keep an unhandled result visible",
+      criteria: "Latest stopped attempt stays active",
+      verifyCommand: "",
+      priority: 2,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    yield* h.command({ type: "assign", taskId: "unhandled-worker" });
+    yield* h.drain();
+    const unhandled = (yield* h.store.read()).tasks.find((task) => task.id === "unhandled-worker")!
+      .attempts[0]!;
+    const unhandledProjection = h.projections.get(unhandled.threadId)!;
+    h.projections.set(unhandled.threadId, {
+      ...unhandledProjection,
+      runs: unhandledProjection.runs.map((run) => ({
+        ...run,
+        status: "completed",
+        completedAt: time,
+      })),
+    });
+    yield* h.store.updateAttempt(
+      "unhandled-worker",
+      unhandled.id,
+      "stopped",
+      "Result still needs recovery",
+    );
+    yield* h.drain();
+    expect(h.dispatched).not.toContainEqual(
+      expect.objectContaining({ type: "thread.auto-settle", threadId: unhandled.threadId }),
+    );
+
+    const settledProjection = h.projections.get(first.threadId)!;
+    h.projections.set(first.threadId, {
+      ...settledProjection,
+      thread: { ...settledProjection.thread, settledOverride: "active", settledAt: null },
+    });
+
+    yield* h.store.rebuild();
+    yield* h.drain();
+    expect(h.dispatched.filter((command) => command.type === "thread.auto-settle")).toHaveLength(1);
+    expect(
+      h.dispatched.filter((command) => command.type === "thread.auto-settle")[0],
+    ).toMatchObject({
+      commandId: `pitboss:settle:${first.id}`,
+      threadId: first.threadId,
+    });
+    expect(
+      (yield* h.store.read()).tasks.find((task) => task.id === "worker-lifecycle")!.attempts,
+    ).toHaveLength(2);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("continues manager wakes when a settlement snapshot is invalidated", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "settlement-race",
+      projectId: a,
+      title: "Settlement race",
+      outcome: "Preserve manager recovery",
+      criteria: "Settlement failure cannot block the manager",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    yield* h.command({ type: "assign", taskId: "settlement-race" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    h.projections.set(attempt.threadId, projection(attempt.threadId, a));
+    yield* h.store.updateAttempt("settlement-race", attempt.id, "stopped", "Stopped");
+    yield* h.command({ type: "close", taskId: "settlement-race", reason: "Superseded" });
+    h.failSettlement();
+    yield* h.command({
+      type: "create",
+      taskId: "next-work",
+      projectId: a,
+      title: "Next work",
+      outcome: "Wake the manager",
+      criteria: "Ready",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.dispatched).toContainEqual(
+      expect.objectContaining({
+        type: "thread.auto-settle",
+        threadId: attempt.threadId,
+      }),
+    );
+    expect(h.sent).toContain(boss);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("does not couple coordinator interruption to independent workers", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "independent-worker",
+      projectId: a,
+      title: "Independent worker",
+      outcome: "Keep working when the coordinator turn ends",
+      criteria: "Worker remains live",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    yield* h.command({ type: "assign", taskId: "independent-worker" });
+    yield* h.drain();
+    const worker = (yield* h.store.read()).tasks[0]!.attempts[0]!.threadId;
+
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+
+    expect(h.interrupted).not.toContain(worker);
+    expect((yield* h.store.read()).tasks[0]!.attempts[0]!.state).toBe("running");
+  }).pipe(Effect.provide(services)),
+);
 it.effect(
   "does not wake GLaDOS again when its no-op turn leaves the same task ready across restart",
   () =>
@@ -820,6 +1017,13 @@ it.effect("changes a submitted result from await-writer to review after the work
     });
     yield* h.drain();
     expect((yield* h.store.read()).tasks[0]!.status).toBe("done");
+    expect(h.dispatched).toContainEqual(
+      expect.objectContaining({
+        type: "thread.auto-settle",
+        commandId: `pitboss:settle:${attempt.id}`,
+        threadId: attempt.threadId,
+      }),
+    );
     expect(h.sent).toEqual([boss, boss, boss]);
   }).pipe(Effect.provide(services)),
 );

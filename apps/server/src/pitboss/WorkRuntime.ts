@@ -51,6 +51,30 @@ function isMissingThread(error: unknown): boolean {
   if (isProjectionMissing(error) || isManagementMissing(error)) return true;
   return (isProjectionError(error) || isManagementError(error)) && isMissingThread(error.cause);
 }
+function workerAttemptHandled(
+  state: PitbossSnapshot,
+  task: PitbossSnapshot["tasks"][number],
+  attemptIndex: number,
+): boolean {
+  const attempt = task.attempts[attemptIndex];
+  if (!attempt) return false;
+  const acceptedAttemptId = task.evidence.find(
+    (evidence) => evidence.id === task.acceptedEvidenceId,
+  )?.attemptId;
+  const accepted =
+    task.status === "done" && attempt.state === "submitted" && acceptedAttemptId === attempt.id;
+  if (!accepted && !["stopped", "failed"].includes(attempt.state)) return false;
+  if (
+    state.messages.some(
+      (message) =>
+        !message.acknowledged &&
+        message.threadId === attempt.threadId &&
+        (message.kind === "question" || message.kind === "decision"),
+    )
+  )
+    return false;
+  return ["done", "cancelled"].includes(task.status) || attemptIndex < task.attempts.length - 1;
+}
 interface WakeRecipient {
   readonly id: string;
   readonly projectId: typeof ProjectId.Type;
@@ -192,6 +216,7 @@ export const layer = Layer.effectDiscard(
     const threads = yield* ThreadManagementService;
     const launch = yield* ThreadLaunchService;
     const drainLock = yield* Semaphore.make(1);
+    const settledAttempts = new Set<string>();
     let lastLeadId: string | undefined;
     const processWake = Effect.fn("WorkRuntime.processWake")(function* (effect: WorkEffect) {
       const intent = yield* decodeWake(effect.payload_json);
@@ -700,6 +725,52 @@ export const layer = Layer.effectDiscard(
         });
         state = yield* store.read();
         break;
+      }
+      state = yield* store.read();
+      // A handled worker remains part of the task audit trail, but no longer belongs in the active
+      // thread list. Automatic settlement is race-safe: live work, pending requests and every
+      // explicit user settle/unsettle override win over this reconciliation pass.
+      for (const task of state.tasks) {
+        const authority = state.sourceAuthorities?.find(
+          (entry) => entry.scope === task.source?.scope,
+        );
+        if (task.homeEnvironmentId && authority && task.homeEnvironmentId !== authority.self)
+          continue;
+        for (const [attemptIndex, attempt] of task.attempts.entries()) {
+          if (settledAttempts.has(attempt.id) || attempt.threadId === state.role?.threadId)
+            continue;
+          if (!workerAttemptHandled(state, task, attemptIndex)) continue;
+          const observed = yield* Effect.result(threads.getThreadProjection(attempt.threadId));
+          if (observed._tag === "Failure") {
+            if (isMissingThread(observed.failure)) continue;
+            return yield* Effect.fail(observed.failure);
+          }
+          const projection = observed.success;
+          if (projection.thread.settledOverride !== null) {
+            settledAttempts.add(attempt.id);
+            continue;
+          }
+          if (
+            projection.runs.some((run) =>
+              ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
+            ) ||
+            projection.runtimeRequests.some((request) => request.status === "pending")
+          )
+            continue;
+          yield* threads
+            .dispatch({
+              type: "thread.auto-settle",
+              commandId: CommandId.make(`pitboss:settle:${attempt.id}`),
+              threadId: attempt.threadId,
+              snapshotAt: projection.thread.updatedAt,
+            })
+            .pipe(
+              Effect.tap(() => Effect.sync(() => settledAttempts.add(attempt.id))),
+              // A concurrent user action can invalidate the snapshot. Settlement must not prevent
+              // other workers from being recovered or their manager from receiving a wake.
+              Effect.catchCause(Effect.logWarning),
+            );
+        }
       }
       const role = state.role;
       if (!role || role.paused) return;

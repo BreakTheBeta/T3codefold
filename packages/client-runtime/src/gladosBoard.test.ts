@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProjectId, type PitbossMessage, type PitbossTask } from "@t3tools/contracts";
-import { buildGladosBoard, gladosBoardColumnWidth } from "./gladosBoard";
+import { ProjectId, ThreadId, type PitbossMessage, type PitbossTask } from "@t3tools/contracts";
+import {
+  buildGladosBoard,
+  gladosBoardColumnWidth,
+  gladosTaskLane,
+  managedWorkerRows,
+} from "./gladosBoard";
 
 const task = (id: string, status: PitbossTask["status"]): PitbossTask => ({
   id,
@@ -14,7 +19,20 @@ const task = (id: string, status: PitbossTask["status"]): PitbossTask => ({
   dependencies: [],
   workspaceStrategy: { type: "root" },
   status,
-  attempts: [],
+  attempts:
+    status === "active"
+      ? [
+          {
+            id: `attempt-${id}`,
+            threadId: ThreadId.make(`worker-${id}`),
+            generation: 1,
+            state: "running",
+            model: { instanceId: "codex", model: "gpt-5.6-sol" },
+            createdAt: "2026-09-18",
+            detail: "Worker launched",
+          },
+        ]
+      : [],
   evidence: [],
   source: null,
   note: "",
@@ -85,6 +103,43 @@ describe("GLaDOS board", () => {
         ],
       ),
     ).toMatchObject({ working: ["task:outcome"], "needs-you": ["message:unattached"] });
+  });
+  it("does not call a stopped active task working and exposes the replacement worker", () => {
+    const stopped = {
+      ...task("recover", "active"),
+      attempts: [
+        {
+          id: "attempt-1",
+          threadId: ThreadId.make("worker-1"),
+          generation: 1,
+          state: "stopped" as const,
+          model: { instanceId: "codex", model: "gpt-5.6-sol" },
+          createdAt: "2026-09-18",
+          detail: "Worker stopped without evidence",
+        },
+      ],
+    };
+    expect(gladosTaskLane(stopped)).toBe("waiting");
+
+    const replacement = {
+      ...stopped,
+      attempts: [
+        ...stopped.attempts,
+        {
+          ...stopped.attempts[0]!,
+          id: "attempt-2",
+          threadId: ThreadId.make("worker-2"),
+          generation: 2,
+          state: "running" as const,
+          detail: "Worker launched",
+        },
+      ],
+    };
+    expect(gladosTaskLane(replacement)).toBe("working");
+    expect(managedWorkerRows(replacement)).toEqual([
+      expect.objectContaining({ threadId: "worker-2", state: "running", current: true }),
+      expect.objectContaining({ threadId: "worker-1", state: "stopped", current: false }),
+    ]);
   });
   it("filters outcomes without leaking attached messages into another project", () => {
     const state = {
