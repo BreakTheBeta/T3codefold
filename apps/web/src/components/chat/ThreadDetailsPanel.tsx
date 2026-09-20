@@ -200,13 +200,13 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 keybindings={props.keybindings}
                 availableEditors={props.availableEditors}
                 openInCwd={props.gitCwd}
-                displayMode="panel"
+                presentation="panel"
               />
             ) : null}
 
             {props.activeProjectScripts ? (
               <ProjectScriptsControl
-                displayMode="panel"
+                presentation="panel"
                 scripts={props.activeProjectScripts}
                 fileScripts={fileScripts}
                 keybindings={props.keybindings}
@@ -231,7 +231,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               ) : null}
               {props.activeProjectName ? (
                 <GitActionsControl
-                  displayMode="panel"
+                  presentation="panel"
                   gitCwd={props.gitCwd}
                   activeThreadRef={{ environmentId: props.environmentId, threadId: props.threadId }}
                   {...(props.draftId ? { draftId: props.draftId } : {})}

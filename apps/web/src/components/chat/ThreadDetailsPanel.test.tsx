@@ -82,7 +82,7 @@ describe("ThreadDetailsPanel", () => {
     expect(testState.useT3ProjectFileScripts).toHaveBeenCalledWith(environmentId, gitCwd);
     expect(testState.projectScriptsControl).toHaveBeenCalledWith(
       expect.objectContaining({
-        displayMode: "panel",
+        presentation: "panel",
         scripts: [],
         fileScripts,
       }),
