@@ -31,6 +31,6 @@ for (const scenario of [
       assert.equal(yield* hasLiveWorktreeResources(threadId, "/work/task"), true);
       yield* sql`UPDATE orchestration_v2_effect_outbox SET status = 'completed'`;
       assert.equal(yield* hasLiveWorktreeResources(threadId, "/work/task"), scenario.expected);
-    }).pipe(Effect.provide([NodeSqliteClient.layerMemory(), Path.layer])),
+    }).pipe(Effect.provide([NodeSqliteClient.layer({ filename: ":memory:" }), Path.layer])),
   );
 }

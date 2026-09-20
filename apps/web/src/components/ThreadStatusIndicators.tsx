@@ -13,7 +13,7 @@ import {
   type VcsStatusResult,
 } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
-import { FolderGit2Icon, GitPullRequestArrowIcon, LayersIcon, TerminalIcon } from "lucide-react";
+import { FolderGit2Icon, TerminalIcon } from "lucide-react";
 import { useCallback, useMemo, type MouseEvent } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { buttonVariants, InlineButton } from "./ui/button";

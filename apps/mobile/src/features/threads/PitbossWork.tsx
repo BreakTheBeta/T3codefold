@@ -34,6 +34,7 @@ import {
   CommandId,
   isPitbossLeadActive,
   hasCurrentVerification,
+  pitbossMessageHeadline,
   verificationProposalApprovalAction,
   verificationProposalSaveAction,
   verificationRecipeForTask,
@@ -461,7 +462,7 @@ export function PitbossWork(props: {
                               accessibilityLabel={
                                 item.task
                                   ? `Review ${item.task.title}`
-                                  : `Read ${item.message.kind}: ${item.message.text}`
+                                  : `Read ${pitbossMessageHeadline(item.message)}`
                               }
                               accessibilityState={{ selected: selectedKey === item.key }}
                               onPress={() => {
@@ -480,7 +481,7 @@ export function PitbossWork(props: {
                                   : `GLaDOS · ${item.message.kind}`}
                               </Text>
                               <Text className="font-semibold" numberOfLines={2}>
-                                {item.task ? item.task.title : item.message.text}
+                                {item.task ? item.task.title : pitbossMessageHeadline(item.message)}
                               </Text>
                               <Text className="text-sm text-foreground-muted" numberOfLines={2}>
                                 {item.task?.note ||
@@ -510,7 +511,7 @@ export function PitbossWork(props: {
                         {selectedRow?.message && (
                           <View className="gap-3">
                             <Text className="text-lg font-semibold">
-                              {selectedRow.message.kind}
+                              {pitbossMessageHeadline(selectedRow.message)}
                             </Text>
                             <Text selectable>{selectedRow.message.text}</Text>
                             {button("Acknowledge", () => {
@@ -745,7 +746,9 @@ export function PitbossWork(props: {
                                       key={message.id}
                                       className="gap-2 rounded-xl border border-primary/30 p-3"
                                     >
-                                      <Text className="font-semibold">{message.kind}</Text>
+                                      <Text className="font-semibold">
+                                        {pitbossMessageHeadline(message)}
+                                      </Text>
                                       <Text selectable>{message.text}</Text>
                                       {button(
                                         "Acknowledge",

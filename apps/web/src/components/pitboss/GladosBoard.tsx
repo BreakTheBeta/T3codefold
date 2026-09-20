@@ -1,7 +1,13 @@
 import { useMemo, useState } from "react";
 import { FolderIcon, GitBranchIcon, BotIcon, ArrowUpRightIcon } from "lucide-react";
 import { buildGladosBoard, managedWorkerRows } from "@t3tools/client-runtime/glados-board";
-import type { PitbossSnapshot, PitbossTask, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  pitbossMessageHeadline,
+  type PitbossSnapshot,
+  type PitbossTask,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { Button } from "../ui/button";
 
 const dots = {
@@ -161,7 +167,7 @@ export function GladosBoard(props: {
                   >
                     <details>
                       <summary className="cursor-pointer text-sm font-medium">
-                        GLaDOS · {item.message.kind}
+                        {pitbossMessageHeadline(item.message)}
                       </summary>
                       <p className="mt-2 whitespace-pre-wrap break-words text-sm">
                         {item.message.text}

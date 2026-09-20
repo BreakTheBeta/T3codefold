@@ -5,9 +5,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   customThemeNames,
   getGeneratedUniwindThemeOutputs,
-  readDefaultThemeVariables,
+  renderDefaultThemeVariablesJSON,
   renderUniwindThemesCSS,
 } from "./generate-uniwind-themes.mts";
+import { readDefaultMobileThemeVariables } from "../src/lib/mobileTheme.test-support";
 
 describe("generate mobile Uniwind themes", () => {
   it("keeps the committed outputs current", () => {
@@ -36,6 +37,22 @@ describe("generate mobile Uniwind themes", () => {
       "ember-dark",
       "iris-light",
       "iris-dark",
+      "claude-light",
+      "claude-dark",
+      "codex-light",
+      "codex-dark",
+      "zed-light",
+      "zed-dark",
+      "midnight-light",
+      "midnight-dark",
+      "ember-forge-light",
+      "ember-forge-dark",
+      "mono-light",
+      "mono-dark",
+      "cyberpunk-light",
+      "cyberpunk-dark",
+      "slate-light",
+      "slate-dark",
     ]);
 
     const stylesheet = renderUniwindThemesCSS();
@@ -44,15 +61,18 @@ describe("generate mobile Uniwind themes", () => {
     }
   });
 
-  it("generates the default runtime bridge from the authored CSS", () => {
-    const css = NodeFS.readFileSync(NodePath.resolve(import.meta.dirname, "../global.css"), "utf8");
-    const variables = readDefaultThemeVariables(css);
+  it("keeps the default runtime bridge and generated CSS on the same palette", () => {
+    const variables = JSON.parse(renderDefaultThemeVariablesJSON());
 
-    expect(variables.light["--color-screen"]).toBe("#f2f2f7");
+    expect(variables.light).toEqual(readDefaultMobileThemeVariables("light"));
+    expect(variables.dark).toEqual(readDefaultMobileThemeVariables("dark"));
+    expect(variables.light["--color-screen"]).toBe("#fcfcfc");
+    expect(variables.light["--color-drawer"]).toBe("#fafafa");
     expect(variables.dark["--color-screen"]).toBe("#0a0a0a");
-    // Clerk variables are generated from clerk-theme.json rather than authored in global.css.
-    expect(variables.light["--color-clerk-page"]).toBe("#f2f2f7");
-    expect(variables.dark["--color-clerk-page"]).toBe("#0e0e0e");
+    // Clerk variables are derived from the default theme, not authored per theme.
+    expect(variables.light["--color-clerk-page"]).toBe("#fcfcfc");
+    expect(variables.dark["--color-clerk-page"]).toBe("#0a0a0a");
+    expect(variables.dark["--color-drawer"]).toBe("#000000");
     expect(Object.keys(variables.light)).toEqual(Object.keys(variables.dark));
   });
 
@@ -80,11 +100,11 @@ describe("generate mobile Uniwind themes", () => {
         ),
         name,
       ).toEqual({
-        "--color-clerk-page": isDark ? "#0e0e0e" : "#f2f2f7",
-        "--color-clerk-foreground": isDark ? "#f5f5f5" : "#262626",
-        "--color-clerk-foreground-muted": isDark ? "#a3a3a3" : "#737373",
-        "--color-clerk-border": isDark ? "rgba(42, 42, 42, 0.06)" : "rgba(229, 229, 234, 0.06)",
-        "--color-clerk-danger": isDark ? "#fca5a5" : "#dc2626",
+        "--color-clerk-page": isDark ? "#0a0a0a" : "#fcfcfc",
+        "--color-clerk-foreground": isDark ? "#f5f5f5" : "#27272a",
+        "--color-clerk-foreground-muted": isDark ? "#818181" : "#71717b",
+        "--color-clerk-border": isDark ? "#191919" : "#e4e4e7",
+        "--color-clerk-danger": isDark ? "#ff6467" : "#c10007",
       });
     }
   });

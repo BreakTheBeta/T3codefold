@@ -101,6 +101,7 @@ import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import ChatMarkdown, { ChatMarkdownAssetImage } from "../ChatMarkdown";
 import { ThreadContextChip } from "../ThreadContextChip";
 import { T3Wordmark } from "../T3Wordmark";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import {
   BotIcon,
   BrainIcon,
@@ -112,7 +113,6 @@ import {
   DownloadIcon,
   EyeIcon,
   GitForkIcon,
-  GitPullRequestIcon,
   GlobeIcon,
   type LucideIcon,
   MessageCircleIcon,
@@ -1963,12 +1963,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
-      {row.message.createdBy === "agent" ? (
+      {row.message.createdBy === "agent" || row.message.createdBy === "system" ? (
         <p
           className="me-1 text-[11px] text-muted-foreground/70"
-          data-user-message-attribution="agent"
+          data-user-message-attribution={row.message.createdBy}
         >
-          Sent by another agent
+          {row.message.createdBy === "agent" ? "Sent by another agent" : "Sent by T3 Code"}
         </p>
       ) : null}
       {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (
@@ -3907,7 +3907,7 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
               <UserMessageContextChip
                 icon={
                   isPullRequest ? (
-                    <GitPullRequestIcon
+                    <PullRequestGlyph.pullRequest
                       className={cn(
                         COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
                         CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES["pull-request"],
@@ -4471,7 +4471,7 @@ function ToolActivityImageIcon(props: {
 function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className: string }) {
   switch (name) {
     case "pull-request":
-      return <GitPullRequestIcon className={className} aria-hidden />;
+      return <PullRequestGlyph.pullRequest className={className} aria-hidden />;
     case "bot":
       return <BotIcon className={className} aria-hidden />;
     case "brain":

@@ -5,7 +5,13 @@ import {
   gladosBoardColumnWidth,
   managedWorkerRows,
 } from "@t3tools/client-runtime/glados-board";
-import type { PitbossSnapshot, PitbossTask, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  pitbossMessageHeadline,
+  type PitbossSnapshot,
+  type PitbossTask,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { AppText as Text } from "../../components/AppText";
 
 const dots = {
@@ -93,7 +99,7 @@ export function GladosBoard(props: {
           .filter((message) => message.taskId === task.id && !message.acknowledged)
           .map((message) => (
             <Text key={message.id} className="rounded-xl border border-border p-3">
-              {message.text}
+              {pitbossMessageHeadline(message)}
             </Text>
           ))}
         <Text className="text-sm text-foreground-muted">
@@ -218,8 +224,8 @@ export function GladosBoard(props: {
                   </View>
                 ) : (
                   <View className="gap-3 rounded-xl border border-border bg-card p-3">
-                    <Text className="font-semibold">GLaDOS · {item.message.kind}</Text>
-                    <Text>{item.message.text}</Text>
+                    <Text className="font-semibold">{pitbossMessageHeadline(item.message)}</Text>
+                    <Text className="text-sm text-foreground-muted">{item.message.text}</Text>
                     {talk}
                   </View>
                 )

@@ -136,6 +136,7 @@ describe("GLaDOS work discovery", () => {
     const reviewed = {
       ...retained,
       criteriaVersion: 1,
+      status: "verifying" as const,
       evidence: [
         {
           ...retained.evidence[0]!,
@@ -146,6 +147,12 @@ describe("GLaDOS work discovery", () => {
     };
     expect(nextActionLabel({ ...state, tasks: [reviewed] }, reviewed)).toBe(
       "Accept reviewed result",
+    );
+    // A decision or rework moved the task out of review, so its passing review no longer offers
+    // an acceptance the server would refuse.
+    const reopened = { ...reviewed, status: "queued" as const };
+    expect(nextActionLabel({ ...state, tasks: [reopened] }, reopened)).toBe(
+      "Review retained result",
     );
     const failed = {
       ...reviewed,

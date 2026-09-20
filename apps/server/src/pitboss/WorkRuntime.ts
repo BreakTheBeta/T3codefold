@@ -13,6 +13,7 @@ import {
   pitbossTaskNextAction,
   verificationRecipeForTask,
   type PitbossSnapshot,
+  type PitbossTaskNextAction,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
@@ -79,6 +80,115 @@ function workerAttemptHandled(
 function hasActiveShellRun(shell: OrchestrationV2ThreadShell): boolean {
   return shell.activeRunId !== null || shell.activityRunStatus != null;
 }
+/**
+ * One obligation, two readers. The coordinator needs the exact next command; the user needs a line
+ * naming the work. Both are derived here from the same typed action so they cannot drift apart.
+ */
+const OBLIGATIONS = {
+  "await-writer": {
+    label: "Result submitted",
+    changed: "candidate evidence was recorded without accepting it.",
+    next: "wait for the worker to stop, then run the required verification.",
+    headline: "Worker submitted a result",
+  },
+  verify: {
+    label: "Verification needed",
+    changed: "a stopped candidate has current evidence and an approved profile.",
+    next: "run the approved verification, then review its receipt. Do not assign duplicate implementation work.",
+    headline: "Ready to verify",
+  },
+  review: {
+    label: "Result ready for review",
+    changed: "the worker stopped and retained candidate evidence.",
+    next: "inspect the reported evidence and record review. Do not accept the stopped turn itself or assign duplicate implementation work.",
+    headline: "Ready to review",
+  },
+  accept: {
+    label: "Acceptance needed",
+    changed: "the latest coordinator review passed for the current candidate and proof contract.",
+    next: "explicitly accept it or record why more work is required.",
+    headline: "Review passed — ready to accept",
+  },
+  recover: {
+    label: "Recovery needed",
+    changed: "the latest retained result is not acceptable evidence.",
+    next: "inspect the retained thread, then rework or cancel with an honest superseded reason. Never invent evidence for historical work.",
+    headline: "Needs recovery",
+  },
+  "recover-empty": {
+    label: "Recovery needed",
+    changed: "the worker stopped without submitting any evidence.",
+    next: "settle this outcome yourself — close it with an honest reason if it is complete or superseded, or use revise-result with the information the worker was missing to continue it in the retained workspace.",
+    headline: "Worker finished with nothing",
+  },
+  assign: {
+    label: "Ready to assign",
+    changed: "prerequisites are satisfied and no retained result needs review.",
+    next: "assign a managed worker or record the condition that blocks assignment.",
+    headline: "Ready to start",
+  },
+  rework: {
+    label: "Rework ready",
+    changed: "an explicit rework request reopened the retained candidate.",
+    next: "assign a managed worker with resumeAttemptId {attemptId}. The prior evidence stays historical and is not accepted.",
+    headline: "Reopened for rework",
+  },
+  question: {
+    label: "Question",
+    changed: "a worker asked for help.",
+    next: "answer within the charter or record a user decision.",
+    headline: "Worker asked a question",
+  },
+  decision: {
+    label: "Decision needed",
+    changed: "a recorded decision is unresolved.",
+    next: "resolve the recorded decision before resuming this task.",
+    headline: "Waiting on your decision",
+  },
+  progress: {
+    label: "Progress",
+    changed: "a worker recorded an update.",
+    next: "inspect the update and act only if its recorded state requires it.",
+    headline: "Progress update",
+  },
+  "progress-retained": {
+    label: "Task updated",
+    changed: "the recorded update preserved the retained result.",
+    next: "review the retained candidate against the current criteria before verification.",
+    headline: "Updated — retained result still stands",
+  },
+} as const;
+type ObligationKind = keyof typeof OBLIGATIONS;
+
+/** A submitted result reads differently depending on what the task now owes. */
+function resultObligation(action: PitbossTaskNextAction | null): ObligationKind {
+  return action === "await-writer" ||
+    action === "verify" ||
+    action === "accept" ||
+    action === "recover"
+    ? action
+    : "review";
+}
+
+function obligationText(
+  kind: ObligationKind,
+  subject: string,
+  options: { detail?: string; attemptId?: string | undefined; reminders?: number },
+) {
+  const { label, changed, next } = OBLIGATIONS[kind];
+  const detail = options.detail ? `: ${options.detail}` : ".";
+  const reminder = options.reminders
+    ? ` (delivery ${options.reminders + 1} of ${SETTLEMENT_REMINDERS}; the user is asked to settle this outcome after that)`
+    : "";
+  return `${label} · ${subject}${detail} Changed: ${changed} Next: ${next.replace("{attemptId}", options.attemptId ?? "none")}${reminder}`;
+}
+
+/** The board and the chat show the obligation and the work's name, never its identifiers. */
+function obligationHeadline(kind: ObligationKind, title: string | undefined) {
+  const { headline } = OBLIGATIONS[kind];
+  return title ? `${headline} — ${title}` : headline;
+}
+
 interface WakeRecipient {
   readonly id: string;
   readonly projectId: typeof ProjectId.Type;
@@ -86,7 +196,24 @@ interface WakeRecipient {
   readonly generation: number;
   readonly leadId?: string | undefined;
 }
-function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
+/**
+ * An obligation the owner is expected to settle itself: keep the worker going with more
+ * information, or close the outcome out. These repeat until settled, unlike assignment (capacity
+ * decides it) and user decisions (only the user can answer them).
+ */
+const SETTLEABLE = new Set(["verify", "review", "recover", "accept"]);
+/**
+ * How many times one unchanged obligation is delivered to its owner before the server asks the
+ * user instead. Each delivery costs the owner a turn, so most stalls settle without the user and
+ * only a persistently unsettled outcome reaches the decision inbox.
+ */
+const SETTLEMENT_REMINDERS = 3;
+function wakeEvents(
+  state: PitbossSnapshot,
+  recipient: WakeRecipient,
+  // How many wakes already carried each obligation key, so an unsettled one can repeat.
+  delivered: ReadonlyMap<string, number> = new Map(),
+) {
   const messages = actionableInboxFor(state, recipient.threadId, recipient.leadId);
   const available =
     state.tasks.filter((task) =>
@@ -101,12 +228,23 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
       .map((task) => task.id),
   );
   const owner = recipient.leadId ? `project lead ${recipient.leadId}` : "GLaDOS";
+  const subjectOf = (task: { id: string } | undefined, attemptId: string | undefined) =>
+    task
+      ? `task ${task.id} · attempt ${attemptId ?? "none"} · owner ${owner}`
+      : `portfolio · owner ${owner}`;
   const events: Array<{
     readonly key: string;
     readonly obligationKey: string;
     readonly text: string;
+    readonly headline: string;
     readonly deliverable: boolean;
+    /** Set when the owner has ignored this obligation for its whole reminder budget. */
+    readonly unsettled?: { readonly taskId: string; readonly action: string };
   }> = [];
+  // An obligation the owner never settled is re-sent under a new key, once per owner turn, rather
+  // than being recorded as handled the first time it is delivered.
+  const reminder = (key: string, action: PitbossTaskNextAction | null) =>
+    action && SETTLEABLE.has(action) ? (delivered.get(key) ?? 0) : 0;
   const obligationKey = (task: (typeof state.tasks)[number], action: string) => {
     const attempt = task.attempts.at(-1);
     const evidence = task.evidence.at(-1);
@@ -142,31 +280,14 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
     )
       ? "decision"
       : message.kind;
-    const subject = task
-      ? `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`
-      : `portfolio · owner ${owner}`;
-    const resultText =
-      action === "await-writer"
-        ? `Result submitted · ${subject}: ${message.text.slice(0, 600)} Changed: candidate evidence was recorded without accepting it. Next: wait for the worker to stop, then run the required verification.`
-        : action === "verify"
-          ? `Result ready for verification · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: run the approved verification, then review its receipt.`
-          : action === "accept"
-            ? `Acceptance needed · ${subject}: ${message.text.slice(0, 600)} Changed: the latest coordinator review passed for the current candidate and proof contract. Next: explicitly accept it or record why more work is required.`
-            : action === "recover"
-              ? `Recovery needed · ${subject}: ${message.text.slice(0, 600)} Changed: the latest review did not establish acceptable evidence. Next: rework or cancel with an honest superseded reason.`
-              : `Result ready for review · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: inspect the reported evidence and record review; do not accept the stopped turn itself.`;
-    const progressText =
-      task && task.evidence.length > 0 && action === "review"
-        ? `Task updated · ${subject}: ${message.text.slice(0, 600)} Changed: the recorded update preserved the retained result. Next: review the retained candidate against the current criteria before verification.`
-        : `progress · ${subject}: ${message.text.slice(0, 600)} Next: inspect the update and act only if its recorded state requires it.`;
-    const text =
-      eventKind === "question"
-        ? `question · ${subject}: ${message.text.slice(0, 600)} Next: answer within the charter or record a user decision.`
-        : eventKind === "decision"
-          ? `decision · ${subject}: ${message.text.slice(0, 600)} Next: Resolve the recorded decision before resuming this task.`
-          : message.kind === "result"
-            ? resultText
-            : progressText;
+    const obligationOf =
+      eventKind === "question" || eventKind === "decision"
+        ? eventKind
+        : message.kind === "result"
+          ? resultObligation(action)
+          : task && task.evidence.length > 0 && action === "review"
+            ? "progress-retained"
+            : "progress";
     // Questions and decisions are independent obligations even when they concern the same task.
     // Results and progress still coalesce around the task's current next action, so repeated status
     // reports cannot keep waking a coordinator whose obligation did not change.
@@ -176,13 +297,23 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
         : task
           ? obligationKey(task, action ?? eventKind)
           : `message:${message.id}`;
+    const settleable = !!task && eventKind !== "question" && eventKind !== "decision";
+    const reminders = settleable ? reminder(obligation, action) : 0;
     events.push({
       key: task
-        ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}:action:${action ?? eventKind}`
+        ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}:action:${action ?? eventKind}:delivery:${reminders}`
         : `message:${message.id}`,
       obligationKey: obligation,
-      text,
-      deliverable: true,
+      text: obligationText(obligationOf, subjectOf(task, attempt?.id), {
+        detail: message.text.slice(0, 600),
+        attemptId: attempt?.id,
+        reminders,
+      }),
+      headline: obligationHeadline(obligationOf, task?.title),
+      deliverable: reminders < SETTLEMENT_REMINDERS,
+      ...(reminders >= SETTLEMENT_REMINDERS && task
+        ? { unsettled: { taskId: task.id, action: action ?? eventKind } }
+        : {}),
     });
   }
   for (const task of owned) {
@@ -191,24 +322,25 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
     if (!action || !["assign", "verify", "review", "recover", "accept"].includes(action)) continue;
     if (action === "assign" && !assignable.has(task.id)) continue;
     const key = obligationKey(task, action);
-    const subject = `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`;
-    const text =
-      action === "assign"
-        ? task.reworkRequestedAt
-          ? `Rework ready · ${subject}. Changed: an explicit rework request reopened the retained candidate. Next: assign a managed worker with resumeAttemptId ${attempt?.id ?? "none"}; the prior evidence remains historical and is not accepted.`
-          : `Ready to assign · ${subject}. Changed: prerequisites are satisfied and no retained result needs review. Next: assign a managed worker or record the condition that blocks assignment.`
-        : action === "verify"
-          ? `Verification needed · ${subject}. Changed: a stopped candidate has current evidence and an approved profile. Next: run the approved verification; do not assign duplicate implementation work.`
-          : action === "review"
-            ? `Result ready for review · ${subject}. Changed: a stopped candidate is retained. Next: inspect it and record current review before verification or acceptance; do not assign duplicate implementation work.`
-            : action === "accept"
-              ? `Acceptance needed · ${subject}. Changed: the latest coordinator review passed for the current candidate and proof contract. Next: inspect that review and explicitly accept or record why more work is required.`
-              : `Recovery needed · ${subject}. Changed: the latest retained result is not acceptable evidence. Next: inspect the retained thread, then rework or cancel with an honest superseded reason; do not invent evidence for historical work.`;
+    const obligationOf =
+      action === "assign" && task.reworkRequestedAt
+        ? "rework"
+        : action === "recover" && task.evidence.length === 0
+          ? "recover-empty"
+          : (action as ObligationKind);
+    const reminders = reminder(key, action);
     events.push({
-      key,
+      // The delivery key always differs from the obligation key, so a wake that is queued but not
+      // yet delivered cannot be counted as a delivery of its own obligation.
+      key: `${key}:delivery:${reminders}`,
       obligationKey: key,
-      text,
-      deliverable: action !== "assign" || available,
+      text: obligationText(obligationOf, subjectOf(task, attempt?.id), {
+        attemptId: attempt?.id,
+        reminders,
+      }),
+      headline: obligationHeadline(obligationOf, task.title),
+      deliverable: (action !== "assign" || available) && reminders < SETTLEMENT_REMINDERS,
+      ...(reminders >= SETTLEMENT_REMINDERS ? { unsettled: { taskId: task.id, action } } : {}),
     });
   }
   return events;
@@ -233,6 +365,66 @@ export const layer = Layer.effectDiscard(
         });
       }
       return shell;
+    });
+    /**
+     * The owner ignored one obligation for its whole reminder budget, so the server stops nudging
+     * and parks the task on a user decision. Everything else about the task is preserved: the
+     * retained workspace, its evidence and its audit trail all survive whichever way the user
+     * settles it.
+     */
+    const escalate = Effect.fn("WorkRuntime.escalate")(function* (
+      recipient: WakeRecipient,
+      obligationKey: string,
+      unsettled: { readonly taskId: string; readonly action: string },
+    ) {
+      const state = yield* store.read();
+      const task = state.tasks.find((entry) => entry.id === unsettled.taskId);
+      const lead = recipient.leadId
+        ? activeLeads(state).find((entry) => entry.id === recipient.leadId)
+        : undefined;
+      if (
+        !task ||
+        task.homeEnvironmentId ||
+        (recipient.leadId && !lead) ||
+        ["done", "cancelled"].includes(task.status) ||
+        task.decisions?.some((decision) => decision.answer === undefined) ||
+        (task.decisions?.length ?? 0) >= 20
+      )
+        return false;
+      const attempt = task.attempts.at(-1);
+      const owner = lead ? `Project lead ${lead.id}` : "GLaDOS";
+      const detail = (attempt?.detail || task.note || "No detail was recorded.").slice(0, 600);
+      const raised = yield* Effect.result(
+        store.command(
+          {
+            commandId: CommandId.make(
+              `pitboss:unsettled:${NodeCrypto.createHash("sha256")
+                .update(obligationKey)
+                .digest("hex")}`,
+            ),
+            expectedRevision: state.revision,
+            authorityGeneration: recipient.generation,
+            action: {
+              type: "request-decision",
+              taskId: task.id,
+              question: `${task.title}: ${owner} was asked ${SETTLEMENT_REMINDERS} times to settle this outcome (${unsettled.action}) and did not. Its last worker, attempt ${attempt?.id ?? "none"}, left ${task.evidence.length ? "evidence that was never accepted" : "no evidence"}: ${detail} How should this work be settled?`,
+              options: [
+                "Keep going — give the worker what it was missing",
+                "It is already complete — settle it as delivered",
+                "Drop it — stop spending attempts on this task",
+              ],
+              recommendation:
+                "Answer in your own words; the answer is handed to this task's manager. Keep going if the outcome still matters and the worker only lacked information. Settle or close it if the work landed elsewhere, is no longer worth an attempt, or the task was never well posed.",
+            },
+          },
+          { type: "agent", threadId: recipient.threadId },
+        ),
+      );
+      if (raised._tag === "Success") return true;
+      yield* Effect.logWarning(
+        `Unsettled work could not be escalated for task ${task.id}: ${raised.failure.message}`,
+      );
+      return false;
     });
     let lastLeadId: string | undefined;
     const processWake = Effect.fn("WorkRuntime.processWake")(function* (effect: WorkEffect) {
@@ -261,7 +453,13 @@ export const layer = Layer.effectDiscard(
             threadId: state.role.threadId,
             generation: state.role.generation,
           };
-      const current = recipient ? wakeEvents(state, recipient) : [];
+      const current = recipient
+        ? wakeEvents(
+            state,
+            recipient,
+            yield* store.wakeDeliveries(recipient.id, recipient.generation),
+          )
+        : [];
       const currentByKey = new Map(current.map((event) => [event.key, event]));
       const matched = intent.keys.flatMap((key) => {
         const event = currentByKey.get(key);
@@ -290,7 +488,16 @@ export const layer = Layer.effectDiscard(
           threadId: recipient.threadId,
           commandId: CommandId.make(effect.operation_id),
           messageId: MessageId.make(effect.operation_id),
-          text: ["Managed work changed:", ...deliverable.map((event) => event.text)].join("\n"),
+          // This lands in the coordinator's chat, which the user also reads. Headlines go on top
+          // so a person can scan it; the exact obligations follow for the agent.
+          text: [
+            "Managed work changed:",
+            ...deliverable.map((event) => `- ${event.headline}`),
+            "",
+            "<t3-managed-work>",
+            ...deliverable.map((event) => event.text),
+            "</t3-managed-work>",
+          ].join("\n"),
           attachments: [],
           mode: "queue",
           createdBy: "system",
@@ -826,10 +1033,19 @@ export const layer = Layer.effectDiscard(
       let wokeLead = false;
       for (const recipient of recipients) {
         if (recipient.leadId && wokeLead) continue;
-        const recorded = new Set(yield* store.wakeKeys(recipient.id, recipient.generation));
+        const delivered = yield* store.wakeDeliveries(recipient.id, recipient.generation);
+        const candidates = wakeEvents(state, recipient, delivered);
+        // The owner had its reminders and never settled these outcomes. Ask the user instead of
+        // repeating, then re-read: raising a decision parks the task and changes its obligation.
+        let escalated = false;
+        for (const event of candidates) {
+          if (!event.unsettled) continue;
+          if (yield* escalate(recipient, event.obligationKey, event.unsettled)) escalated = true;
+        }
+        if (escalated) state = yield* store.read();
         const obligations = new Set<string>();
-        const events = wakeEvents(state, recipient)
-          .filter((event) => event.deliverable && !recorded.has(event.key))
+        const events = (escalated ? wakeEvents(state, recipient, delivered) : candidates)
+          .filter((event) => event.deliverable && !delivered.has(event.key))
           .filter((event) => {
             if (obligations.has(event.obligationKey)) return false;
             obligations.add(event.obligationKey);

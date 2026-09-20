@@ -38,6 +38,7 @@ import {
   CommandId,
   isPitbossLeadActive,
   hasCurrentVerification,
+  pitbossMessageHeadline,
   verificationRecipeForTask,
   type EnvironmentId,
   type ModelSelection,
@@ -253,9 +254,7 @@ export function PitbossPanel(props: {
           {questions.map((message) => (
             <div key={message.id} className="mb-3 grid grid-cols-2 gap-2 text-sm">
               <details className="col-span-2">
-                <summary className="cursor-pointer">
-                  {message.text.length > 160 ? `${message.text.slice(0, 160)}…` : message.text}
-                </summary>
+                <summary className="cursor-pointer">{pitbossMessageHeadline(message)}</summary>
                 <p className="mt-2 whitespace-pre-wrap">{message.text}</p>
               </details>
               <Button
@@ -805,12 +804,10 @@ export function PitbossPanel(props: {
             {state.messages
               .filter((message) => message.taskId === selected.id && !message.acknowledged)
               .map((message) => (
-                <p
-                  key={message.id}
-                  className="whitespace-pre-wrap rounded-lg border border-border p-3 text-sm"
-                >
-                  {message.text}
-                </p>
+                <details key={message.id} className="rounded-lg border border-border p-3 text-sm">
+                  <summary className="cursor-pointer">{pitbossMessageHeadline(message)}</summary>
+                  <p className="mt-2 whitespace-pre-wrap">{message.text}</p>
+                </details>
               ))}
             <p className="text-xs text-muted-foreground">
               GLaDOS coordinates workers and verification. You can give direction or answer

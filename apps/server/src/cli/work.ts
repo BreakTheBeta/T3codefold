@@ -56,8 +56,8 @@ const invoke = Effect.fn("work.invoke")(function* (
   name: "work_read" | "work_command",
   input: unknown,
 ) {
-  const endpoint = yield* Config.string("T3_WORK_ENDPOINT");
-  const authorization = yield* Config.string("T3_WORK_AUTHORIZATION");
+  const endpoint = yield* Config.String("T3_WORK_ENDPOINT");
+  const authorization = yield* Config.String("T3_WORK_AUTHORIZATION");
   const client = yield* HttpClient.HttpClient;
   const send = (payload: unknown, sessionId?: string) =>
     client
@@ -116,12 +116,12 @@ const read = Command.make("read", {}, () => invoke("work_read", {}));
 const command = Command.make(
   "command",
   {
-    file: Flag.string("file").pipe(
+    file: Flag.String("file").pipe(
       Flag.withDescription(
         "JSON PitbossCommand file, including stable commandId and expectedRevision.",
       ),
     ),
-    dryRun: Flag.boolean("dry-run").pipe(
+    dryRun: Flag.Boolean("dry-run").pipe(
       Flag.withDescription(
         "Validate the command contract locally without sending it. Does not validate current authority or readiness.",
       ),

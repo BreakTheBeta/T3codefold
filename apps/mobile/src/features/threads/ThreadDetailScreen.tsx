@@ -77,6 +77,9 @@ import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerAttachment } from "../../lib/composerImages";
 import { CHAT_CONTENT_MAX_WIDTH, type LayoutVariant } from "../../lib/layout";
 import { editPendingThreadMessage } from "../../state/edit-pending-thread-message";
+import { deviceEnvironment } from "../../state/device";
+import { useEnvironmentQuery } from "../../state/query";
+import { threadDevicePreviews } from "../devices/threadDevicePreviews";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { threadEnvironment } from "../../state/threads";
@@ -284,6 +287,21 @@ const USER_INPUT_TOGGLE_TIMING = {
 };
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
+  const navigation = useNavigation();
+  const deviceState = useEnvironmentQuery(
+    deviceEnvironment.state({ environmentId: props.environmentId, input: {} }),
+  );
+  const devicePreviews = useMemo(
+    () => threadDevicePreviews(deviceState.data, props.selectedThread.id),
+    [deviceState.data, props.selectedThread.id],
+  );
+  const openDevicePreview = useCallback(() => {
+    Keyboard.dismiss();
+    navigation.navigate("ThreadDevicePreview", {
+      environmentId: props.environmentId,
+      threadId: props.selectedThread.id,
+    });
+  }, [navigation, props.environmentId, props.selectedThread.id]);
   const insets = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
@@ -308,7 +326,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + 44;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
-  const navigation = useNavigation();
   const queuedCount = useThreadQueuedCount({
     environmentId: props.environmentId,
     threadId: props.selectedThread.id,
@@ -421,6 +438,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     showWorkingControl ||
     queuedCount > 0 ||
     agentsSegment !== null ||
+    devicePreviews.length > 0 ||
     props.connectionStateLabel !== "connected" ||
     props.queuedMessages.length > 0 ||
     props.selectedThreadFeed.some(
@@ -1040,6 +1058,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               <FloatingWorkingControl
                 colorScheme={isDarkMode ? "dark" : "light"}
                 status={floatingStatus}
+                devicePreview={
+                  devicePreviews.length > 0
+                    ? { count: devicePreviews.length, onPress: openDevicePreview }
+                    : null
+                }
                 showScrollToEnd={showScrollToEndButton}
                 onScrollToEnd={handleScrollToEnd}
                 agents={agentsSegment}

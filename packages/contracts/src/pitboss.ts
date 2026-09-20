@@ -286,7 +286,10 @@ export const PitbossMessage = Schema.Struct({
   taskId: Schema.NullOr(Id),
   threadId: Schema.NullOr(ThreadId),
   kind: Schema.Literals(["question", "progress", "result", "decision"]),
+  /** Agent-facing detail. Carries the obligation and its exact next action. */
   text: Text,
+  /** Human-facing one-liner for the board, inbox and chat. Absent on agent-authored text. */
+  headline: Schema.optional(Text),
   createdAt: Schema.String,
   acknowledged: Schema.Boolean,
 });
@@ -615,7 +618,11 @@ export function pitbossTaskNextAction(
         return "await-verification";
       if (!hasCurrentVerification(task, recipe, evidence.candidate, now)) return "verify";
     }
-    if (evidence.provenance === "coordinator_review") return "accept";
+    // Acceptance needs the task to still be in review. A decision or rework that moved it out
+    // sends the candidate back through a fresh coordinator review rather than offering an
+    // acceptance the decider would refuse.
+    if (evidence.provenance === "coordinator_review" && task.status === "verifying")
+      return "accept";
     return "review";
   }
 
@@ -650,6 +657,26 @@ export function pitbossTaskNextActionLabel(action: PitbossTaskNextAction | null)
     default:
       return null;
   }
+}
+
+/**
+ * What a person reads for a message. Server-authored messages carry an explicit headline;
+ * agent-authored report and submit text falls back to its own opening sentence so the board
+ * never renders a paragraph where a line belongs.
+ */
+export function pitbossMessageHeadline(
+  message: Pick<PitbossMessage, "text" | "headline">,
+  maxLength = 120,
+) {
+  const source = message.headline?.trim() || message.text.trim();
+  const firstLine = source.split("\n", 1)[0]!.trim();
+  // A sentence break only shortens the line; without one the whole first line is the headline.
+  const sentence = /^(.+?[.!?])(?:\s|$)/.exec(firstLine)?.[1] ?? firstLine;
+  if (sentence.length <= maxLength) return sentence;
+  return `${firstLine
+    .slice(0, maxLength)
+    .trimEnd()
+    .replace(/[.,;:]$/, "")}…`;
 }
 
 /** User attention is a concrete decision or setup review, not every operational blocker. */
