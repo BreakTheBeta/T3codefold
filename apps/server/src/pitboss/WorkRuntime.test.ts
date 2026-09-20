@@ -802,41 +802,48 @@ it.effect("does not re-wake the same assign obligation for an unrelated task rev
     expect(h.sent).toEqual([boss]);
   }).pipe(Effect.provide(services)),
 );
-it.effect("wakes once for a failed managed attempt and leaves recovery explicit", () =>
-  Effect.gen(function* () {
-    const h = yield* harness;
-    yield* h.command({
-      type: "create",
-      taskId: "failed-attempt",
-      projectId: a,
-      title: "Failed attempt",
-      outcome: "Recover the managed failure",
-      criteria: "A later attempt returns evidence",
-      verifyCommand: "",
-      priority: 1,
-      dependencies: [],
-      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
-    });
-    yield* h.command({ type: "assign", taskId: "failed-attempt" });
-    yield* h.drain();
-    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
-    yield* h.store.updateAttempt(
-      "failed-attempt",
-      attempt.id,
-      "failed",
-      "Provider exited before producing evidence",
-    );
-    yield* h.drain();
-    expect((yield* h.store.read()).tasks[0]?.status).toBe("blocked");
-    expect(h.sentMessages[0]?.text).toContain(
-      `Recovery needed · task failed-attempt · attempt ${attempt.id} · owner GLaDOS`,
-    );
-    h.projections.set(boss, projection(boss, a));
-    yield* h.drain();
-    expect(h.sent).toEqual([boss]);
-  }).pipe(Effect.provide(services)),
+it.effect(
+  "reminds the coordinator about a failed managed attempt and leaves recovery explicit",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.command({
+        type: "create",
+        taskId: "failed-attempt",
+        projectId: a,
+        title: "Failed attempt",
+        outcome: "Recover the managed failure",
+        criteria: "A later attempt returns evidence",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      });
+      yield* h.command({ type: "assign", taskId: "failed-attempt" });
+      yield* h.drain();
+      const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+      yield* h.store.updateAttempt(
+        "failed-attempt",
+        attempt.id,
+        "failed",
+        "Provider exited before producing evidence",
+      );
+      yield* h.drain();
+      expect((yield* h.store.read()).tasks[0]?.status).toBe("blocked");
+      expect(h.sentMessages[0]?.text).toContain(
+        `Recovery needed · task failed-attempt · attempt ${attempt.id} · owner GLaDOS`,
+      );
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+      // The obligation did not change, so it repeats as an explicit reminder instead of stranding
+      // the task on a single delivery the coordinator ignored.
+      expect(h.sent).toEqual([boss, boss]);
+      expect(h.sentMessages.at(-1)?.text).toContain("Recovery needed");
+      expect(h.sentMessages.at(-1)?.text).toContain("delivery 2 of 3");
+      expect((yield* h.store.read()).tasks[0]?.status).toBe("blocked");
+    }).pipe(Effect.provide(services)),
 );
-it.effect("wakes once for each changed failed review and not again after restart", () =>
+it.effect("wakes once for each changed failed review and reminds about an unchanged one", () =>
   Effect.gen(function* () {
     const h = yield* harness;
     yield* h.command({
@@ -888,7 +895,8 @@ it.effect("wakes once for each changed failed review and not again after restart
     expect(h.sent).toEqual([boss, boss, boss]);
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
-    expect(h.sent).toEqual([boss, boss, boss]);
+    expect(h.sent).toEqual([boss, boss, boss, boss]);
+    expect(h.sentMessages.at(-1)?.text).toContain("delivery 2 of 3");
   }).pipe(Effect.provide(services)),
 );
 it.effect("resumes a retained candidate after explicit rework and reopen", () =>
@@ -1043,7 +1051,11 @@ it.effect("changes a submitted result from await-writer to review after the work
     );
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
-    expect(h.sent).toEqual([boss, boss]);
+    // An unchanged review obligation repeats as a reminder rather than going quiet.
+    expect(h.sent).toEqual([boss, boss, boss]);
+    expect(h.sentMessages.at(-1)?.text).toContain("Result ready for review");
+    expect(h.sentMessages.at(-1)?.text).toContain("delivery 2 of 3");
+    h.projections.set(boss, projection(boss, a));
     yield* h.command({
       type: "review",
       taskId: submitted.id,
@@ -1056,11 +1068,10 @@ it.effect("changes a submitted result from await-writer to review after the work
       artifactUrls: [],
     });
     yield* h.drain();
-    expect(h.sent).toEqual([boss, boss, boss]);
+    // Recording the review settles that obligation, so acceptance arrives as a first delivery.
+    expect(h.sent).toHaveLength(4);
     expect(h.sentMessages.at(-1)?.text).toContain("Acceptance needed");
-    h.projections.set(boss, projection(boss, a));
-    yield* h.drain();
-    expect(h.sent).toEqual([boss, boss, boss]);
+    expect(h.sentMessages.at(-1)?.text).not.toContain("delivery 2 of 3");
     const reviewed = (yield* h.store.read()).tasks[0]!;
     yield* h.command({
       type: "accept",
@@ -1077,7 +1088,8 @@ it.effect("changes a submitted result from await-writer to review after the work
         threadId: attempt.threadId,
       }),
     );
-    expect(h.sent).toEqual([boss, boss, boss]);
+    // Acceptance leaves no obligation, so nothing is delivered or reminded about again.
+    expect(h.sent).toHaveLength(4);
   }).pipe(Effect.provide(services)),
 );
 
@@ -1245,7 +1257,8 @@ it.effect("re-wakes review once when the retained result proof contract changes"
     expect(h.sentMessages.at(-1)?.text).toContain("Result ready for review");
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
-    expect(h.sent).toEqual([boss, boss]);
+    expect(h.sent).toEqual([boss, boss, boss]);
+    expect(h.sentMessages.at(-1)?.text).toContain("delivery 2 of 3");
   }).pipe(Effect.provide(services)),
 );
 it.effect("does not offer managed work again while its persisted writer is running", () =>
@@ -1312,13 +1325,81 @@ it.effect("wakes once with an honest review action when a worker finishes withou
       `Recovery needed · task unfinished-result · attempt ${attempt.id} · owner GLaDOS`,
     );
     expect(h.sentMessages[0]?.text).toContain(
-      "Next: inspect the retained thread, then rework or cancel with an honest superseded reason. Never invent evidence for historical work.",
+      "Changed: the worker stopped without submitting any evidence.",
+    );
+    expect(h.sentMessages[0]?.text).toContain(
+      "Next: settle this outcome yourself — close it with an honest reason if it is complete or superseded, or use revise-result with the information the worker was missing",
     );
     expect(h.sentMessages[0]?.text).not.toContain("work_read");
     expect(h.sentMessages[0]?.text).not.toContain("Pending user decisions");
+    expect(h.sentMessages[0]?.text).not.toContain("delivery 1 of");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("reminds the owner about one unsettled outcome, then asks the user to settle it", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "unsettled-outcome",
+      projectId: a,
+      title: "Unsettled outcome",
+      outcome: "Return verified evidence",
+      criteria: "Evidence is reviewed",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "unsettled-outcome" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    const worker = h.projections.get(attempt.threadId)!;
+    h.projections.set(attempt.threadId, {
+      ...worker,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    // Each drain after GLaDOS ends its turn without settling the outcome is one more delivery.
+    for (let turn = 0; turn < 4; turn++) {
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+    expect(h.sent).toEqual([boss, boss, boss]);
+    expect(h.sentMessages[1]?.text).toContain("delivery 2 of 3");
+    expect(h.sentMessages[2]?.text).toContain("delivery 3 of 3");
+
+    const task = (yield* h.store.read()).tasks[0]!;
+    const decision = task.decisions?.at(-1);
+    expect(decision?.answer).toBeUndefined();
+    expect(decision?.question).toContain("was asked 3 times to settle this outcome");
+    expect(decision?.question).toContain("left no evidence");
+    expect(decision?.options).toHaveLength(3);
+    expect(task.status).toBe("blocked");
+
+    // The escalation replaces further reminders instead of adding to them.
     h.projections.set(boss, projection(boss, a));
     yield* h.drain();
-    expect(h.sent).toEqual([boss]);
+    expect(h.sent).toEqual([boss, boss, boss]);
+    expect((yield* h.store.read()).tasks[0]!.decisions).toHaveLength(1);
+
+    // Answering it returns the task to its manager with the user's direction.
+    const revision = (yield* h.store.read()).revision;
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("settle-answer"),
+        expectedRevision: revision,
+        action: {
+          type: "resolve-decision",
+          taskId: "unsettled-outcome",
+          decisionId: decision!.id,
+          answer: "Keep going; the worker was missing the staging credentials.",
+        },
+      },
+      { type: "user" },
+    );
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toEqual([boss, boss, boss, boss]);
+    expect(h.sentMessages.at(-1)?.text).toContain("staging credentials");
   }).pipe(Effect.provide(services)),
 );
 it.effect(
@@ -1492,6 +1573,46 @@ it.effect("leaves decision requests to the user and delivers answers with new re
       "Ready to assign · task newly-ready · attempt none · owner GLaDOS",
     );
     expect(h.sentMessages[0]?.text).not.toContain("Decision needed · task decision-task");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("escalates a project lead's unsettled outcome to the user, not to GLaDOS", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const owner = yield* h.lead("owner-lead", a);
+    yield* h.drain();
+    yield* h.command({
+      type: "create",
+      taskId: "lead-unsettled",
+      projectId: a,
+      title: "Lead unsettled outcome",
+      outcome: "Return verified evidence",
+      criteria: "Evidence is reviewed",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "manage-task", taskId: "lead-unsettled", leadId: owner.id });
+    yield* h.command({ type: "assign", taskId: "lead-unsettled" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    const worker = h.projections.get(attempt.threadId)!;
+    h.projections.set(attempt.threadId, {
+      ...worker,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    for (let turn = 0; turn < 4; turn++) {
+      h.projections.set(owner.threadId, projection(owner.threadId, a));
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+    const task = (yield* h.store.read()).tasks[0]!;
+    const decision = task.decisions?.at(-1);
+    expect(decision?.answer).toBeUndefined();
+    expect(decision?.question).toContain(`Project lead ${owner.id} was asked 3 times`);
+    // The lead, not GLaDOS, held the obligation, so GLaDOS was never woken about it.
+    expect(h.sent.filter((threadId) => threadId === owner.threadId)).toHaveLength(3);
+    expect(h.sent).not.toContain(boss);
   }).pipe(Effect.provide(services)),
 );
 it.effect("redelivers a mirrored task obligation when ownership returns to a prior manager", () =>
