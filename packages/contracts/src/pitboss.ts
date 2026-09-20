@@ -300,7 +300,7 @@ export const PitbossSnapshot = Schema.Struct({
    * answer. Observed from thread shells on every drain and never journaled: it appears and clears
    * with the prompt itself, so it carries no revision and no settlement obligation.
    */
-  awaitingApproval: Schema.optional(Schema.Array(Id).check(Schema.isMaxLength(200))),
+  awaitingApproval: Schema.optional(Schema.Array(Id)),
   verificationRecipes: Schema.optional(Schema.Array(PitbossVerificationRecipe)),
   leads: Schema.optional(Schema.Array(PitbossLead)),
   sourceAuthorities: Schema.optional(Schema.Array(PitbossSourceAuthority)),
@@ -686,8 +686,8 @@ export function pitbossMessageHeadline(
 }
 
 /**
- * A live worker parked on a runtime permission prompt. Only the user can answer it, so it is user
- * attention rather than a manager obligation, and it clears when the prompt is answered.
+ * True while the task's current attempt is parked on a runtime permission prompt. Only the user can
+ * answer it, so route it as user attention, never as a manager obligation.
  */
 export function taskAwaitingApproval(
   task: Pick<PitbossTask, "attempts">,
@@ -706,6 +706,18 @@ export function workNeedsUserInput(
     (!!task.proposedVerificationRecipe ||
       !!task.decisions?.some((decision) => decision.answer === undefined))
   );
+}
+
+/**
+ * Everything the user is asked to answer: a recorded decision or setup review, plus a live worker
+ * parked on a runtime permission prompt. Badges, filters and both boards read this, so the control
+ * that opens "Needs you" can never hide a row that list would show.
+ */
+export function workNeedsYou(
+  task: Pick<PitbossTask, "status" | "decisions" | "proposedVerificationRecipe" | "attempts">,
+  awaitingApproval?: PitbossSnapshot["awaitingApproval"],
+) {
+  return workNeedsUserInput(task) || taskAwaitingApproval(task, awaitingApproval);
 }
 
 /** Worker/peer reports and submitted results belong to the coordinator's inbox. */

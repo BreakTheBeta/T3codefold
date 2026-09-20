@@ -11,7 +11,6 @@ import {
   gladosBoardColumnWidth,
   gladosTaskLane,
   managedWorkerRows,
-  managedWorkerStateLabel,
 } from "./gladosBoard.ts";
 
 const task = (id: string, status: PitbossTask["status"]): PitbossTask => ({
@@ -180,14 +179,25 @@ describe("GLaDOS board", () => {
     const waiting = contents([blocked], [], ["attempt-blocked"]);
     expect(waiting["needs-you"]).toEqual(["task:blocked"]);
     expect(waiting.working).toEqual([]);
-    expect(gladosTaskLane(blocked, false, true)).toBe("needs-you");
   });
   it("labels the current worker row with what the user owes it", () => {
     const blocked = task("blocked", "active");
-    const [current] = managedWorkerRows(blocked, ["attempt-blocked"]);
-    expect(current?.awaitingApproval).toBe(true);
-    expect(managedWorkerStateLabel(current!)).toBe("waiting for your approval");
-    expect(managedWorkerStateLabel(managedWorkerRows(blocked)[0]!)).toBe("running");
+    expect(managedWorkerRows(blocked, ["attempt-blocked"])[0]?.state).toBe(
+      "waiting for your approval",
+    );
+    expect(managedWorkerRows(blocked)[0]?.state).toBe("running");
+    // An attempt still named in the list after it was replaced is history, not the user's to answer.
+    const relaunched = {
+      ...blocked,
+      attempts: [
+        ...blocked.attempts,
+        { ...blocked.attempts[0]!, id: "attempt-next", generation: 2 },
+      ],
+    };
+    expect(managedWorkerRows(relaunched, ["attempt-blocked"]).map((row) => row.state)).toEqual([
+      "running",
+      "running",
+    ]);
   });
   it("adapts columns to folded and unfolded modal widths", () => {
     expect(gladosBoardColumnWidth(280)).toBe(240);

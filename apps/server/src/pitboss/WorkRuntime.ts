@@ -107,9 +107,7 @@ function workerLastWords(
  */
 function emptyResultDetail(context: ProjectionCheckpointContext | null) {
   const base = "Worker finished without submitting evidence.";
-  if (!context)
-    return `${base} Its workspace could not be read, so what it changed is unknown. Inspect its thread before settling.`;
-  const ready = context.checkpoints.filter(
+  const ready = (context?.checkpoints ?? []).filter(
     (checkpoint) => checkpoint.status === "ready" && checkpoint.appRunOrdinal !== null,
   );
   const files = ready.reduce((total, checkpoint) => total + checkpoint.fileCount, 0);
@@ -119,11 +117,12 @@ function emptyResultDetail(context: ProjectionCheckpointContext | null) {
   // Capture runs after a turn ends, so a turn without a ready checkpoint left changes no later
   // diff can see: its successor's baseline ref is missing and that capture records no files. Only
   // a thread whose every started run was captured can claim an empty workspace, and run status
-  // alone cannot say that — one stopped run earlier in the thread says nothing about the rest.
+  // alone cannot say that — one stopped run earlier in the thread says nothing about the rest. An
+  // unreadable projection is just a thread with no captures we can see.
   const captured = new Set(ready.map((checkpoint) => checkpoint.appRunOrdinal));
   const complete =
     ready.length > 0 &&
-    context.runs.every(
+    (context?.runs ?? []).every(
       // A run that never started changed nothing, so it needs no checkpoint to be accounted for.
       (run) => ["preparing", "queued"].includes(run.status) || captured.has(run.ordinal),
     );
@@ -305,7 +304,6 @@ function wakeEvents(
     readonly text: string;
     readonly headline: string;
     readonly deliverable: boolean;
-    /** Recorded with the delivery so the next drain knows what the owner had already written. */
     readonly notesKey?: string | undefined;
     /** Set when the owner has ignored this obligation for its whole reminder budget. */
     readonly unsettled?: {
@@ -356,8 +354,8 @@ function wakeEvents(
       notesKey: `${key}${NOTES_MARK}${noted}`,
     };
   };
-  // A manager at the attempt cap cannot revise or reassign, so a recovery reminder must name the
-  // only settlement the decider still accepts instead of spending its budget on a refused action.
+  // At the attempt cap a recovery reminder must name the settlement the decider still accepts, or
+  // the owner spends its whole budget on a refused action.
   const settlementFor = (
     task: (typeof state.tasks)[number] | undefined,
     kind: ObligationKind,
@@ -568,9 +566,7 @@ export const layer = Layer.effectDiscard(
                 "It is already complete — settle it as delivered",
                 "Drop it — stop spending attempts on this task",
               ],
-              recommendation: exhausted
-                ? "Answer in your own words; the answer is handed to this task's manager. It has used every attempt you allowed, so it cannot start another until you raise maxAttempts in the brief. Settle or close it if the work landed elsewhere, is no longer worth an attempt, or the task was never well posed."
-                : "Answer in your own words; the answer is handed to this task's manager. Keep going if the outcome still matters and the worker only lacked information. Settle or close it if the work landed elsewhere, is no longer worth an attempt, or the task was never well posed.",
+              recommendation: `Answer in your own words; the answer is handed to this task's manager. ${exhausted ? "It has used every attempt you allowed, so it cannot start another until you raise maxAttempts in the brief." : "Keep going if the outcome still matters and the worker only lacked information."} Settle or close it if the work landed elsewhere, is no longer worth an attempt, or the task was never well posed.`,
             },
           },
           { type: "agent", threadId: recipient.threadId },
@@ -667,8 +663,6 @@ export const layer = Layer.effectDiscard(
       yield* finish(
         deliverable.flatMap((event) => [
           ...(event.key === event.obligationKey ? [event.key] : [event.key, event.obligationKey]),
-          // Records what the owner had written when this obligation was delivered, so a later
-          // drain credits only the notes it wrote afterwards.
           ...(event.notesKey ? [event.notesKey] : []),
         ]),
       );
@@ -996,9 +990,6 @@ export const layer = Layer.effectDiscard(
           observed._tag === "Success" &&
           observed.success.latestRunId !== null &&
           !hasActiveShellRun(observed.success);
-        // Only an approval is the user's to answer. A worker asking its own question or waiting on
-        // a credential refresh is blocked too, but the clients classify those separately and this
-        // list must not drift from them.
         if (
           !stopping &&
           observed._tag === "Success" &&

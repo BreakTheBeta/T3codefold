@@ -998,13 +998,7 @@ export function PitbossWork(props: {
                                           serverConfigs.has(
                                             task.homeEnvironmentId ?? props.environmentId,
                                           )
-                                            ? `Worker ${attempt.generation} · ${managedWorkerStateLabel(
-                                                {
-                                                  state: attempt.state,
-                                                  awaitingApproval:
-                                                    !!state.awaitingApproval?.includes(attempt.id),
-                                                },
-                                              )}${attempt.workspacePath ? ` · ${attempt.workspacePath}` : ""}`
+                                            ? `Worker ${attempt.generation} · ${managedWorkerStateLabel(task, attempt, state.awaitingApproval)}${attempt.workspacePath ? ` · ${attempt.workspacePath}` : ""}`
                                             : "Connect task home first",
                                           () => {
                                             setVisible(false);

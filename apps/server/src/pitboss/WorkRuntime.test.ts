@@ -258,29 +258,12 @@ const harness = Effect.gen(function* () {
           : Effect.succeed(projections.get(id)!),
       getCheckpointContext: (id) => {
         const p = projections.get(id);
+        // The real query returns per-turn counts, not the file summaries this fixture spreads in.
         return p
           ? Effect.succeed({
-              runs: p.runs.map(({ id: runId, ordinal, status }) => ({
-                id: runId,
-                ordinal,
-                status,
-              })),
-              checkpointScopes: p.checkpointScopes.map(({ id: scopeId, runId, kind, cwd }) => ({
-                id: scopeId,
-                runId,
-                kind,
-                cwd,
-              })),
-              checkpoints: p.checkpoints.map(
-                ({ scopeId, runId, appRunOrdinal, status, ref, files }) => ({
-                  scopeId,
-                  runId,
-                  appRunOrdinal,
-                  status,
-                  ref,
-                  fileCount: files.length,
-                }),
-              ),
+              runs: p.runs,
+              checkpointScopes: p.checkpointScopes,
+              checkpoints: p.checkpoints.map((c) => ({ ...c, fileCount: c.files.length })),
             })
           : Effect.fail(
               new OrchestratorProjectionError({
@@ -2408,49 +2391,7 @@ it.effect("tells the owner and the user what an unsubmitted worker left in its w
     expect(decision?.question).not.toContain("left no evidence.");
   }).pipe(Effect.provide(services)),
 );
-it.effect("says a worker left nothing only when every turn was checkpointed", () =>
-  Effect.gen(function* () {
-    const h = yield* harness;
-    for (const taskId of ["clean-stop", "interrupted-stop"]) {
-      yield* h.command({
-        type: "create",
-        taskId,
-        projectId: a,
-        title: taskId,
-        outcome: "Land the change",
-        criteria: "Evidence is submitted",
-        verifyCommand: "",
-        priority: 1,
-        dependencies: [],
-        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
-      });
-      yield* h.command({ type: "assign", taskId });
-    }
-    yield* h.drain();
-    const tasks = (yield* h.store.read()).tasks;
-    const clean = tasks.find((task) => task.id === "clean-stop")!.attempts[0]!;
-    const interrupted = tasks.find((task) => task.id === "interrupted-stop")!.attempts[0]!;
-    h.projections.set(clean.threadId, {
-      ...h.projections.get(clean.threadId)!,
-      runs: [{ ...running(clean.threadId), status: "completed", completedAt: time }],
-      checkpoints: [captured(clean.threadId, 1, [])],
-    });
-    h.projections.set(interrupted.threadId, {
-      ...h.projections.get(interrupted.threadId)!,
-      runs: [{ ...running(interrupted.threadId), status: "failed", completedAt: time }],
-      checkpoints: [],
-    });
-    yield* h.drain();
-
-    const observed = yield* h.store.read();
-    const detailOf = (taskId: string) =>
-      observed.tasks.find((task) => task.id === taskId)!.attempts[0]!.detail;
-    expect(detailOf("clean-stop")).toContain("left no file changes");
-    expect(detailOf("interrupted-stop")).toContain("No checkpoint recorded its workspace");
-    expect(detailOf("interrupted-stop")).not.toContain("left no file changes");
-  }).pipe(Effect.provide(services)),
-);
-it.effect("reads the checkpoints rather than the run statuses around them", () =>
+it.effect("reports an empty workspace only when every started turn was captured", () =>
   Effect.gen(function* () {
     const h = yield* harness;
     for (const taskId of ["stopped-captured", "uncaptured-turn"]) {
@@ -2500,6 +2441,7 @@ it.effect("reads the checkpoints rather than the run statuses around them", () =
       observed.tasks.find((task) => task.id === taskId)!.attempts[0]!.detail;
     expect(detailOf("stopped-captured")).toContain("left no file changes");
     expect(detailOf("uncaptured-turn")).toContain("No checkpoint recorded its workspace");
+    expect(detailOf("uncaptured-turn")).not.toContain("left no file changes");
   }).pipe(Effect.provide(services)),
 );
 /** A fixture whose task has spent its whole saved attempt allowance of two. */

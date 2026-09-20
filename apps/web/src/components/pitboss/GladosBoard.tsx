@@ -1,10 +1,6 @@
 import { useMemo, useState } from "react";
 import { FolderIcon, GitBranchIcon, BotIcon, ArrowUpRightIcon } from "lucide-react";
-import {
-  buildGladosBoard,
-  managedWorkerRows,
-  managedWorkerStateLabel,
-} from "@t3tools/client-runtime/glados-board";
+import { buildGladosBoard, managedWorkerRows } from "@t3tools/client-runtime/glados-board";
 import {
   pitbossMessageHeadline,
   type PitbossSnapshot,
@@ -158,7 +154,7 @@ export function GladosBoard(props: {
                           onClick={() => props.onOpenWorker(item.task, worker.threadId)}
                         >
                           <span className="truncate">
-                            Worker {worker.generation} · {managedWorkerStateLabel(worker)}
+                            Worker {worker.generation} · {worker.state}
                           </span>
                           <ArrowUpRightIcon className="size-3 shrink-0" />
                         </Button>

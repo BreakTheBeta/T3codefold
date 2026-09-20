@@ -4,7 +4,6 @@ import {
   buildGladosBoard,
   gladosBoardColumnWidth,
   managedWorkerRows,
-  managedWorkerStateLabel,
 } from "@t3tools/client-runtime/glados-board";
 import {
   pitbossMessageHeadline,
@@ -82,12 +81,12 @@ export function GladosBoard(props: {
               <Pressable
                 key={worker.attemptId}
                 accessibilityRole="button"
-                accessibilityLabel={`Open worker ${worker.generation}, ${managedWorkerStateLabel(worker)}`}
+                accessibilityLabel={`Open worker ${worker.generation}, ${worker.state}`}
                 onPress={() => props.onOpenWorker(task, worker.threadId)}
                 className="min-h-12 justify-center rounded-xl border border-border px-3"
               >
                 <Text>
-                  Worker {worker.generation} · {managedWorkerStateLabel(worker)}
+                  Worker {worker.generation} · {worker.state}
                 </Text>
                 <Text numberOfLines={1} className="text-xs text-foreground-muted">
                   {worker.model} · {worker.current ? "current" : "history"}
@@ -213,12 +212,12 @@ export function GladosBoard(props: {
                         <Pressable
                           key={worker.attemptId}
                           accessibilityRole="button"
-                          accessibilityLabel={`Open worker ${worker.generation}, ${managedWorkerStateLabel(worker)}`}
+                          accessibilityLabel={`Open worker ${worker.generation}, ${worker.state}`}
                           onPress={() => props.onOpenWorker(item.task, worker.threadId)}
                           className="mx-2 mb-2 min-h-12 justify-center rounded-lg bg-subtle px-3"
                         >
                           <Text className="text-sm">
-                            Worker {worker.generation} · {managedWorkerStateLabel(worker)}
+                            Worker {worker.generation} · {worker.state}
                           </Text>
                         </Pressable>
                       ))}

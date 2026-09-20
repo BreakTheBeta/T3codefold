@@ -1,15 +1,14 @@
 import { GladosBoard } from "./GladosBoard";
-import { isUserWorkMessage } from "@t3tools/contracts";
+import { isUserWorkMessage, workNeedsYou } from "@t3tools/contracts";
 import { WorkInspector } from "./WorkInspector";
 import {
   evidenceKind,
   filterWork,
   nextActionLabel,
   workFilters,
-  workNeedsYou,
   type WorkFilter,
 } from "./workView";
-import { managedWorkerRows, managedWorkerStateLabel } from "@t3tools/client-runtime/glados-board";
+import { managedWorkerStateLabel } from "@t3tools/client-runtime/glados-board";
 import { CreateHome } from "./CreateHome";
 import { TaskDecisionCard } from "./TaskDecisionCard";
 import { VerificationCard, VerificationArtifact } from "./VerificationCard";
@@ -249,13 +248,6 @@ export function PitbossPanel(props: {
   );
   const needsYou = (task: PitbossTask) => workNeedsYou(task, state.awaitingApproval);
   const attention = state.tasks.filter(needsYou);
-  // The detail row says what the user owes a worker, not the run state a parked worker still has.
-  const workerState = new Map(
-    (selected ? managedWorkerRows(selected, state.awaitingApproval) : []).map((worker) => [
-      worker.attemptId,
-      managedWorkerStateLabel(worker),
-    ]),
-  );
   const openThread = (threadId: ThreadId, environmentId = props.environmentId) =>
     void navigate({
       to: "/$environmentId/$threadId",
@@ -989,7 +981,7 @@ export function PitbossPanel(props: {
                       >
                         <span>
                           Attempt {attempt.generation} · {attempt.model.model} ·{" "}
-                          {workerState.get(attempt.id) ?? attempt.state}
+                          {managedWorkerStateLabel(selected, attempt, state.awaitingApproval)}
                           {" · "}
                           {attempt.runtimeMode?.replaceAll("-", " ") ??
                             "permissions: legacy saved default"}

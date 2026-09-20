@@ -3,16 +3,11 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  workNeedsYou,
   type PitbossSnapshot,
   type PitbossTask,
 } from "@t3tools/contracts";
-import {
-  evidenceKind,
-  filterWork,
-  needsAttention,
-  nextActionLabel,
-  workNeedsYou,
-} from "./workView";
+import { evidenceKind, filterWork, nextActionLabel } from "./workView";
 
 function task(title: string, status: PitbossTask["status"] = "queued", priority = 50) {
   return {
@@ -21,6 +16,7 @@ function task(title: string, status: PitbossTask["status"] = "queued", priority 
     status,
     priority,
     projectId: ProjectId.make("research"),
+    attempts: [] as PitbossTask["attempts"],
   };
 }
 
@@ -64,10 +60,10 @@ describe("GLaDOS work discovery", () => {
     expect(filterWork([decision], "Needs you", "", "")).toEqual([decision]);
     expect(filterWork([decision], "Working", "", "")).toEqual([]);
     expect(
-      needsAttention({ ...decision, decisions: [{ ...decision.decisions[0]!, answer: "A" }] }),
+      workNeedsYou({ ...decision, decisions: [{ ...decision.decisions[0]!, answer: "A" }] }),
     ).toBe(false);
     expect(filterWork([blocked, done, cancelled], "Delivered", "", "")).toEqual([done]);
-    expect(needsAttention(cancelled)).toBe(false);
+    expect(workNeedsYou(cancelled)).toBe(false);
   });
   it("counts a worker parked on a permission prompt wherever it lists it", () => {
     const attempts: PitbossTask["attempts"] = [
