@@ -2,6 +2,7 @@ import { expect, it } from "@effect/vitest";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import {
   isUserWorkMessage,
+  pitbossMessageHeadline,
   verificationProposalApprovalAction,
   verificationProposalSaveAction,
   type PitbossMessage,
@@ -93,4 +94,41 @@ it("keeps agent-originated decisions user-visible without exposing ordinary work
     false,
   );
   expect(isUserWorkMessage(message({ kind: "question" }))).toBe(true);
+});
+
+it("reads a message as a headline without dragging its agent detail along", () => {
+  const message = (patch: Partial<PitbossMessage>): PitbossMessage => ({
+    id: "message",
+    taskId: "task",
+    threadId: null,
+    kind: "progress",
+    text: "Needs attention",
+    createdAt: "2026-09-17T00:00:00Z",
+    acknowledged: false,
+    ...patch,
+  });
+  // A server-authored headline wins over the directive the coordinator reads.
+  expect(
+    pitbossMessageHeadline(
+      message({
+        headline: "Review passed — ready to accept",
+        text: "Acceptance needed · task t1 · attempt a1. Changed: the review passed. Next: accept it.",
+      }),
+    ),
+  ).toBe("Review passed — ready to accept");
+  // Agent-authored text has no headline, so its opening sentence becomes one.
+  expect(
+    pitbossMessageHeadline(
+      message({
+        text: "The toggle now persists across reloads. I ran the regression suite and two cases still fail.",
+      }),
+    ),
+  ).toBe("The toggle now persists across reloads.");
+  // An unpunctuated wall is cut to length rather than rendered whole.
+  const wall = pitbossMessageHeadline(message({ text: "x".repeat(400) }));
+  expect(wall).toBe(`${"x".repeat(120)}…`);
+  // Only the first line survives, so a multi-line report cannot smuggle a paragraph into the board.
+  expect(pitbossMessageHeadline(message({ text: "Landed the fix\nEvidence: commit:abc" }))).toBe(
+    "Landed the fix",
+  );
 });

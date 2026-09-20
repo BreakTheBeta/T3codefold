@@ -347,9 +347,7 @@ it("automatic setup saves and selects a real recipe before assignment and surviv
   f.act({ type: "assign", taskId: "task" }, f.boss);
   expect(f.state.tasks[0]!.attempts).toHaveLength(1);
   expect(f.state.tasks[0]!.attempts[0]!.runtimeMode).toBe("full-access");
-  expect(workContext(f.state, f.boss.threadId)).toContain(
-    "Automatic verification setup is enabled",
-  );
+  expect(workContext(f.state, f.boss.threadId)).toContain("Automatic setup is enabled");
   expect(replayJournal(f.history)).toEqual(f.state);
 });
 

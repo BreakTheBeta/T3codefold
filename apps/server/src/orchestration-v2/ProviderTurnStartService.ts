@@ -22,6 +22,7 @@ import * as Schema from "effect/Schema";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { ProjectService } from "../project/ProjectService.ts";
 import { ProviderAuthService } from "../provider/Services/ProviderAuthService.ts";
+import { WorkStore } from "../pitboss/WorkStore.ts";
 import { EventSinkV2 } from "./EventSink.ts";
 import {
   ContextHandoffServiceV2,
@@ -47,6 +48,14 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
 ) {}
 
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
+
+/**
+ * Managed-work rules lead the turn so the agent reads its obligations before the request, and the
+ * wrapper keeps them from being mistaken for text the user wrote.
+ */
+function withManagedWorkContext(managedWork: string | null, text: string): string {
+  return managedWork === null ? text : `${managedWork}\n\n<user_request>\n${text}\n</user_request>`;
+}
 
 export interface ProviderTurnStartServiceV2Shape {
   readonly start: (input: {
@@ -74,6 +83,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManagerV2
   | RunExecutionServiceV2
   | RuntimePolicyV2
+  | WorkStore
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -88,6 +98,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicyV2;
+    const work = yield* WorkStore;
 
     const start = Effect.fn("orchestrationV2.providerTurnStart.start")(function* (input: {
       readonly threadId: ThreadId;
@@ -639,6 +650,12 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         canRouteRelatedSubagent(subagent.status),
       );
+      // GLaDOS, project leads and workers each get their managed-work rules for this turn. The
+      // packet is keyed by attempt so a retried attempt reuses the text it already started with,
+      // and a work-store failure degrades to an ordinary turn rather than blocking the run.
+      const managedWork = yield* work
+        .context(projection.thread.id, attempt.id)
+        .pipe(Effect.orElseSucceed(() => null));
       yield* runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,
@@ -699,7 +716,8 @@ export const layer: Layer.Layer<
           ),
         message: {
           messageId: message.id,
-          text:
+          text: withManagedWorkContext(
+            managedWork,
             effectiveHandoffs.length === 0
               ? projectComposerContextForProvider({
                   text: message.text,
@@ -712,6 +730,7 @@ export const layer: Layer.Layer<
                     records: message.context?.records ?? [],
                   }),
                 }),
+          ),
           attachments: message.attachments,
           createdBy: message.createdBy,
           creationSource: message.creationSource,

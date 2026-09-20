@@ -1963,12 +1963,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
-      {row.message.createdBy === "agent" ? (
+      {row.message.createdBy === "agent" || row.message.createdBy === "system" ? (
         <p
           className="me-1 text-[11px] text-muted-foreground/70"
-          data-user-message-attribution="agent"
+          data-user-message-attribution={row.message.createdBy}
         >
-          Sent by another agent
+          {row.message.createdBy === "agent" ? "Sent by another agent" : "Sent by T3 Code"}
         </p>
       ) : null}
       {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (

@@ -13,6 +13,7 @@ import {
   pitbossTaskNextAction,
   verificationRecipeForTask,
   type PitbossSnapshot,
+  type PitbossTaskNextAction,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
@@ -79,6 +80,106 @@ function workerAttemptHandled(
 function hasActiveShellRun(shell: OrchestrationV2ThreadShell): boolean {
   return shell.activeRunId !== null || shell.activityRunStatus != null;
 }
+/**
+ * One obligation, two readers. The coordinator needs the exact next command; the user needs a line
+ * naming the work. Both are derived here from the same typed action so they cannot drift apart.
+ */
+const OBLIGATIONS = {
+  "await-writer": {
+    label: "Result submitted",
+    changed: "candidate evidence was recorded without accepting it.",
+    next: "wait for the worker to stop, then run the required verification.",
+    headline: "Worker submitted a result",
+  },
+  verify: {
+    label: "Verification needed",
+    changed: "a stopped candidate has current evidence and an approved profile.",
+    next: "run the approved verification, then review its receipt. Do not assign duplicate implementation work.",
+    headline: "Ready to verify",
+  },
+  review: {
+    label: "Result ready for review",
+    changed: "the worker stopped and retained candidate evidence.",
+    next: "inspect the reported evidence and record review. Do not accept the stopped turn itself or assign duplicate implementation work.",
+    headline: "Ready to review",
+  },
+  accept: {
+    label: "Acceptance needed",
+    changed: "the latest coordinator review passed for the current candidate and proof contract.",
+    next: "explicitly accept it or record why more work is required.",
+    headline: "Review passed — ready to accept",
+  },
+  recover: {
+    label: "Recovery needed",
+    changed: "the latest retained result is not acceptable evidence.",
+    next: "inspect the retained thread, then rework or cancel with an honest superseded reason. Never invent evidence for historical work.",
+    headline: "Needs recovery",
+  },
+  assign: {
+    label: "Ready to assign",
+    changed: "prerequisites are satisfied and no retained result needs review.",
+    next: "assign a managed worker or record the condition that blocks assignment.",
+    headline: "Ready to start",
+  },
+  rework: {
+    label: "Rework ready",
+    changed: "an explicit rework request reopened the retained candidate.",
+    next: "assign a managed worker with resumeAttemptId {attemptId}. The prior evidence stays historical and is not accepted.",
+    headline: "Reopened for rework",
+  },
+  question: {
+    label: "Question",
+    changed: "a worker asked for help.",
+    next: "answer within the charter or record a user decision.",
+    headline: "Worker asked a question",
+  },
+  decision: {
+    label: "Decision needed",
+    changed: "a recorded decision is unresolved.",
+    next: "resolve the recorded decision before resuming this task.",
+    headline: "Waiting on your decision",
+  },
+  progress: {
+    label: "Progress",
+    changed: "a worker recorded an update.",
+    next: "inspect the update and act only if its recorded state requires it.",
+    headline: "Progress update",
+  },
+  "progress-retained": {
+    label: "Task updated",
+    changed: "the recorded update preserved the retained result.",
+    next: "review the retained candidate against the current criteria before verification.",
+    headline: "Updated — retained result still stands",
+  },
+} as const;
+type ObligationKind = keyof typeof OBLIGATIONS;
+
+/** A submitted result reads differently depending on what the task now owes. */
+function resultObligation(action: PitbossTaskNextAction | null): ObligationKind {
+  return action === "await-writer" ||
+    action === "verify" ||
+    action === "accept" ||
+    action === "recover"
+    ? action
+    : "review";
+}
+
+function obligationText(
+  kind: ObligationKind,
+  subject: string,
+  options: { detail?: string; attemptId?: string | undefined },
+) {
+  const { label, changed, next } = OBLIGATIONS[kind];
+  const detail = options.detail ? `: ${options.detail}` : ".";
+  return `${label} · ${subject}${detail} Changed: ${changed} Next: ${next.replace("{attemptId}", options.attemptId ?? "none")}`;
+}
+
+/** The board and the chat show the obligation and the work's name, never its identifiers. */
+function obligationHeadline(kind: ObligationKind, title: string | undefined) {
+  const { headline } = OBLIGATIONS[kind];
+  return title ? `${headline} — ${title}` : headline;
+}
+
 interface WakeRecipient {
   readonly id: string;
   readonly projectId: typeof ProjectId.Type;
@@ -101,10 +202,15 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
       .map((task) => task.id),
   );
   const owner = recipient.leadId ? `project lead ${recipient.leadId}` : "GLaDOS";
+  const subjectOf = (task: { id: string } | undefined, attemptId: string | undefined) =>
+    task
+      ? `task ${task.id} · attempt ${attemptId ?? "none"} · owner ${owner}`
+      : `portfolio · owner ${owner}`;
   const events: Array<{
     readonly key: string;
     readonly obligationKey: string;
     readonly text: string;
+    readonly headline: string;
     readonly deliverable: boolean;
   }> = [];
   const obligationKey = (task: (typeof state.tasks)[number], action: string) => {
@@ -142,31 +248,14 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
     )
       ? "decision"
       : message.kind;
-    const subject = task
-      ? `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`
-      : `portfolio · owner ${owner}`;
-    const resultText =
-      action === "await-writer"
-        ? `Result submitted · ${subject}: ${message.text.slice(0, 600)} Changed: candidate evidence was recorded without accepting it. Next: wait for the worker to stop, then run the required verification.`
-        : action === "verify"
-          ? `Result ready for verification · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: run the approved verification, then review its receipt.`
-          : action === "accept"
-            ? `Acceptance needed · ${subject}: ${message.text.slice(0, 600)} Changed: the latest coordinator review passed for the current candidate and proof contract. Next: explicitly accept it or record why more work is required.`
-            : action === "recover"
-              ? `Recovery needed · ${subject}: ${message.text.slice(0, 600)} Changed: the latest review did not establish acceptable evidence. Next: rework or cancel with an honest superseded reason.`
-              : `Result ready for review · ${subject}: ${message.text.slice(0, 600)} Changed: the worker stopped and retained candidate evidence. Next: inspect the reported evidence and record review; do not accept the stopped turn itself.`;
-    const progressText =
-      task && task.evidence.length > 0 && action === "review"
-        ? `Task updated · ${subject}: ${message.text.slice(0, 600)} Changed: the recorded update preserved the retained result. Next: review the retained candidate against the current criteria before verification.`
-        : `progress · ${subject}: ${message.text.slice(0, 600)} Next: inspect the update and act only if its recorded state requires it.`;
-    const text =
-      eventKind === "question"
-        ? `question · ${subject}: ${message.text.slice(0, 600)} Next: answer within the charter or record a user decision.`
-        : eventKind === "decision"
-          ? `decision · ${subject}: ${message.text.slice(0, 600)} Next: Resolve the recorded decision before resuming this task.`
-          : message.kind === "result"
-            ? resultText
-            : progressText;
+    const obligationOf =
+      eventKind === "question" || eventKind === "decision"
+        ? eventKind
+        : message.kind === "result"
+          ? resultObligation(action)
+          : task && task.evidence.length > 0 && action === "review"
+            ? "progress-retained"
+            : "progress";
     // Questions and decisions are independent obligations even when they concern the same task.
     // Results and progress still coalesce around the task's current next action, so repeated status
     // reports cannot keep waking a coordinator whose obligation did not change.
@@ -181,7 +270,11 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
         ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}:action:${action ?? eventKind}`
         : `message:${message.id}`,
       obligationKey: obligation,
-      text,
+      text: obligationText(obligationOf, subjectOf(task, attempt?.id), {
+        detail: message.text.slice(0, 600),
+        attemptId: attempt?.id,
+      }),
+      headline: obligationHeadline(obligationOf, task?.title),
       deliverable: true,
     });
   }
@@ -191,23 +284,15 @@ function wakeEvents(state: PitbossSnapshot, recipient: WakeRecipient) {
     if (!action || !["assign", "verify", "review", "recover", "accept"].includes(action)) continue;
     if (action === "assign" && !assignable.has(task.id)) continue;
     const key = obligationKey(task, action);
-    const subject = `task ${task.id} · attempt ${attempt?.id ?? "none"} · owner ${owner}`;
-    const text =
-      action === "assign"
-        ? task.reworkRequestedAt
-          ? `Rework ready · ${subject}. Changed: an explicit rework request reopened the retained candidate. Next: assign a managed worker with resumeAttemptId ${attempt?.id ?? "none"}; the prior evidence remains historical and is not accepted.`
-          : `Ready to assign · ${subject}. Changed: prerequisites are satisfied and no retained result needs review. Next: assign a managed worker or record the condition that blocks assignment.`
-        : action === "verify"
-          ? `Verification needed · ${subject}. Changed: a stopped candidate has current evidence and an approved profile. Next: run the approved verification; do not assign duplicate implementation work.`
-          : action === "review"
-            ? `Result ready for review · ${subject}. Changed: a stopped candidate is retained. Next: inspect it and record current review before verification or acceptance; do not assign duplicate implementation work.`
-            : action === "accept"
-              ? `Acceptance needed · ${subject}. Changed: the latest coordinator review passed for the current candidate and proof contract. Next: inspect that review and explicitly accept or record why more work is required.`
-              : `Recovery needed · ${subject}. Changed: the latest retained result is not acceptable evidence. Next: inspect the retained thread, then rework or cancel with an honest superseded reason; do not invent evidence for historical work.`;
+    const obligationOf =
+      action === "assign" && task.reworkRequestedAt ? "rework" : (action as ObligationKind);
     events.push({
       key,
       obligationKey: key,
-      text,
+      text: obligationText(obligationOf, subjectOf(task, attempt?.id), {
+        attemptId: attempt?.id,
+      }),
+      headline: obligationHeadline(obligationOf, task.title),
       deliverable: action !== "assign" || available,
     });
   }
@@ -290,7 +375,16 @@ export const layer = Layer.effectDiscard(
           threadId: recipient.threadId,
           commandId: CommandId.make(effect.operation_id),
           messageId: MessageId.make(effect.operation_id),
-          text: ["Managed work changed:", ...deliverable.map((event) => event.text)].join("\n"),
+          // This lands in the coordinator's chat, which the user also reads. Headlines go on top
+          // so a person can scan it; the exact obligations follow for the agent.
+          text: [
+            "Managed work changed:",
+            ...deliverable.map((event) => `- ${event.headline}`),
+            "",
+            "<t3-managed-work>",
+            ...deliverable.map((event) => event.text),
+            "</t3-managed-work>",
+          ].join("\n"),
           attachments: [],
           mode: "queue",
           createdBy: "system",
