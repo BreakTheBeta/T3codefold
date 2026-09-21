@@ -53,7 +53,7 @@ npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/r
 
 Scan the QR code on your phone or paste the pairing URL into **Add environment**
 in the receiving app. Connection settings are under **Settings → Connections**
-on web and desktop and **Settings → Environments** on mobile. A loopback address
+on web and desktop and **Settings → Connections → Environments** on mobile. A loopback address
 such as `127.0.0.1` reaches only the device opening the link.
 
 Pairing authorizes that device for future connections. Use a fresh one-time link

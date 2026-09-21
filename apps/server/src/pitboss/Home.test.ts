@@ -48,10 +48,9 @@ const harness = (initial: PitbossSnapshot = emptyWork) => {
   rootsToClean.push(root);
   let state = initial;
   let project: Project | undefined;
-  let createdThread: ThreadId | undefined;
+  const homeThreads: Array<{ id: ThreadId; archivedAt: string | null }> = [];
   let failLaunch = false;
   let failElection = false;
-  let archived = false;
   const dispatched: string[] = [];
   const permissionModes: string[] = [];
   const launches: ThreadLaunchInput[] = [];
@@ -85,26 +84,32 @@ const harness = (initial: PitbossSnapshot = emptyWork) => {
         }),
     }),
     Layer.mock(ThreadManagementService)({
-      getProjectThread: () =>
+      getProjectThread: (input) =>
         Effect.succeed({
-          thread: { archivedAt: archived ? "2026-09-14T00:00:00Z" : null },
+          thread: {
+            archivedAt:
+              homeThreads.find((thread) => thread.id === input.threadId)?.archivedAt ?? null,
+          },
         } as Effect.Success<ReturnType<ThreadManagementService["Service"]["getProjectThread"]>>),
       dispatch: (command) =>
         Effect.sync(() => {
           dispatched.push(command.type);
           if (command.type === "thread.runtime-mode.set") permissionModes.push(command.runtimeMode);
-          if (command.type === "thread.unarchive") archived = false;
+          if (command.type === "thread.archive" || command.type === "thread.unarchive")
+            for (const thread of homeThreads)
+              if (thread.id === command.threadId)
+                thread.archivedAt =
+                  command.type === "thread.archive" ? "2026-09-14T00:00:00Z" : null;
           return { sequence: 1, storedEvents: [] };
         }),
       listProjectThreads: () =>
         Effect.succeed(
-          createdThread
-            ? [
-                { id: createdThread } as Effect.Success<
-                  ReturnType<ThreadManagementService["Service"]["listProjectThreads"]>
-                >[number],
-              ]
-            : [],
+          homeThreads.map(
+            (thread) =>
+              ({ ...thread }) as unknown as Effect.Success<
+                ReturnType<ThreadManagementService["Service"]["listProjectThreads"]>
+              >[number],
+          ),
         ),
     }),
     Layer.mock(ThreadLaunchService)({
@@ -121,7 +126,7 @@ const harness = (initial: PitbossSnapshot = emptyWork) => {
             }),
           );
         }
-        createdThread = input.threadId;
+        homeThreads.push({ id: input.threadId!, archivedAt: null });
         return Effect.succeed({ threadId: input.threadId! } as ThreadLaunchResult);
       },
     }),
@@ -134,8 +139,9 @@ const harness = (initial: PitbossSnapshot = emptyWork) => {
     dispatched,
     permissionModes,
     archive: () => {
-      archived = true;
+      for (const thread of homeThreads) thread.archivedAt = "2026-09-14T00:00:00Z";
     },
+    homeThreads,
     failElection: () => {
       failElection = true;
     },
@@ -143,6 +149,7 @@ const harness = (initial: PitbossSnapshot = emptyWork) => {
       failLaunch = true;
     },
     state: () => state,
+    setState: (next: PitbossSnapshot) => (state = next),
   };
 };
 const input = (id = "open") => ({
@@ -255,5 +262,72 @@ it.effect("creates a home with no project authority in a fresh environment", () 
     });
     expect(state.role?.brief.projectIds).toEqual([]);
     expect(h.launches).toHaveLength(1);
+  }).pipe(Effect.provide(h.layers));
+});
+
+it.effect("reset cancels open work and elects a fresh home thread with the same brief", () => {
+  const h = harness();
+  return Effect.gen(function* () {
+    const open = yield* makeHome(h.root);
+    const created = yield* open(input());
+    const withTask = decide(
+      created,
+      {
+        commandId: CommandId.make("task"),
+        expectedRevision: created.revision,
+        action: {
+          type: "create",
+          taskId: "task-1",
+          projectId: ProjectId.make("work"),
+          title: "Open work",
+          outcome: "Done",
+          criteria: "Works",
+          verifyCommand: "",
+          priority: 50,
+          dependencies: [],
+          workspaceStrategy: { type: "root" },
+        },
+      },
+      { type: "user" },
+      "2026-09-14T00:00:00Z",
+    );
+    const store = h.setState(withTask);
+    const reset = yield* open({
+      commandId: CommandId.make("reset"),
+      expectedRevision: store.revision,
+      action: { type: "reset" },
+    });
+    expect(reset.tasks.map((task) => task.status)).toEqual(["cancelled"]);
+    expect(reset.role?.brief).toEqual(created.role?.brief);
+    expect(reset.role?.threadId).not.toBe(created.role?.threadId);
+    expect(h.homeThreads.map((thread) => thread.archivedAt !== null)).toEqual([true, false]);
+    // A later open restores the fresh home, not the archived conversation.
+    expect((yield* open(input("reopen"))).role?.threadId).toBe(reset.role?.threadId);
+    expect(h.launches).toHaveLength(2);
+  }).pipe(Effect.provide(h.layers));
+});
+
+it.effect("reset is user-only and requires an elected GLaDOS", () => {
+  const h = harness();
+  return Effect.gen(function* () {
+    const open = yield* makeHome(h.root);
+    const missing = yield* Effect.result(
+      open({ commandId: CommandId.make("reset"), expectedRevision: 0, action: { type: "reset" } }),
+    );
+    expect(missing._tag).toBe("Failure");
+    const created = yield* open(input());
+    expect(() =>
+      decide(
+        created,
+        {
+          commandId: CommandId.make("agent-reset"),
+          expectedRevision: created.revision,
+          authorityGeneration: created.role?.generation,
+          action: { type: "reset" },
+        },
+        { type: "agent", threadId: created.role!.threadId },
+        "2026-09-14T00:00:00Z",
+      ),
+    ).toThrow();
   }).pipe(Effect.provide(h.layers));
 });

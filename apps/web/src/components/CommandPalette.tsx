@@ -1,6 +1,5 @@
 "use client";
 
-import { openPitbossPanel } from "./pitboss/panelEvents";
 import { useOptionalVoiceWorkspace, runVoiceAction } from "./voice/VoiceWorkspaceProvider";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -184,7 +183,7 @@ import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
-import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
+import { searchSettings, settingsPathLabel } from "./settings/settingsSearch";
 import {
   COMMAND_PALETTE_META_ICON_CLASS,
   CommandPaletteMetaDot,
@@ -1541,7 +1540,7 @@ function OpenCommandPaletteDialog(props: {
 
   const openSourceControlSettings = useCallback(() => {
     setOpen(false);
-    void navigate({ to: "/settings/source-control" });
+    void navigate({ to: "/settings/git" });
   }, [navigate, setOpen]);
 
   const buildAddProjectSourceGroups = useCallback(
@@ -1867,17 +1866,19 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  if (activeThread !== null) {
-    actionItems.push({
-      kind: "action",
-      value: "action:pitboss",
-      searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
-      title: "Set up or edit GLaDOS",
-      icon: <CrownIcon className={ITEM_ICON_CLASS} />,
-      run: async () =>
-        openPitbossPanel({ environmentId: activeThread.environmentId, threadId: activeThread.id }),
-    });
-  }
+  actionItems.push({
+    kind: "action",
+    value: "action:pitboss",
+    searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
+    title: "Set up or edit GLaDOS",
+    icon: <CrownIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({
+        to: "/settings/glados",
+        search: activeThread ? { machine: activeThread.environmentId } : {},
+      });
+    },
+  });
 
   if (
     activeThread !== null &&
@@ -2174,9 +2175,9 @@ function OpenCommandPaletteDialog(props: {
   ).map((item) => ({
     kind: "action",
     value: `setting:${item.id}`,
-    searchTerms: [item.title, SETTINGS_SECTION_LABELS[item.to], ...(item.searchTerms ?? [])],
+    searchTerms: [item.title, settingsPathLabel(item.to), ...(item.searchTerms ?? [])],
     title: item.title,
-    description: `Settings · ${SETTINGS_SECTION_LABELS[item.to]}`,
+    description: `Settings · ${settingsPathLabel(item.to)}`,
     ...(item.secondary ? { secondary: true } : {}),
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     run: async () => {

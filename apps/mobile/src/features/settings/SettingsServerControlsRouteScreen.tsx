@@ -43,11 +43,20 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
   maintenance: "Maintenance",
 };
 
-const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
-  "new-threads": ["defaultThreadEnvMode", "defaultRuntimeMode"],
-  "source-control": ["defaultAutoPull", "newWorktreesStartFromOrigin"],
-  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess"],
+/** Project-scoped keys each group edits; drives "clear project overrides". */
+export const SERVER_GROUP_PROJECT_KEYS = {
+  newThreads: ["defaultThreadEnvMode", "defaultRuntimeMode"],
+  streaming: ["responseStreamingMode"],
+  browser: ["enableAgentBrowserAccess"],
+  sourceControl: ["defaultAutoPull", "newWorktreesStartFromOrigin"],
   maintenance: ["continueThreadsAfterServerUpdate"],
+} as const satisfies Record<string, readonly ProjectScopedServerSettingKey[]>;
+
+const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
+  "new-threads": SERVER_GROUP_PROJECT_KEYS.newThreads,
+  "source-control": SERVER_GROUP_PROJECT_KEYS.sourceControl,
+  "agent-behavior": [...SERVER_GROUP_PROJECT_KEYS.streaming, ...SERVER_GROUP_PROJECT_KEYS.browser],
+  maintenance: SERVER_GROUP_PROJECT_KEYS.maintenance,
 };
 
 const WORKSPACE_CHOICES: ReadonlyArray<{
@@ -100,8 +109,14 @@ export function SettingsEnvironmentMaintenanceRouteScreen() {
   return <ServerSettingsDetail page="maintenance" />;
 }
 
-function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
-  const insets = useSafeAreaInsets();
+export type ScopedServerSettings = ReturnType<typeof useScopedServerSettings>;
+
+/**
+ * Server settings scoped by the settings environment/project filter. One scope
+ * shares pending-write state, so a section screen creates one and hands it to
+ * every server-backed group it renders.
+ */
+export function useScopedServerSettings(projectKeys: readonly ProjectScopedServerSettingKey[]) {
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
   const projectSelected = selectedProjectKey !== null;
@@ -126,9 +141,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
     label: "environment settings update",
     reportFailure: true,
   });
-  const write = (patch: ServerSettingsPatch) => {
-    if (writeInFlight.current || !hasConnectedSelection) return;
-    const writes = planMobileScopedSettingsPatch(targets, projectSelected, patch);
+  const run = (writes: ReturnType<typeof planMobileScopedSettingsPatch>) => {
     if (writes.length === 0) return;
     writeInFlight.current = true;
     setPendingTargets(targets);
@@ -143,22 +156,13 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
       setPendingWrites((count) => count - 1);
     });
   };
+  const write = (patch: ServerSettingsPatch) => {
+    if (writeInFlight.current || !hasConnectedSelection) return;
+    run(planMobileScopedSettingsPatch(targets, projectSelected, patch));
+  };
   const clearProjectOverrides = () => {
     if (writeInFlight.current) return;
-    const writes = planMobileScopedSettingsClear(targets, PAGE_PROJECT_KEYS[props.page]);
-    if (writes.length === 0) return;
-    writeInFlight.current = true;
-    setPendingTargets(targets);
-    setPendingWrites((count) => count + 1);
-    void Promise.allSettled(
-      writes.map((entry) =>
-        updateSettings({ environmentId: entry.environmentId, input: { patch: entry.patch } }),
-      ),
-    ).finally(() => {
-      writeInFlight.current = false;
-      setPendingTargets(null);
-      setPendingWrites((count) => count - 1);
-    });
+    run(planMobileScopedSettingsClear(targets, projectKeys));
   };
   const supportsProjectOverrides = targets.every(
     (target) =>
@@ -177,6 +181,207 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
         key as (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number],
       ));
 
+  return {
+    ready: hasConnectedSelection && reference !== null,
+    projectSelected,
+    projectLabel: selectedProject?.label ?? "Unavailable project",
+    hasProjectOverrides: targets.some((target) =>
+      projectKeys.some((key) => target.sources[key] === "project"),
+    ),
+    supportsProjectOverrides,
+    supportsContinuation,
+    pending: pendingWrites > 0,
+    uniform,
+    write,
+    clearProjectOverrides,
+    disabledFor,
+  };
+}
+
+/** The empty-selection message or the project-override banner for a scope. */
+export function ServerSettingsScopeNotice(props: { readonly scope: ScopedServerSettings }) {
+  const { scope } = props;
+  if (!scope.ready) {
+    return (
+      <Text className="px-2 text-base text-foreground-muted">
+        {scope.projectSelected
+          ? "Select a project with a checkout on a connected environment."
+          : "Connect or select an environment to edit these settings."}
+      </Text>
+    );
+  }
+  if (!scope.projectSelected) return null;
+  return (
+    <SettingsProjectOverridesSection
+      projectLabel={scope.projectLabel}
+      hasOverrides={scope.hasProjectOverrides}
+      supportsOverrides={scope.supportsProjectOverrides}
+      pending={scope.pending}
+      onClear={scope.clearProjectOverrides}
+    />
+  );
+}
+
+function mixedTrailing(scope: ScopedServerSettings, key: keyof ServerSettings) {
+  return !scope.pending && scope.uniform(key) === null ? (
+    <MixedValuesLabel projectSelected={scope.projectSelected} />
+  ) : null;
+}
+
+export function NewThreadsServerSettings(props: { readonly scope: ScopedServerSettings }) {
+  const { scope } = props;
+  if (!scope.ready) return null;
+  return (
+    <>
+      <SettingsSection
+        title="Default workspace"
+        trailing={mixedTrailing(scope, "defaultThreadEnvMode")}
+      >
+        {WORKSPACE_CHOICES.map((choice, index) => (
+          <SettingsChoiceRow
+            key={choice.mode}
+            label={choice.label}
+            description={choice.description}
+            selected={scope.uniform("defaultThreadEnvMode") === choice.mode}
+            separated={index > 0}
+            disabled={scope.disabledFor("defaultThreadEnvMode")}
+            onPress={() => scope.write({ defaultThreadEnvMode: choice.mode })}
+          />
+        ))}
+      </SettingsSection>
+      <SettingsSection
+        title="Default permissions"
+        trailing={mixedTrailing(scope, "defaultRuntimeMode")}
+      >
+        {RUNTIME_MODE_CHOICES.map((choice, index) => (
+          <SettingsChoiceRow
+            key={choice.mode}
+            label={choice.label}
+            description={choice.description}
+            selected={scope.uniform("defaultRuntimeMode") === choice.mode}
+            separated={index > 0}
+            disabled={scope.disabledFor("defaultRuntimeMode")}
+            onPress={() => scope.write({ defaultRuntimeMode: choice.mode })}
+          />
+        ))}
+      </SettingsSection>
+    </>
+  );
+}
+
+export function ResponseStreamingServerSettings(props: {
+  readonly scope: ScopedServerSettings;
+  readonly title?: string;
+}) {
+  const { scope } = props;
+  if (!scope.ready) return null;
+  return (
+    <SettingsSection
+      title={props.title ?? "Response streaming"}
+      trailing={mixedTrailing(scope, "responseStreamingMode")}
+    >
+      {STREAMING_CHOICES.map((choice, index) => (
+        <SettingsChoiceRow
+          key={choice.mode}
+          label={choice.label}
+          description={choice.description}
+          selected={scope.uniform("responseStreamingMode") === choice.mode}
+          separated={index > 0}
+          disabled={scope.disabledFor("responseStreamingMode")}
+          onPress={() => scope.write({ responseStreamingMode: choice.mode })}
+        />
+      ))}
+    </SettingsSection>
+  );
+}
+
+export function AgentBrowserServerSettings(props: { readonly scope: ScopedServerSettings }) {
+  const { scope } = props;
+  if (!scope.ready) return null;
+  return (
+    <SettingsSection title="Preview browser">
+      <FanoutSwitchRow
+        icon="globe"
+        label="Agent browser access"
+        subtitle="Allow agents to use the in-app preview browser."
+        value={scope.uniform("enableAgentBrowserAccess")}
+        disabled={scope.disabledFor("enableAgentBrowserAccess")}
+        onValueChange={(value) => scope.write({ enableAgentBrowserAccess: value })}
+      />
+    </SettingsSection>
+  );
+}
+
+export function SourceControlServerSettings(props: { readonly scope: ScopedServerSettings }) {
+  const { scope } = props;
+  if (!scope.ready) return null;
+  return (
+    <>
+      <SettingsSection title="Default branch">
+        <FanoutSwitchRow
+          icon="arrow.down.circle"
+          label="Automatically pull"
+          subtitle="Keep the default branch current when there are no local changes."
+          value={scope.uniform("defaultAutoPull")}
+          disabled={scope.disabledFor("defaultAutoPull")}
+          onValueChange={(value) => scope.write({ defaultAutoPull: value })}
+        />
+      </SettingsSection>
+      <SettingsSection title="Worktrees">
+        <FanoutSwitchRow
+          icon="arrow.triangle.branch"
+          label="Start from origin"
+          subtitle="Base new worktrees on the remote branch."
+          value={scope.uniform("newWorktreesStartFromOrigin")}
+          disabled={scope.disabledFor("newWorktreesStartFromOrigin")}
+          onValueChange={(value) => scope.write({ newWorktreesStartFromOrigin: value })}
+        />
+      </SettingsSection>
+    </>
+  );
+}
+
+export function MaintenanceServerSettings(props: { readonly scope: ScopedServerSettings }) {
+  const { scope } = props;
+  if (!scope.ready) return null;
+  return (
+    <SettingsSection title="Updates">
+      <FanoutSwitchRow
+        icon="arrow.clockwise"
+        label="Check provider updates"
+        subtitle={
+          scope.projectSelected
+            ? "Environment-wide setting. Select All projects to change it."
+            : "Check installed provider CLIs for newer versions."
+        }
+        value={scope.uniform("enableProviderUpdateChecks")}
+        disabled={scope.disabledFor("enableProviderUpdateChecks")}
+        onValueChange={(value) => scope.write({ enableProviderUpdateChecks: value })}
+      />
+      <View className="border-t border-border-subtle">
+        <FanoutSwitchRow
+          icon="arrow.uturn.forward"
+          label="Continue after restart"
+          subtitle={
+            scope.supportsContinuation
+              ? "Resume interrupted threads after an update or restart."
+              : "Update older servers to control restart continuation."
+          }
+          value={scope.uniform("continueThreadsAfterServerUpdate")}
+          disabled={
+            scope.disabledFor("continueThreadsAfterServerUpdate") || !scope.supportsContinuation
+          }
+          onValueChange={(value) => scope.write({ continueThreadsAfterServerUpdate: value })}
+        />
+      </View>
+    </SettingsSection>
+  );
+}
+
+function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
+  const insets = useSafeAreaInsets();
+  const scope = useScopedServerSettings(PAGE_PROJECT_KEYS[props.page]);
+
   return (
     <>
       <SettingsEnvironmentFilterHeader />
@@ -191,164 +396,16 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
           contentContainerClassName="gap-6 px-5 pt-4"
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         >
-          {!hasConnectedSelection || reference === null ? (
-            <Text className="px-2 text-base text-foreground-muted">
-              {projectSelected
-                ? "Select a project with a checkout on a connected environment."
-                : "Use the filter above to select a connected environment."}
-            </Text>
-          ) : (
+          <ServerSettingsScopeNotice scope={scope} />
+          {props.page === "new-threads" ? <NewThreadsServerSettings scope={scope} /> : null}
+          {props.page === "source-control" ? <SourceControlServerSettings scope={scope} /> : null}
+          {props.page === "agent-behavior" ? (
             <>
-              {projectSelected ? (
-                <SettingsProjectOverridesSection
-                  projectLabel={selectedProject?.label ?? "Unavailable project"}
-                  hasOverrides={targets.some((target) =>
-                    PAGE_PROJECT_KEYS[props.page].some((key) => target.sources[key] === "project"),
-                  )}
-                  supportsOverrides={supportsProjectOverrides}
-                  pending={pendingWrites > 0}
-                  onClear={clearProjectOverrides}
-                />
-              ) : null}
-              {props.page === "new-threads" ? (
-                <>
-                  <SettingsSection
-                    title="Default workspace"
-                    trailing={
-                      pendingWrites === 0 && uniform("defaultThreadEnvMode") === null ? (
-                        <MixedValuesLabel projectSelected={projectSelected} />
-                      ) : null
-                    }
-                  >
-                    {WORKSPACE_CHOICES.map((choice, index) => (
-                      <SettingsChoiceRow
-                        key={choice.mode}
-                        label={choice.label}
-                        description={choice.description}
-                        selected={uniform("defaultThreadEnvMode") === choice.mode}
-                        separated={index > 0}
-                        disabled={disabledFor("defaultThreadEnvMode")}
-                        onPress={() => write({ defaultThreadEnvMode: choice.mode })}
-                      />
-                    ))}
-                  </SettingsSection>
-                  <SettingsSection
-                    title="Default permissions"
-                    trailing={
-                      pendingWrites === 0 && uniform("defaultRuntimeMode") === null ? (
-                        <MixedValuesLabel projectSelected={projectSelected} />
-                      ) : null
-                    }
-                  >
-                    {RUNTIME_MODE_CHOICES.map((choice, index) => (
-                      <SettingsChoiceRow
-                        key={choice.mode}
-                        label={choice.label}
-                        description={choice.description}
-                        selected={uniform("defaultRuntimeMode") === choice.mode}
-                        separated={index > 0}
-                        disabled={disabledFor("defaultRuntimeMode")}
-                        onPress={() => write({ defaultRuntimeMode: choice.mode })}
-                      />
-                    ))}
-                  </SettingsSection>
-                </>
-              ) : null}
-
-              {props.page === "source-control" ? (
-                <>
-                  <SettingsSection title="Default branch">
-                    <FanoutSwitchRow
-                      icon="arrow.down.circle"
-                      label="Automatically pull"
-                      subtitle="Keep the default branch current when there are no local changes."
-                      value={uniform("defaultAutoPull")}
-                      disabled={disabledFor("defaultAutoPull")}
-                      onValueChange={(value) => write({ defaultAutoPull: value })}
-                    />
-                  </SettingsSection>
-                  <SettingsSection title="Worktrees">
-                    <FanoutSwitchRow
-                      icon="arrow.triangle.branch"
-                      label="Start from origin"
-                      subtitle="Base new worktrees on the remote branch."
-                      value={uniform("newWorktreesStartFromOrigin")}
-                      disabled={disabledFor("newWorktreesStartFromOrigin")}
-                      onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
-                    />
-                  </SettingsSection>
-                </>
-              ) : null}
-
-              {props.page === "agent-behavior" ? (
-                <>
-                  <SettingsSection
-                    title="Response streaming"
-                    trailing={
-                      pendingWrites === 0 && uniform("responseStreamingMode") === null ? (
-                        <MixedValuesLabel projectSelected={projectSelected} />
-                      ) : null
-                    }
-                  >
-                    {STREAMING_CHOICES.map((choice, index) => (
-                      <SettingsChoiceRow
-                        key={choice.mode}
-                        label={choice.label}
-                        description={choice.description}
-                        selected={uniform("responseStreamingMode") === choice.mode}
-                        separated={index > 0}
-                        disabled={disabledFor("responseStreamingMode")}
-                        onPress={() => write({ responseStreamingMode: choice.mode })}
-                      />
-                    ))}
-                  </SettingsSection>
-                  <SettingsSection title="Preview browser">
-                    <FanoutSwitchRow
-                      icon="globe"
-                      label="Agent browser access"
-                      subtitle="Allow agents to use the in-app preview browser."
-                      value={uniform("enableAgentBrowserAccess")}
-                      disabled={disabledFor("enableAgentBrowserAccess")}
-                      onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
-                    />
-                  </SettingsSection>
-                </>
-              ) : null}
-
-              {props.page === "maintenance" ? (
-                <SettingsSection title="Updates">
-                  <FanoutSwitchRow
-                    icon="arrow.clockwise"
-                    label="Check provider updates"
-                    subtitle={
-                      projectSelected
-                        ? "Environment-wide setting. Select All projects to change it."
-                        : "Check installed provider CLIs for newer versions."
-                    }
-                    value={uniform("enableProviderUpdateChecks")}
-                    disabled={disabledFor("enableProviderUpdateChecks")}
-                    onValueChange={(value) => write({ enableProviderUpdateChecks: value })}
-                  />
-                  <View className="border-t border-border-subtle">
-                    <FanoutSwitchRow
-                      icon="arrow.uturn.forward"
-                      label="Continue after restart"
-                      subtitle={
-                        supportsContinuation
-                          ? "Resume interrupted threads after an update or restart."
-                          : "Update older servers to control restart continuation."
-                      }
-                      value={uniform("continueThreadsAfterServerUpdate")}
-                      disabled={
-                        disabledFor("continueThreadsAfterServerUpdate") || !supportsContinuation
-                      }
-                      onValueChange={(value) => write({ continueThreadsAfterServerUpdate: value })}
-                    />
-                  </View>
-                </SettingsSection>
-              ) : null}
+              <ResponseStreamingServerSettings scope={scope} />
+              <AgentBrowserServerSettings scope={scope} />
             </>
-          )}
+          ) : null}
+          {props.page === "maintenance" ? <MaintenanceServerSettings scope={scope} /> : null}
         </ScrollView>
       </SettingsScreen>
     </>

@@ -99,7 +99,6 @@ import {
 import {
   PolicyTooltip,
   SettingResetButton,
-  SettingsPageContainer,
   SettingsRow,
   SettingsSection,
   useRelativeTimeTick,
@@ -276,14 +275,13 @@ interface ProviderSettingsTarget {
   readonly scoped?: boolean;
 }
 
-export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
+/** Provider list for one environment; the Agents page supplies the `@container/providers` container. */
+export function ProviderSettings(target: ProviderSettingsTarget) {
   return (
-    <SettingsPageContainer width="wide" className="@container/providers gap-8">
-      <ProviderSettingsPanelContent
-        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
-        {...target}
-      />
-    </SettingsPageContainer>
+    <ProviderSettingsPanelContent
+      key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
+      {...target}
+    />
   );
 }
 

@@ -75,7 +75,6 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
-  SettingsPageContainer,
   SettingsRow,
   SettingsSection,
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
@@ -220,8 +219,9 @@ export function ScheduledTasksSettings(target: {
   }, []);
   const defaultEnvironment = environment ?? connectedEnvironments[0];
   return (
-    <SettingsPageContainer>
+    <>
       <SettingsSection
+        id="scheduled-tasks"
         title="Scheduled tasks"
         variant="plain"
         headerAction={
@@ -280,7 +280,7 @@ export function ScheduledTasksSettings(target: {
           onClose={() => setEditor(null)}
         />
       ) : null}
-    </SettingsPageContainer>
+    </>
   );
 }
 

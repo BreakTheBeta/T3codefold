@@ -113,8 +113,9 @@ export function ThreadAutomationsPanel(props: {
                 aria-label="Manage scheduled tasks"
                 onClick={() =>
                   void navigate({
-                    to: "/settings/scheduled-tasks",
+                    to: "/settings/tools",
                     search: { environmentId: props.environmentId },
+                    hash: "scheduled-tasks",
                   })
                 }
               >

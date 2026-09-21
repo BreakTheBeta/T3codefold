@@ -26,12 +26,12 @@ again.
 Providers and diagnostics are per machine: they show one environment at a time, the primary
 one until you pick another. Every other setting fans out to the selection.
 
-On mobile, open **Settings** and use the filter in its header to choose connected environments
-and a project. The filter stays available in server-setting pages. With **All projects** selected,
-the **Server settings** categories and auto-settle controls in **Thread behavior** edit the
-selected environments' defaults. Choosing a project edits its overrides on the selected
+On mobile, open **Settings** and use the **Editing** row (or the filter in its header) to choose
+connected environments and a project. The filter stays available in sections with server
+settings. With **All projects** selected, server-backed rows such as new-thread defaults, Git &
+worktrees and auto-settle in **Threads** edit the selected environments' defaults. Choosing a project edits its overrides on the selected
 environments. Use **Use defaults** in a page to remove that page's project overrides.
-Open **Settings → Projects & threads → Overview** to rename the project across its selected
+Open **Settings → Threads → Overview** to rename the project across its selected
 connected checkouts and see where those checkouts live.
 Settings that are environment-wide stay read-only while a project is selected. When selected
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
@@ -39,7 +39,7 @@ and other phone-only settings ignore the filter.
 
 ## Scheduled tasks on mobile
 
-Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
+Open **Settings → Tools → Scheduled tasks** to create recurring tasks or manage existing
 ones across your connected environments. Use the settings filter to narrow the
 list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Fixed-time schedules use that
@@ -65,8 +65,8 @@ Browser access changes apply when an agent session next starts.
 
 ## Storage cleanup
 
-Open **Settings → Storage** to enable automatic cleanup on one machine or all connected
-environments. Policies are off by default and run on the server at startup, when changed, and
+Open **Settings → Git & worktrees** to enable automatic worktree cleanup on one machine or all
+connected environments. Cleanup for old browser artifacts and logs is under **Settings → About**. Policies are off by default and run on the server at startup, when changed, and
 hourly. Offline machines keep their existing policies.
 
 Select a project to set **Automatic worktree cleanup** to **Inherit**, **Off**, or **Custom**.
@@ -105,7 +105,7 @@ from the icon palette, derived from the saved project name. For example, `Nebula
 
 In Source Control, enable **Automatically pull** to keep the default-branch checkout up to date
 with its configured upstream. Choose an environment to set the default or a project to override it.
-On mobile, use **Settings → Source control** to change selected environment defaults or project overrides.
+On mobile, use **Settings → Git & worktrees** to change selected environment defaults or project overrides.
 
 T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has

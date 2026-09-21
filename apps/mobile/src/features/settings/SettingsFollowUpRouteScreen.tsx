@@ -32,12 +32,6 @@ const FOLLOW_UP_OPTIONS: ReadonlyArray<{
 export function SettingsFollowUpRouteScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const preferencesResult = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
-  const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
-  const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
-    ? (preferencesResult.value.followUpBehavior ?? DEFAULT_FOLLOW_UP_BEHAVIOR)
-    : null;
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
@@ -54,24 +48,40 @@ export function SettingsFollowUpRouteScreen() {
         contentContainerClassName="gap-3 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        <SettingsSection title="While the agent is running">
-          {FOLLOW_UP_OPTIONS.map((option, index) => (
-            <SettingsChoiceRow
-              key={option.behavior}
-              label={option.label}
-              description={option.description}
-              selected={selectedBehavior === option.behavior}
-              separated={index > 0}
-              disabled={!preferencesReady}
-              onPress={() => savePreferences({ followUpBehavior: option.behavior })}
-            />
-          ))}
-        </SettingsSection>
-        <Text className="px-2 text-sm text-foreground-muted">
-          Long-press the send button to use the other option for a single message. With a hardware
-          keyboard, hold Command while sending.
-        </Text>
+        <FollowUpSettingsSection title="While the agent is running" />
       </ScrollView>
+    </View>
+  );
+}
+
+/** Queue vs steer for messages sent while a turn runs. Device-local. */
+export function FollowUpSettingsSection(props: { readonly title: string }) {
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
+  const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
+    ? (preferencesResult.value.followUpBehavior ?? DEFAULT_FOLLOW_UP_BEHAVIOR)
+    : null;
+
+  return (
+    <View className="gap-3">
+      <SettingsSection title={props.title}>
+        {FOLLOW_UP_OPTIONS.map((option, index) => (
+          <SettingsChoiceRow
+            key={option.behavior}
+            label={option.label}
+            description={option.description}
+            selected={selectedBehavior === option.behavior}
+            separated={index > 0}
+            disabled={!preferencesReady}
+            onPress={() => savePreferences({ followUpBehavior: option.behavior })}
+          />
+        ))}
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        Long-press the send button to use the other option for a single message. With a hardware
+        keyboard, hold Command while sending.
+      </Text>
     </View>
   );
 }

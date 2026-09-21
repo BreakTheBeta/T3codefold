@@ -227,6 +227,10 @@
       "types": "./src/state/session.ts",
       "default": "./src/state/session.ts"
     },
+    "./settings-sections": {
+      "types": "./src/settingsSections.ts",
+      "default": "./src/settingsSections.ts"
+    },
     "./state/shared-settings": {
       "types": "./src/state/sharedSettings.ts",
       "default": "./src/state/sharedSettings.ts"

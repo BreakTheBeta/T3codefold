@@ -99,6 +99,11 @@ import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
 import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRouteScreen";
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
+import {
+  SettingsSectionRouteScreen,
+  settingsSectionRouteTitle,
+} from "./features/settings/SettingsSectionRouteScreen";
+import { GladosSettingsRouteScreen } from "./features/threads/GladosSettingsScreen";
 import { SettingsThreadsRouteScreen } from "./features/settings/SettingsThreadsRouteScreen";
 import { SettingsEnvironmentFilterProvider } from "./features/settings/settings-environment-filter";
 import { ShowcaseCaptureCoordinator } from "./features/showcase/ShowcaseCaptureCoordinator";
@@ -193,6 +198,18 @@ const SettingsContentStack = createNativeStackNavigator({
       options: {
         title: "Settings",
       },
+    }),
+    // One route per shared settings section (see SETTINGS_SECTIONS). The older
+    // per-page routes below stay registered for deep links and row targets.
+    SettingsSection: createNativeStackScreen({
+      screen: SettingsSectionRouteScreen,
+      linking: "section/:section",
+      options: ({ route }) => ({ title: settingsSectionRouteTitle(route.params) }),
+    }),
+    SettingsGlados: createNativeStackScreen({
+      screen: GladosSettingsRouteScreen,
+      linking: "glados",
+      options: { title: "GLaDOS" },
     }),
     SettingsEnvironments: createNativeStackScreen({
       screen: SettingsEnvironmentsRouteScreen,

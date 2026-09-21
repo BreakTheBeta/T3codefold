@@ -6,7 +6,7 @@ which models and account access are available through this agent.
 
 ## Set up Antigravity
 
-On web or desktop, open **Settings > Providers**, choose the environment that runs
+On web or desktop, open **Settings > Agents**, choose the environment that runs
 your project, and enable Antigravity. Install its runtime there, then choose
 **Sign in with Google** and complete the browser sign-in. Wait for T3 Code to confirm
 account access and load models before starting a thread. Provider setup is not
@@ -108,7 +108,7 @@ inspect activity.
 ## Accounts and removal
 
 Add an Antigravity provider instance for each Google account in
-**Settings > Providers** on web or desktop. Each has its own sign-in; downloaded
+**Settings > Agents** on web or desktop. Each has its own sign-in; downloaded
 runtimes are shared on the environment.
 
 | Action                    | Effect                                                            |

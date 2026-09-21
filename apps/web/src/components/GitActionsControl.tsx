@@ -697,7 +697,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
 
   const openSourceControlSettings = useCallback(() => {
     handleOpenChange(false);
-    void navigate({ to: "/settings/source-control" });
+    void navigate({ to: "/settings/git" });
   }, [handleOpenChange, navigate]);
 
   return (

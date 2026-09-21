@@ -4846,7 +4846,7 @@ export default function ChatView(props: ChatViewProps) {
   const openProviderSetup = useCallback(
     (instanceId: ProviderInstanceId) => {
       void navigate({
-        to: "/settings/providers",
+        to: "/settings/agents",
         search: { environmentId, instanceId },
       });
     },
@@ -10353,8 +10353,6 @@ export default function ChatView(props: ChatViewProps) {
           <PitbossPanel
             environmentId={activeThread.environmentId}
             threadId={activeThread.id}
-            projectId={activeProject.id}
-            modelSelection={activeThread.modelSelection}
             runtimeMode={activeThread.runtimeMode}
             onComposeWork={focusComposer}
           />

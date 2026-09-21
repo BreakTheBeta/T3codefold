@@ -12,12 +12,7 @@ import { managedWorkerStateLabel } from "@t3tools/client-runtime/glados-board";
 import { CreateHome } from "./CreateHome";
 import { TaskDecisionCard } from "./TaskDecisionCard";
 import { VerificationCard, VerificationArtifact } from "./VerificationCard";
-import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "../ui/dialog";
-import { BriefForm } from "./BriefForm";
 import { useProjects, useServerConfigs } from "../../state/entities";
-import { onOpenPitbossPanel } from "./panelEvents";
-import { PitbossPeers } from "./PitbossPeers";
-import { PitbossSources } from "./PitbossSources";
 import { randomUUID } from "../../lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -41,10 +36,8 @@ import {
   pitbossMessageHeadline,
   verificationRecipeForTask,
   type EnvironmentId,
-  type ModelSelection,
   type RuntimeMode,
   type PitbossAction,
-  type PitbossBrief,
   type PitbossTask,
   type ProjectId,
   type ThreadId,
@@ -152,8 +145,6 @@ export function PitbossPin({
 export function PitbossPanel(props: {
   environmentId: EnvironmentId;
   threadId: ThreadId;
-  projectId: ProjectId;
-  modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
   onComposeWork: () => void;
 }) {
@@ -172,7 +163,6 @@ export function PitbossPanel(props: {
   const [isolatedWorkspace, setIsolatedWorkspace] = useState(false);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [editingBrief, setEditingBrief] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingTask, setEditingTask] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -190,26 +180,8 @@ export function PitbossPanel(props: {
   const state = query.data;
   const role = state?.role;
   const isBoss = role?.threadId === props.threadId;
-  useEffect(
-    () =>
-      onOpenPitbossPanel((target) => {
-        if (target.environmentId !== props.environmentId || target.threadId !== props.threadId)
-          return;
-        setOpen(true);
-        setEditingBrief(true);
-      }),
-    [props.environmentId, props.threadId],
-  );
-  const defaultBrief: PitbossBrief = {
-    priorities: "",
-    quality:
-      "Show evidence that the requested behavior works. Preserve existing behavior outside scope.",
-    projectIds: [props.projectId],
-    maxWorkers: 10,
-    maxAttempts: 3,
-    workerModel: props.modelSelection,
-    managedPeerIds: [],
-  };
+  const openSettings = () =>
+    void navigate({ to: "/settings/glados", search: { machine: props.environmentId } });
   const command = async (action: PitbossAction) => {
     if (!state || busy) return false;
     setBusy(true);
@@ -230,7 +202,7 @@ export function PitbossPanel(props: {
     return true;
   };
   if (!state) return null;
-  if (!isBoss && !editingBrief) return null;
+  if (!isBoss) return null;
   const selected = state.tasks.find((task) => task.id === selectedId);
   const questions = state.messages.filter(isUserWorkMessage);
   const active = state.tasks.filter(
@@ -416,7 +388,7 @@ export function PitbossPanel(props: {
         className="mt-4 border-t border-border pt-3"
       >
         <summary className="cursor-pointer text-sm font-medium">
-          Connections and administration
+          Manual work and project leads
         </summary>
         <Button
           size="sm"
@@ -485,18 +457,6 @@ export function PitbossPanel(props: {
             })}
           </div>
         )}
-        <PitbossSources environmentId={props.environmentId} projectId={props.projectId} />
-        <PitbossPeers environmentId={props.environmentId} tasks={state.tasks} onCommand={command} />
-        <div className="mt-3 flex justify-end">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => void command({ type: "dismiss" })}
-          >
-            Dismiss GLaDOS
-          </Button>
-        </div>
       </details>
     </>
   );
@@ -504,112 +464,78 @@ export function PitbossPanel(props: {
     <section aria-label="GLaDOS workspace" className="contents">
       <div className="col-span-2 flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         <CrownIcon className="size-4 text-amber-600 dark:text-amber-400" />
-        {isBoss ? (
-          <>
-            <button
-              type="button"
-              className="flex items-center gap-2 text-sm font-semibold"
-              onClick={() => setOpen(!open)}
-              aria-expanded={open}
-            >
-              GLaDOS{" "}
-              <span className="text-xs font-normal text-muted-foreground">
-                {role.paused ? "Paused" : `${active.length} working · ${next.length} up next`}
-              </span>
-              <ChevronDownIcon className="size-3" />
-            </button>
-            <span className="text-xs text-muted-foreground">
-              {props.runtimeMode === "full-access" &&
-              role.brief.workerRuntimeMode === "full-access" &&
-              role.brief.verificationMode === "automatic" ? (
-                "Full auto · checks by GLaDOS"
-              ) : (
-                <>
-                  GLaDOS: {props.runtimeMode.replaceAll("-", " ")} · New workers:{" "}
-                  {role.brief.workerRuntimeMode === "full-access" ? "full access" : "approvals"} ·{" "}
-                  {role.brief.verificationMode === "automatic"
-                    ? "Checks by GLaDOS"
-                    : "Recipe review"}
-                </>
-              )}
-            </span>
-            {attention.length > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setSelectedId(null);
-                  setFilter("Needs you");
-                  setProjectFilter("");
-                  setSearch("");
-                  setOpen(true);
-                }}
-              >
-                Needs you · {attention.length}
-              </Button>
-            )}
-            {role.brief.coordinatorRuntimeMode &&
-              role.brief.coordinatorRuntimeMode !== props.runtimeMode && (
-                <span role="status" className="text-xs text-amber-600">
-                  Current and saved GLaDOS permissions differ · select permissions in Brief to apply
-                </span>
-              )}
-            <span className="flex-1" />
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => void command({ type: "pause", paused: !role.paused })}
-            >
-              {role.paused ? <PlayIcon className="size-3" /> : <PauseIcon className="size-3" />}
-              {role.paused ? "Resume" : "Pause"}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setEditingBrief(!editingBrief);
-                setOpen(true);
-              }}
-            >
-              <Settings2Icon className="size-3" />
-              Brief
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setOpen(false);
-                props.onComposeWork();
-              }}
-            >
-              <MessageSquareIcon className="size-3" />
-              Talk to GLaDOS
-            </Button>
-          </>
-        ) : (
-          <>
-            <span className="text-xs text-muted-foreground">
-              Give this environment a long-lived coordinator.
-            </span>
-            <span className="flex-1" />
-            {role && (
-              <Button size="sm" variant="ghost" onClick={() => openThread(role.threadId)}>
-                Open GLaDOS
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setEditingBrief(!editingBrief);
-                setOpen(true);
-              }}
-            >
-              {role ? "Edit GLaDOS settings" : "Create GLaDOS home"}
-            </Button>
-          </>
+        <button
+          type="button"
+          className="flex items-center gap-2 text-sm font-semibold"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+        >
+          GLaDOS{" "}
+          <span className="text-xs font-normal text-muted-foreground">
+            {role.paused ? "Paused" : `${active.length} working · ${next.length} up next`}
+          </span>
+          <ChevronDownIcon className="size-3" />
+        </button>
+        <span className="text-xs text-muted-foreground">
+          {props.runtimeMode === "full-access" &&
+          role.brief.workerRuntimeMode === "full-access" &&
+          role.brief.verificationMode === "automatic" ? (
+            "Full auto · checks by GLaDOS"
+          ) : (
+            <>
+              GLaDOS: {props.runtimeMode.replaceAll("-", " ")} · New workers:{" "}
+              {role.brief.workerRuntimeMode === "full-access" ? "full access" : "approvals"} ·{" "}
+              {role.brief.verificationMode === "automatic" ? "Checks by GLaDOS" : "Recipe review"}
+            </>
+          )}
+        </span>
+        {attention.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setSelectedId(null);
+              setFilter("Needs you");
+              setProjectFilter("");
+              setSearch("");
+              setOpen(true);
+            }}
+          >
+            Needs you · {attention.length}
+          </Button>
         )}
+        {role.brief.coordinatorRuntimeMode &&
+          role.brief.coordinatorRuntimeMode !== props.runtimeMode && (
+            <span role="status" className="text-xs text-amber-600">
+              Current and saved GLaDOS permissions differ · choose autonomy in GLaDOS settings to
+              apply
+            </span>
+          )}
+        <span className="flex-1" />
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => void command({ type: "pause", paused: !role.paused })}
+        >
+          {role.paused ? <PlayIcon className="size-3" /> : <PauseIcon className="size-3" />}
+          {role.paused ? "Resume" : "Pause"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={openSettings}>
+          <Settings2Icon className="size-3" />
+          Settings
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setOpen(false);
+            props.onComposeWork();
+          }}
+        >
+          <MessageSquareIcon className="size-3" />
+          Talk to GLaDOS
+        </Button>
       </div>
       {(error || query.error) && (
         <p role="alert" className="px-4 pb-2 text-sm text-destructive">
@@ -668,8 +594,8 @@ export function PitbossPanel(props: {
                 </Button>
               ))}
             </div>
-            <Button size="sm" variant="ghost" onClick={() => setEditingBrief(true)}>
-              <Settings2Icon className="size-3" /> Brief & team
+            <Button size="sm" variant="ghost" onClick={openSettings}>
+              <Settings2Icon className="size-3" /> Settings
             </Button>
             <Button
               size="sm"
@@ -691,49 +617,6 @@ export function PitbossPanel(props: {
           </div>
         }
       >
-        {editingBrief && (
-          <Dialog
-            open
-            onOpenChange={(value) => {
-              if (!busy) setEditingBrief(value);
-            }}
-          >
-            <DialogPopup
-              className="max-w-4xl max-h-[90dvh] overflow-y-auto"
-              showCloseButton={false}
-            >
-              <DialogTitle className="sr-only">Configure GLaDOS</DialogTitle>
-              <DialogDescription className="sr-only">
-                Worker configurations, decision guidance, project scope and concurrency.
-              </DialogDescription>
-              <BriefForm
-                environmentId={props.environmentId}
-                key={role?.generation ?? "new"}
-                brief={role ? role.brief : defaultBrief}
-                busy={busy}
-                error={error}
-                onCancel={() => setEditingBrief(false)}
-                onSave={async (brief, applyCoordinatorPermissions) => {
-                  if (
-                    await command(
-                      role
-                        ? {
-                            type: "brief",
-                            brief,
-                            applyCoordinatorPermissions,
-                          }
-                        : {
-                            type: "activate-home",
-                            brief,
-                          },
-                    )
-                  )
-                    setEditingBrief(false);
-                }}
-              />
-            </DialogPopup>
-          </Dialog>
-        )}
         {isBoss && adding && (
           <label className="mb-3 block text-sm">
             Project
@@ -794,7 +677,7 @@ export function PitbossPanel(props: {
             }}
           />
         )}
-        {isBoss && !editingBrief && !adding && workView === "board" && selected && (
+        {isBoss && !adding && workView === "board" && selected && (
           <div className="space-y-4 p-2">
             <Button size="sm" variant="ghost" onClick={() => setSelectedId(null)}>
               Back to board
@@ -833,7 +716,7 @@ export function PitbossPanel(props: {
             ))}
           </div>
         )}
-        {isBoss && !editingBrief && !adding && workView === "list" && (
+        {isBoss && !adding && workView === "list" && (
           <>
             {!selected && (
               <div className="flex min-h-64 flex-col justify-center p-5">

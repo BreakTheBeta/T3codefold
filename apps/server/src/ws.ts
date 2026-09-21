@@ -2023,7 +2023,8 @@ const makeWsRpcLayer = (
         [WS_METHODS.pitbossSubscribe]: () => work.subscribe(),
         [WS_METHODS.pitbossCommand]: (input) =>
           Effect.gen(function* () {
-            if (input.action.type === "activate-home") return yield* openGladosHome(input);
+            if (input.action.type === "activate-home" || input.action.type === "reset")
+              return yield* openGladosHome(input);
             if (input.action.type === "elect") {
               yield* threadManagement
                 .getProjectThread({

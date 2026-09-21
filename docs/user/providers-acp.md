@@ -15,7 +15,7 @@ work through the same generic integration.
 
 ## Add an agent
 
-1. Open **Settings → Providers**.
+1. Open **Settings → Agents**.
 2. Select **Add provider instance**, then **ACP Registry**.
 3. Search for the agent and select **Add** on its result.
 4. Confirm the name and instance ID, then select **Add instance**.
