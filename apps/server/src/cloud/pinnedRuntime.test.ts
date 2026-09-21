@@ -214,7 +214,10 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       assert.deepEqual(progress.at(-1), { stage: "download", received: 4, total: undefined });
       assert.isTrue(progress.every((event) => event.stage === "download"));
       assert.isTrue(cancelled);
-      assert.deepEqual(yield* fs.readDirectory(path.join(baseDir, "runtime", "versions")), []);
+      assert.deepEqual(
+        yield* fs.readDirectory(path.join(baseDir, "runtime", "fold", "versions")),
+        [],
+      );
     }),
   );
 

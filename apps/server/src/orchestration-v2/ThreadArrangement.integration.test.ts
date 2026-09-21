@@ -140,7 +140,7 @@ it.live("guards discovered PR links against changed thread and project state", (
         commandId: CommandId.make("pr:first"),
         threadId,
         projectId,
-        snapshotSequence: 0,
+        snapshotSequence: yield* (yield* EventSinkV2).latestSequence({ threadId }),
         expected: {
           workspaceRoot: "/workspace",
           branch: "feature",

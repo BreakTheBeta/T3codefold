@@ -77,7 +77,6 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import {
   readCodexThread,
-  rollbackCodexThread,
   describeMcpElicitation,
   toMcpElicitationResponse,
 } from "../../provider/Layers/CodexSessionRuntime.ts";
@@ -5800,7 +5799,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 });
               }
               const response = yield* ensureInitialized.pipe(
-                Effect.andThen(rollbackCodexThread(client, threadId, numTurns)),
+                Effect.andThen(client.request("thread/rollback", { threadId, numTurns })),
               );
               turnTokenUsageByThread.delete(threadId);
               return {
@@ -5808,7 +5807,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                   ...threadInput.providerThread,
                   nativeThreadRef: {
                     driver: CODEX_PROVIDER,
-                    nativeId: response.threadId,
+                    nativeId: response.thread.id,
                     strength: "strong" as const,
                   },
                   nativeConversationHeadRef,

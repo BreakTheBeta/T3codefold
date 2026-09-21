@@ -29,30 +29,29 @@ class T3KeyboardCommandsView(
   var enabledCommands = emptySet<String>()
 
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-    if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && event.isCtrlPressed && event.isAltPressed && !event.isShiftPressed) {
-      val command = when (event.keyCode) {
+    val command = commandFor(event)
+    return if (command != null && enabledCommands.contains(command)) {
+      onCommand(mapOf("command" to command))
+      true
+    } else {
+      super.dispatchKeyEvent(event)
+    }
+  }
+
+  private fun commandFor(event: KeyEvent): String? {
+    if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0 || !event.isCtrlPressed) {
+      return null
+    }
+    return when {
+      event.isAltPressed && !event.isShiftPressed -> when (event.keyCode) {
         KeyEvent.KEYCODE_V -> "voiceToggle"
         KeyEvent.KEYCODE_M -> "voiceMute"
         KeyEvent.KEYCODE_S -> "voiceOutputMute"
         else -> null
       }
-      if (command != null && enabledCommands.contains(command)) {
-        onCommand(mapOf("command" to command))
-        return true
-      }
+      event.isShiftPressed && !event.isAltPressed && event.keyCode == KeyEvent.KEYCODE_C ->
+        "copyThreadReference"
+      else -> null
     }
-    val copiesThreadReference =
-      event.action == KeyEvent.ACTION_DOWN &&
-        event.repeatCount == 0 &&
-        event.keyCode == KeyEvent.KEYCODE_C &&
-        event.isCtrlPressed &&
-        event.isShiftPressed &&
-        !event.isAltPressed &&
-        enabledCommands.contains("copyThreadReference")
-    if (copiesThreadReference) {
-      onCommand(mapOf("command" to "copyThreadReference"))
-      return true
-    }
-    return super.dispatchKeyEvent(event)
   }
 }
