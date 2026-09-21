@@ -231,8 +231,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-// Native focus routing is exercised by scripts/test-browser-focus.mjs. Here the
-// host supplies ownership so we can verify the manager's navigation/control rules.
+// The host supplies ownership so we can verify the manager's navigation/control rules.
 vi.mock("./BrowserViewHost.ts", () => ({
   BrowserViewHost: class {
     contents = fromId(42);
