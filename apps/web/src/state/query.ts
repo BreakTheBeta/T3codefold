@@ -9,7 +9,7 @@ const EMPTY_ASYNC_RESULT_ATOM = Atom.make(AsyncResult.initial<never, never>(fals
 
 export interface EnvironmentQueryView<A> {
   readonly data: A | null;
-  readonly dataUpdatedAt: number;
+  readonly dataUpdatedAt: number | null;
   readonly error: string | null;
   readonly isPending: boolean;
   readonly isSuccess: boolean;
@@ -31,12 +31,14 @@ export function useEnvironmentQuery<A, E>(
   const refresh = useAtomRefresh(selectedAtom);
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
+    // `data` falls back to the previous success on failure, so the timestamp has to follow it;
+    // null means nothing has ever loaded, which callers read as "no observation to publish".
     dataUpdatedAt:
       result._tag === "Success"
         ? result.timestamp
         : result._tag === "Failure"
-          ? (Option.getOrNull(result.previousSuccess)?.timestamp ?? 0)
-          : 0,
+          ? (Option.getOrNull(result.previousSuccess)?.timestamp ?? null)
+          : null,
     error: result._tag === "Failure" ? formatEnvironmentQueryError(result.cause) : null,
     isPending: atom !== null && result.waiting,
     isSuccess: result._tag === "Success",
