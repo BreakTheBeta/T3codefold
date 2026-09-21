@@ -187,7 +187,10 @@ function NativeSourceFileSurface(
   const { codeSurface, codeWordBreak, nativeSourceStyle } = useAppearanceCodeSurface();
   const { themeAppearance, themeId } = useAppearancePreferences();
   const appTheme = useUniwindTheme();
-  const { width: viewportWidth } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
+  // Wrap to the pane the file is shown in: in split layouts that is narrower than the window.
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const viewportWidth = measuredWidth ?? windowWidth;
   const { rowsJson, status, targetIndex, tokens } = useSourceFileModel(props);
   const { isPullRefreshing, handlePullToRefresh } = useSourceFileRefresh(onRefresh);
   const tokensJson = useMemo(() => JSON.stringify(buildNativeSourceTokens(tokens)), [tokens]);
@@ -205,7 +208,10 @@ function NativeSourceFileSurface(
     : NATIVE_SOURCE_CONTENT_WIDTH;
 
   return (
-    <View className="relative flex-1 bg-sheet">
+    <View
+      className="relative flex-1 bg-sheet"
+      onLayout={(event) => setMeasuredWidth(Math.round(event.nativeEvent.layout.width))}
+    >
       <SourceHighlightStatusView status={status} />
       <NativeView
         collapsable={false}
