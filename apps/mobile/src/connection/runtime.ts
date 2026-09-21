@@ -4,6 +4,7 @@ import {
   boundedThreadSnapshotLoaderLayer,
   threadHistoryControllerLayer,
 } from "@t3tools/client-runtime/state/threads";
+import { pullRequestDiffLoaderLayer } from "@t3tools/client-runtime/state/pull-requests";
 import * as Layer from "effect/Layer";
 import { Atom } from "effect/unstable/reactivity";
 
@@ -27,6 +28,7 @@ const snapshotLoaderLayer = Layer.mergeAll(
   boundedThreadSnapshotLoaderLayer,
   shellSnapshotLoaderLayer,
   threadHistoryControllerLayer,
+  pullRequestDiffLoaderLayer,
 );
 
 type ConnectionLayerSource =

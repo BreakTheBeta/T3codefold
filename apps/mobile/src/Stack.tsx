@@ -37,6 +37,11 @@ import {
 import { ReviewCommentComposerSheet } from "./features/review/ReviewCommentComposerSheet";
 import { ReviewSheet } from "./features/review/ReviewSheet";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
+import { PullRequestCommentSheet } from "./features/pull-requests/PullRequestCommentSheet";
+import { PullRequestFilesRouteScreen } from "./features/pull-requests/PullRequestFilesRouteScreen";
+import { PullRequestReviewSheet } from "./features/pull-requests/PullRequestReviewSheet";
+import { PullRequestRouteScreen } from "./features/pull-requests/PullRequestRouteScreen";
+import { PullRequestsRouteScreen } from "./features/pull-requests/PullRequestsRouteScreen";
 import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteScreen";
 import { GitBranchesSheet } from "./features/threads/git/GitBranchesSheet";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
@@ -174,6 +179,16 @@ const SHEET_SOLID_HEADER_OPTIONS: AppScreenOptions = {
 const SHEET_GLASS_HEADER_OPTIONS: AppScreenOptions = {
   ...GLASS_HEADER_OPTIONS,
   unstable_navigationItemStyle: undefined,
+};
+
+// Keyboard-driven composers: Android cannot host them in a formSheet (same as review comments).
+const PULL_REQUEST_SHEET_OPTIONS: AppScreenOptions = {
+  headerShown: false,
+  ...(Platform.OS === "android"
+    ? { presentation: "fullScreenModal" as const }
+    : FORM_SHEET_PRESENTATION_OPTIONS),
+  sheetAllowedDetents: Platform.OS === "android" ? undefined : [0.6, 0.95],
+  sheetGrabberVisible: Platform.OS !== "android",
 };
 
 const LEGAL_DOCUMENT_HEADER_OPTIONS: AppScreenOptions = {
@@ -528,6 +543,8 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "GitConfirm",
   "GitOverview",
   "NewTaskSheet",
+  "PullRequestComment",
+  "PullRequestReview",
   "SettingsLegal",
   "SettingsSheet",
   "ThreadAgents",
@@ -756,6 +773,29 @@ const RootStackConfig = createNativeStackNavigator({
         sheetAllowedDetents: [0.5, 0.9],
         sheetGrabberVisible: true,
       },
+    }),
+    PullRequests: createNativeStackScreen({
+      screen: PullRequestsRouteScreen,
+      linking: "pull-requests",
+      options: SOLID_HEADER_OPTIONS,
+    }),
+    PullRequest: createNativeStackScreen({
+      screen: PullRequestRouteScreen,
+      linking: "pull-requests/:environmentId/:projectId/:number",
+      options: SOLID_HEADER_OPTIONS,
+    }),
+    PullRequestFiles: createNativeStackScreen({
+      screen: PullRequestFilesRouteScreen,
+      linking: "pull-requests/:environmentId/:projectId/:number/files",
+      options: SOLID_HEADER_OPTIONS,
+    }),
+    PullRequestComment: createNativeStackScreen({
+      screen: PullRequestCommentSheet,
+      options: PULL_REQUEST_SHEET_OPTIONS,
+    }),
+    PullRequestReview: createNativeStackScreen({
+      screen: PullRequestReviewSheet,
+      options: PULL_REQUEST_SHEET_OPTIONS,
     }),
     GitOverview: createNativeStackScreen({
       screen: GitOverviewSheet,

@@ -49,6 +49,14 @@ export function HomeHeader(props: HomeHeaderProps) {
           headerTintColor: iconColor,
           unstable_headerRightItems: () => [
             withNativeGlassHeaderItem({
+              accessibilityLabel: "Pull requests",
+              icon: { name: "arrow.triangle.pull", type: "sfSymbol" } as const,
+              identifier: "home-pull-requests",
+              label: "",
+              onPress: props.onOpenPullRequests,
+              type: "button",
+            }),
+            withNativeGlassHeaderItem({
               accessibilityLabel: "Open settings",
               icon: { name: "ellipsis", type: "sfSymbol" } as const,
               identifier: "home-settings",

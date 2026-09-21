@@ -40,6 +40,7 @@ export function createSidebarHeaderItems(input: {
   readonly filterIcon: string;
   readonly filterMenu: HomeListFilterMenu;
   readonly onOpenSettings: () => void;
+  readonly onOpenPullRequests: () => void;
 }): NativeStackHeaderItem[] {
   return [
     withNativeGlassHeaderItem({
@@ -51,6 +52,13 @@ export function createSidebarHeaderItems(input: {
         title: input.filterMenu.title,
         items: toNativeHeaderMenuItems(input.filterMenu.items),
       },
+    }),
+    withNativeGlassHeaderItem({
+      type: "button",
+      label: "",
+      accessibilityLabel: "Pull requests",
+      icon: sfSymbolIcon("arrow.triangle.pull"),
+      onPress: input.onOpenPullRequests,
     }),
     withNativeGlassHeaderItem({
       type: "button",
