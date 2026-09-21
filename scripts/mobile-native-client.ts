@@ -5,7 +5,7 @@ import {
   HostProcessExecutablePath,
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
-import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
+import { isCommandAvailable, resolveCommandPath, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Console from "effect/Console";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -166,6 +166,46 @@ export const resolveAdb = Effect.gen(function* () {
   return yield* new NativeClientError({
     message:
       "adb was not found on PATH or in ANDROID_SDK_ROOT/ANDROID_HOME. Install Android SDK platform-tools.",
+  });
+});
+
+/**
+ * The JDK Gradle should compile with.
+ *
+ * A module that declares no toolchain of its own compiles with whichever JVM
+ * launched Gradle, and `java` is not required to be a JDK: Debian-style
+ * alternatives will happily point it at a headless JRE while `javac` comes
+ * from a different package. Gradle then fails deep inside a third-party
+ * module with "does not provide the required capabilities: [JAVA_COMPILER]",
+ * naming a JVM nobody chose and no file in this repo mentions.
+ *
+ * Pinning a toolchain version in Gradle instead would reject machines whose
+ * only JDK is newer than the one we picked, so resolve whatever JDK is
+ * actually installed and hand Gradle that.
+ */
+export const resolveJavaHome = Effect.fn("nativeClient.resolveJavaHome")(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const environment = yield* HostProcessEnvironment;
+  const compiler = (yield* HostProcessPlatform) === "win32" ? "javac.exe" : "javac";
+  const compiles = (home: string) =>
+    fs.exists(path.join(home, "bin", compiler)).pipe(Effect.orElseSucceed(() => false));
+
+  const configured = environment.JAVA_HOME?.trim();
+  if (configured && (yield* compiles(configured))) return configured;
+
+  // `javac` on PATH is by definition a compiler, so its real location is a JDK
+  // even when `java` beside it is not.
+  const resolved = yield* resolveCommandPath(compiler).pipe(
+    Effect.flatMap((found) => fs.realPath(found)),
+    Effect.orElseSucceed(() => null),
+  );
+  if (resolved) return path.dirname(path.dirname(resolved));
+
+  return yield* new NativeClientError({
+    message: configured
+      ? `JAVA_HOME (${configured}) has no ${compiler}; point it at a JDK, not a JRE.`
+      : `No ${compiler} found on PATH. Install a JDK, or set JAVA_HOME to one.`,
   });
 });
 
@@ -432,6 +472,7 @@ const main = Command.make(
               : path.join(mobile, "android/gradlew");
           yield* command(gradle, androidGradleBuildArgs(abi), true, path.join(mobile, "android"), {
             ANDROID_SERIAL: device,
+            JAVA_HOME: yield* resolveJavaHome(),
             ...(hasCcache ? ccacheEnvironment(repo) : {}),
           });
           yield* command(
