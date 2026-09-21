@@ -28,6 +28,11 @@ import { SettingsChoiceRow } from "../../components/SettingsChoiceRow";
 import { SettingsSection } from "../../components/SettingsSection";
 import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
 import { FontSizeSliderRow } from "../components/FontSizeSliderRow";
+import {
+  splatterHexToHue,
+  splatterHueToHex,
+  themeSplatterColors,
+} from "../../../../lib/splatterColors";
 import { useAppearancePreferences } from "../AppearancePreferencesProvider";
 
 const APPEARANCE_MODES: ReadonlyArray<{
@@ -308,6 +313,8 @@ const BACKDROP_SCOPE_CHOICES: ReadonlyArray<{
   { scope: "all", label: "Every theme", description: "In each theme's own colors." },
 ];
 
+const SPLATTER_COLOR_ROLES = ["Lead", "Second", "Accent"] as const;
+
 export function ThemeAppearanceSection() {
   const {
     isReady,
@@ -327,6 +334,10 @@ export function ThemeAppearanceSection() {
     setThemeBackdropGlow,
     themeBackdropSeed,
     setThemeBackdropSeed,
+    themeBackdropColors,
+    setThemeBackdropColors,
+    themeId,
+    themeAppearance,
   } = useAppearancePreferences();
 
   return (
@@ -407,6 +418,53 @@ export function ThemeAppearanceSection() {
               onValueChange={setThemeBackdropGlow}
               value={themeBackdropGlow}
             />
+            <SettingsSwitchRow
+              disabled={!isReady}
+              icon="paintbrush"
+              label="Custom colors"
+              // Start from what is on screen, not an arbitrary palette.
+              onValueChange={(custom) =>
+                setThemeBackdropColors(
+                  custom ? themeSplatterColors(themeId, themeAppearance) : null,
+                )
+              }
+              value={themeBackdropColors !== null}
+            />
+            {themeBackdropColors ? (
+              <>
+                <View className="flex-row justify-center gap-3 py-2">
+                  {themeBackdropColors.map((color, index) => (
+                    <View
+                      key={SPLATTER_COLOR_ROLES[index]}
+                      accessibilityLabel={`${SPLATTER_COLOR_ROLES[index]} color ${color}`}
+                      className="size-8 rounded-full border border-border"
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </View>
+                {themeBackdropColors.map((color, index) => {
+                  const hue = splatterHexToHue(color);
+                  return (
+                    <FontSizeSliderRow
+                      key={SPLATTER_COLOR_ROLES[index]}
+                      disabled={!isReady}
+                      icon="paintbrush"
+                      label={`${SPLATTER_COLOR_ROLES[index]} hue`}
+                      max={355}
+                      min={0}
+                      onChange={(next) => {
+                        const colors = [...themeBackdropColors] as [string, string, string];
+                        colors[index] = splatterHueToHex(next);
+                        setThemeBackdropColors(colors);
+                      }}
+                      step={5}
+                      value={hue}
+                      valueLabel={`${hue}°`}
+                    />
+                  );
+                })}
+              </>
+            ) : null}
             <SettingsActionRow
               disabled={!isReady}
               icon="arrow.clockwise"

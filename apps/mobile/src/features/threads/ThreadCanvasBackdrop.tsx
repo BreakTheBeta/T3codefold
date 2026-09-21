@@ -1,13 +1,9 @@
-import {
-  deriveSplatterColors,
-  parseOklch,
-  renderSplatterCluster,
-} from "@t3tools/shared/splatterBackdrop";
+import { renderSplatterCluster } from "@t3tools/shared/splatterBackdrop";
 import { Image } from "expo-image";
 import { memo, useMemo } from "react";
 import { Image as RNImage, useWindowDimensions } from "react-native";
 
-import { DEFAULT_MOBILE_THEME_ID, getMobileThemeColors } from "../../lib/mobileTheme";
+import { themeSplatterColors } from "../../lib/splatterColors";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 
 /**
@@ -15,15 +11,14 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
  * theme's colours by the same renderer the web app uses
  * (packages/shared/src/splatterBackdrop.ts).
  *
- * Handed to expo-image as an SVG data URI rather than drawn through
+ * Handed to expo-image as a base64 SVG data URI rather than drawn through
  * react-native-svg: each cluster is around 600 vector nodes, and
  * react-native-svg would keep every one as a native shape it re-walks on
  * layout, while the platform SVG decoder rasterizes once and caches the
  * bitmap. The grain tile on top goes through React Native's own Image, the
  * only one of the two that can repeat a texture natively.
  *
- * Mobile follows the theme's colours only; custom paint colours are a
- * web/desktop setting. Geometry mirrors the phone branch of the web rule in
+ * Geometry mirrors the phone branch of the web rule in
  * apps/web/src/index.css: two corner clusters, the lower one lifted clear of
  * the composer, then grain over both. Keep the two in step.
  */
@@ -41,7 +36,13 @@ const TRAILING_SCALE = 1.3;
 const TRAILING_BOTTOM_FRACTION = 0.12;
 const TRAILING_LEFT_FRACTION = -0.18;
 
-const svgUri = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+/**
+ * Base64, never percent-encoding: expo-image's Android loader base64-decodes
+ * everything after the comma whatever the URI declares, so a percent-encoded
+ * SVG decodes to garbage and renders nothing. The markup is ASCII, which
+ * btoa requires.
+ */
+const svgUri = (svg: string) => `data:image/svg+xml;base64,${btoa(svg)}`;
 
 export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
   const {
@@ -52,6 +53,7 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeBackdropIntensity,
     themeBackdropGlow,
     themeBackdropSeed,
+    themeBackdropColors,
   } = useAppearancePreferences();
   const { width, height } = useWindowDimensions();
   const appearance = themeAppearance === "dark" ? "dark" : "light";
@@ -60,17 +62,8 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
 
   const sources = useMemo(() => {
     if (!shown) return null;
-    // Material You has no fixed palette of its own to derive from.
-    const colors = getMobileThemeColors(
-      themeId === "material-you" ? DEFAULT_MOBILE_THEME_ID : themeId,
-      appearance,
-    );
     const options = {
-      colors: deriveSplatterColors(
-        parseOklch(colors.accent),
-        parseOklch(colors.messageAction),
-        appearance,
-      ),
+      colors: themeBackdropColors ?? themeSplatterColors(themeId, appearance),
       appearance,
       intensity: themeBackdropIntensity / 100,
       glow: themeBackdropGlow,
@@ -80,7 +73,15 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
       a: { uri: svgUri(renderSplatterCluster("a", options)) },
       b: { uri: svgUri(renderSplatterCluster("b", options)) },
     };
-  }, [shown, themeId, appearance, themeBackdropIntensity, themeBackdropGlow, themeBackdropSeed]);
+  }, [
+    shown,
+    themeId,
+    appearance,
+    themeBackdropIntensity,
+    themeBackdropGlow,
+    themeBackdropSeed,
+    themeBackdropColors,
+  ]);
 
   if (!sources) return null;
   const lead = width * LEAD_SCALE;

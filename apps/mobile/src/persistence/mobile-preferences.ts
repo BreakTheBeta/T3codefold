@@ -18,6 +18,7 @@ import {
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
+import { isSplatterHexColor } from "@t3tools/shared/splatterBackdrop";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
@@ -44,6 +45,8 @@ export interface Preferences {
   readonly themeBackdropIntensity?: number;
   readonly themeBackdropGlow?: boolean;
   readonly themeBackdropSeed?: number;
+  /** Lead, second and accent paint; absent follows the theme. */
+  readonly themeBackdropColors?: readonly [string, string, string];
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
   readonly collapsedProjectGroups?: readonly string[];
   /** What the Return key does in the composer on a hardware keyboard. iOS only. */
@@ -131,6 +134,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     themeBackdropIntensity?: number;
     themeBackdropGlow?: boolean;
     themeBackdropSeed?: number;
+    themeBackdropColors?: readonly [string, string, string];
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
     collapsedProjectGroups?: readonly string[];
     composerEnterBehavior?: ComposerEnterBehavior;
@@ -207,6 +211,14 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     parsed.themeBackdropSeed <= MAX_THEME_BACKDROP_SEED
   )
     preferences.themeBackdropSeed = parsed.themeBackdropSeed;
+  if (
+    Array.isArray(parsed.themeBackdropColors) &&
+    parsed.themeBackdropColors.length === 3 &&
+    parsed.themeBackdropColors.every(isSplatterHexColor)
+  ) {
+    const [lead, second, accent] = parsed.themeBackdropColors;
+    preferences.themeBackdropColors = [lead, second, accent];
+  }
   if (Array.isArray(parsed.connectOnboardingOptOutAccounts)) {
     preferences.connectOnboardingOptOutAccounts = parsed.connectOnboardingOptOutAccounts.filter(
       (account): account is string => typeof account === "string",

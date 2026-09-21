@@ -85,6 +85,9 @@ interface AppearancePreferencesContextValue {
   /** Splatter pattern variant; 0 is the original art. */
   readonly themeBackdropSeed: number;
   readonly setThemeBackdropSeed: (value: number) => void;
+  /** Custom paint colours, or null to follow the theme. */
+  readonly themeBackdropColors: readonly [string, string, string] | null;
+  readonly setThemeBackdropColors: (value: readonly [string, string, string] | null) => void;
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
@@ -321,6 +324,14 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     },
     [updatePreferences],
   );
+  const themeBackdropColors = storedPreferences?.themeBackdropColors ?? null;
+  const setThemeBackdropColors = useCallback(
+    (value: readonly [string, string, string] | null) => {
+      // undefined drops the key, so "follow the theme" is the absence of one.
+      updatePreferences({ themeBackdropColors: value ?? undefined });
+    },
+    [updatePreferences],
+  );
 
   const value = useMemo(
     (): AppearancePreferencesContextValue => ({
@@ -352,6 +363,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeBackdropGlow,
       themeBackdropSeed,
       setThemeBackdropSeed,
+      themeBackdropColors,
+      setThemeBackdropColors,
     }),
     [
       appearance,
@@ -381,6 +394,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeBackdropGlow,
       themeBackdropSeed,
       setThemeBackdropSeed,
+      themeBackdropColors,
+      setThemeBackdropColors,
     ],
   );
 

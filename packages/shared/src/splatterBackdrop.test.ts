@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   deriveSplatterColors,
+  fitOklchToGamut,
+  hexToOklch,
   oklchToHex,
   parseOklch,
   renderSplatterCluster,
@@ -82,6 +84,12 @@ describe("renderSplatterCluster", () => {
     expect(renderSplatterCluster("a", options)).not.toBe(renderSplatterCluster("b", options));
   });
 
+  it("emits ASCII only, so mobile can base64 it with btoa", () => {
+    for (const glow of [false, true]) {
+      expect(renderSplatterCluster("a", { ...options, glow, seed: 7 })).toMatch(/^[\x20-\x7e]*$/);
+    }
+  });
+
   it("paints with every supplied colour", () => {
     const svg = renderSplatterCluster("a", options);
     for (const color of options.colors) expect(svg).toContain(`fill="${color}"`);
@@ -132,4 +140,20 @@ describe("renderSplatterCluster", () => {
 it("converts oklch to srgb hex", () => {
   expect(oklchToHex({ l: 1, c: 0, h: 0 })).toBe("#ffffff");
   expect(oklchToHex({ l: 0, c: 0, h: 0 })).toBe("#000000");
+});
+
+it("round-trips hex through oklch", () => {
+  for (const hex of ["#39ff88", "#ff3dcb", "#29d9ff", "#808080"]) {
+    expect(oklchToHex(hexToOklch(hex)!)).toBe(hex);
+  }
+  expect(hexToOklch("#ff0000")!.h).toBeCloseTo(29.2, 0);
+  expect(hexToOklch("red")).toBeNull();
+});
+
+it("fits out-of-gamut colours by chroma, keeping the hue", () => {
+  const fitted = fitOklchToGamut({ l: 0.74, c: 0.19, h: 60 });
+  expect(fitted.c).toBeLessThan(0.19);
+  expect(hexToOklch(oklchToHex(fitted))!.h).toBeCloseTo(60, 0);
+  const inside = { l: 0.6, c: 0.05, h: 200 };
+  expect(fitOklchToGamut(inside)).toBe(inside);
 });
