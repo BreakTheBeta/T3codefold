@@ -615,6 +615,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.vimModeEnabled !== DEFAULT_UNIFIED_SETTINGS.vimModeEnabled
         ? ["Vim keyboard mode"]
         : []),
+      ...(settings.vimThreadPreviewEnabled !== DEFAULT_UNIFIED_SETTINGS.vimThreadPreviewEnabled
+        ? ["Preview threads while navigating"]
+        : []),
       ...(settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
         ? ["Collapse composer on scroll"]
         : []),
@@ -724,6 +727,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.showSkillsInSlashMenu,
       settings.citeSelectionEnabled,
       settings.vimModeEnabled,
+      settings.vimThreadPreviewEnabled,
       settings.timestampFormat,
       settings.notificationMode,
       settings.inAppNotificationsEnabled,
@@ -811,6 +815,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       citeSelectionEnabled: DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled,
       vimModeEnabled: DEFAULT_UNIFIED_SETTINGS.vimModeEnabled,
+      vimThreadPreviewEnabled: DEFAULT_UNIFIED_SETTINGS.vimThreadPreviewEnabled,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
@@ -2865,6 +2870,33 @@ function ComposerSettingsSection() {
             checked={settings.vimModeEnabled}
             onCheckedChange={(checked) => updateSettings({ vimModeEnabled: Boolean(checked) })}
             aria-label="Vim keyboard mode"
+          />
+        }
+      />
+
+      <SettingsRow
+        {...searchableSetting("vim-thread-preview")}
+        description="In Vim mode, preview threads as you move through the sidebar with j / k. Focus stays in the sidebar; press i to open the selection."
+        resetAction={
+          settings.vimThreadPreviewEnabled !== DEFAULT_UNIFIED_SETTINGS.vimThreadPreviewEnabled ? (
+            <SettingResetButton
+              label="Preview threads while navigating"
+              onClick={() =>
+                updateSettings({
+                  vimThreadPreviewEnabled: DEFAULT_UNIFIED_SETTINGS.vimThreadPreviewEnabled,
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          <Switch
+            checked={settings.vimThreadPreviewEnabled}
+            disabled={!settings.vimModeEnabled}
+            onCheckedChange={(checked) =>
+              updateSettings({ vimThreadPreviewEnabled: Boolean(checked) })
+            }
+            aria-label="Preview threads while navigating"
           />
         }
       />

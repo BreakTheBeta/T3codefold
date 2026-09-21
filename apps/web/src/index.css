@@ -2475,3 +2475,63 @@ code {
 .composer-tiptap li[data-checked] > div > p {
   margin: 0;
 }
+
+/* Short, transform-only accents settle completely between interactions. */
+.sidebar-thread-choice {
+  isolation: isolate;
+  transition: background-color 120ms ease-out;
+}
+
+/* The angled wash leaves text stationary and preserves active/selected surfaces. */
+.sidebar-thread-choice::before {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  inset: 0;
+  background: var(--primary);
+  clip-path: polygon(0 0, 100% 0, 96% 100%, 0 100%);
+  opacity: 0;
+  transform: translateX(-8px);
+  transition:
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 100ms ease-out;
+}
+
+.sidebar-thread-choice:is(:hover, :focus-visible)::before {
+  opacity: 0.035;
+  transform: translateX(0);
+}
+
+.sidebar-thread-choice:focus-visible {
+  background-color: var(--sidebar-row-hover);
+  color: var(--sidebar-foreground);
+  outline: 1px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  outline-offset: -1px;
+}
+
+.sidebar-thread-choice::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  inset: 18% auto 18% 1px;
+  width: 3px;
+  background: var(--primary);
+  opacity: 0;
+  transform: translateX(-4px) skewY(-18deg) scaleY(0.55);
+  transition:
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 100ms ease-out;
+}
+
+.sidebar-thread-choice:focus-visible::after {
+  opacity: 1;
+  transform: translateX(0) skewY(-18deg) scaleY(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-thread-choice,
+  .sidebar-thread-choice::before,
+  .sidebar-thread-choice::after {
+    transition: none;
+  }
+}

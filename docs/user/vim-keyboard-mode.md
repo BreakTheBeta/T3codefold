@@ -33,6 +33,11 @@ release it, then press the direction. The layout is spatial: threads are left of
 the conversation, the composer is below it, and the right panel is to its right.
 `Ctrl+w w` cycles through all four regions.
 
+Enable **Settings → General → Preview threads while navigating** to open threads
+as you pause on them with sidebar `j`/`k`, keeping keyboard focus in the sidebar.
+Press `i` or `Enter` to open the selected thread immediately. Turn the setting off
+to move the selection without opening threads.
+
 ## Understand the focus zones
 
 T3 Code has four keyboard contexts:

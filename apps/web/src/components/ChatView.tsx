@@ -6138,12 +6138,14 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
     const frame = window.requestAnimationFrame(() => {
+      // Sidebar previews must keep receiving j/k after the new thread loads.
+      if (settings.vimModeEnabled && document.activeElement?.closest("[data-app-sidebar]")) return;
       focusComposer();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, terminalUiState.terminalOpen]);
+  }, [activeThread?.id, focusComposer, settings.vimModeEnabled, terminalUiState.terminalOpen]);
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -10408,6 +10410,7 @@ export default function ChatView(props: ChatViewProps) {
                 <TimelineVimMode
                   key={activeThreadKey ?? routeThreadKey}
                   routeKey={activeThreadKey ?? routeThreadKey}
+                  previewThreads={settings.vimThreadPreviewEnabled}
                   getScrollNode={getTimelineScrollableNode}
                   focusComposer={() => composerRef.current?.focusAtEnd()}
                   onUserNavigation={cancelTimelineLiveFollowForUserNavigation}

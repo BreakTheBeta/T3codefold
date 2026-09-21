@@ -28,6 +28,10 @@ class FocusTarget {
   focus() {
     setActiveElement(this);
   }
+  getClientRects() {
+    return [{}];
+  }
+  click = vi.fn();
 }
 
 let activeElement: FocusTarget | null;
@@ -65,6 +69,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => renderer.unmount());
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -149,4 +154,80 @@ it("lets an open dialog own Escape", () => {
   });
   expect(press("Escape").defaultPrevented).toBe(false);
   expect(activeElement).toBe(input);
+});
+
+function setupSidebar(previewThreads: boolean) {
+  vi.useFakeTimers();
+  const sidebar = new FocusTarget("[data-app-sidebar]");
+  const thread = new FocusTarget("[data-thread-item]", sidebar);
+  const rows = Array.from({ length: 3 }, () => {
+    const row = new FocusTarget("[role=button]", sidebar);
+    row.tagName = "DIV";
+    const closest = row.closest.bind(row);
+    vi.spyOn(row, "closest").mockImplementation((selector) =>
+      selector === "[data-thread-item]" ? thread : closest(selector),
+    );
+    return row;
+  });
+  vi.spyOn(document, "querySelectorAll").mockImplementation(
+    (selector) =>
+      (selector.includes("[data-app-sidebar]") ? rows : []) as unknown as NodeListOf<Element>,
+  );
+  act(() => renderer.unmount());
+  keyboard = new EventTarget();
+  vi.stubGlobal("window", keyboard);
+  act(
+    () =>
+      (renderer = create(
+        <TimelineVimMode
+          routeKey="test"
+          previewThreads={previewThreads}
+          getScrollNode={() => conversation as unknown as HTMLElement}
+          focusComposer={vi.fn()}
+          onUserNavigation={vi.fn()}
+          onScrollToEnd={vi.fn()}
+        />,
+      )),
+  );
+  rows[0]!.focus();
+  return rows;
+}
+
+it("keeps sidebar navigation focus-only when preview is disabled, and i opens the selection", () => {
+  const rows = setupSidebar(false);
+  press("j");
+  act(() => vi.runAllTimers());
+  expect(activeElement).toBe(rows[1]);
+  expect(rows[1]!.click).not.toHaveBeenCalled();
+  expect(press("i").defaultPrevented).toBe(true);
+  expect(rows[1]!.click).toHaveBeenCalledOnce();
+});
+
+it("previews only the final thread after rapid sidebar navigation, preserving focus", () => {
+  const rows = setupSidebar(true);
+  press("j");
+  expect(activeElement).toBe(rows[1]);
+  press("j");
+  expect(activeElement).toBe(rows[2]);
+  expect(rows[2]!.click).not.toHaveBeenCalled();
+  act(() => vi.runAllTimers());
+  expect(rows[1]!.click).not.toHaveBeenCalled();
+  expect(rows[2]!.click).toHaveBeenCalledOnce();
+  expect(activeElement).toBe(rows[2]);
+});
+
+it("cancels a preview when focus leaves the selected thread", () => {
+  const rows = setupSidebar(true);
+  press("j");
+  conversation.focus();
+  act(() => vi.runAllTimers());
+  expect(rows[1]!.click).not.toHaveBeenCalled();
+});
+
+it("does not preview project headers", () => {
+  const rows = setupSidebar(true);
+  vi.spyOn(rows[1]!, "closest").mockReturnValue(null);
+  press("j");
+  act(() => vi.runAllTimers());
+  expect(rows[1]!.click).not.toHaveBeenCalled();
 });
