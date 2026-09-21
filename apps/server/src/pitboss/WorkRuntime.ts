@@ -1,6 +1,9 @@
 import { actionableInboxFor, activeLeads, taskLead } from "./Leads.ts";
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
-import { ProjectionStoreThreadNotFoundError } from "../orchestration-v2/ProjectionStore.ts";
+import {
+  ProjectionStoreThreadNotFoundError,
+  type ProjectionCheckpointContext,
+} from "../orchestration-v2/ProjectionStore.ts";
 import { PeerService } from "./PeerService.ts";
 import {
   CommandId,
@@ -10,6 +13,7 @@ import {
   PitbossError,
   ProjectId,
   ThreadId,
+  isPendingApprovalRequest,
   pitbossTaskNextAction,
   verificationRecipeForTask,
   type PitbossSnapshot,
@@ -24,7 +28,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 import { WorkStore, type WorkEffect } from "./WorkStore.ts";
-import { readyTasks, workContext, type WorkActor } from "./Work.ts";
+import { attemptsExhausted, readyTasks, workContext, type WorkActor } from "./Work.ts";
 import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
 import {
   ThreadManagementProjectionLoadError,
@@ -77,6 +81,55 @@ function workerAttemptHandled(
     return false;
   return ["done", "cancelled"].includes(task.status) || attemptIndex < task.attempts.length - 1;
 }
+/**
+ * What the worker itself last said about an attempt. Worker reports and submissions are already
+ * durable pitboss messages on that worker's own thread, so an escalation can quote real
+ * information without loading any transcript history.
+ */
+function workerLastWords(
+  state: PitbossSnapshot,
+  task: PitbossSnapshot["tasks"][number],
+  attempt: PitbossSnapshot["tasks"][number]["attempts"][number] | undefined,
+) {
+  if (!attempt) return undefined;
+  const spoken = state.messages.findLast(
+    (message) =>
+      message.threadId === attempt.threadId &&
+      message.taskId === task.id &&
+      ["question", "progress", "result"].includes(message.kind),
+  );
+  return spoken?.text.replace(/\s+/g, " ").trim().slice(0, 600) || undefined;
+}
+/**
+ * What a worker left behind, read from its checkpoints. The runtime never loads transcript
+ * history, so the per-turn capture counts are the only cheap evidence that separates "did the work
+ * and forgot to submit" from "did nothing".
+ */
+function emptyResultDetail(context: ProjectionCheckpointContext | null) {
+  const base = "Worker finished without submitting evidence.";
+  const ready = (context?.checkpoints ?? []).filter(
+    (checkpoint) => checkpoint.status === "ready" && checkpoint.appRunOrdinal !== null,
+  );
+  const files = ready.reduce((total, checkpoint) => total + checkpoint.fileCount, 0);
+  const turns = ready.filter((checkpoint) => checkpoint.fileCount > 0).length;
+  if (files > 0)
+    return `${base} It left ${files} file change${files === 1 ? "" : "s"} across ${turns} turn${turns === 1 ? "" : "s"} in its retained workspace, so the work may already be done. Inspect that workspace before settling.`;
+  // Capture runs after a turn ends, so a turn without a ready checkpoint left changes no later
+  // diff can see: its successor's baseline ref is missing and that capture records no files. Only
+  // a thread whose every started run was captured can claim an empty workspace, and run status
+  // alone cannot say that — one stopped run earlier in the thread says nothing about the rest. An
+  // unreadable projection is just a thread with no captures we can see.
+  const captured = new Set(ready.map((checkpoint) => checkpoint.appRunOrdinal));
+  const complete =
+    ready.length > 0 &&
+    (context?.runs ?? []).every(
+      // A run that never started changed nothing, so it needs no checkpoint to be accounted for.
+      (run) => ["preparing", "queued"].includes(run.status) || captured.has(run.ordinal),
+    );
+  return complete
+    ? `${base} It left no file changes in its workspace.`
+    : `${base} No checkpoint recorded its workspace, so what it changed is unknown. Inspect its thread before settling.`;
+}
 function hasActiveShellRun(shell: OrchestrationV2ThreadShell): boolean {
   return shell.activeRunId !== null || shell.activityRunStatus != null;
 }
@@ -120,6 +173,13 @@ const OBLIGATIONS = {
     changed: "the worker stopped without submitting any evidence.",
     next: "settle this outcome yourself — close it with an honest reason if it is complete or superseded, or use revise-result with the information the worker was missing to continue it in the retained workspace.",
     headline: "Worker finished with nothing",
+  },
+  "recover-exhausted": {
+    label: "Recovery needed",
+    changed:
+      "this task used its whole saved attempt allowance, so no further attempt can be started.",
+    next: "close it with an honest reason, or cancel it as superseded. revise-result, rework and assign are refused until the user raises the saved attempt limit, so do not try them.",
+    headline: "Out of attempts — close it out",
   },
   assign: {
     label: "Ready to assign",
@@ -178,7 +238,7 @@ function obligationText(
   const { label, changed, next } = OBLIGATIONS[kind];
   const detail = options.detail ? `: ${options.detail}` : ".";
   const reminder = options.reminders
-    ? ` (delivery ${options.reminders + 1} of ${SETTLEMENT_REMINDERS}; the user is asked to settle this outcome after that)`
+    ? ` (delivery ${options.reminders + 1} of ${SETTLEMENT_REMINDERS} you have not answered; settle it, or record what you found about this task, or the user is asked to settle this outcome)`
     : "";
   return `${label} · ${subject}${detail} Changed: ${changed} Next: ${next.replace("{attemptId}", options.attemptId ?? "none")}${reminder}`;
 }
@@ -208,6 +268,12 @@ const SETTLEABLE = new Set(["verify", "review", "recover", "accept"]);
  * only a persistently unsettled outcome reaches the decision inbox.
  */
 const SETTLEMENT_REMINDERS = 3;
+/**
+ * Marks the delivery record that carries how many notes the owner had written about a task when an
+ * obligation was delivered. Persisted with the wake, so the credit cannot be recomputed from a
+ * clock or from history the runtime never loads.
+ */
+const NOTES_MARK = ":notes:";
 function wakeEvents(
   state: PitbossSnapshot,
   recipient: WakeRecipient,
@@ -238,13 +304,65 @@ function wakeEvents(
     readonly text: string;
     readonly headline: string;
     readonly deliverable: boolean;
+    readonly notesKey?: string | undefined;
     /** Set when the owner has ignored this obligation for its whole reminder budget. */
-    readonly unsettled?: { readonly taskId: string; readonly action: string };
+    readonly unsettled?: {
+      readonly taskId: string;
+      readonly action: string;
+      readonly deliveries: number;
+    };
   }> = [];
+  // The owner's own note about a task is its deliberation record: it engaged with the obligation
+  // and could not settle it yet, so that delivery does not spend the reminder budget. Decision
+  // gates are excluded — the server writes one from this thread when it escalates, and a parked
+  // task is not waiting on the owner.
+  const gates = new Set(
+    state.tasks.flatMap((task) => task.decisions?.map((decision) => decision.id) ?? []),
+  );
+  const deliberations = new Map<string, number>();
+  for (const message of state.messages) {
+    if (message.threadId !== recipient.threadId || !message.taskId || gates.has(message.id))
+      continue;
+    deliberations.set(message.taskId, (deliberations.get(message.taskId) ?? 0) + 1);
+  }
+  // Notes the owner had already recorded when an obligation was first delivered. They were written
+  // about something else, so they cannot pay for reminders about the obligation in front of it
+  // now. Each delivery records the count it saw, and the earliest one is this obligation's floor.
+  const baselines = new Map<string, number>();
+  for (const recorded of delivered.keys()) {
+    const at = recorded.lastIndexOf(NOTES_MARK);
+    if (at < 0) continue;
+    const noted = Number(recorded.slice(at + NOTES_MARK.length));
+    if (!Number.isFinite(noted)) continue;
+    const obligation = recorded.slice(0, at);
+    baselines.set(obligation, Math.min(baselines.get(obligation) ?? noted, noted));
+  }
   // An obligation the owner never settled is re-sent under a new key, once per owner turn, rather
-  // than being recorded as handled the first time it is delivered.
-  const reminder = (key: string, action: PitbossTaskNextAction | null) =>
-    action && SETTLEABLE.has(action) ? (delivered.get(key) ?? 0) : 0;
+  // than being recorded as handled the first time it is delivered. `deliveries` keeps every
+  // delivery key unique; `reminders` is the budget the owner left unanswered, and credit is capped
+  // so an owner that only ever writes notes still reaches the user.
+  const budget = (taskId: string, key: string, action: PitbossTaskNextAction | null) => {
+    if (!action || !SETTLEABLE.has(action))
+      return { deliveries: 0, reminders: 0, notesKey: undefined };
+    const deliveries = delivered.get(key) ?? 0;
+    const noted = deliberations.get(taskId) ?? 0;
+    const since = noted - (baselines.get(key) ?? noted);
+    const credit = Math.min(Math.max(0, since), SETTLEMENT_REMINDERS);
+    return {
+      deliveries,
+      reminders: Math.max(0, deliveries - credit),
+      notesKey: `${key}${NOTES_MARK}${noted}`,
+    };
+  };
+  // At the attempt cap a recovery reminder must name the settlement the decider still accepts, or
+  // the owner spends its whole budget on a refused action.
+  const settlementFor = (
+    task: (typeof state.tasks)[number] | undefined,
+    kind: ObligationKind,
+  ): ObligationKind =>
+    (kind === "recover" || kind === "recover-empty") && task && attemptsExhausted(state, task)
+      ? "recover-exhausted"
+      : kind;
   const obligationKey = (task: (typeof state.tasks)[number], action: string) => {
     const attempt = task.attempts.at(-1);
     const evidence = task.evidence.at(-1);
@@ -280,14 +398,16 @@ function wakeEvents(
     )
       ? "decision"
       : message.kind;
-    const obligationOf =
+    const obligationOf = settlementFor(
+      task,
       eventKind === "question" || eventKind === "decision"
         ? eventKind
         : message.kind === "result"
           ? resultObligation(action)
           : task && task.evidence.length > 0 && action === "review"
             ? "progress-retained"
-            : "progress";
+            : "progress",
+    );
     // Questions and decisions are independent obligations even when they concern the same task.
     // Results and progress still coalesce around the task's current next action, so repeated status
     // reports cannot keep waking a coordinator whose obligation did not change.
@@ -298,10 +418,13 @@ function wakeEvents(
           ? obligationKey(task, action ?? eventKind)
           : `message:${message.id}`;
     const settleable = !!task && eventKind !== "question" && eventKind !== "decision";
-    const reminders = settleable ? reminder(obligation, action) : 0;
+    const { deliveries, reminders, notesKey } =
+      settleable && task
+        ? budget(task.id, obligation, action)
+        : { deliveries: 0, reminders: 0, notesKey: undefined };
     events.push({
       key: task
-        ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}:action:${action ?? eventKind}:delivery:${reminders}`
+        ? `message:${message.id}:owner:${task.ownershipRevision ?? 0}:action:${action ?? eventKind}:delivery:${deliveries}`
         : `message:${message.id}`,
       obligationKey: obligation,
       text: obligationText(obligationOf, subjectOf(task, attempt?.id), {
@@ -311,8 +434,9 @@ function wakeEvents(
       }),
       headline: obligationHeadline(obligationOf, task?.title),
       deliverable: reminders < SETTLEMENT_REMINDERS,
+      ...(notesKey ? { notesKey } : {}),
       ...(reminders >= SETTLEMENT_REMINDERS && task
-        ? { unsettled: { taskId: task.id, action: action ?? eventKind } }
+        ? { unsettled: { taskId: task.id, action: action ?? eventKind, deliveries } }
         : {}),
     });
   }
@@ -322,25 +446,34 @@ function wakeEvents(
     if (!action || !["assign", "verify", "review", "recover", "accept"].includes(action)) continue;
     if (action === "assign" && !assignable.has(task.id)) continue;
     const key = obligationKey(task, action);
-    const obligationOf =
+    const obligationOf = settlementFor(
+      task,
       action === "assign" && task.reworkRequestedAt
         ? "rework"
         : action === "recover" && task.evidence.length === 0
           ? "recover-empty"
-          : (action as ObligationKind);
-    const reminders = reminder(key, action);
+          : (action as ObligationKind),
+    );
+    const { deliveries, reminders, notesKey } = budget(task.id, key, action);
+    // Only a recovery needs the worker's recorded workspace fact; every other obligation already
+    // names its own evidence.
+    const detail = obligationOf.startsWith("recover-") ? attempt?.detail.slice(0, 600) : undefined;
     events.push({
       // The delivery key always differs from the obligation key, so a wake that is queued but not
       // yet delivered cannot be counted as a delivery of its own obligation.
-      key: `${key}:delivery:${reminders}`,
+      key: `${key}:delivery:${deliveries}`,
       obligationKey: key,
       text: obligationText(obligationOf, subjectOf(task, attempt?.id), {
+        ...(detail ? { detail } : {}),
         attemptId: attempt?.id,
         reminders,
       }),
       headline: obligationHeadline(obligationOf, task.title),
       deliverable: (action !== "assign" || available) && reminders < SETTLEMENT_REMINDERS,
-      ...(reminders >= SETTLEMENT_REMINDERS ? { unsettled: { taskId: task.id, action } } : {}),
+      ...(notesKey ? { notesKey } : {}),
+      ...(reminders >= SETTLEMENT_REMINDERS
+        ? { unsettled: { taskId: task.id, action, deliveries } }
+        : {}),
     });
   }
   return events;
@@ -375,7 +508,11 @@ export const layer = Layer.effectDiscard(
     const escalate = Effect.fn("WorkRuntime.escalate")(function* (
       recipient: WakeRecipient,
       obligationKey: string,
-      unsettled: { readonly taskId: string; readonly action: string },
+      unsettled: {
+        readonly taskId: string;
+        readonly action: string;
+        readonly deliveries: number;
+      },
     ) {
       const state = yield* store.read();
       const task = state.tasks.find((entry) => entry.id === unsettled.taskId);
@@ -393,7 +530,21 @@ export const layer = Layer.effectDiscard(
         return false;
       const attempt = task.attempts.at(-1);
       const owner = lead ? `Project lead ${lead.id}` : "GLaDOS";
-      const detail = (attempt?.detail || task.note || "No detail was recorded.").slice(0, 600);
+      // The answer is handed back to this task's manager, so do not offer a continuation the
+      // decider will refuse; at the cap, continuing first requires the user to raise the limit.
+      const exhausted = attemptsExhausted(state, task);
+      // Quote the worker when it said anything; otherwise be explicit that the line below is the
+      // server's own observation of the retained workspace, not the worker's.
+      const quoted = workerLastWords(state, task, attempt);
+      const detail = quoted
+        ? `Its last words: "${quoted}"`
+        : `It reported nothing; the server recorded: ${(attempt?.detail || task.note || "No detail was recorded.").slice(0, 600)}`;
+      // Capped so a long title plus a long quote can never exceed the question's schema bound and
+      // silently abort the escalation.
+      const question =
+        `${task.title}: ${owner} was asked ${unsettled.deliveries} times to settle this outcome (${unsettled.action}) and did not. Its last worker, attempt ${attempt?.id ?? "none"}, left ${task.evidence.length ? "evidence that was never accepted" : "no submitted evidence"}. ${detail} How should this work be settled?`
+          .slice(0, 4000)
+          .trim();
       const raised = yield* Effect.result(
         store.command(
           {
@@ -407,14 +558,15 @@ export const layer = Layer.effectDiscard(
             action: {
               type: "request-decision",
               taskId: task.id,
-              question: `${task.title}: ${owner} was asked ${SETTLEMENT_REMINDERS} times to settle this outcome (${unsettled.action}) and did not. Its last worker, attempt ${attempt?.id ?? "none"}, left ${task.evidence.length ? "evidence that was never accepted" : "no evidence"}: ${detail} How should this work be settled?`,
+              question,
               options: [
-                "Keep going — give the worker what it was missing",
+                exhausted
+                  ? "Keep going — raise the saved attempt limit so another attempt can start"
+                  : "Keep going — give the worker what it was missing",
                 "It is already complete — settle it as delivered",
                 "Drop it — stop spending attempts on this task",
               ],
-              recommendation:
-                "Answer in your own words; the answer is handed to this task's manager. Keep going if the outcome still matters and the worker only lacked information. Settle or close it if the work landed elsewhere, is no longer worth an attempt, or the task was never well posed.",
+              recommendation: `Answer in your own words; the answer is handed to this task's manager. ${exhausted ? "It has used every attempt you allowed, so it cannot start another until you raise maxAttempts in the brief." : "Keep going if the outcome still matters and the worker only lacked information."} Settle or close it if the work landed elsewhere, is no longer worth an attempt, or the task was never well posed.`,
             },
           },
           { type: "agent", threadId: recipient.threadId },
@@ -509,9 +661,10 @@ export const layer = Layer.effectDiscard(
         return;
       }
       yield* finish(
-        deliverable.flatMap((event) =>
-          event.key === event.obligationKey ? [event.key] : [event.key, event.obligationKey],
-        ),
+        deliverable.flatMap((event) => [
+          ...(event.key === event.obligationKey ? [event.key] : [event.key, event.obligationKey]),
+          ...(event.notesKey ? [event.notesKey] : []),
+        ]),
       );
     });
     const drain = Effect.fn("WorkRuntime.drain")(function* () {
@@ -798,6 +951,10 @@ export const layer = Layer.effectDiscard(
         } else yield* store.finishEffect(effect.operation_id);
       }
       let state: PitbossSnapshot = yield* store.read();
+      // A worker awaiting a runtime permission answer is indistinguishable from a busy one by run
+      // state alone. Only the user can answer it, so it is surfaced to the user and never wakes the
+      // owner; it clears itself on the drain that follows the answer.
+      const awaitingApproval: string[] = [];
       for (const task of state.tasks) {
         const authority = state.sourceAuthorities?.find(
           (entry) => entry.scope === task.source?.scope,
@@ -829,21 +986,32 @@ export const layer = Layer.effectDiscard(
             observed.success.worktreePath,
           );
         }
-        if (
+        const stopping =
           observed._tag === "Success" &&
           observed.success.latestRunId !== null &&
-          !hasActiveShellRun(observed.success)
-        ) {
-          yield* store.updateAttempt(
-            task.id,
-            attempt.id,
-            "stopped",
+          !hasActiveShellRun(observed.success);
+        if (
+          !stopping &&
+          observed._tag === "Success" &&
+          isPendingApprovalRequest(observed.success.pendingRuntimeRequest)
+        )
+          awaitingApproval.push(attempt.id);
+        if (stopping) {
+          // The final checkpoint is already committed here: a finished run parks at "waiting",
+          // which still reads as an active shell run, until capture writes run.completed in the
+          // same commit. The evidence read is advisory and must never strand a live worker.
+          const detail =
             task.status === "active"
-              ? "Worker finished without submitting evidence. Inspect its thread and request rework."
-              : "Worker stopped; evidence and workspace retained",
-          );
+              ? emptyResultDetail(
+                  yield* threads
+                    .getCheckpointContext(attempt.threadId)
+                    .pipe(Effect.catchCause(() => Effect.succeed(null))),
+                )
+              : "Worker stopped; evidence and workspace retained";
+          yield* store.updateAttempt(task.id, attempt.id, "stopped", detail);
         }
       }
+      yield* store.observeAwaitingApproval(awaitingApproval);
       state = yield* store.read();
       // A single revise-result command owns the whole recovery transition. It first drains the
       // old writer above, then this durable request becomes an ordinary checked assignment. Using
@@ -1087,7 +1255,11 @@ export const layer = Layer.effectDiscard(
     const wakes = Stream.merge(
       store.changes,
       threads.streamDomainEvents.pipe(
-        Stream.filter((event) => event.type === "run.updated"),
+        // A pending permission prompt changes no run, so the request events are the only signal
+        // that a worker just became blocked, or just became unblocked.
+        Stream.filter(
+          (event) => event.type === "run.updated" || event.type === "runtime-request.updated",
+        ),
         Stream.map(() => undefined),
       ),
     );

@@ -1,4 +1,5 @@
 import { GladosBoard } from "./GladosBoard";
+import { managedWorkerStateLabel } from "@t3tools/client-runtime/glados-board";
 import { useAssetUrlState } from "../../state/assets";
 import { useProjects, useServerConfigs } from "../../state/entities";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -997,7 +998,7 @@ export function PitbossWork(props: {
                                           serverConfigs.has(
                                             task.homeEnvironmentId ?? props.environmentId,
                                           )
-                                            ? `Worker ${attempt.generation} · ${attempt.state}${attempt.workspacePath ? ` · ${attempt.workspacePath}` : ""}`
+                                            ? `Worker ${attempt.generation} · ${managedWorkerStateLabel(task, attempt, state.awaitingApproval)}${attempt.workspacePath ? ` · ${attempt.workspacePath}` : ""}`
                                             : "Connect task home first",
                                           () => {
                                             setVisible(false);

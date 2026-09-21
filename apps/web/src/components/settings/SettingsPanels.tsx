@@ -531,6 +531,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Contrast"]
         : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
+      ...(settings.themeBackdropEnabled !== DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled
+        ? ["Splatter backdrop"]
+        : []),
       ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
         ? ["Diff colors"]
         : []),
@@ -676,6 +679,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.fontSizePrompt,
       settings.fontSizeTerminal,
       settings.glassOpacity,
+      settings.themeBackdropEnabled,
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
       settings.persistComposerContextStrip,
@@ -782,6 +786,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      themeBackdropEnabled: DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
@@ -1303,6 +1308,32 @@ export function AppearanceSettingsPanel() {
                 value={settings.glassOpacity}
               />
             </div>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("theme-backdrop")}
+          description="Neon paint splatter and grain behind the conversation, on themes that have one (Cyberpunk and Codex)."
+          resetAction={
+            settings.themeBackdropEnabled !== DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled ? (
+              <SettingResetButton
+                label="splatter backdrop"
+                onClick={() =>
+                  updateSettings({
+                    themeBackdropEnabled: DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.themeBackdropEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ themeBackdropEnabled: Boolean(checked) })
+              }
+              aria-label="Show the splatter backdrop on themes that have one"
+            />
           }
         />
 

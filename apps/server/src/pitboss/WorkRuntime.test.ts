@@ -1,5 +1,8 @@
 import { expect, it } from "@effect/vitest";
 import {
+  CheckpointId,
+  CheckpointRef,
+  CheckpointScopeId,
   CommandId,
   PitbossAction,
   EventId,
@@ -8,8 +11,12 @@ import {
   NodeId,
   ProjectId,
   ProviderInstanceId,
+  ProviderSessionId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
+  type OrchestrationV2Checkpoint,
+  type OrchestrationV2RuntimeRequest,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2Run,
@@ -92,6 +99,48 @@ function running(threadId: ThreadId): OrchestrationV2Run {
     completedAt: null,
     checkpointId: null,
     contextHandoffId: null,
+  };
+}
+/** One captured turn, with the numstat file summaries a real capture records. */
+function captured(
+  threadId: ThreadId,
+  ordinal: number,
+  paths: ReadonlyArray<string>,
+): OrchestrationV2Checkpoint {
+  return {
+    id: CheckpointId.make(`checkpoint-${threadId}-${ordinal}`),
+    threadId,
+    scopeId: CheckpointScopeId.make(`scope-${threadId}`),
+    runId: RunId.make(`run-${threadId}`),
+    nodeId: NodeId.make(`node-${threadId}`),
+    parentCheckpointId: null,
+    ordinalWithinScope: ordinal,
+    appRunOrdinal: ordinal,
+    ref: CheckpointRef.make(`ref-${threadId}-${ordinal}`),
+    status: "ready",
+    files: paths.map((path) => ({ path, kind: "M", additions: 1, deletions: 0 })),
+    capturedAt: time,
+  };
+}
+/** A runtime request on an otherwise running worker; a permission prompt unless told otherwise. */
+function approvalRequest(
+  threadId: ThreadId,
+  status: OrchestrationV2RuntimeRequest["status"] = "pending",
+  kind: OrchestrationV2RuntimeRequest["kind"] = "command",
+): OrchestrationV2RuntimeRequest {
+  return {
+    id: RuntimeRequestId.make(`request-${threadId}`),
+    nodeId: NodeId.make(`node-${threadId}`),
+    providerTurnId: null,
+    nativeRequestRef: null,
+    kind,
+    status,
+    responseCapability: {
+      type: "live",
+      providerSessionId: ProviderSessionId.make(`session-${threadId}`),
+    },
+    createdAt: time,
+    resolvedAt: status === "pending" ? null : time,
   };
 }
 const harness = Effect.gen(function* () {
@@ -207,6 +256,22 @@ const harness = Effect.gen(function* () {
         forbidHistoryReads
           ? Effect.die("Runtime monitoring loaded full history")
           : Effect.succeed(projections.get(id)!),
+      getCheckpointContext: (id) => {
+        const p = projections.get(id);
+        // The real query returns per-turn counts, not the file summaries this fixture spreads in.
+        return p
+          ? Effect.succeed({
+              runs: p.runs,
+              checkpointScopes: p.checkpointScopes,
+              checkpoints: p.checkpoints.map((c) => ({ ...c, fileCount: c.files.length })),
+            })
+          : Effect.fail(
+              new OrchestratorProjectionError({
+                threadId: id,
+                cause: new ProjectionStoreThreadNotFoundError({ threadId: id }),
+              }),
+            );
+      },
       getThreadShell: (id) =>
         Effect.sync(() => {
           const p = projections.get(id);
@@ -513,9 +578,13 @@ it.effect("monitors workers and wakes the coordinator without loading transcript
     h.projections.set(attempt.threadId, {
       ...p,
       runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+      checkpoints: [captured(attempt.threadId, 1, ["src/one.ts"])],
     });
     yield* h.drain();
-    expect((yield* h.store.read()).tasks[0]!.attempts[0]!.state).toBe("stopped");
+    const stopped = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    expect(stopped.state).toBe("stopped");
+    // The evidence read is the bounded checkpoint context, never the transcript.
+    expect(stopped.detail).toContain("1 file change across 1 turn");
     expect(h.sent).toContain(boss);
   }).pipe(Effect.provide(services)),
 );
@@ -1371,7 +1440,8 @@ it.effect("reminds the owner about one unsettled outcome, then asks the user to 
     const decision = task.decisions?.at(-1);
     expect(decision?.answer).toBeUndefined();
     expect(decision?.question).toContain("was asked 3 times to settle this outcome");
-    expect(decision?.question).toContain("left no evidence");
+    expect(decision?.question).toContain("left no submitted evidence");
+    expect(decision?.question).toContain("It reported nothing; the server recorded");
     expect(decision?.options).toHaveLength(3);
     expect(task.status).toBe("blocked");
 
@@ -2209,4 +2279,413 @@ it.effect(
         state.messages.filter((message) => message.id.endsWith(":blocked-message")),
       ).toHaveLength(1);
     }).pipe(Effect.provide(services)),
+);
+
+it.effect("reports a worker parked on a permission prompt and clears it when it is answered", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "awaiting-approval",
+      projectId: a,
+      title: "Awaiting approval",
+      outcome: "Ask before touching the host",
+      criteria: "Only approved commands run",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "awaiting-approval" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    const worker = h.projections.get(attempt.threadId)!;
+    h.projections.set(attempt.threadId, {
+      ...worker,
+      runs: [running(attempt.threadId)],
+      runtimeRequests: [approvalRequest(attempt.threadId)],
+    });
+    const sent = h.sent.length;
+    const dispatched = h.dispatched.length;
+    yield* h.drain();
+
+    const parked = yield* h.store.read();
+    expect(parked.awaitingApproval).toEqual([attempt.id]);
+    // The worker is blocked on the user, not finished: nothing may fake a stop or wake the owner.
+    expect(parked.tasks[0]!.attempts[0]!.state).toBe("running");
+    expect(parked.tasks[0]!.status).toBe("active");
+    expect(h.sent).toHaveLength(sent);
+    expect(h.dispatched).toHaveLength(dispatched);
+
+    // An unchanged observation must neither bump the revision nor publish another change.
+    yield* h.drain();
+    yield* h.drain();
+    const repeated = yield* h.store.read();
+    expect(repeated.revision).toBe(parked.revision);
+    expect(repeated.awaitingApproval).toEqual([attempt.id]);
+
+    // Answering the prompt in the worker thread is the whole reverse state.
+    h.projections.set(attempt.threadId, {
+      ...worker,
+      runs: [running(attempt.threadId)],
+      runtimeRequests: [approvalRequest(attempt.threadId, "resolved")],
+    });
+    yield* h.drain();
+    expect((yield* h.store.read()).awaitingApproval).toEqual([]);
+
+    // A worker asking its own question, or one whose credential expired, is blocked the same way
+    // but owes the user no approval; advertising it as one would be a third wrong signal.
+    for (const kind of ["user_input", "auth_refresh"] as const) {
+      h.projections.set(attempt.threadId, {
+        ...worker,
+        runs: [running(attempt.threadId)],
+        runtimeRequests: [approvalRequest(attempt.threadId, "pending", kind)],
+      });
+      yield* h.drain();
+      expect((yield* h.store.read()).awaitingApproval).toEqual([]);
+    }
+  }).pipe(Effect.provide(services)),
+);
+it.effect("tells the owner and the user what an unsubmitted worker left in its workspace", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "retained-workspace",
+      projectId: a,
+      title: "Retained workspace",
+      outcome: "Land the change",
+      criteria: "Evidence is submitted",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    yield* h.command({ type: "assign", taskId: "retained-workspace" });
+    yield* h.drain();
+    const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+    const worker = h.projections.get(attempt.threadId)!;
+    h.projections.set(attempt.threadId, {
+      ...worker,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+      checkpoints: [
+        captured(attempt.threadId, 1, ["src/one.ts", "src/two.ts", "src/three.ts"]),
+        captured(attempt.threadId, 2, ["src/four.ts"]),
+      ],
+    });
+    yield* h.drain();
+
+    const observed = yield* h.store.read();
+    expect(observed.tasks[0]!.attempts[0]!.detail).toContain("4 file changes across 2 turns");
+    expect(observed.tasks[0]!.note).toContain("4 file changes across 2 turns");
+    expect(h.sentMessages.at(-1)?.text).toContain("4 file changes across 2 turns");
+
+    // The user's question must not claim the worker left nothing when its workspace says otherwise.
+    for (let turn = 0; turn < 3; turn++) {
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+    const decision = (yield* h.store.read()).tasks[0]!.decisions?.at(-1);
+    expect(decision?.question).toContain("left no submitted evidence");
+    expect(decision?.question).toContain("4 file changes across 2 turns");
+    expect(decision?.question).not.toContain("left no evidence.");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("reports an empty workspace only when every started turn was captured", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    for (const taskId of ["stopped-captured", "uncaptured-turn"]) {
+      yield* h.command({
+        type: "create",
+        taskId,
+        projectId: a,
+        title: taskId,
+        outcome: "Land the change",
+        criteria: "Evidence is submitted",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      });
+      yield* h.command({ type: "assign", taskId });
+    }
+    yield* h.drain();
+    const tasks = (yield* h.store.read()).tasks;
+    const captured1 = tasks.find((task) => task.id === "stopped-captured")!.attempts[0]!;
+    const gap = tasks.find((task) => task.id === "uncaptured-turn")!.attempts[0]!;
+    // A turn the user stopped still captured its workspace, so its emptiness is real evidence.
+    h.projections.set(captured1.threadId, {
+      ...h.projections.get(captured1.threadId)!,
+      runs: [{ ...running(captured1.threadId), status: "interrupted", completedAt: time }],
+      checkpoints: [captured(captured1.threadId, 1, [])],
+    });
+    // The first turn never captured, so the second turn's empty diff proves nothing about it.
+    h.projections.set(gap.threadId, {
+      ...h.projections.get(gap.threadId)!,
+      runs: [
+        { ...running(gap.threadId), status: "interrupted", completedAt: time },
+        {
+          ...running(gap.threadId),
+          id: RunId.make(`run-${gap.threadId}-2`),
+          ordinal: 2,
+          status: "completed",
+          completedAt: time,
+        },
+      ],
+      checkpoints: [captured(gap.threadId, 2, [])],
+    });
+    yield* h.drain();
+
+    const observed = yield* h.store.read();
+    const detailOf = (taskId: string) =>
+      observed.tasks.find((task) => task.id === taskId)!.attempts[0]!.detail;
+    expect(detailOf("stopped-captured")).toContain("left no file changes");
+    expect(detailOf("uncaptured-turn")).toContain("No checkpoint recorded its workspace");
+    expect(detailOf("uncaptured-turn")).not.toContain("left no file changes");
+  }).pipe(Effect.provide(services)),
+);
+/** A fixture whose task has spent its whole saved attempt allowance of two. */
+const cappedHarness = Effect.gen(function* () {
+  const h = yield* harness;
+  yield* h.command({
+    type: "create",
+    taskId: "out-of-attempts",
+    projectId: a,
+    title: "Capped outcome",
+    outcome: "Land the change",
+    criteria: "Evidence is submitted",
+    verifyCommand: "",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  yield* h.command({ type: "assign", taskId: "out-of-attempts" });
+  yield* h.drain();
+  const stop = (attemptIndex: number) =>
+    Effect.gen(function* () {
+      const attempt = (yield* h.store.read()).tasks[0]!.attempts[attemptIndex]!;
+      h.projections.set(attempt.threadId, {
+        ...h.projections.get(attempt.threadId)!,
+        runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+      });
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    });
+  yield* stop(0);
+  yield* h.command({
+    type: "revise-result",
+    taskId: "out-of-attempts",
+    note: "Continue in the retained workspace",
+  });
+  h.projections.set(boss, projection(boss, a));
+  yield* h.drain();
+  yield* h.drain();
+  yield* stop(1);
+  return h;
+});
+it.effect(
+  "tells an out-of-attempts owner to close the outcome instead of offering a revision",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* cappedHarness;
+      const state = yield* h.store.read();
+      expect(state.tasks[0]!.attempts).toHaveLength(2);
+      const text = h.sentMessages.at(-1)!.text;
+      expect(text).toContain("Out of attempts — close it out");
+      expect(text).toContain("close it with an honest reason, or cancel it as superseded");
+      expect(text).not.toContain("revise-result with the information the worker was missing");
+      expect(text).toContain("Recovery needed · task out-of-attempts");
+
+      // The wake and the decider must agree about what is still legal.
+      const refused = yield* Effect.result(
+        h.command({ type: "revise-result", taskId: "out-of-attempts", note: "try again" }),
+      );
+      expect(refused._tag).toBe("Failure");
+      if (refused._tag === "Failure")
+        expect(refused.failure.message).toContain("Attempt allowance exhausted");
+    }).pipe(Effect.provide(services)),
+);
+it.effect("offers the revision again once the user raises the saved attempt limit", () =>
+  Effect.gen(function* () {
+    const h = yield* cappedHarness;
+    expect(h.sentMessages.at(-1)?.text).toContain("Out of attempts — close it out");
+    yield* h.command({
+      type: "brief",
+      brief: {
+        priorities: "Fixture",
+        quality: "Run checks",
+        projectIds: [a, b],
+        maxWorkers: 2,
+        maxAttempts: 3,
+        workerModel: model,
+      },
+    });
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    const text = h.sentMessages.at(-1)!.text;
+    expect(text).not.toContain("Out of attempts — close it out");
+    expect(text).toContain("revise-result with the information the worker was missing");
+    const revised = yield* Effect.result(
+      h.command({ type: "revise-result", taskId: "out-of-attempts", note: "Continue" }),
+    );
+    expect(revised._tag).toBe("Success");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("escalates an out-of-attempts stall without offering an impossible continuation", () =>
+  Effect.gen(function* () {
+    const h = yield* cappedHarness;
+    for (let turn = 0; turn < 3; turn++) {
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+    const decision = (yield* h.store.read()).tasks[0]!.decisions?.at(-1);
+    expect(decision?.options).toContain(
+      "Keep going — raise the saved attempt limit so another attempt can start",
+    );
+    expect(decision?.options).not.toContain("Keep going — give the worker what it was missing");
+    expect(decision?.recommendation).toContain("maxAttempts");
+  }).pipe(Effect.provide(services)),
+);
+/** The unsettled-recovery fixture every deliberation-budget test drives owner turns against. */
+const unsettledHarness = Effect.gen(function* () {
+  const h = yield* harness;
+  yield* h.command({
+    type: "create",
+    taskId: "deliberated-outcome",
+    projectId: a,
+    title: "Deliberated outcome",
+    outcome: "Return verified evidence",
+    criteria: "Evidence is reviewed",
+    verifyCommand: "",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+  });
+  yield* h.command({ type: "assign", taskId: "deliberated-outcome" });
+  yield* h.drain();
+  const attempt = (yield* h.store.read()).tasks[0]!.attempts[0]!;
+  return { h, attempt };
+});
+const ownerNote = (h: { readonly store: typeof WorkStore.Service }, text: string) =>
+  Effect.gen(function* () {
+    const state = yield* h.store.read();
+    yield* h.store.command(
+      {
+        commandId: CommandId.make(`owner-note-${state.revision}`),
+        expectedRevision: state.revision,
+        authorityGeneration: state.role!.generation,
+        action: { type: "report", taskId: "deliberated-outcome", kind: "progress", text },
+      },
+      { type: "agent", threadId: boss },
+    );
+  });
+it.effect("a note the owner records about the task buys back its reminder budget", () =>
+  Effect.gen(function* () {
+    const { h, attempt } = yield* unsettledHarness;
+    h.projections.set(attempt.threadId, {
+      ...h.projections.get(attempt.threadId)!,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    for (let turn = 0; turn < 3; turn++) {
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+    expect(h.sent).toHaveLength(3);
+    yield* ownerNote(h, "Read the retained workspace; deciding between close and revise-result.");
+
+    // Without the note this turn would have escalated instead of delivering.
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toHaveLength(4);
+    expect(h.sentMessages.at(-1)?.text).toContain("delivery 3 of 3");
+    expect((yield* h.store.read()).tasks[0]!.decisions ?? []).toHaveLength(0);
+
+    // The credit buys one turn, not immunity.
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    expect(h.sent).toHaveLength(4);
+    expect((yield* h.store.read()).tasks[0]!.decisions).toHaveLength(1);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("does not let notes written before an obligation pay for its reminders", () =>
+  Effect.gen(function* () {
+    const { h, attempt } = yield* unsettledHarness;
+    // Three notes while the worker is still running. They are about the work in flight, not about
+    // the recovery obligation its stop is about to create.
+    for (let note = 0; note < 3; note++) {
+      yield* ownerNote(h, `Watching the worker, pass ${note}.`);
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+    const before = h.sent.length;
+    h.projections.set(attempt.threadId, {
+      ...h.projections.get(attempt.threadId)!,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    for (let turn = 0; turn < 4; turn++) {
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+
+    const task = (yield* h.store.read()).tasks[0]!;
+    expect(h.sent).toHaveLength(before + 3);
+    expect(task.decisions).toHaveLength(1);
+    // The question must state the deliveries that happened, not the constant.
+    expect(task.decisions?.at(-1)?.question).toContain("was asked 3 times to settle this outcome");
+  }).pipe(Effect.provide(services)),
+);
+it.effect("an owner that only records notes still reaches the user", () =>
+  Effect.gen(function* () {
+    const { h, attempt } = yield* unsettledHarness;
+    h.projections.set(attempt.threadId, {
+      ...h.projections.get(attempt.threadId)!,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    for (let turn = 0; turn < 8; turn++) {
+      yield* ownerNote(h, `Still weighing this one, pass ${turn}.`);
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+    const task = (yield* h.store.read()).tasks[0]!;
+    expect(task.decisions).toHaveLength(1);
+    expect(task.decisions?.at(-1)?.question).toContain("settle this outcome");
+    expect(task.status).toBe("blocked");
+    // Twice the reminder budget is the hard ceiling, so escalation always terminates.
+    expect(h.sent).toHaveLength(2 * 3);
+  }).pipe(Effect.provide(services)),
+);
+it.effect("quotes a worker's report to the user without crediting the owner for it", () =>
+  Effect.gen(function* () {
+    const { h, attempt } = yield* unsettledHarness;
+    const state = yield* h.store.read();
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("worker-words"),
+        expectedRevision: state.revision,
+        action: {
+          type: "report",
+          taskId: "deliberated-outcome",
+          kind: "progress",
+          text: "I could not reach staging; the deploy token is missing.",
+        },
+      },
+      { type: "agent", threadId: attempt.threadId },
+    );
+    h.projections.set(attempt.threadId, {
+      ...h.projections.get(attempt.threadId)!,
+      runs: [{ ...running(attempt.threadId), status: "completed", completedAt: time }],
+    });
+    // A worker's words are not the owner's deliberation, so the ladder is unchanged.
+    for (let turn = 0; turn < 3; turn++) {
+      h.projections.set(boss, projection(boss, a));
+      yield* h.drain();
+    }
+    expect(h.sent).toHaveLength(3);
+    expect((yield* h.store.read()).tasks[0]!.decisions ?? []).toHaveLength(0);
+    h.projections.set(boss, projection(boss, a));
+    yield* h.drain();
+    const decision = (yield* h.store.read()).tasks[0]!.decisions?.at(-1);
+    expect(decision?.question).toContain("deploy token is missing");
+    expect(decision?.question).not.toContain("It reported nothing");
+  }).pipe(Effect.provide(services)),
 );

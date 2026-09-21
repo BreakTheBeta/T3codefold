@@ -17,6 +17,7 @@ import {
 } from "../../../../lib/mobileTheme";
 import { getMobileUniwindThemeName } from "../../../../lib/mobileThemeRuntime";
 import { cn } from "../../../../lib/cn";
+import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
 import { useAppearancePreferences } from "../AppearancePreferencesProvider";
 
 const APPEARANCE_MODES: ReadonlyArray<{
@@ -293,6 +294,8 @@ export function ThemeAppearanceSection() {
     themeIds,
     themeMode,
     systemColorsAvailable,
+    themeBackdropEnabled,
+    setThemeBackdropEnabled,
   } = useAppearancePreferences();
 
   return (
@@ -333,6 +336,15 @@ export function ThemeAppearanceSection() {
           ))}
         </View>
       </View>
+
+      {/* Only Cyberpunk and Codex ship a backdrop; the switch is a no-op elsewhere. */}
+      <SettingsSwitchRow
+        disabled={!isReady}
+        icon="paintbrush"
+        label="Splatter backdrop"
+        onValueChange={setThemeBackdropEnabled}
+        value={themeBackdropEnabled}
+      />
     </View>
   );
 }

@@ -130,6 +130,38 @@ export check's workspace selectors as more workspaces become clean. Review calle
 deleting code; production mode can also report development scripts and test fixtures.
 Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](../../knip.jsonc).
 
+## Shared Android build caches
+
+A cold Android build takes about an hour, almost all of it compiling NDK C++. Maintainers run many
+worktrees at once, and pnpm gives each one its own `node_modules`, so without shared caches every
+worktree pays that hour again. Two host-level caches avoid it, and they solve different halves of
+the problem:
+
+- **Gradle's local build cache** reuses JVM, resource, and dex task outputs. It lives in the Gradle
+  user home, not the project, so it is shared across worktrees as soon as it is enabled.
+  `withAndroidBuildCache.cjs` sets `org.gradle.caching` in the generated `gradle.properties`.
+- **ccache** reuses the compiled NDK objects, which Gradle cannot: `externalNativeBuild` tasks are
+  not cacheable. Install it once per machine (`sudo apt install ccache`, or Homebrew on macOS).
+  `mobile-native-client.ts` detects it and warns when it is absent.
+
+ccache only shares across worktrees because the build sets `CCACHE_BASEDIR` to the checkout root,
+which rewrites checkout-absolute paths to be relative before hashing, and relaxes the timestamp
+comparisons that differ between two pnpm copies of the same dependency. The Android NDK lives
+outside any checkout, so a toolchain change stays a miss, which is what you want. Precompiled
+headers are the exception to that path rewriting: they live under AGP's `.cxx/<variant>/<hash>`
+directory, whose hash derives from the absolute project path, so the same plugin turns PCH off for
+ccache builds. Leaving it on drops cross-worktree hits to about half. Those settings are only read
+when CMake configures, so a worktree that already configured `.cxx` before ccache was installed
+keeps missing until the next prebuild regenerates its native project.
+
+Do not try to share anything else. The generated `apps/mobile/android/` tree and its `.gradle`,
+`build`, and `.cxx` directories record absolute paths; symlinking or copying them between worktrees
+produces builds that fail in confusing ways. Keep them per-worktree and let the content-addressed
+caches carry the work across.
+
+Inspect effectiveness with `ccache -s`. Cleaning is a last resort, not routine hygiene: see the
+incremental-build rule in [AGENTS.md](../../AGENTS.md).
+
 ## Desktop artifacts
 
 Local artifact builds are unsigned by default and write to `release/`:

@@ -143,7 +143,7 @@ export function GladosBoard(props: {
                         </span>
                       </span>
                     </button>
-                    {managedWorkerRows(item.task)
+                    {managedWorkerRows(item.task, props.state.awaitingApproval)
                       .slice(0, 1)
                       .map((worker) => (
                         <Button

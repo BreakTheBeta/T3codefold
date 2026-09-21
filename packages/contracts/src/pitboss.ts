@@ -295,6 +295,12 @@ export const PitbossMessage = Schema.Struct({
 });
 export type PitbossMessage = typeof PitbossMessage.Type;
 export const PitbossSnapshot = Schema.Struct({
+  /**
+   * Live worker attempts whose thread is parked on a runtime permission prompt only the user can
+   * answer. Observed from thread shells on every drain and never journaled: it appears and clears
+   * with the prompt itself, so it carries no revision and no settlement obligation.
+   */
+  awaitingApproval: Schema.optional(Schema.Array(Id)),
   verificationRecipes: Schema.optional(Schema.Array(PitbossVerificationRecipe)),
   leads: Schema.optional(Schema.Array(PitbossLead)),
   sourceAuthorities: Schema.optional(Schema.Array(PitbossSourceAuthority)),
@@ -679,6 +685,18 @@ export function pitbossMessageHeadline(
     .replace(/[.,;:]$/, "")}…`;
 }
 
+/**
+ * True while the task's current attempt is parked on a runtime permission prompt. Only the user can
+ * answer it, so route it as user attention, never as a manager obligation.
+ */
+export function taskAwaitingApproval(
+  task: Pick<PitbossTask, "attempts">,
+  awaitingApproval: PitbossSnapshot["awaitingApproval"],
+) {
+  const attempt = task.attempts.at(-1);
+  return !!attempt && !!awaitingApproval?.includes(attempt.id);
+}
+
 /** User attention is a concrete decision or setup review, not every operational blocker. */
 export function workNeedsUserInput(
   task: Pick<PitbossTask, "status" | "decisions" | "proposedVerificationRecipe">,
@@ -688,6 +706,18 @@ export function workNeedsUserInput(
     (!!task.proposedVerificationRecipe ||
       !!task.decisions?.some((decision) => decision.answer === undefined))
   );
+}
+
+/**
+ * Everything the user is asked to answer: a recorded decision or setup review, plus a live worker
+ * parked on a runtime permission prompt. Badges, filters and both boards read this, so the control
+ * that opens "Needs you" can never hide a row that list would show.
+ */
+export function workNeedsYou(
+  task: Pick<PitbossTask, "status" | "decisions" | "proposedVerificationRecipe" | "attempts">,
+  awaitingApproval?: PitbossSnapshot["awaitingApproval"],
+) {
+  return workNeedsUserInput(task) || taskAwaitingApproval(task, awaitingApproval);
 }
 
 /** Worker/peer reports and submitted results belong to the coordinator's inbox. */
