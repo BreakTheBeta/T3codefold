@@ -10,7 +10,12 @@ import {
   type SplatterRenderOptions,
 } from "./splatterBackdrop.ts";
 
-const channels = (hex: string) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+const channels = (hex: string) =>
+  [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+  ] as const;
 
 const options: SplatterRenderOptions = {
   colors: ["#39ff88", "#29d9ff", "#ff3dcb"],
@@ -66,7 +71,7 @@ describe("deriveSplatterColors", () => {
   it("gives a monochrome theme monochrome paint", () => {
     for (const color of deriveSplatterColors({ l: 0.5, c: 0.01, h: 90 }, null, "dark")) {
       const [r, g, b] = channels(color);
-      expect(Math.max(r!, g!, b!) - Math.min(r!, g!, b!)).toBeLessThanOrEqual(1);
+      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThanOrEqual(1);
     }
   });
 
