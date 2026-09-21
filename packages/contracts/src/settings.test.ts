@@ -615,6 +615,7 @@ describe("ClientSettings browser recording frame rate", () => {
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);
+    expect(decodeClientSettings({}).themeBackdropEnabled).toBe(true);
   });
 
   it.each([39, 101, 72.5])("rejects an invalid glass opacity: %s", (value) => {

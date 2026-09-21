@@ -1760,8 +1760,8 @@ body {
   --surface-grain-size: 256px 256px;
 }
 
-/* Backdrop artwork for the chat canvas, currently only Cyberpunk's neon
-   splatter. Geometry lives here for every theme; the theme rules below supply
+/* Backdrop artwork for the chat canvas: neon splatter on Cyberpunk and
+   Codex. Geometry lives here for every theme; the theme rules below supply
    nothing but the two images.
 
    Two corner clusters rather than one viewport-sized image: a single SVG
@@ -1806,21 +1806,45 @@ body {
   }
 }
 
-html[data-theme-id="cyberpunk"] [data-chat-canvas] {
-  /* Desaturated, so the grain thickens the surface instead of tinting it the
-     way the app-wide tile's raw RGBA turbulence would once it got this strong.
-     The light half takes less: the same noise over a near-white canvas reads
-     as dirt long before it reads as texture. */
+/* Settings -> Appearance -> Splatter backdrop sets data-theme-backdrop="off"
+   to drop the artwork and grain. The theme rules test for "off" rather than
+   for "on" so the default paints on first frame instead of popping in once
+   settings hydrate. */
+
+/* Desaturated, so the grain thickens the surface instead of tinting it the way
+   the app-wide tile's raw RGBA turbulence would once it got this strong. The
+   light half takes less: the same noise over a near-white canvas reads as dirt
+   long before it reads as texture. Defined for every canvas, but only painted
+   by the themes below that name it in their background-image. */
+[data-chat-canvas] {
   --canvas-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.07'/%3E%3C/svg%3E");
+}
+
+html.dark [data-chat-canvas] {
+  --canvas-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.12'/%3E%3C/svg%3E");
+}
+
+html[data-theme-id="cyberpunk"]:not([data-theme-backdrop="off"]) [data-chat-canvas] {
   background-image:
     url("./assets/cyberpunk-splatter-light-a.svg"), url("./assets/cyberpunk-splatter-light-b.svg"),
     var(--canvas-grain);
 }
 
-html[data-theme-id="cyberpunk"].dark [data-chat-canvas] {
-  --canvas-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.12'/%3E%3C/svg%3E");
+html[data-theme-id="cyberpunk"].dark:not([data-theme-backdrop="off"]) [data-chat-canvas] {
   background-image:
     url("./assets/cyberpunk-splatter-dark-a.svg"), url("./assets/cyberpunk-splatter-dark-b.svg"),
+    var(--canvas-grain);
+}
+
+html[data-theme-id="codex"]:not([data-theme-backdrop="off"]) [data-chat-canvas] {
+  background-image:
+    url("./assets/codex-splatter-light-a.svg"), url("./assets/codex-splatter-light-b.svg"),
+    var(--canvas-grain);
+}
+
+html[data-theme-id="codex"].dark:not([data-theme-backdrop="off"]) [data-chat-canvas] {
+  background-image:
+    url("./assets/codex-splatter-dark-a.svg"), url("./assets/codex-splatter-dark-b.svg"),
     var(--canvas-grain);
 }
 

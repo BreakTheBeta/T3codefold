@@ -174,6 +174,7 @@ function RootRouteView() {
           <ContrastAppearanceSync />
           <EnvironmentThemeSync />
           <GlassAppearanceSync />
+          <ThemeBackdropSync />
           <FontAppearanceSync />
           <CustomSnoozeDialogHost />
           <CommandPalette>
@@ -216,6 +217,7 @@ function RootRouteView() {
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
+        <ThemeBackdropSync />
         <FontAppearanceSync />
         <FirstRunGate
           enabled={primaryEnvironmentAuthenticated}
@@ -285,6 +287,18 @@ function GlassAppearanceSync() {
       style.removeProperty("--glass-blur");
     }
   }, [glassOpacity]);
+
+  return null;
+}
+
+function ThemeBackdropSync() {
+  const enabled = useClientSettings((settings) => settings.themeBackdropEnabled);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (enabled) delete root.dataset.themeBackdrop;
+    else root.dataset.themeBackdrop = "off";
+  }, [enabled]);
 
   return null;
 }

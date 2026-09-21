@@ -206,6 +206,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["transparent transparency solid menus dialogs composer"],
   },
   {
+    id: "theme-backdrop",
+    title: "Splatter backdrop",
+    to: "/settings/appearance",
+    searchTerms: ["splat paint neon background texture grain cyberpunk codex theme artwork"],
+  },
+  {
     id: "diff-color-scheme",
     title: "Diff colors",
     to: "/settings/appearance",
