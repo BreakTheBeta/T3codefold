@@ -5,7 +5,11 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import type { ProviderInstanceId, SidebarProjectGroupingMode } from "@t3tools/contracts";
+import type {
+  ProviderInstanceId,
+  SidebarProjectGroupingMode,
+  ThemeBackdropStyle,
+} from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
@@ -30,6 +34,8 @@ export interface Preferences {
   readonly codeWordBreak?: boolean;
   /** Device-local mirror of the web `themeBackdropEnabled` client setting. */
   readonly themeBackdropEnabled?: boolean;
+  /** Device-local mirror of the web `themeBackdropStyle` client setting. */
+  readonly themeBackdropStyle?: ThemeBackdropStyle;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
   readonly collapsedProjectGroups?: readonly string[];
   /** What the Return key does in the composer on a hardware keyboard. iOS only. */
@@ -113,6 +119,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     codeFontSize?: number | null;
     codeWordBreak?: boolean;
     themeBackdropEnabled?: boolean;
+    themeBackdropStyle?: ThemeBackdropStyle;
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
     collapsedProjectGroups?: readonly string[];
     composerEnterBehavior?: ComposerEnterBehavior;
@@ -171,6 +178,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (typeof parsed.codeWordBreak === "boolean") preferences.codeWordBreak = parsed.codeWordBreak;
   if (typeof parsed.themeBackdropEnabled === "boolean")
     preferences.themeBackdropEnabled = parsed.themeBackdropEnabled;
+  if (
+    parsed.themeBackdropStyle === "theme" ||
+    parsed.themeBackdropStyle === "cyberpunk" ||
+    parsed.themeBackdropStyle === "codex"
+  )
+    preferences.themeBackdropStyle = parsed.themeBackdropStyle;
   if (Array.isArray(parsed.connectOnboardingOptOutAccounts)) {
     preferences.connectOnboardingOptOutAccounts = parsed.connectOnboardingOptOutAccounts.filter(
       (account): account is string => typeof account === "string",

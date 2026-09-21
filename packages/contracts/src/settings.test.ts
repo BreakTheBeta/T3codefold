@@ -616,6 +616,9 @@ describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);
     expect(decodeClientSettings({}).themeBackdropEnabled).toBe(true);
+    expect(decodeClientSettings({}).themeBackdropStyle).toBe("theme");
+    expect(decodeClientSettings({ themeBackdropStyle: "codex" }).themeBackdropStyle).toBe("codex");
+    expect(() => decodeClientSettings({ themeBackdropStyle: "sparkles" })).toThrow();
   });
 
   it.each([39, 101, 72.5])("rejects an invalid glass opacity: %s", (value) => {

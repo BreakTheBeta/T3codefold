@@ -1,3 +1,4 @@
+import type { ThemeBackdropStyle } from "@t3tools/contracts";
 import {
   createContext,
   startTransition,
@@ -74,6 +75,8 @@ interface AppearancePreferencesContextValue {
   /** Splatter backdrop on themes that ship one; on unless turned off. */
   readonly themeBackdropEnabled: boolean;
   readonly setThemeBackdropEnabled: (value: boolean) => void;
+  readonly themeBackdropStyle: ThemeBackdropStyle;
+  readonly setThemeBackdropStyle: (value: ThemeBackdropStyle) => void;
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
@@ -282,6 +285,13 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     },
     [updatePreferences],
   );
+  const themeBackdropStyle = storedPreferences?.themeBackdropStyle ?? "theme";
+  const setThemeBackdropStyle = useCallback(
+    (value: ThemeBackdropStyle) => {
+      updatePreferences({ themeBackdropStyle: value });
+    },
+    [updatePreferences],
+  );
 
   const value = useMemo(
     (): AppearancePreferencesContextValue => ({
@@ -305,6 +315,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setCodeWordBreak,
       themeBackdropEnabled,
       setThemeBackdropEnabled,
+      themeBackdropStyle,
+      setThemeBackdropStyle,
     }),
     [
       appearance,
@@ -326,6 +338,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setCodeWordBreak,
       themeBackdropEnabled,
       setThemeBackdropEnabled,
+      themeBackdropStyle,
+      setThemeBackdropStyle,
     ],
   );
 

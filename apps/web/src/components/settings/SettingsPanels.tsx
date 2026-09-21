@@ -13,6 +13,7 @@ import {
   type ProviderInstanceId,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
+  type ThemeBackdropStyle,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -173,6 +174,12 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
+
+const THEME_BACKDROP_STYLE_LABELS: Record<ThemeBackdropStyle, string> = {
+  theme: "Match theme",
+  cyberpunk: "Cyberpunk neon",
+  codex: "Codex teal",
+};
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -531,7 +538,8 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Contrast"]
         : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
-      ...(settings.themeBackdropEnabled !== DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled
+      ...(settings.themeBackdropEnabled !== DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled ||
+      settings.themeBackdropStyle !== DEFAULT_UNIFIED_SETTINGS.themeBackdropStyle
         ? ["Splatter backdrop"]
         : []),
       ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
@@ -678,6 +686,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.fontSizeTerminal,
       settings.glassOpacity,
       settings.themeBackdropEnabled,
+      settings.themeBackdropStyle,
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
       settings.persistComposerContextStrip,
@@ -785,6 +794,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       themeBackdropEnabled: DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled,
+      themeBackdropStyle: DEFAULT_UNIFIED_SETTINGS.themeBackdropStyle,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
@@ -1309,27 +1319,56 @@ export function AppearanceSettingsPanel() {
 
         <SettingsRow
           {...searchableSetting("theme-backdrop")}
-          description="Neon paint splatter and grain behind the conversation, on themes that have one (Cyberpunk and Codex)."
+          description="Neon paint splatter and grain behind the conversation. Match theme uses the theme's own (Cyberpunk and Codex); pick one to use it with any theme."
           resetAction={
-            settings.themeBackdropEnabled !== DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled ? (
+            settings.themeBackdropEnabled !== DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled ||
+            settings.themeBackdropStyle !== DEFAULT_UNIFIED_SETTINGS.themeBackdropStyle ? (
               <SettingResetButton
                 label="splatter backdrop"
                 onClick={() =>
                   updateSettings({
                     themeBackdropEnabled: DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled,
+                    themeBackdropStyle: DEFAULT_UNIFIED_SETTINGS.themeBackdropStyle,
                   })
                 }
               />
             ) : null
           }
           control={
-            <Switch
-              checked={settings.themeBackdropEnabled}
-              onCheckedChange={(checked) =>
-                updateSettings({ themeBackdropEnabled: Boolean(checked) })
-              }
-              aria-label="Show the splatter backdrop on themes that have one"
-            />
+            <div className="flex w-full items-center gap-3 sm:w-auto">
+              <div className="min-w-0 flex-1 sm:w-40 sm:flex-none">
+                <Select
+                  disabled={!settings.themeBackdropEnabled}
+                  value={settings.themeBackdropStyle}
+                  onValueChange={(value) => {
+                    if (value === "theme" || value === "cyberpunk" || value === "codex")
+                      updateSettings({ themeBackdropStyle: value });
+                  }}
+                >
+                  <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Splatter style">
+                    <SelectValue>
+                      {THEME_BACKDROP_STYLE_LABELS[settings.themeBackdropStyle]}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem value="theme">
+                      {THEME_BACKDROP_STYLE_LABELS.theme} (default)
+                    </SelectItem>
+                    <SelectItem value="cyberpunk">
+                      {THEME_BACKDROP_STYLE_LABELS.cyberpunk}
+                    </SelectItem>
+                    <SelectItem value="codex">{THEME_BACKDROP_STYLE_LABELS.codex}</SelectItem>
+                  </SelectPopup>
+                </Select>
+              </div>
+              <Switch
+                checked={settings.themeBackdropEnabled}
+                onCheckedChange={(checked) =>
+                  updateSettings({ themeBackdropEnabled: Boolean(checked) })
+                }
+                aria-label="Show the splatter backdrop"
+              />
+            </div>
           }
         />
 

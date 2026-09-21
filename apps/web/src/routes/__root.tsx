@@ -291,14 +291,19 @@ function GlassAppearanceSync() {
   return null;
 }
 
+/** Mirrors the splatter backdrop setting onto the root; index.css reads it. */
 function ThemeBackdropSync() {
   const enabled = useClientSettings((settings) => settings.themeBackdropEnabled);
+  const style = useClientSettings((settings) => settings.themeBackdropStyle);
 
   useEffect(() => {
     const root = document.documentElement;
-    if (enabled) delete root.dataset.themeBackdrop;
-    else root.dataset.themeBackdrop = "off";
-  }, [enabled]);
+    // Absent means "match theme", which the stylesheet can resolve before
+    // settings load; only an override needs the attribute.
+    if (!enabled) root.dataset.themeBackdrop = "off";
+    else if (style === "theme") delete root.dataset.themeBackdrop;
+    else root.dataset.themeBackdrop = style;
+  }, [enabled, style]);
 
   return null;
 }

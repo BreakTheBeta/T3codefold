@@ -57,13 +57,22 @@ const TRAILING_BOTTOM_FRACTION = 0.12;
 const TRAILING_LEFT_FRACTION = -0.18;
 
 export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
-  const { themeId, themeAppearance, themeBackdropEnabled } = useAppearancePreferences();
+  const { themeId, themeAppearance, themeBackdropEnabled, themeBackdropStyle } =
+    useAppearancePreferences();
   const { width, height } = useWindowDimensions();
 
-  if (!themeBackdropEnabled || !Object.hasOwn(BACKDROPS, themeId)) return null;
+  // "theme" follows the active theme's own art, and themes without one stay
+  // plain; naming an art applies it whatever the theme.
+  const art =
+    themeBackdropStyle !== "theme"
+      ? themeBackdropStyle
+      : Object.hasOwn(BACKDROPS, themeId)
+        ? (themeId as keyof typeof BACKDROPS)
+        : null;
+  if (!themeBackdropEnabled || art === null) return null;
 
   const appearance = themeAppearance === "dark" ? "dark" : "light";
-  const cluster = BACKDROPS[themeId as keyof typeof BACKDROPS][appearance];
+  const cluster = BACKDROPS[art][appearance];
   const lead = width * LEAD_SCALE;
   const trailing = width * TRAILING_SCALE;
 

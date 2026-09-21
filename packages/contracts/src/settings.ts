@@ -284,6 +284,14 @@ export const LoadBalancingWeights = Schema.Record(
 
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
+/**
+ * Which splatter art the chat canvas carries. `theme` uses the active theme's
+ * own (Cyberpunk and Codex ship one) and none on other themes; naming an art
+ * applies it to every theme, custom ones included.
+ */
+export const ThemeBackdropStyle = Schema.Literals(["theme", "cyberpunk", "codex"]);
+export type ThemeBackdropStyle = typeof ThemeBackdropStyle.Type;
+
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -364,6 +372,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   /** Paint-splatter backdrop behind the conversation, on themes that ship one. */
   themeBackdropEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  themeBackdropStyle: ThemeBackdropStyle.pipe(
+    Schema.withDecodingDefault(Effect.succeed("theme" as const)),
+  ),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
   ),
@@ -1626,6 +1637,7 @@ export const ClientSettingsPatch = Schema.Struct({
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
   themeBackdropEnabled: Schema.optionalKey(Schema.Boolean),
+  themeBackdropStyle: Schema.optionalKey(ThemeBackdropStyle),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),
