@@ -1,0 +1,25 @@
+import { describe, expect, it } from "vite-plus/test";
+
+import { splatterHexToHue, splatterHueToHex, themeSplatterColors } from "./splatterColors";
+
+describe("splatter hue picker", () => {
+  it("reads back the hue it set, so dragging a slider never drifts", () => {
+    for (let hue = 0; hue < 360; hue += 5) {
+      expect(splatterHexToHue(splatterHueToHex(hue))).toBe(hue);
+    }
+  });
+
+  it("starts a slider from a colour picked on web", () => {
+    expect(splatterHexToHue("#ff3dcb")).toBeGreaterThan(330);
+    expect(splatterHexToHue("#39ff88")).toBeGreaterThan(140);
+    expect(splatterHexToHue("#39ff88")).toBeLessThan(160);
+  });
+});
+
+it("derives theme paint on every theme, including ones with no palette of their own", () => {
+  for (const themeId of ["cyberpunk", "codex", "material-you", "t3-code"] as const) {
+    for (const color of themeSplatterColors(themeId, "dark")) {
+      expect(color).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  }
+});

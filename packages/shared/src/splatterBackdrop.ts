@@ -270,18 +270,41 @@ const CLUSTERS: Record<"a" | "b", ReadonlyArray<Placement>> = {
 
 /* -------------------------------------------------------------- colour -- */
 
-export function oklchToHex({ l, c, h }: SplatterOklch): string {
+function oklchToLinearRgb({ l, c, h }: SplatterOklch): [number, number, number] {
   const hue = (h * Math.PI) / 180;
   const a = c * Math.cos(hue);
   const b = c * Math.sin(hue);
   const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
   const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
   const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  const channels = [
+  return [
     4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
     -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
     -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_,
   ];
+}
+
+/**
+ * The most saturated in-gamut colour at this lightness and hue. Clamping an
+ * out-of-gamut colour's channels instead would bend its hue, which a hue
+ * picker notices as its value jumping on the next read.
+ */
+export function fitOklchToGamut(color: SplatterOklch): SplatterOklch {
+  const inGamut = (c: number) =>
+    oklchToLinearRgb({ ...color, c }).every((v) => v >= -1e-4 && v <= 1 + 1e-4);
+  if (inGamut(color.c)) return color;
+  let low = 0;
+  let high = color.c;
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (low + high) / 2;
+    if (inGamut(mid)) low = mid;
+    else high = mid;
+  }
+  return { ...color, c: low };
+}
+
+export function oklchToHex(color: SplatterOklch): string {
+  const channels = oklchToLinearRgb(color);
   return `#${channels
     .map((v) => {
       const srgb = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.max(v, 0) ** (1 / 2.4) - 0.055;
@@ -290,6 +313,23 @@ export function oklchToHex({ l, c, h }: SplatterOklch): string {
         .padStart(2, "0");
     })
     .join("")}`;
+}
+
+/** Inverse of oklchToHex, for starting a hue picker from a stored colour. */
+export function hexToOklch(hex: string): SplatterOklch | null {
+  if (!isSplatterHexColor(hex)) return null;
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const v = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  const l_ = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m_ = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s_ = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const l = 0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_;
+  const a = 1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_;
+  const bb = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_;
+  const h = (Math.atan2(bb, a) * 180) / Math.PI;
+  return { l, c: Math.hypot(a, bb), h: h < 0 ? h + 360 : h };
 }
 
 /** Reads the canonical `oklch(L C H)` form theme palettes are stored in. */
