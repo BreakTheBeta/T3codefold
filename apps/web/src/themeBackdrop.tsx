@@ -28,6 +28,7 @@ type BackdropSettings = Pick<
   | "themeBackdropScope"
   | "themeBackdropColors"
   | "themeBackdropIntensity"
+  | "themeBackdropAmount"
   | "themeBackdropGlow"
   | "themeBackdropSeed"
 >;
@@ -57,6 +58,7 @@ export function resolveThemeBackdrop(input: {
       deriveSplatterColors(colorOf(accent), colorOf(action), appearance),
     appearance,
     intensity: settings.themeBackdropIntensity / 100,
+    amount: settings.themeBackdropAmount / 100,
     glow: settings.themeBackdropGlow,
     seed: settings.themeBackdropSeed,
   };
@@ -104,6 +106,7 @@ export function ThemeBackdropSync() {
     themeBackdropScope,
     themeBackdropColors,
     themeBackdropIntensity,
+    themeBackdropAmount,
     themeBackdropGlow,
     themeBackdropSeed,
   } = settings;
@@ -119,6 +122,7 @@ export function ThemeBackdropSync() {
           themeBackdropScope,
           themeBackdropColors: lead && second && third ? [lead, second, third] : null,
           themeBackdropIntensity,
+          themeBackdropAmount,
           themeBackdropGlow,
           themeBackdropSeed,
         },
@@ -134,6 +138,7 @@ export function ThemeBackdropSync() {
       second,
       third,
       themeBackdropIntensity,
+      themeBackdropAmount,
       themeBackdropGlow,
       themeBackdropSeed,
       themeId,

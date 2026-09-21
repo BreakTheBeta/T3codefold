@@ -49,6 +49,7 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeBackdropEnabled,
     themeBackdropScope,
     themeBackdropIntensity,
+    themeBackdropAmount,
     themeBackdropGlow,
     themeBackdropSeed,
     themeBackdropColors,
@@ -64,6 +65,7 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
       colors: themeBackdropColors ?? themeSplatterColors(themeId, appearance),
       appearance,
       intensity: themeBackdropIntensity / 100,
+      amount: themeBackdropAmount / 100,
       glow: themeBackdropGlow,
       seed: themeBackdropSeed,
     } as const;
@@ -77,6 +79,7 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeId,
     appearance,
     themeBackdropIntensity,
+    themeBackdropAmount,
     themeBackdropGlow,
     themeBackdropSeed,
     themeBackdropColors,

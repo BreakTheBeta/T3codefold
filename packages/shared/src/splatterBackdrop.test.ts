@@ -21,6 +21,7 @@ const options: SplatterRenderOptions = {
   intensity: 1,
   glow: false,
   seed: 0,
+  amount: 1,
 };
 
 describe("parseOklch", () => {
@@ -147,6 +148,19 @@ describe("renderSplatterField", () => {
     expect(renderSplatterField({ ...options, seed: 5 })).not.toBe(field);
     expect(field).toMatch(/^[\x20-\x7e]*$/);
     for (const color of options.colors) expect(field).toContain(`fill="${color}"`);
+  });
+
+  it("adds marks with the amount without reshuffling the ones already there", () => {
+    const grainAt = (amount: number) =>
+      renderSplatterField({ ...options, amount }).match(/fill-opacity="[\d.]+" d="([^"]+)"/)![1]!;
+    const some = grainAt(0.5);
+    const more = grainAt(1.5);
+    expect(more.length).toBeGreaterThan(some.length * 2);
+    // Every grain in the sparser field is still in the denser one.
+    const grains = (d: string) => new Set(d.match(/M[^M]+/g));
+    const dense = grains(more);
+    for (const grain of grains(some)) expect(dense.has(grain)).toBe(true);
+    expect(renderSplatterField({ ...options, amount: 0 })).not.toContain(' d="M');
   });
 
   it("covers the canvas rather than stretching to it", () => {

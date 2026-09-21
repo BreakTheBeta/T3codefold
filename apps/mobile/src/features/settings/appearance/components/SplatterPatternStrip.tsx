@@ -89,6 +89,7 @@ const PatternThumbnail = memo(function PatternThumbnail(props: {
             appearance: options.appearance,
             intensity: options.intensity * PREVIEW_INTENSITY_BOOST,
             glow: options.glow,
+            amount: options.amount,
             seed,
           },
           SCENE_WIDTH,
@@ -97,7 +98,16 @@ const PatternThumbnail = memo(function PatternThumbnail(props: {
         ),
       ),
     }),
-    [seed, lead, second, third, options.appearance, options.intensity, options.glow],
+    [
+      seed,
+      lead,
+      second,
+      third,
+      options.appearance,
+      options.intensity,
+      options.glow,
+      options.amount,
+    ],
   );
 
   return (

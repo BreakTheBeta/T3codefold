@@ -115,6 +115,7 @@ function PatternThumbnail(props: {
         appearance: options.appearance,
         intensity: options.intensity * PREVIEW_INTENSITY_BOOST,
         glow: options.glow,
+        amount: options.amount,
         seed,
       },
       PREVIEW_WIDTH,
@@ -123,7 +124,17 @@ function PatternThumbnail(props: {
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
     image.src = url;
     return () => URL.revokeObjectURL(url);
-  }, [near, seed, lead, second, third, options.appearance, options.intensity, options.glow]);
+  }, [
+    near,
+    seed,
+    lead,
+    second,
+    third,
+    options.appearance,
+    options.intensity,
+    options.glow,
+    options.amount,
+  ]);
 
   return (
     <button

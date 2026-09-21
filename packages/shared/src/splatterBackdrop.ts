@@ -393,6 +393,8 @@ export interface SplatterRenderOptions {
   readonly glow: boolean;
   /** Pattern variant; 0 is the original art. */
   readonly seed: number;
+  /** Multiplier on how many marks the field scatters; 1 is the tuned default, 0 leaves only the corner clusters. */
+  readonly amount: number;
 }
 
 const BASE_ALPHA = {
@@ -413,6 +415,18 @@ type SplatMarkup = {
 type FieldMarkup = {
   readonly marks: readonly [string, string, string];
   readonly haze: readonly [string, string, string];
+  /** Path data for the spray grain, one path per colour. */
+  readonly grain: readonly [string, string, string];
+};
+
+/**
+ * One grain of spray as a tiny square subpath. At a pixel or two a square
+ * rasterizes the same as a circle, and a few thousand of these as path
+ * commands cost a fraction of the bytes of as many <circle> elements.
+ */
+const grainMarkup = (x: number, y: number, size: number) => {
+  const side = round(size);
+  return `M${coarse(x)} ${coarse(y)}h${side}v${side}h-${side}z`;
 };
 
 /** Enough for the live seed's three layers plus the seed being dragged to. */
@@ -495,91 +509,115 @@ const pickHue = (random: Random) => {
   return roll < 0.62 ? 0 : roll < 0.9 ? 1 : 2;
 };
 
+/** Field marks at an amount of 1; the amount setting scales every count. */
+const FIELD_THROWS = 18;
+const FIELD_BURSTS = 16;
+const FIELD_GRAIN = 1400;
+
+/**
+ * Where the nth mark of a kind lands, from the R2 low-discrepancy sequence:
+ * each new point falls in the biggest gap left so far, so raising the amount
+ * fills the canvas evenly instead of clumping. `offset` varies it per seed.
+ */
+const spreadPoint = (index: number, offset: number): Point => [
+  (0.5 + (index + offset) * 0.7548776662) % 1,
+  (0.5 + (index + offset) * 0.569840291) % 1,
+];
+
 /**
  * Paint flung across the whole canvas, between the two corner clusters:
- * small throws, bursts of spray, and a loose mist over all of it.
- * It is sparser than the clusters and thins through the centre column, so it
- * reads as the same canvas worked over rather than a pattern behind the text.
+ * small throws, bursts of fine spray, and loose grain over all of it. It is
+ * sparser than the clusters and thins through the centre column, so it reads
+ * as the same canvas worked over rather than a pattern behind the text.
+ *
+ * Every mark grows from its own random stream, keyed by seed, kind and index,
+ * so changing `amount` adds or removes marks at the end of each run and never
+ * reshuffles the ones already on screen.
  */
-function fieldMarkup(seed: number): FieldMarkup {
-  return cachedMarkup(`field:${seed}`, () => {
-    const random = makeRandom((0x5eed_f1e1 ^ Math.imul(seed, 0x9e3779b1)) >>> 0);
+function fieldMarkup(seed: number, amount: number): FieldMarkup {
+  return cachedMarkup(`field:${seed}:${amount}`, () => {
+    const streamFor = (kind: number, index: number) =>
+      makeRandom(
+        (Math.imul(seed + 1, 0x9e3779b1) ^
+          Math.imul(kind, 0x85ebca6b) ^
+          Math.imul(index + 1, 0xc2b2ae35)) >>>
+          0,
+      );
+    const offset = (seed * 7919) % 10007;
+    const count = (base: number) => Math.round(base * Math.max(0, amount));
     const marks: [Array<string>, Array<string>, Array<string>] = [[], [], []];
     const haze: [Array<string>, Array<string>, Array<string>] = [[], [], []];
+    const grain: [Array<string>, Array<string>, Array<string>] = [[], [], []];
     const central = (x: number) => Math.abs(x / FIELD_WIDTH - 0.5) < 0.2;
 
-    // Small throws, stratified over a grid so they spread instead of clumping.
-    const [columns, rows] = [6, 4];
-    for (let row = 0; row < rows; row += 1) {
-      for (let column = 0; column < columns; column += 1) {
-        if (random() < 0.35) continue;
-        const x = ((column + random.range(0.1, 0.9)) / columns) * FIELD_WIDTH;
-        const y = ((row + random.range(0.1, 0.9)) / rows) * FIELD_HEIGHT;
-        if (central(x) && random() < 0.65) continue;
-        const hue = pickHue(random);
-        const splat = splatter(x, y, random.skewed(2, 18, 2.8), random);
-        marks[hue].push(
-          ...splat.paths.map((d) => `<path d="${d}"/>`),
-          ...splat.drops.map(dropMarkup),
-        );
-        haze[hue].push(...splat.haze.map(hazeMarkup));
-      }
+    // Small throws.
+    for (let i = 0; i < count(FIELD_THROWS); i += 1) {
+      const random = streamFor(1, i);
+      const [u, v] = spreadPoint(i, offset);
+      const x = (u + random.range(-0.03, 0.03)) * FIELD_WIDTH;
+      const y = (v + random.range(-0.03, 0.03)) * FIELD_HEIGHT;
+      if (central(x) && random() < 0.65) continue;
+      const hue = pickHue(random);
+      const splat = splatter(x, y, random.skewed(2, 18, 2.8), random);
+      marks[hue].push(
+        ...splat.paths.map((d) => `<path d="${d}"/>`),
+        ...splat.drops.map(dropMarkup),
+      );
+      haze[hue].push(...splat.haze.map(hazeMarkup));
     }
 
-    // Spray bursts: a fan of specks flung from one point, dense where the
-    // paint left the brush and thinning out toward the edge of the cone. Specks
-    // are scattered, never strung along a path, so a burst reads as spray
-    // rather than a dotted line.
-    for (let i = 0; i < 20; i += 1) {
-      const hue = pickHue(random);
-      const [originX, originY] = [random() * FIELD_WIDTH, random() * FIELD_HEIGHT];
+    // Spray bursts: a fan of fine grain flung from one point, dense where the
+    // paint left the nozzle and thinning toward the edge of the cone, with the
+    // odd heavier droplet. Grain is scattered, never strung along a path, so a
+    // burst reads as airbrushed texture rather than a dotted line.
+    for (let i = 0; i < count(FIELD_BURSTS); i += 1) {
+      const random = streamFor(2, i);
+      const [u, v] = spreadPoint(i, offset + 5003);
+      const [originX, originY] = [u * FIELD_WIDTH, v * FIELD_HEIGHT];
       if (central(originX) && random() < 0.5) continue;
+      const hue = pickHue(random);
       const heading = random() * Math.PI * 2;
       const spread = random.range(0.35, 1.1);
       const reach = random.range(90, 320);
-      const weight = random.range(0.7, 1.8);
-      const count = Math.round(reach * random.range(1, 1.6));
-      for (let j = 0; j < count; j += 1) {
+      const specks = Math.round(reach * random.range(2, 3.2));
+      for (let j = 0; j < specks; j += 1) {
         const angle = random.gauss(heading, spread);
         // Most paint lands near the origin; a long tail carries the fine mist.
-        const distance = reach * random.skewed(0.05, 1, 1.6);
-        const fade = 1 - (distance / reach) * 0.7;
+        const distance = reach * random.skewed(0.03, 1, 1.7);
         const x = originX + Math.cos(angle) * distance;
         const y = originY + Math.sin(angle) * distance;
-        const size = weight * fade * random.skewed(0.25, 2.2, 2.6);
-        const speck: Drop = {
-          cx: x,
-          cy: y,
-          // Only the heavier specks stretch along their flight.
-          rx: size > 1.2 ? size * random.range(1, 1.8) : size,
-          ry: size,
-          angle: (angle * 180) / Math.PI,
-        };
-        // Anything smaller disappears at haze alpha; skip it rather than ship it.
-        if (size < 0.4) continue;
-        if (size > 0.9) marks[hue].push(dropMarkup(speck));
-        else haze[hue].push(hazeMarkup(speck));
+        if (random() < 0.025) {
+          const size = random.range(1, 2.4) * (1 - (distance / reach) * 0.5);
+          marks[hue].push(
+            dropMarkup({
+              cx: x,
+              cy: y,
+              rx: size * random.range(1, 1.7),
+              ry: size,
+              angle: (angle * 180) / Math.PI,
+            }),
+          );
+        } else {
+          grain[hue].push(grainMarkup(x, y, random.skewed(0.6, 1.6, 2.2)));
+        }
       }
     }
 
-    // Loose spray over everything; the larger specks take full paint.
-    for (let i = 0; i < 1000; i += 1) {
+    // Loose grain over everything, so the spaces between bursts still read
+    // as a sprayed surface.
+    for (let i = 0; i < count(FIELD_GRAIN); i += 1) {
+      const random = streamFor(3, i);
       const x = random() * FIELD_WIDTH;
       if (central(x) && random() < 0.4) continue;
-      const speck: Drop = {
-        cx: x,
-        cy: random() * FIELD_HEIGHT,
-        rx: random.skewed(0.5, 2.8, 3),
-        ry: 0,
-        angle: 0,
-      };
-      speck.ry = speck.rx;
-      (speck.rx > 1.3 ? marks : haze)[pickHue(random)].push(hazeMarkup(speck));
+      grain[pickHue(random)].push(
+        grainMarkup(x, random() * FIELD_HEIGHT, random.skewed(0.6, 1.8, 2.5)),
+      );
     }
 
     return {
       marks: [marks[0].join(""), marks[1].join(""), marks[2].join("")],
       haze: [haze[0].join(""), haze[1].join(""), haze[2].join("")],
+      grain: [grain[0].join(""), grain[1].join(""), grain[2].join("")],
     };
   });
 }
@@ -653,13 +691,20 @@ function clusterLayers(cluster: "a" | "b", options: SplatterRenderOptions, prefi
 }
 
 function fieldLayers(options: SplatterRenderOptions, prefix = ""): Layers {
-  const field = fieldMarkup(options.seed);
+  const field = fieldMarkup(options.seed, options.amount);
   let defs = "";
   let body = "";
+  const { paint } = alphas(options);
   field.marks.forEach((marks, hue) => {
     const id = `${prefix}f${hue}`;
+    const color = options.colors[hue] ?? options.colors[0];
     defs += `<g id="${id}">${marks}</g>`;
-    body += paintLayers(id, options.colors[hue] ?? options.colors[0], field.haze[hue]!, options);
+    // Grain takes stronger paint, since a grain covers barely a pixel, but no
+    // glow halos: a halo per grain would smear the texture into fog.
+    if (field.grain[hue]) {
+      body += `<path fill="${color}" fill-opacity="${alpha(paint * 2.6)}" d="${field.grain[hue]}"/>`;
+    }
+    body += paintLayers(id, color, field.haze[hue]!, options);
   });
   return { defs, body };
 }

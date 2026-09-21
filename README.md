@@ -19,7 +19,7 @@ Compared with upstream `main` at [adcd90858c](https://github.com/pingdotgg/t3cod
 | **Older-server compatibility** | Connect the same client to pre-orchestration and current servers; browse threads, send messages, and answer approvals and questions. [Compatibility guide](docs/user/updating.md#compatibility-with-older-servers).                                                                                                 | Web · Desktop, including macOS · Android |
 | **Optional Cite bubble**       | Hide the selection bubble through **Settings → General → Show Cite on text selection**, without disabling text selection.                                                                                                                                                                                           | Web · Desktop                            |
 | **Vim keyboard mode**          | Navigate threads, responses, controls, and the composer with Zed-style modal keyboard controls. Follow the [learning guide](docs/user/vim-keyboard-mode.md) to get started.                                                                                                                                         | Web · Desktop                            |
-| **Splatter backdrop**          | Paint splatter across the whole chat canvas in your theme's colours, sized to fill anything up to 4K. Browse patterns in a scrolling preview strip under **Settings → Appearance → Splatter pattern**. [See it](#splatter-backdrop).                                                                                | Web · Desktop · Mobile                   |
+| **Splatter backdrop**          | Paint splatter across the whole chat canvas in your theme's colours, sized to fill anything up to 4K. Choose how much paint with the **Splatter amount** slider, and browse patterns in a scrolling preview strip under **Settings → Appearance → Splatter pattern**. [See it](#splatter-backdrop).                 | Web · Desktop · Mobile                   |
 
 ### Android and foldable phones
 
@@ -85,7 +85,7 @@ Download the Android preview from [GitHub Releases](https://github.com/BreakTheB
 
 ## Splatter backdrop
 
-Every screenshot below has the splatter backdrop turned on. Turn it on for any theme under **Settings → Appearance → Splatter backdrop**, then scroll the pattern previews to pick one.
+Every screenshot below has the splatter backdrop turned on. Turn it on for any theme under **Settings → Appearance → Splatter backdrop**, set how much paint with **Splatter amount**, then scroll the pattern previews to pick one.
 
 ![Cyberpunk with neon glow: splatter and bursts of spray across the whole canvas](docs/images/t3codefold-splatter-glow.webp)
 

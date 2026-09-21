@@ -11,8 +11,10 @@ import type {
   ThemeBackdropScope,
 } from "@t3tools/contracts";
 import {
+  MAX_THEME_BACKDROP_AMOUNT,
   MAX_THEME_BACKDROP_INTENSITY,
   MAX_THEME_BACKDROP_SEED,
+  MIN_THEME_BACKDROP_AMOUNT,
   MIN_THEME_BACKDROP_INTENSITY,
 } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
@@ -43,6 +45,7 @@ export interface Preferences {
   /** Device-local mirrors of the web splatter backdrop client settings. */
   readonly themeBackdropScope?: ThemeBackdropScope;
   readonly themeBackdropIntensity?: number;
+  readonly themeBackdropAmount?: number;
   readonly themeBackdropGlow?: boolean;
   readonly themeBackdropSeed?: number;
   /** Lead, second and accent paint; absent follows the theme. */
@@ -132,6 +135,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     themeBackdropEnabled?: boolean;
     themeBackdropScope?: ThemeBackdropScope;
     themeBackdropIntensity?: number;
+    themeBackdropAmount?: number;
     themeBackdropGlow?: boolean;
     themeBackdropSeed?: number;
     themeBackdropColors?: readonly [string, string, string];
@@ -202,6 +206,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     parsed.themeBackdropIntensity <= MAX_THEME_BACKDROP_INTENSITY
   )
     preferences.themeBackdropIntensity = parsed.themeBackdropIntensity;
+  if (
+    typeof parsed.themeBackdropAmount === "number" &&
+    Number.isInteger(parsed.themeBackdropAmount) &&
+    parsed.themeBackdropAmount >= MIN_THEME_BACKDROP_AMOUNT &&
+    parsed.themeBackdropAmount <= MAX_THEME_BACKDROP_AMOUNT
+  )
+    preferences.themeBackdropAmount = parsed.themeBackdropAmount;
   if (typeof parsed.themeBackdropGlow === "boolean")
     preferences.themeBackdropGlow = parsed.themeBackdropGlow;
   if (

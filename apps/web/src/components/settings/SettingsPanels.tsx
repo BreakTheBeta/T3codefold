@@ -43,6 +43,7 @@ import {
   MAX_PROMPT_FONT_SIZE,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MAX_TERMINAL_FONT_SIZE,
+  MAX_THEME_BACKDROP_AMOUNT,
   MAX_THEME_BACKDROP_INTENSITY,
   MAX_THEME_BACKDROP_SEED,
   MIN_CODE_FONT_SIZE,
@@ -54,6 +55,7 @@ import {
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   type ResponseStreamingMode,
   MIN_TERMINAL_FONT_SIZE,
+  MIN_THEME_BACKDROP_AMOUNT,
   MIN_THEME_BACKDROP_INTENSITY,
   type QuitConfirmationMode,
 } from "@t3tools/contracts/settings";
@@ -194,6 +196,7 @@ const THEME_BACKDROP_DEFAULTS = {
   themeBackdropScope: DEFAULT_UNIFIED_SETTINGS.themeBackdropScope,
   themeBackdropColors: DEFAULT_UNIFIED_SETTINGS.themeBackdropColors,
   themeBackdropIntensity: DEFAULT_UNIFIED_SETTINGS.themeBackdropIntensity,
+  themeBackdropAmount: DEFAULT_UNIFIED_SETTINGS.themeBackdropAmount,
   themeBackdropGlow: DEFAULT_UNIFIED_SETTINGS.themeBackdropGlow,
   themeBackdropSeed: DEFAULT_UNIFIED_SETTINGS.themeBackdropSeed,
 };
@@ -714,6 +717,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.themeBackdropScope,
       settings.themeBackdropColors,
       settings.themeBackdropIntensity,
+      settings.themeBackdropAmount,
       settings.themeBackdropGlow,
       settings.themeBackdropSeed,
       settings.panelAnimationDurationMs,
@@ -1221,6 +1225,13 @@ export function AppearanceSettingsPanel() {
     "--settings-slider-progress": `${themeBackdropIntensityRatio * 100}%`,
     "--settings-slider-fill-offset": `${0.5 - themeBackdropIntensityRatio}rem`,
   } as CSSProperties;
+  const themeBackdropAmountRatio =
+    (settings.themeBackdropAmount - MIN_THEME_BACKDROP_AMOUNT) /
+    (MAX_THEME_BACKDROP_AMOUNT - MIN_THEME_BACKDROP_AMOUNT);
+  const themeBackdropAmountSliderStyle = {
+    "--settings-slider-progress": `${themeBackdropAmountRatio * 100}%`,
+    "--settings-slider-fill-offset": `${0.5 - themeBackdropAmountRatio}rem`,
+  } as CSSProperties;
   const glassOpacityRatio =
     (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
   const glassOpacitySliderStyle = {
@@ -1504,6 +1515,42 @@ export function AppearanceSettingsPanel() {
             />
 
             <SettingsRow
+              {...searchableSetting("theme-backdrop-amount")}
+              description="How much paint is scattered across the canvas, beyond the corners."
+              control={
+                <div className="flex w-full items-center gap-3 sm:w-52">
+                  <output
+                    className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                    htmlFor="theme-backdrop-amount-input"
+                  >
+                    {settings.themeBackdropAmount}%
+                  </output>
+                  <input
+                    aria-label="Splatter amount"
+                    className="settings-slider min-w-0 flex-1"
+                    id="theme-backdrop-amount-input"
+                    max={MAX_THEME_BACKDROP_AMOUNT}
+                    min={MIN_THEME_BACKDROP_AMOUNT}
+                    onChange={(event) => {
+                      const themeBackdropAmount = Number(event.currentTarget.value);
+                      if (
+                        Number.isInteger(themeBackdropAmount) &&
+                        themeBackdropAmount >= MIN_THEME_BACKDROP_AMOUNT &&
+                        themeBackdropAmount <= MAX_THEME_BACKDROP_AMOUNT
+                      ) {
+                        updateSettings({ themeBackdropAmount });
+                      }
+                    }}
+                    step={10}
+                    style={themeBackdropAmountSliderStyle}
+                    type="range"
+                    value={settings.themeBackdropAmount}
+                  />
+                </div>
+              }
+            />
+
+            <SettingsRow
               {...searchableSetting("theme-backdrop-seed")}
               description="Grows a different splatter pattern. 0 is the original; scroll the previews to browse."
               control={
@@ -1551,6 +1598,7 @@ export function AppearanceSettingsPanel() {
                   colors: settings.themeBackdropColors ?? themeBackdropColors,
                   appearance: resolvedTheme,
                   intensity: settings.themeBackdropIntensity / 100,
+                  amount: settings.themeBackdropAmount / 100,
                   glow: settings.themeBackdropGlow,
                 }}
                 selectedSeed={settings.themeBackdropSeed}
