@@ -85,6 +85,9 @@ interface AppearancePreferencesContextValue {
   readonly setThemeBackdropAmount: (value: number) => void;
   readonly themeBackdropGlow: boolean;
   readonly setThemeBackdropGlow: (value: boolean) => void;
+  /** A splat per PR merged since 6am, in its project's colour. */
+  readonly themeBackdropDynamic: boolean;
+  readonly setThemeBackdropDynamic: (value: boolean) => void;
   /** Splatter pattern variant; 0 is the original art. */
   readonly themeBackdropSeed: number;
   readonly setThemeBackdropSeed: (value: number) => void;
@@ -327,6 +330,13 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     },
     [updatePreferences],
   );
+  const themeBackdropDynamic = storedPreferences?.themeBackdropDynamic ?? false;
+  const setThemeBackdropDynamic = useCallback(
+    (value: boolean) => {
+      updatePreferences({ themeBackdropDynamic: value });
+    },
+    [updatePreferences],
+  );
   const themeBackdropSeed = storedPreferences?.themeBackdropSeed ?? 0;
   const setThemeBackdropSeed = useCallback(
     (value: number) => {
@@ -373,6 +383,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeBackdropAmount,
       themeBackdropGlow,
       setThemeBackdropGlow,
+      themeBackdropDynamic,
+      setThemeBackdropDynamic,
       themeBackdropSeed,
       setThemeBackdropSeed,
       themeBackdropColors,
@@ -406,6 +418,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeBackdropAmount,
       themeBackdropGlow,
       setThemeBackdropGlow,
+      themeBackdropDynamic,
+      setThemeBackdropDynamic,
       themeBackdropSeed,
       setThemeBackdropSeed,
       themeBackdropColors,

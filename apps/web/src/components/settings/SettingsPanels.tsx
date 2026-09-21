@@ -198,6 +198,7 @@ const THEME_BACKDROP_DEFAULTS = {
   themeBackdropIntensity: DEFAULT_UNIFIED_SETTINGS.themeBackdropIntensity,
   themeBackdropAmount: DEFAULT_UNIFIED_SETTINGS.themeBackdropAmount,
   themeBackdropGlow: DEFAULT_UNIFIED_SETTINGS.themeBackdropGlow,
+  themeBackdropDynamic: DEFAULT_UNIFIED_SETTINGS.themeBackdropDynamic,
   themeBackdropSeed: DEFAULT_UNIFIED_SETTINGS.themeBackdropSeed,
 };
 
@@ -719,6 +720,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.themeBackdropIntensity,
       settings.themeBackdropAmount,
       settings.themeBackdropGlow,
+      settings.themeBackdropDynamic,
       settings.themeBackdropSeed,
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
@@ -1616,6 +1618,20 @@ export function AppearanceSettingsPanel() {
                     updateSettings({ themeBackdropGlow: Boolean(checked) })
                   }
                   aria-label="Neon glow"
+                />
+              }
+            />
+
+            <SettingsRow
+              {...searchableSetting("theme-backdrop-dynamic")}
+              description="Every merged pull request adds a splat in its project's color. Wipes clean at 6am."
+              control={
+                <Switch
+                  checked={settings.themeBackdropDynamic}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ themeBackdropDynamic: Boolean(checked) })
+                  }
+                  aria-label="Dynamic splatter"
                 />
               }
             />

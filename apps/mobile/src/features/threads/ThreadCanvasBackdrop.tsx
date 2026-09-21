@@ -1,13 +1,22 @@
 import {
+  mergeDayStart,
+  mergeSplats,
+  mergesSince,
+  nextMergeDayStart,
+} from "@t3tools/shared/mergeSplatters";
+import {
+  renderMergeSplatters,
   renderSplatterCluster,
   renderSplatterField,
   splatterLayout,
+  type SplatterRenderOptions,
 } from "@t3tools/shared/splatterBackdrop";
 import { Image } from "expo-image";
-import { memo, useMemo } from "react";
-import { Image as RNImage, useWindowDimensions } from "react-native";
+import { memo, useEffect, useMemo, useState } from "react";
+import { AppState, Image as RNImage, useWindowDimensions } from "react-native";
 
 import { themeSplatterColors } from "../../lib/splatterColors";
+import { useMergedPullRequests } from "../../state/entities";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 
 /**
@@ -51,6 +60,7 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeBackdropIntensity,
     themeBackdropAmount,
     themeBackdropGlow,
+    themeBackdropDynamic,
     themeBackdropSeed,
     themeBackdropColors,
   } = useAppearancePreferences();
@@ -59,20 +69,15 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
   const shown =
     themeBackdropEnabled && (themeBackdropScope === "all" || FEATURED_THEME_IDS.has(themeId));
 
-  const sources = useMemo(() => {
+  const options = useMemo((): SplatterRenderOptions | null => {
     if (!shown) return null;
-    const options = {
+    return {
       colors: themeBackdropColors ?? themeSplatterColors(themeId, appearance),
       appearance,
       intensity: themeBackdropIntensity / 100,
       amount: themeBackdropAmount / 100,
       glow: themeBackdropGlow,
       seed: themeBackdropSeed,
-    } as const;
-    return {
-      a: { uri: svgUri(renderSplatterCluster("a", options)) },
-      b: { uri: svgUri(renderSplatterCluster("b", options)) },
-      field: { uri: svgUri(renderSplatterField(options)) },
     };
   }, [
     shown,
@@ -84,8 +89,17 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeBackdropSeed,
     themeBackdropColors,
   ]);
+  const sources = useMemo(
+    () =>
+      options && {
+        a: { uri: svgUri(renderSplatterCluster("a", options)) },
+        b: { uri: svgUri(renderSplatterCluster("b", options)) },
+        field: { uri: svgUri(renderSplatterField(options)) },
+      },
+    [options],
+  );
 
-  if (!sources) return null;
+  if (!options || !sources) return null;
   const layout = splatterLayout(width, height, true);
 
   return (
@@ -95,6 +109,9 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
         style={{ position: "absolute", top: 0, left: 0, width, height }}
         contentFit="cover"
       />
+      {themeBackdropDynamic ? (
+        <MergeSplatters options={options} width={width} height={height} />
+      ) : null}
       {(["b", "a"] as const).map((cluster) => (
         <Image
           key={cluster}
@@ -122,5 +139,69 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
         }}
       />
     </>
+  );
+});
+
+/**
+ * Epoch ms of the last 6am. One timer wakes at the next rollover; coming back
+ * to the foreground re-reads the clock, since a suspended app holds timers.
+ */
+function useMergeDayStart(): number {
+  const [since, setSince] = useState(() => mergeDayStart(new Date()).getTime());
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(refresh, nextMergeDayStart(new Date()) - Date.now());
+    };
+    const refresh = () => {
+      setSince(mergeDayStart(new Date()).getTime());
+      schedule();
+    };
+    schedule();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => {
+      clearTimeout(timer);
+      subscription.remove();
+    };
+  }, []);
+  return since;
+}
+
+/** Dynamic mode: a splat per PR merged since 6am, in its project's colour. */
+const MergeSplatters = memo(function MergeSplatters({
+  options,
+  width,
+  height,
+}: {
+  readonly options: SplatterRenderOptions;
+  readonly width: number;
+  readonly height: number;
+}) {
+  const allMerges = useMergedPullRequests();
+  const since = useMergeDayStart();
+  const merges = useMemo(() => mergesSince(allMerges, since), [allMerges, since]);
+
+  const source = useMemo(
+    () =>
+      merges.length === 0
+        ? null
+        : {
+            uri: svgUri(
+              renderMergeSplatters(mergeSplats(merges, options.appearance), options, true),
+            ),
+          },
+    [merges, options],
+  );
+
+  if (!source) return null;
+  return (
+    <Image
+      source={source}
+      style={{ position: "absolute", top: 0, left: 0, width, height }}
+      contentFit="cover"
+    />
   );
 });

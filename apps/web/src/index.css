@@ -1788,15 +1788,17 @@ body {
    are never re-blended afterwards. See the --surface-grain note above for what
    a full-viewport overlay cost us last time. */
 [data-chat-canvas] {
-  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat;
   background-position:
     top right,
     bottom left,
+    center,
     center,
     0 0;
   background-size:
     min(58vw, max(720px, 60vh)) auto,
     min(66vw, max(820px, 68vh)) auto,
+    cover,
     cover,
     200px 200px;
 }
@@ -1809,10 +1811,12 @@ body {
       top right,
       left -18vw bottom 12%,
       center,
+      center,
       0 0;
     background-size:
       125vw auto,
       130vw auto,
+      cover,
       cover,
       200px 200px;
   }
@@ -1820,7 +1824,7 @@ body {
 
 /* The art itself is rendered per theme at runtime (apps/web/src/themeBackdrop.tsx,
    packages/shared/src/splatterBackdrop.ts), which sets --backdrop-a/-b/-field to blob
-   URLs and data-theme-backdrop="on" whenever Settings -> Appearance -> Splatter
+   URLs (plus --backdrop-merges, the day's merged-PR splats, in dynamic mode) and data-theme-backdrop="on" whenever Settings -> Appearance -> Splatter
    backdrop applies to the active theme. */
 
 /* Desaturated, so the grain thickens the surface instead of tinting it the way
@@ -1838,7 +1842,8 @@ html.dark [data-chat-canvas] {
 
 html[data-theme-backdrop="on"] [data-chat-canvas] {
   background-image:
-    var(--backdrop-a), var(--backdrop-b), var(--backdrop-field), var(--canvas-grain);
+    var(--backdrop-a), var(--backdrop-b), var(--backdrop-merges, none), var(--backdrop-field),
+    var(--canvas-grain);
 }
 
 /* The live T3 Chat texture is a 128px grayscale tile with a constant 7/255

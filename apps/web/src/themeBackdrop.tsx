@@ -1,16 +1,25 @@
 import type { ClientSettings } from "@t3tools/contracts";
+import {
+  mergeDayStart,
+  mergeSplats,
+  mergesSince,
+  nextMergeDayStart,
+} from "@t3tools/shared/mergeSplatters";
 import type { ThemeAppearance } from "@t3tools/shared/themePalettes";
 import {
   deriveSplatterColors,
   parseOklch,
+  renderMergeSplatters,
   renderSplatterCluster,
   renderSplatterField,
   type SplatterRenderOptions,
 } from "@t3tools/shared/splatterBackdrop";
-import { useLayoutEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 
+import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useClientSettings } from "./hooks/useSettings";
 import { useTheme } from "./hooks/useTheme";
+import { useMergedPullRequests } from "./state/entities";
 import {
   getStandardThemeColors,
   getThemeColorsForMode,
@@ -67,6 +76,7 @@ function resolveThemeBackdrop(input: {
 const BACKDROP_LAYERS = ["a", "b", "field"] as const;
 
 const selectBackdropSettings = (settings: ClientSettings): BackdropSettings => settings;
+const selectBackdropDynamic = (settings: ClientSettings) => settings.themeBackdropDynamic;
 
 /** The active theme's id and the two roles the paint colours derive from. */
 function useActiveBackdropSource() {
@@ -110,6 +120,7 @@ export function ThemeBackdropSync() {
     themeBackdropGlow,
     themeBackdropSeed,
   } = settings;
+  const themeBackdropDynamic = useClientSettings(selectBackdropDynamic);
   // Keyed on the colour strings rather than object identity: custom theme
   // definitions can be rebuilt per render, and every new result here means a
   // fresh blob URL and a re-rasterized backdrop.
@@ -169,6 +180,62 @@ export function ThemeBackdropSync() {
       for (const url of urls) URL.revokeObjectURL(url);
     };
   }, [options]);
+
+  return options && themeBackdropDynamic ? <MergeSplatterSync options={options} /> : null;
+}
+
+/**
+ * Epoch ms of the last 6am. One timer wakes at the next rollover; returning
+ * to the tab re-reads the clock, since a sleeping machine can hold a timer
+ * past it. An unchanged reading sets the same number, which React skips.
+ */
+function useMergeDayStart(): number {
+  const [since, setSince] = useState(() => mergeDayStart(new Date()).getTime());
+  useEffect(() => {
+    let timer = 0;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(refresh, nextMergeDayStart(new Date()) - Date.now());
+    };
+    const refresh = () => {
+      setSince(mergeDayStart(new Date()).getTime());
+      schedule();
+    };
+    schedule();
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+  return since;
+}
+
+/**
+ * Dynamic mode: paints a splat for each PR merged since 6am, as its own
+ * layer so a merge redraws only that layer. Mounted only while the mode is
+ * on, so nothing is derived otherwise.
+ */
+function MergeSplatterSync({ options }: { readonly options: SplatterRenderOptions }) {
+  const allMerges = useMergedPullRequests();
+  const since = useMergeDayStart();
+  const compact = useMediaQuery("(max-width: 640px)");
+  const merges = useMemo(() => mergesSince(allMerges, since), [allMerges, since]);
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (merges.length === 0) {
+      root.style.removeProperty("--backdrop-merges");
+      return;
+    }
+    const svg = renderMergeSplatters(mergeSplats(merges, options.appearance), options, compact);
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    root.style.setProperty("--backdrop-merges", `url("${url}")`);
+    return () => {
+      root.style.removeProperty("--backdrop-merges");
+      URL.revokeObjectURL(url);
+    };
+  }, [merges, options, compact]);
 
   return null;
 }
