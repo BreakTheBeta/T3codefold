@@ -63,7 +63,7 @@ describe("deriveActiveWorkStartedAt", () => {
       ),
     ).toBeNull();
   });
-  it("waits for startedAt while the provider is still starting", () => {
+  it("counts from requestedAt while the provider is still starting", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
@@ -75,7 +75,7 @@ describe("deriveActiveWorkStartedAt", () => {
         { orchestrationStatus: "starting", activeRunId: null },
         null,
       ),
-    ).toBeNull();
+    ).toBe("2026-09-06T23:33:00.000Z");
   });
 
   it("prefers the turn's own startedAt once the provider reports it", () => {
