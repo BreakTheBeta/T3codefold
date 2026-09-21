@@ -1770,7 +1770,7 @@ body {
    clusters keep their proportions and stay clear of the centre column at every
    aspect ratio. They grow with the viewport's height as well as its width, so
    a 4K canvas gets them in proportion rather than a laptop-sized pair. The
-   field is spray and flicked trails with no composition to lose, so it takes
+   field is spray and small throws with no composition to lose, so it takes
    `cover` and fills whatever the canvas is.
 
    Cluster geometry is mirrored by splatterLayout() in

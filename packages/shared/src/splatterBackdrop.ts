@@ -497,7 +497,7 @@ const pickHue = (random: Random) => {
 
 /**
  * Paint flung across the whole canvas, between the two corner clusters:
- * small throws, flicked trails of droplets, and a loose spray over all of it.
+ * small throws, bursts of spray, and a loose mist over all of it.
  * It is sparser than the clusters and thins through the centre column, so it
  * reads as the same canvas worked over rather than a pattern behind the text.
  */
@@ -526,63 +526,50 @@ function fieldMarkup(seed: number): FieldMarkup {
       }
     }
 
-    // Flicked trails: droplets strung along an arc, swelling and thinning with
-    // the stroke. These carry the eye across the canvas, which is what makes
-    // the field read as one gesture rather than confetti.
-    for (let i = 0; i < 13; i += 1) {
+    // Spray bursts: a fan of specks flung from one point, dense where the
+    // paint left the brush and thinning out toward the edge of the cone. Specks
+    // are scattered, never strung along a path, so a burst reads as spray
+    // rather than a dotted line.
+    for (let i = 0; i < 20; i += 1) {
       const hue = pickHue(random);
-      const [startX, startY] = [random() * FIELD_WIDTH, random() * FIELD_HEIGHT];
+      const [originX, originY] = [random() * FIELD_WIDTH, random() * FIELD_HEIGHT];
+      if (central(originX) && random() < 0.5) continue;
       const heading = random() * Math.PI * 2;
-      const length = random.range(160, 640);
-      const bow = random.gauss(0, length * 0.3);
-      const weight = random.range(0.9, 2.8);
-      const [dx, dy] = [Math.cos(heading), Math.sin(heading)];
-      const [nx, ny] = [-dy, dx];
-      const steps = Math.round(length / random.range(4, 9));
-      for (let step = 0; step < steps; step += 1) {
-        if (random() < 0.18) continue;
-        const t = Math.min(1, Math.max(0, (step + random.range(-0.4, 0.4)) / steps));
-        const scatter = random.gauss(0, 1.5 + weight * 1.8);
-        const offset = bow * 4 * t * (1 - t) + scatter;
-        const x = startX + dx * length * t + nx * offset;
-        const y = startY + dy * length * t + ny * offset;
-        // Tangent of the arc, so each droplet stretches along the stroke.
-        const slope = (bow * 4 * (1 - 2 * t)) / length;
-        const angle = Math.atan2(dy + ny * slope, dx + nx * slope);
-        const size = weight * Math.sin(Math.PI * t) ** 0.6 * random.skewed(0.2, 1.5, 2);
-        if (size < 0.25) continue;
-        marks[hue].push(
-          dropMarkup({
-            cx: x,
-            cy: y,
-            rx: size * random.range(1.1, 3.4),
-            ry: size,
-            angle: (angle * 180) / Math.PI,
-          }),
-        );
-        if (random() < 0.6) {
-          const drift = random.gauss(0, 16);
-          haze[hue].push(
-            hazeMarkup({
-              cx: x + nx * drift,
-              cy: y + ny * drift,
-              rx: random.skewed(0.3, 1.4, 2),
-              ry: 0,
-              angle: 0,
-            }),
-          );
-        }
+      const spread = random.range(0.35, 1.1);
+      const reach = random.range(90, 320);
+      const weight = random.range(0.7, 1.8);
+      const count = Math.round(reach * random.range(1, 1.6));
+      for (let j = 0; j < count; j += 1) {
+        const angle = random.gauss(heading, spread);
+        // Most paint lands near the origin; a long tail carries the fine mist.
+        const distance = reach * random.skewed(0.05, 1, 1.6);
+        const fade = 1 - (distance / reach) * 0.7;
+        const x = originX + Math.cos(angle) * distance;
+        const y = originY + Math.sin(angle) * distance;
+        const size = weight * fade * random.skewed(0.25, 2.2, 2.6);
+        const speck: Drop = {
+          cx: x,
+          cy: y,
+          // Only the heavier specks stretch along their flight.
+          rx: size > 1.2 ? size * random.range(1, 1.8) : size,
+          ry: size,
+          angle: (angle * 180) / Math.PI,
+        };
+        // Anything smaller disappears at haze alpha; skip it rather than ship it.
+        if (size < 0.4) continue;
+        if (size > 0.9) marks[hue].push(dropMarkup(speck));
+        else haze[hue].push(hazeMarkup(speck));
       }
     }
 
     // Loose spray over everything; the larger specks take full paint.
-    for (let i = 0; i < 900; i += 1) {
+    for (let i = 0; i < 1000; i += 1) {
       const x = random() * FIELD_WIDTH;
       if (central(x) && random() < 0.4) continue;
       const speck: Drop = {
         cx: x,
         cy: random() * FIELD_HEIGHT,
-        rx: random.skewed(0.35, 2.8, 3),
+        rx: random.skewed(0.5, 2.8, 3),
         ry: 0,
         angle: 0,
       };
