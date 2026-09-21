@@ -26,6 +26,7 @@ interface PreviewAutomationFocusSession {
   pendingUserFocus: boolean;
   pendingVersion: number;
   nativeFocusElements: Set<HTMLElement>;
+  automationTabs: Set<string>;
   windowBlurred: boolean;
   windowRefocused: boolean;
   restoreFrame: number | null;
@@ -38,6 +39,14 @@ interface PreviewAutomationFocusSession {
 // cannot mistake the automation-owned host focus for the user's original focus.
 let activeSession: PreviewAutomationFocusSession | null = null;
 
+const isAutomationWebview = (
+  session: PreviewAutomationFocusSession,
+  element: HTMLElement | null,
+): boolean =>
+  element?.tagName === "WEBVIEW" &&
+  element.dataset.previewTab !== undefined &&
+  session.automationTabs.has(element.dataset.previewTab);
+
 const startFocusSession = (): PreviewAutomationFocusSession => {
   const session: PreviewAutomationFocusSession = {
     activeOperations: 0,
@@ -47,6 +56,7 @@ const startFocusSession = (): PreviewAutomationFocusSession => {
     pendingUserFocus: false,
     pendingVersion: 0,
     nativeFocusElements: new Set(),
+    automationTabs: new Set(),
     windowBlurred: false,
     windowRefocused: false,
     restoreFrame: null,
@@ -67,8 +77,12 @@ const startFocusSession = (): PreviewAutomationFocusSession => {
     });
   };
   const onFocusIn = (event: Event): void => {
-    const nativeFocusTransfer = session.windowBlurred && session.windowRefocused;
     const target = event.target instanceof HTMLElement ? event.target : null;
+    // Guest focus is a trusted DOM event too, and need not be preceded by a
+    // window blur/focus pair. Only the tabs participating in this operation
+    // may bypass the newer-user-focus check.
+    const nativeFocusTransfer =
+      isAutomationWebview(session, target) || (session.windowBlurred && session.windowRefocused);
     if (nativeFocusTransfer && target) session.nativeFocusElements.add(target);
     if (
       event.isTrusted &&
@@ -129,10 +143,13 @@ const closeFocusSession = (session: PreviewAutomationFocusSession): void => {
 };
 
 const finishFocusSession = (session: PreviewAutomationFocusSession): void => {
+  const activeElement = getMeaningfulActiveElement();
+  const automationOwnsFocus = isAutomationWebview(session, activeElement);
   if (
     !session.userFocusObserved &&
     session.wasDocumentFocused &&
     session.previouslyFocused?.isConnected &&
+    !automationOwnsFocus &&
     (!isDocumentFocused() || session.windowBlurred)
   ) {
     // Bound the native-event grace period: returning from another application
@@ -141,21 +158,23 @@ const finishFocusSession = (session: PreviewAutomationFocusSession): void => {
     return;
   }
   closeFocusSession(session);
-  const activeElement = getMeaningfulActiveElement();
   const activeFocusIsExpected =
     !activeElement ||
     activeElement === session.previouslyFocused ||
+    automationOwnsFocus ||
     session.nativeFocusElements.has(activeElement);
   if (
     !session.userFocusObserved &&
     session.wasDocumentFocused &&
-    !session.windowBlurred &&
-    isDocumentFocused() &&
+    (automationOwnsFocus || (!session.windowBlurred && isDocumentFocused())) &&
     session.previouslyFocused?.isConnected &&
     activeFocusIsExpected &&
     activeElement !== session.previouslyFocused
   ) {
     try {
+      // On macOS the guest can retain the focused frame after the native
+      // window is restored. DOM focus must leave that webview explicitly;
+      // waiting for document.hasFocus() here would wait on our own restore.
       session.previouslyFocused.focus({ preventScroll: true });
     } catch {
       // Focus restoration is best effort; never mask the automation result.
@@ -164,7 +183,9 @@ const finishFocusSession = (session: PreviewAutomationFocusSession): void => {
 };
 
 /** Keeps preview automation from changing focus in the shared renderer. */
-export async function withPreviewAutomationFocus<T>(operation: () => Promise<T>): Promise<T> {
+export async function withPreviewAutomationFocus<T>(
+  operation: (trackWebview: (runtimeTabId: string) => void) => Promise<T>,
+): Promise<T> {
   const session = activeSession ?? (activeSession = startFocusSession());
   if (session.restoreTimeout !== null) {
     clearTimeout(session.restoreTimeout);
@@ -173,7 +194,7 @@ export async function withPreviewAutomationFocus<T>(operation: () => Promise<T>)
   session.activeOperations += 1;
 
   try {
-    return await operation();
+    return await operation((runtimeTabId) => session.automationTabs.add(runtimeTabId));
   } finally {
     session.activeOperations -= 1;
     if (session.activeOperations === 0) finishFocusSession(session);

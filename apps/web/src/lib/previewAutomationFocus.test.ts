@@ -4,6 +4,8 @@ import { withPreviewAutomationFocus } from "./previewAutomationFocus";
 
 class MockHTMLElement {
   isConnected = true;
+  tagName = "DIV";
+  dataset: { previewTab?: string } = {};
   readonly focus = vi.fn((_options?: FocusOptions) => {
     setActiveElement(this);
   });
@@ -84,6 +86,98 @@ const setupDocument = (activeElement: MockHTMLElement | null, focused = true) =>
 };
 
 describe("withPreviewAutomationFocus", () => {
+  it.each([false, true])(
+    "takes focus back from the automation webview without waiting for native refocus (focusin=%s)",
+    async (withFocusIn) => {
+      const composer = new MockHTMLElement();
+      const guest = new MockHTMLElement();
+      guest.tagName = "WEBVIEW";
+      guest.dataset.previewTab = "background-tab";
+      const { dispatchDocument, dispatchWindow, setDocumentFocused } = setupDocument(composer);
+
+      await withPreviewAutomationFocus(async (trackWebview) => {
+        trackWebview("background-tab");
+        setActiveElement(guest);
+        if (withFocusIn) dispatchDocument("focusin", guest);
+        setDocumentFocused(false);
+        dispatchWindow("blur");
+      });
+
+      expect(Object.is(document.activeElement, composer)).toBe(true);
+      expect(composer.focus).toHaveBeenCalledWith({ preventScroll: true });
+    },
+  );
+
+  it("does not take focus from a different browser tab", async () => {
+    const composer = new MockHTMLElement();
+    const otherGuest = new MockHTMLElement();
+    otherGuest.tagName = "WEBVIEW";
+    otherGuest.dataset.previewTab = "user-tab";
+    const { dispatchDocument, setDocumentFocused } = setupDocument(composer);
+
+    await withPreviewAutomationFocus(async (trackWebview) => {
+      trackWebview("background-tab");
+      setActiveElement(otherGuest);
+      dispatchDocument("focusin", otherGuest);
+      setDocumentFocused(false);
+    });
+
+    expect(document.activeElement).toBe(otherGuest);
+    expect(composer.focus).not.toHaveBeenCalled();
+  });
+
+  it("preserves a deliberate user focus change to the automated tab", async () => {
+    const composer = new MockHTMLElement();
+    const guest = new MockHTMLElement();
+    guest.tagName = "WEBVIEW";
+    guest.dataset.previewTab = "background-tab";
+    const { dispatchDocument, setDocumentFocused } = setupDocument(composer);
+
+    await withPreviewAutomationFocus(async (trackWebview) => {
+      trackWebview("background-tab");
+      dispatchDocument("pointerdown", guest);
+      setActiveElement(guest);
+      dispatchDocument("focusin", guest);
+      setDocumentFocused(false);
+    });
+
+    expect(document.activeElement).toBe(guest);
+    expect(composer.focus).not.toHaveBeenCalled();
+  });
+
+  it("restores the composer after overlapping operations move focus between guest tabs", async () => {
+    const composer = new MockHTMLElement();
+    const firstGuest = new MockHTMLElement();
+    firstGuest.tagName = "WEBVIEW";
+    firstGuest.dataset.previewTab = "first-tab";
+    const secondGuest = new MockHTMLElement();
+    secondGuest.tagName = "WEBVIEW";
+    secondGuest.dataset.previewTab = "second-tab";
+    const { dispatchDocument, setDocumentFocused } = setupDocument(composer);
+    let finishFirst!: () => void;
+
+    const first = withPreviewAutomationFocus(async (trackWebview) => {
+      trackWebview("first-tab");
+      setActiveElement(firstGuest);
+      dispatchDocument("focusin", firstGuest);
+      setDocumentFocused(false);
+      await new Promise<void>((resolve) => {
+        finishFirst = resolve;
+      });
+    });
+    await withPreviewAutomationFocus(async (trackWebview) => {
+      trackWebview("second-tab");
+      setActiveElement(secondGuest);
+      dispatchDocument("focusin", secondGuest);
+    });
+    expect(composer.focus).not.toHaveBeenCalled();
+    finishFirst();
+    await first;
+
+    expect(Object.is(document.activeElement, composer)).toBe(true);
+    expect(composer.focus).toHaveBeenCalledOnce();
+  });
+
   it("restores focus when automation leaves a connected host control focused", async () => {
     const composer = new MockHTMLElement();
     const hostButton = new MockHTMLElement();
