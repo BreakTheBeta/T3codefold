@@ -638,6 +638,10 @@ describe("ClientSettings glass opacity", () => {
     expect(backdrop.themeBackdropColors).toBeNull();
     expect(backdrop.themeBackdropIntensity).toBe(100);
     expect(backdrop.themeBackdropGlow).toBe(false);
+    expect(backdrop.themeBackdropSeed).toBe(0);
+    expect(decodeClientSettings({ themeBackdropSeed: 4242 }).themeBackdropSeed).toBe(4242);
+    expect(() => decodeClientSettings({ themeBackdropSeed: -1 })).toThrow();
+    expect(() => decodeClientSettings({ themeBackdropSeed: 1.5 })).toThrow();
     expect(
       decodeClientSettings({ themeBackdropColors: ["#39ff88", "#29D9FF", "#ff3dcb"] })
         .themeBackdropColors,

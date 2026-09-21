@@ -28,6 +28,7 @@ type BackdropSettings = Pick<
   | "themeBackdropColors"
   | "themeBackdropIntensity"
   | "themeBackdropGlow"
+  | "themeBackdropSeed"
 >;
 
 const colorOf = (value: string | undefined) => parseOklch(toCanonicalThemeColor(value));
@@ -56,6 +57,7 @@ export function resolveThemeBackdrop(input: {
     appearance,
     intensity: settings.themeBackdropIntensity / 100,
     glow: settings.themeBackdropGlow,
+    seed: settings.themeBackdropSeed,
   };
 }
 
@@ -100,6 +102,7 @@ export function ThemeBackdropSync() {
     themeBackdropColors,
     themeBackdropIntensity,
     themeBackdropGlow,
+    themeBackdropSeed,
   } = settings;
   // Keyed on the colour strings rather than object identity: custom theme
   // definitions can be rebuilt per render, and every new result here means a
@@ -114,6 +117,7 @@ export function ThemeBackdropSync() {
           themeBackdropColors: lead && second && third ? [lead, second, third] : null,
           themeBackdropIntensity,
           themeBackdropGlow,
+          themeBackdropSeed,
         },
         themeId,
         accent,
@@ -128,6 +132,7 @@ export function ThemeBackdropSync() {
       third,
       themeBackdropIntensity,
       themeBackdropGlow,
+      themeBackdropSeed,
       themeId,
       accent,
       action,

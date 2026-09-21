@@ -51,6 +51,7 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeBackdropScope,
     themeBackdropIntensity,
     themeBackdropGlow,
+    themeBackdropSeed,
   } = useAppearancePreferences();
   const { width, height } = useWindowDimensions();
   const appearance = themeAppearance === "dark" ? "dark" : "light";
@@ -73,12 +74,13 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
       appearance,
       intensity: themeBackdropIntensity / 100,
       glow: themeBackdropGlow,
+      seed: themeBackdropSeed,
     } as const;
     return {
       a: { uri: svgUri(renderSplatterCluster("a", options)) },
       b: { uri: svgUri(renderSplatterCluster("b", options)) },
     };
-  }, [shown, themeId, appearance, themeBackdropIntensity, themeBackdropGlow]);
+  }, [shown, themeId, appearance, themeBackdropIntensity, themeBackdropGlow, themeBackdropSeed]);
 
   if (!sources) return null;
   const lead = width * LEAD_SCALE;

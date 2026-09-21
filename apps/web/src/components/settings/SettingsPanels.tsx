@@ -3,7 +3,14 @@ import { SettingsGroup } from "./SettingsGroup";
 import { useThemeDerivedBackdropColors } from "../../themeBackdrop";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
-import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveX,
+  CheckIcon,
+  ChevronRightIcon,
+  SettingsIcon,
+  ShuffleIcon,
+} from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -36,6 +43,7 @@ import {
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MAX_TERMINAL_FONT_SIZE,
   MAX_THEME_BACKDROP_INTENSITY,
+  MAX_THEME_BACKDROP_SEED,
   MIN_CODE_FONT_SIZE,
   MIN_APPEARANCE_CONTRAST,
   MIN_GLASS_OPACITY,
@@ -186,6 +194,7 @@ const THEME_BACKDROP_DEFAULTS = {
   themeBackdropColors: DEFAULT_UNIFIED_SETTINGS.themeBackdropColors,
   themeBackdropIntensity: DEFAULT_UNIFIED_SETTINGS.themeBackdropIntensity,
   themeBackdropGlow: DEFAULT_UNIFIED_SETTINGS.themeBackdropGlow,
+  themeBackdropSeed: DEFAULT_UNIFIED_SETTINGS.themeBackdropSeed,
 };
 
 function isThemeBackdropCustomized(settings: typeof DEFAULT_UNIFIED_SETTINGS): boolean {
@@ -702,6 +711,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.themeBackdropColors,
       settings.themeBackdropIntensity,
       settings.themeBackdropGlow,
+      settings.themeBackdropSeed,
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
       settings.persistComposerContextStrip,
@@ -1483,6 +1493,50 @@ export function AppearanceSettingsPanel() {
                     type="range"
                     value={settings.themeBackdropIntensity}
                   />
+                </div>
+              }
+            />
+
+            <SettingsRow
+              {...searchableSetting("theme-backdrop-seed")}
+              description="Grows a different splatter pattern. 0 is the original."
+              control={
+                <div className="flex items-center gap-2">
+                  <NumberField
+                    value={settings.themeBackdropSeed}
+                    min={0}
+                    max={MAX_THEME_BACKDROP_SEED}
+                    step={1}
+                    size="sm"
+                    className="w-36"
+                    onValueChange={(value) => {
+                      if (
+                        value !== null &&
+                        Number.isInteger(value) &&
+                        value >= 0 &&
+                        value <= MAX_THEME_BACKDROP_SEED
+                      )
+                        updateSettings({ themeBackdropSeed: value });
+                    }}
+                  >
+                    <NumberFieldGroup>
+                      <NumberFieldDecrement aria-label="Previous splatter pattern" />
+                      <NumberFieldInput aria-label="Splatter pattern seed" />
+                      <NumberFieldIncrement aria-label="Next splatter pattern" />
+                    </NumberFieldGroup>
+                  </NumberField>
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label="Shuffle splatter pattern"
+                    onClick={() =>
+                      updateSettings({
+                        themeBackdropSeed: 1 + Math.floor(Math.random() * MAX_THEME_BACKDROP_SEED),
+                      })
+                    }
+                  >
+                    <ShuffleIcon />
+                  </Button>
                 </div>
               }
             />

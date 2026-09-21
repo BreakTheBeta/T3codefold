@@ -10,7 +10,11 @@ import type {
   SidebarProjectGroupingMode,
   ThemeBackdropScope,
 } from "@t3tools/contracts";
-import { MAX_THEME_BACKDROP_INTENSITY, MIN_THEME_BACKDROP_INTENSITY } from "@t3tools/contracts";
+import {
+  MAX_THEME_BACKDROP_INTENSITY,
+  MAX_THEME_BACKDROP_SEED,
+  MIN_THEME_BACKDROP_INTENSITY,
+} from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
@@ -39,6 +43,7 @@ export interface Preferences {
   readonly themeBackdropScope?: ThemeBackdropScope;
   readonly themeBackdropIntensity?: number;
   readonly themeBackdropGlow?: boolean;
+  readonly themeBackdropSeed?: number;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
   readonly collapsedProjectGroups?: readonly string[];
   /** What the Return key does in the composer on a hardware keyboard. iOS only. */
@@ -125,6 +130,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     themeBackdropScope?: ThemeBackdropScope;
     themeBackdropIntensity?: number;
     themeBackdropGlow?: boolean;
+    themeBackdropSeed?: number;
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
     collapsedProjectGroups?: readonly string[];
     composerEnterBehavior?: ComposerEnterBehavior;
@@ -194,6 +200,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.themeBackdropIntensity = parsed.themeBackdropIntensity;
   if (typeof parsed.themeBackdropGlow === "boolean")
     preferences.themeBackdropGlow = parsed.themeBackdropGlow;
+  if (
+    typeof parsed.themeBackdropSeed === "number" &&
+    Number.isInteger(parsed.themeBackdropSeed) &&
+    parsed.themeBackdropSeed >= 0 &&
+    parsed.themeBackdropSeed <= MAX_THEME_BACKDROP_SEED
+  )
+    preferences.themeBackdropSeed = parsed.themeBackdropSeed;
   if (Array.isArray(parsed.connectOnboardingOptOutAccounts)) {
     preferences.connectOnboardingOptOutAccounts = parsed.connectOnboardingOptOutAccounts.filter(
       (account): account is string => typeof account === "string",
