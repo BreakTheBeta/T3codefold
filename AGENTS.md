@@ -112,6 +112,8 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 
 For authorized mobile verification, a missing or outdated native client is a build step, not a blocker. Run `node scripts/mobile-native-client.ts ensure <ios|android> <device-id>` on the simulator host before starting Metro. It checks the local Expo fingerprint and builds/installs when needed. See `test-t3-mobile` for the full workflow.
 
+Android builds are always incremental. Never run `expo prebuild --clean`, delete `apps/mobile/android/`, or wipe `.cxx` to "start fresh" — that discards every native object and costs about an hour. Expo's fingerprint already decides when native inputs changed, and Gradle already invalidates the tasks that depend on them. Reuse the generated project, and rerun the same command after an interruption. A clean prebuild is for a demonstrably corrupt project only, and needs a human sign-off first.
+
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.
