@@ -337,6 +337,8 @@ export function ThemeAppearanceSection() {
     setThemeBackdropAmount,
     themeBackdropGlow,
     setThemeBackdropGlow,
+    themeBackdropDynamic,
+    setThemeBackdropDynamic,
     themeBackdropSeed,
     setThemeBackdropSeed,
     themeBackdropColors,
@@ -433,6 +435,14 @@ export function ThemeAppearanceSection() {
               label="Neon glow"
               onValueChange={setThemeBackdropGlow}
               value={themeBackdropGlow}
+            />
+            <SettingsSwitchRow
+              disabled={!isReady}
+              icon="arrow.triangle.merge"
+              label="Dynamic splatter"
+              subtitle="A splat per merged PR, in its project's color. Wipes clean at 6am."
+              onValueChange={setThemeBackdropDynamic}
+              value={themeBackdropDynamic}
             />
             <SettingsSwitchRow
               disabled={!isReady}

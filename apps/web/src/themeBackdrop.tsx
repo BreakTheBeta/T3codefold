@@ -1,16 +1,28 @@
-import type { ClientSettings } from "@t3tools/contracts";
+import { ProjectIconColor, type ClientSettings } from "@t3tools/contracts";
+import {
+  mergeDayStart,
+  mergeSplats,
+  rememberMerges,
+  type MergedPullRequest,
+} from "@t3tools/shared/mergeSplatters";
 import type { ThemeAppearance } from "@t3tools/shared/themePalettes";
 import {
   deriveSplatterColors,
   parseOklch,
+  renderMergeSplatters,
   renderSplatterCluster,
   renderSplatterField,
   type SplatterRenderOptions,
 } from "@t3tools/shared/splatterBackdrop";
-import { useLayoutEffect, useMemo } from "react";
+import * as Schema from "effect/Schema";
+import { useEffect, useLayoutEffect, useMemo } from "react";
 
+import { useLocalStorage } from "./hooks/useLocalStorage";
+import { useMediaQuery } from "./hooks/useMediaQuery";
+import { useNowMinute } from "./hooks/useNowMinute";
 import { useClientSettings } from "./hooks/useSettings";
 import { useTheme } from "./hooks/useTheme";
+import { useProjects, useThreadShells } from "./state/entities";
 import {
   getStandardThemeColors,
   getThemeColorsForMode,
@@ -67,6 +79,7 @@ function resolveThemeBackdrop(input: {
 const BACKDROP_LAYERS = ["a", "b", "field"] as const;
 
 const selectBackdropSettings = (settings: ClientSettings): BackdropSettings => settings;
+const selectBackdropDynamic = (settings: ClientSettings) => settings.themeBackdropDynamic;
 
 /** The active theme's id and the two roles the paint colours derive from. */
 function useActiveBackdropSource() {
@@ -110,6 +123,7 @@ export function ThemeBackdropSync() {
     themeBackdropGlow,
     themeBackdropSeed,
   } = settings;
+  const themeBackdropDynamic = useClientSettings(selectBackdropDynamic);
   // Keyed on the colour strings rather than object identity: custom theme
   // definitions can be rebuilt per render, and every new result here means a
   // fresh blob URL and a re-rasterized backdrop.
@@ -169,6 +183,58 @@ export function ThemeBackdropSync() {
       for (const url of urls) URL.revokeObjectURL(url);
     };
   }, [options]);
+
+  return options && themeBackdropDynamic ? <MergeSplatterSync options={options} /> : null;
+}
+
+const MERGES_STORAGE_KEY = "t3code:splatter-merges:v1";
+const MergedPullRequests = Schema.Array(
+  Schema.Struct({ key: Schema.String, color: ProjectIconColor, mergedAt: Schema.String }),
+);
+const NO_MERGES: ReadonlyArray<MergedPullRequest> = [];
+
+/**
+ * Dynamic mode: paints a splat for each PR merged since 6am, as its own
+ * layer so a merge re-renders only the few splats it adds to. Mounted only
+ * while the mode is on, so the thread list is not watched otherwise.
+ */
+function MergeSplatterSync({ options }: { readonly options: SplatterRenderOptions }) {
+  const threads = useThreadShells();
+  const projects = useProjects();
+  const compact = useMediaQuery("(max-width: 640px)");
+  const minute = useNowMinute();
+  // The minute clock only moves `since` when the day rolls over at 6am.
+  const since = mergeDayStart(new Date(`${minute}Z`)).getTime();
+  const [remembered, setRemembered] = useLocalStorage(
+    MERGES_STORAGE_KEY,
+    NO_MERGES,
+    MergedPullRequests,
+  );
+
+  useEffect(() => {
+    const next = rememberMerges(remembered, threads, projects, new Date(since));
+    if (next !== remembered) setRemembered(next);
+  }, [remembered, setRemembered, threads, projects, since]);
+
+  const merges = useMemo(
+    () => rememberMerges(remembered, [], [], new Date(since)),
+    [remembered, since],
+  );
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (merges.length === 0) {
+      root.style.removeProperty("--backdrop-merges");
+      return;
+    }
+    const svg = renderMergeSplatters(mergeSplats(merges, options.appearance), options, compact);
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    root.style.setProperty("--backdrop-merges", `url("${url}")`);
+    return () => {
+      root.style.removeProperty("--backdrop-merges");
+      URL.revokeObjectURL(url);
+    };
+  }, [merges, options, compact]);
 
   return null;
 }

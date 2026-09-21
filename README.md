@@ -87,6 +87,8 @@ Download the Android preview from [GitHub Releases](https://github.com/BreakTheB
 
 Every screenshot below has the splatter backdrop turned on. Turn it on for any theme under **Settings → Appearance → Splatter backdrop**, set how much paint with **Splatter amount**, then scroll the pattern previews to pick one.
 
+Turn on **Dynamic splatter** and every pull request that merges adds a splat in its project's colour. The canvas wipes clean at 6am local time.
+
 ![Cyberpunk with neon glow: splatter and bursts of spray across the whole canvas](docs/images/t3codefold-splatter-glow.webp)
 
 | Filling a 4K canvas                                                                                                | Codex, light                                                                           |

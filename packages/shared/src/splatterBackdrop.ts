@@ -370,15 +370,24 @@ export function deriveSplatterColors(
   const second = action && hueGap(action.h, lead.h) > 20 ? action : { ...lead, h: lead.h + 45 };
   const third = { ...lead, h: (lead.h + 190) % 360 };
   const achromatic = lead.c < 0.03;
-  const tune = (color: SplatterOklch): string =>
-    oklchToHex({
-      l: appearance === "dark" ? 0.86 : 0.58,
-      c: achromatic
-        ? 0
-        : Math.min(appearance === "dark" ? 0.27 : 0.2, Math.max(0.13, color.c * 1.1)),
-      h: color.h,
-    });
+  const tune = (color: SplatterOklch) => tuneSplatterPaint(color, appearance, achromatic);
   return [tune(lead), tune(second), tune(third)];
+}
+
+/**
+ * A colour pulled to the lightness and chroma that read as paint on this
+ * appearance's canvas, keeping its hue. Achromatic paint stays grey.
+ */
+export function tuneSplatterPaint(
+  color: SplatterOklch,
+  appearance: SplatterAppearance,
+  achromatic = color.c < 0.03,
+): string {
+  return oklchToHex({
+    l: appearance === "dark" ? 0.86 : 0.58,
+    c: achromatic ? 0 : Math.min(appearance === "dark" ? 0.27 : 0.2, Math.max(0.13, color.c * 1.1)),
+    h: color.h,
+  });
 }
 
 /* -------------------------------------------------------------- render -- */
@@ -726,6 +735,69 @@ export function renderSplatterField(options: SplatterRenderOptions): string {
     FIELD_WIDTH,
     FIELD_HEIGHT,
     `<defs>${defs}</defs>${body}`,
+    ` preserveAspectRatio="xMidYMid slice"`,
+  );
+}
+
+/** One merged pull request's splat: `key` places it, `color` is hex paint. */
+export type MergeSplat = { readonly key: string; readonly color: string };
+
+/** FNV-1a, so a merge's key always lands its splat in the same place. */
+function hashKey(key: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = Math.imul(hash ^ key.charCodeAt(i), 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/** Portrait frame for phones, where the wide field would crop to its middle third. */
+const COMPACT_MERGE_WIDTH = 600;
+const COMPACT_MERGE_HEIGHT = 1200;
+
+/**
+ * The dynamic layer: one splat per pull request merged today, each in its
+ * repository's colour. Where a splat lands and how it is shaped come from
+ * its key alone, so the same merge paints identically on every render and
+ * device, and a new merge adds a splat without moving the others.
+ *
+ * Framed like the field and painted with `cover`. The wide frame keeps
+ * splats out of the centre column; the compact one cannot afford to.
+ */
+export function renderMergeSplatters(
+  splats: ReadonlyArray<MergeSplat>,
+  options: SplatterRenderOptions,
+  compact = false,
+): string {
+  const [width, height] = compact
+    ? [COMPACT_MERGE_WIDTH, COMPACT_MERGE_HEIGHT]
+    : [FIELD_WIDTH, FIELD_HEIGHT];
+  const { bloom } = alphas(options);
+  let defs = "";
+  let glows = "";
+  let body = "";
+  splats.forEach((splat, index) => {
+    const random = makeRandom(hashKey(splat.key));
+    let u = random.range(0.06, 0.94);
+    // Fold centre-column landings out to the sides, keeping which side they chose.
+    if (!compact && Math.abs(u - 0.5) < 0.2) u += u < 0.5 ? -0.2 : 0.2;
+    const x = u * width;
+    const y = random.range(0.08, 0.9) * height;
+    const radius = random.range(9, 20) * (compact ? 1.4 : 1);
+    const { paths, drops, haze } = splatter(x, y, radius, random);
+    const [gradient, marks] = [`mg${index}`, `mm${index}`];
+    defs +=
+      `<radialGradient id="${gradient}">` +
+      `<stop offset="0" stop-color="${splat.color}" stop-opacity="${bloom}"/>` +
+      `<stop offset="1" stop-color="${splat.color}" stop-opacity="0"/></radialGradient>` +
+      `<g id="${marks}">${paths.map((d) => `<path d="${d}"/>`).join("")}${drops.map(dropMarkup).join("")}</g>`;
+    glows += `<circle cx="${round(x)}" cy="${round(y)}" r="${round(radius * 4.6)}" fill="url(#${gradient})"/>`;
+    body += paintLayers(marks, splat.color, haze.map(hazeMarkup).join(""), options);
+  });
+  return svgDocument(
+    width,
+    height,
+    `<defs>${defs}</defs>${glows}${body}`,
     ` preserveAspectRatio="xMidYMid slice"`,
   );
 }

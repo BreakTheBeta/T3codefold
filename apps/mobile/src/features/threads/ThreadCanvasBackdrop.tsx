@@ -1,13 +1,22 @@
 import {
+  mergeDayStart,
+  mergeSplats,
+  rememberMerges,
+  type MergedPullRequest,
+} from "@t3tools/shared/mergeSplatters";
+import {
+  renderMergeSplatters,
   renderSplatterCluster,
   renderSplatterField,
   splatterLayout,
+  type SplatterRenderOptions,
 } from "@t3tools/shared/splatterBackdrop";
 import { Image } from "expo-image";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Image as RNImage, useWindowDimensions } from "react-native";
 
 import { themeSplatterColors } from "../../lib/splatterColors";
+import { useProjects, useThreadShells } from "../../state/entities";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 
 /**
@@ -51,6 +60,7 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeBackdropIntensity,
     themeBackdropAmount,
     themeBackdropGlow,
+    themeBackdropDynamic,
     themeBackdropSeed,
     themeBackdropColors,
   } = useAppearancePreferences();
@@ -59,20 +69,15 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
   const shown =
     themeBackdropEnabled && (themeBackdropScope === "all" || FEATURED_THEME_IDS.has(themeId));
 
-  const sources = useMemo(() => {
+  const options = useMemo((): SplatterRenderOptions | null => {
     if (!shown) return null;
-    const options = {
+    return {
       colors: themeBackdropColors ?? themeSplatterColors(themeId, appearance),
       appearance,
       intensity: themeBackdropIntensity / 100,
       amount: themeBackdropAmount / 100,
       glow: themeBackdropGlow,
       seed: themeBackdropSeed,
-    } as const;
-    return {
-      a: { uri: svgUri(renderSplatterCluster("a", options)) },
-      b: { uri: svgUri(renderSplatterCluster("b", options)) },
-      field: { uri: svgUri(renderSplatterField(options)) },
     };
   }, [
     shown,
@@ -84,8 +89,17 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeBackdropSeed,
     themeBackdropColors,
   ]);
+  const sources = useMemo(
+    () =>
+      options && {
+        a: { uri: svgUri(renderSplatterCluster("a", options)) },
+        b: { uri: svgUri(renderSplatterCluster("b", options)) },
+        field: { uri: svgUri(renderSplatterField(options)) },
+      },
+    [options],
+  );
 
-  if (!sources) return null;
+  if (!options || !sources) return null;
   const layout = splatterLayout(width, height, true);
 
   return (
@@ -95,6 +109,9 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
         style={{ position: "absolute", top: 0, left: 0, width, height }}
         contentFit="cover"
       />
+      {themeBackdropDynamic ? (
+        <MergeSplatters options={options} width={width} height={height} />
+      ) : null}
       {(["b", "a"] as const).map((cluster) => (
         <Image
           key={cluster}
@@ -122,5 +139,64 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
         }}
       />
     </>
+  );
+});
+
+/**
+ * The day's merges, kept for the life of the app process: a PR's thread is
+ * often archived right after it merges and leaves the thread list, and the
+ * splat should outlive that. Web persists the same list in local storage.
+ */
+let rememberedMerges: ReadonlyArray<MergedPullRequest> = [];
+
+/** Dynamic mode: a splat per PR merged since 6am, in its project's colour. */
+const MergeSplatters = memo(function MergeSplatters({
+  options,
+  width,
+  height,
+}: {
+  readonly options: SplatterRenderOptions;
+  readonly width: number;
+  readonly height: number;
+}) {
+  const threads = useThreadShells();
+  const projects = useProjects();
+  const [since, setSince] = useState(() => mergeDayStart(new Date()).getTime());
+  const [merges, setMerges] = useState(rememberedMerges);
+  // Wake at the next rollover rather than polling a clock.
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setSince(mergeDayStart(new Date()).getTime()),
+      since + 24 * 60 * 60 * 1000 - Date.now(),
+    );
+    return () => clearTimeout(timer);
+  }, [since]);
+
+  useEffect(() => {
+    const next = rememberMerges(rememberedMerges, threads, projects, new Date(since));
+    if (next === rememberedMerges) return;
+    rememberedMerges = next;
+    setMerges(next);
+  }, [threads, projects, since]);
+
+  const source = useMemo(
+    () =>
+      merges.length === 0
+        ? null
+        : {
+            uri: svgUri(
+              renderMergeSplatters(mergeSplats(merges, options.appearance), options, true),
+            ),
+          },
+    [merges, options],
+  );
+
+  if (!source) return null;
+  return (
+    <Image
+      source={source}
+      style={{ position: "absolute", top: 0, left: 0, width, height }}
+      contentFit="cover"
+    />
   );
 });

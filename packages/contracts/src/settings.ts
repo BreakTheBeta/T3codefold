@@ -420,6 +420,8 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   themeBackdropAmount: ThemeBackdropAmount.pipe(Schema.withDecodingDefault(Effect.succeed(100))),
   themeBackdropGlow: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** Adds a splat in the project's colour for each PR merged since 6am local. */
+  themeBackdropDynamic: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   themeBackdropSeed: ThemeBackdropSeed.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
@@ -1691,6 +1693,7 @@ export const ClientSettingsPatch = Schema.Struct({
   themeBackdropIntensity: Schema.optionalKey(ThemeBackdropIntensity),
   themeBackdropAmount: Schema.optionalKey(ThemeBackdropAmount),
   themeBackdropGlow: Schema.optionalKey(Schema.Boolean),
+  themeBackdropDynamic: Schema.optionalKey(Schema.Boolean),
   themeBackdropSeed: Schema.optionalKey(ThemeBackdropSeed),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),

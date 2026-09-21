@@ -250,6 +250,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["splat splatter glow glowing neon bloom"],
   },
   {
+    id: "theme-backdrop-dynamic",
+    title: "Dynamic splatter",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter dynamic merged merge pull request pr daily"],
+  },
+  {
     id: "diff-color-scheme",
     title: "Diff colors",
     to: "/settings/appearance",

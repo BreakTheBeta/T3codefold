@@ -47,6 +47,7 @@ export interface Preferences {
   readonly themeBackdropIntensity?: number;
   readonly themeBackdropAmount?: number;
   readonly themeBackdropGlow?: boolean;
+  readonly themeBackdropDynamic?: boolean;
   readonly themeBackdropSeed?: number;
   /** Lead, second and accent paint; absent follows the theme. */
   readonly themeBackdropColors?: readonly [string, string, string];
@@ -137,6 +138,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     themeBackdropIntensity?: number;
     themeBackdropAmount?: number;
     themeBackdropGlow?: boolean;
+    themeBackdropDynamic?: boolean;
     themeBackdropSeed?: number;
     themeBackdropColors?: readonly [string, string, string];
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
@@ -215,6 +217,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.themeBackdropAmount = parsed.themeBackdropAmount;
   if (typeof parsed.themeBackdropGlow === "boolean")
     preferences.themeBackdropGlow = parsed.themeBackdropGlow;
+  if (typeof parsed.themeBackdropDynamic === "boolean")
+    preferences.themeBackdropDynamic = parsed.themeBackdropDynamic;
   if (
     typeof parsed.themeBackdropSeed === "number" &&
     Number.isInteger(parsed.themeBackdropSeed) &&

@@ -7,6 +7,10 @@
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"
     },
+    "./mergeSplatters": {
+      "types": "./src/mergeSplatters.ts",
+      "import": "./src/mergeSplatters.ts"
+    },
     "./splatterBackdrop": {
       "types": "./src/splatterBackdrop.ts",
       "import": "./src/splatterBackdrop.ts"
