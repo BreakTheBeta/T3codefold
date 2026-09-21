@@ -64,6 +64,7 @@ import {
   type OrchestratorV2ScenarioResult,
 } from "./OrchestratorScenario.ts";
 import { makeProviderReplayGate, type ProviderReplayGate } from "./ProviderReplayGate.testkit.ts";
+import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 
 export function makeReplayServerConfig(
   scenario: string,
@@ -110,10 +111,10 @@ export function makeReplayServerConfig(
       traceMaxFiles: 10,
       otlpTracesUrl: undefined,
       otlpLogsUrl: undefined,
-      otlpProtocol: "http/json",
-      otlpHeaders: undefined,
       otlpMetricsUrl: undefined,
-      otlpExportIntervalMs: 10_000,
+      otlpTracesExport: DEFAULT_SIGNAL_EXPORT,
+      otlpMetricsExport: DEFAULT_SIGNAL_EXPORT,
+      otlpLogsExport: DEFAULT_SIGNAL_EXPORT,
       otlpServiceName: "t3-server",
       mode: "web",
       port: 0,
@@ -421,7 +422,10 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     effectWorkerProvided,
     eventSinkProvided,
   ).pipe(
-    Layer.provide(workStoreLayer.pipe(Layer.provide(databaseLayer))),
+    // Exposed, not just satisfied: the production layer publishes WorkStore to
+    // everything built on top of it, and MCP toolkits registered against this
+    // replay layer read it the same way.
+    Layer.provideMerge(workStoreLayer.pipe(Layer.provide(databaseLayer))),
     Layer.provide(serverConfigLayer),
     Layer.provide(worktreeRepairDependenciesTestLayer),
     Layer.provide(NodeServices.layer),

@@ -6,7 +6,7 @@ T3 Code Fold extends [T3 Code](https://github.com/pingdotgg/t3code) with a folda
 
 ## Extra features
 
-Compared with upstream `main` at [08463e2c40](https://github.com/pingdotgg/t3code/commit/08463e2c40), reviewed **9 September 2026**. These tables describe the code on Fold's `main`; an older published installer may not include every change.
+Compared with upstream `main` at [adcd90858c](https://github.com/pingdotgg/t3code/commit/adcd90858c), synced **21 September 2026**. These tables describe the code on Fold's `main`; an older published installer may not include every change.
 
 ### Agents, voice, and compatibility
 
