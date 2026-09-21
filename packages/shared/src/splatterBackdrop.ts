@@ -1,52 +1,19 @@
 /**
- * Bakes the splatter backdrop artwork for the themes that carry one into
- * static SVG files.
+ * The splatter backdrop behind the chat canvas, rendered from theme colours.
  *
- * The app never runs this: it renders four flat, gradient-only SVGs that the
- * web CSS and the mobile backdrop component load as-is. Splatter geometry is
- * tedious to hand-author and impossible to retune by hand, so the shapes are
- * grown from a seeded RNG here and committed as the real asset. Change a knob
- * in CLUSTERS or PALETTES, re-run, and commit the regenerated art.
+ * Geometry is grown once from a seeded RNG and cached as colourless markup;
+ * colour, intensity and glow are applied at render time by wrapping that
+ * markup in <use> references. Re-rendering for a new theme or a settings drag
+ * is therefore string assembly, not geometry, and the same art renders
+ * identically on web and mobile.
  *
- *   node scripts/generate-splatter-backdrops.ts
- *   node scripts/generate-splatter-backdrops.ts --check   (CI: fail if stale)
+ * Bloom and glow are baked radial gradients and stroke halos, never SVG
+ * filters: filters re-rasterize expensively on mobile GPUs, and not every
+ * platform SVG decoder supports them.
  */
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as Console from "effect/Console";
-import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
-import { PNG } from "pngjs";
 
-/** Web loads these from CSS; the mobile backdrop loads the same files from here. */
-const MOBILE_DIRECTORY = "apps/mobile/assets/themes";
-const OUTPUT_DIRECTORIES = ["apps/web/src/assets", MOBILE_DIRECTORY];
-
-/* ---------------------------------------------------------------- color -- */
-
-/** oklch -> sRGB hex, so the art stays tunable next to the theme's oklch palette. */
-function oklchToHex(l: number, c: number, hDeg: number): string {
-  const h = (hDeg * Math.PI) / 180;
-  const a = c * Math.cos(h);
-  const b = c * Math.sin(h);
-  const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  const channels = [
-    4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
-    -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
-    -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_,
-  ];
-  return `#${channels
-    .map((v) => {
-      const srgb = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.max(v, 0) ** (1 / 2.4) - 0.055;
-      return Math.round(Math.min(1, Math.max(0, srgb)) * 255)
-        .toString(16)
-        .padStart(2, "0");
-    })
-    .join("")}`;
-}
+export type SplatterAppearance = "light" | "dark";
+export type SplatterOklch = { readonly l: number; readonly c: number; readonly h: number };
 
 /* ------------------------------------------------------------------ rng -- */
 
@@ -301,91 +268,124 @@ const CLUSTERS: Record<"a" | "b", ReadonlyArray<Placement>> = {
   ],
 };
 
-type Palette = {
-  /** Green leads; cyan and magenta are accents kept deliberately small and rare. */
-  hues: ReadonlyArray<string>;
-  paint: number;
-  glow: number;
-  /** Overspray alpha as a fraction of `paint`. */
-  haze: number;
+/* -------------------------------------------------------------- colour -- */
+
+export function oklchToHex({ l, c, h }: SplatterOklch): string {
+  const hue = (h * Math.PI) / 180;
+  const a = c * Math.cos(hue);
+  const b = c * Math.sin(hue);
+  const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const channels = [
+    4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+    -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+    -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_,
+  ];
+  return `#${channels
+    .map((v) => {
+      const srgb = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.max(v, 0) ** (1 / 2.4) - 0.055;
+      return Math.round(Math.min(1, Math.max(0, srgb)) * 255)
+        .toString(16)
+        .padStart(2, "0");
+    })
+    .join("")}`;
+}
+
+/** Reads the canonical `oklch(L C H)` form theme palettes are stored in. */
+export function parseOklch(value: string | null | undefined): SplatterOklch | null {
+  const match = value?.trim().match(/^oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)/i);
+  if (!match) return null;
+  const l = Number(match[1]) / (match[2] ? 100 : 1);
+  const c = Number(match[3]);
+  const h = Number(match[4]);
+  return [l, c, h].every(Number.isFinite) ? { l, c, h } : null;
+}
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+export const isSplatterHexColor = (value: unknown): value is string =>
+  typeof value === "string" && HEX_COLOR.test(value);
+
+const hueGap = (a: number, b: number) => {
+  const gap = Math.abs(a - b) % 360;
+  return gap > 180 ? 360 - gap : gap;
 };
 
-type Appearance = "dark" | "light";
+/**
+ * Three paint colours from a theme's accent and action colours.
+ *
+ * The accent leads. The action colour is second when it is a distinct hue,
+ * otherwise a neighbour of the accent stands in. The third, used sparingly, is
+ * the accent's near-complement, which is what gives Cyberpunk its magenta.
+ * Lightness and chroma are then pulled to values that read as paint on that
+ * appearance's canvas, so a muted theme still gets visible splatter. A
+ * near-grey accent stays grey: a monochrome theme gets monochrome paint.
+ */
+export function deriveSplatterColors(
+  accent: SplatterOklch | null,
+  action: SplatterOklch | null,
+  appearance: SplatterAppearance,
+): readonly [string, string, string] {
+  const lead = accent ?? { l: 0.7, c: 0.18, h: 330 };
+  const second = action && hueGap(action.h, lead.h) > 20 ? action : { ...lead, h: lead.h + 45 };
+  const third = { ...lead, h: (lead.h + 190) % 360 };
+  const achromatic = lead.c < 0.03;
+  const tune = (color: SplatterOklch): string =>
+    oklchToHex({
+      l: appearance === "dark" ? 0.86 : 0.58,
+      c: achromatic
+        ? 0
+        : Math.min(appearance === "dark" ? 0.27 : 0.2, Math.max(0.13, color.c * 1.1)),
+      h: color.h,
+    });
+  return [tune(lead), tune(second), tune(third)];
+}
 
-const PALETTES: Record<"cyberpunk" | "codex", Record<Appearance, Palette>> = {
-  cyberpunk: {
-    // Tracks the dark half's accent (oklch 0.82 0.24 145) and its action cyan.
-    dark: {
-      hues: [oklchToHex(0.88, 0.26, 145), oklchToHex(0.88, 0.16, 195), oklchToHex(0.76, 0.27, 335)],
-      paint: 0.085,
-      glow: 0.07,
-      haze: 0.6,
-    },
-    // The light half is a pale mint sheet, so the same hues are darkened to read
-    // as pigment on paper rather than washing out into the canvas.
-    light: {
-      hues: [oklchToHex(0.6, 0.2, 148), oklchToHex(0.62, 0.13, 198), oklchToHex(0.54, 0.21, 338)],
-      paint: 0.105,
-      glow: 0.062,
-      haze: 0.55,
-    },
-  },
-  // Codex's canvases are neutral -- pure white and a chroma-free near-black --
-  // so there is no tinted ground for the paint to sit in and it has to carry
-  // more alpha than Cyberpunk's to read at all. Hues follow the palette's teal
-  // accent and cyan action, with blue-violet as the rare third.
-  codex: {
-    dark: {
-      hues: [oklchToHex(0.84, 0.19, 162), oklchToHex(0.84, 0.14, 212), oklchToHex(0.72, 0.19, 282)],
-      paint: 0.13,
-      glow: 0.1,
-      haze: 0.6,
-    },
-    light: {
-      hues: [oklchToHex(0.56, 0.15, 166), oklchToHex(0.56, 0.13, 220), oklchToHex(0.5, 0.2, 286)],
-      paint: 0.16,
-      glow: 0.08,
-      haze: 0.55,
-    },
-  },
+/* -------------------------------------------------------------- render -- */
+
+export interface SplatterRenderOptions {
+  /** Hex paint colours: lead, second, rare accent. */
+  readonly colors: readonly [string, string, string];
+  readonly appearance: SplatterAppearance;
+  /** Multiplier on every alpha; 1 is the tuned default. */
+  readonly intensity: number;
+  /** Neon mode: stronger bloom and a stroke halo around every mark. */
+  readonly glow: boolean;
+}
+
+const BASE_ALPHA = {
+  dark: { paint: 0.11, glow: 0.08, haze: 0.6 },
+  light: { paint: 0.14, glow: 0.07, haze: 0.55 },
+} as const;
+
+type SplatMarkup = {
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+  readonly hue: number;
+  readonly marks: string;
+  readonly haze: string;
 };
 
-function renderCluster(cluster: ReadonlyArray<Placement>, palette: Palette): string {
-  const gradients: Array<string> = [];
-  const glows: Array<string> = [];
-  const paint: Array<string> = [];
+const markupCache = new Map<"a" | "b", ReadonlyArray<SplatMarkup>>();
 
-  cluster.forEach((spec, index) => {
-    const random = makeRandom(spec.seed);
+/** Colourless markup for one cluster, grown on first use and then reused. */
+function clusterMarkup(cluster: "a" | "b"): ReadonlyArray<SplatMarkup> {
+  const cached = markupCache.get(cluster);
+  if (cached) return cached;
+  const markup = CLUSTERS[cluster].map((spec) => {
     const cx = spec.x * SIZE;
     const cy = spec.y * SIZE;
-    const color = palette.hues[spec.hue]!;
-    const id = `g${index}`;
-
-    // Bloom is a baked radial gradient, never a blur filter: SVG filters
-    // re-rasterize expensively on mobile GPUs, a gradient stop does not.
-    gradients.push(
-      `<radialGradient id="${id}">` +
-        `<stop offset="0" stop-color="${color}" stop-opacity="${palette.glow}"/>` +
-        `<stop offset=".45" stop-color="${color}" stop-opacity="${round(palette.glow * 0.4)}"/>` +
-        `<stop offset="1" stop-color="${color}" stop-opacity="0"/></radialGradient>`,
-    );
-    glows.push(
-      `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(spec.radius * 4.6)}" fill="url(#${id})"/>`,
-    );
-
-    const { paths, drops, haze } = splatter(cx, cy, spec.radius, random);
-    // Its own group at a lower alpha: overspray that matched the paint would
-    // read as a field of dots instead of as haze hanging behind the throw.
-    paint.push(
-      `<g fill="${color}" fill-opacity="${round(palette.paint * palette.haze)}">` +
-        haze
-          .map((d) => `<circle cx="${coarse(d.cx)}" cy="${coarse(d.cy)}" r="${round(d.rx)}"/>`)
-          .join("") +
-        `</g>`,
-    );
-    paint.push(
-      `<g fill="${color}" fill-opacity="${palette.paint}">` +
+    const { paths, drops, haze } = splatter(cx, cy, spec.radius, makeRandom(spec.seed));
+    return {
+      x: cx,
+      y: cy,
+      radius: spec.radius,
+      hue: spec.hue,
+      haze: haze
+        .map((d) => `<circle cx="${coarse(d.cx)}" cy="${coarse(d.cy)}" r="${round(d.rx)}"/>`)
+        .join(""),
+      marks:
         paths.map((d) => `<path d="${d}"/>`).join("") +
         drops
           .map((d) => {
@@ -399,102 +399,58 @@ function renderCluster(cluster: ReadonlyArray<Placement>, palette: Palette): str
               `transform="rotate(${round(d.angle)} ${round(d.cx)} ${round(d.cy)})"/>`
             );
           })
-          .join("") +
-        `</g>`,
+          .join(""),
+    };
+  });
+  markupCache.set(cluster, markup);
+  return markup;
+}
+
+const alpha = (value: number) => Math.round(Math.min(1, Math.max(0, value)) * 1000) / 1000;
+
+export function renderSplatterCluster(cluster: "a" | "b", options: SplatterRenderOptions): string {
+  const base = BASE_ALPHA[options.appearance];
+  const intensity = Math.max(0, options.intensity);
+  const paint = alpha(base.paint * intensity);
+  const haze = alpha(base.paint * base.haze * intensity);
+  const bloom = alpha(base.glow * intensity * (options.glow ? 2.4 : 1));
+  const defs: Array<string> = [];
+  const glows: Array<string> = [];
+  const layers: Array<string> = [];
+
+  clusterMarkup(cluster).forEach((splat, index) => {
+    const color = options.colors[splat.hue] ?? options.colors[0];
+    defs.push(
+      `<radialGradient id="g${index}">` +
+        `<stop offset="0" stop-color="${color}" stop-opacity="${bloom}"/>` +
+        `<stop offset=".45" stop-color="${color}" stop-opacity="${alpha(bloom * 0.4)}"/>` +
+        `<stop offset="1" stop-color="${color}" stop-opacity="0"/></radialGradient>`,
+      `<g id="m${index}">${splat.marks}</g>`,
     );
+    glows.push(
+      `<circle cx="${round(splat.x)}" cy="${round(splat.y)}" ` +
+        `r="${round(splat.radius * (options.glow ? 5.6 : 4.6))}" fill="url(#g${index})"/>`,
+    );
+    layers.push(`<g fill="${color}" fill-opacity="${haze}">${splat.haze}</g>`);
+    if (options.glow) {
+      // Two soft rings under the paint stand in for a blur: a wide faint one
+      // and a tighter brighter one, both reusing the marks by reference.
+      for (const [width, strength] of [
+        [6, 0.35],
+        [2.6, 0.7],
+      ] as const) {
+        layers.push(
+          `<use xlink:href="#m${index}" fill="none" stroke="${color}" ` +
+            `stroke-width="${width}" stroke-linejoin="round" stroke-opacity="${alpha(paint * strength)}"/>`,
+        );
+      }
+    }
+    layers.push(`<use xlink:href="#m${index}" fill="${color}" fill-opacity="${paint}"/>`);
   });
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" fill="none">` +
-    `<defs>${gradients.join("")}</defs>${glows.join("")}${paint.join("")}</svg>\n`
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+    `viewBox="0 0 ${SIZE} ${SIZE}" fill="none">` +
+    `<defs>${defs.join("")}</defs>${glows.join("")}${layers.join("")}</svg>`
   );
-}
-
-/* --------------------------------------------------------------- grain -- */
-
-/**
- * The grain tile mobile uses, as a PNG it can repeat natively.
- *
- * Web gets its grain from an feTurbulence data URI in index.css, which is the
- * pattern already established there and costs no request. React Native has no
- * equivalent -- SVG filter support across the two platform decoders is not
- * something to rely on -- so the same texture ships as pixels and renders
- * through RN's `resizeMode="repeat"`. Alpha stays flat; the appearances differ
- * only in the opacity the component applies.
- */
-const GRAIN_TILE = 128;
-
-function renderGrainTile(): Buffer {
-  const png = new PNG({ width: GRAIN_TILE, height: GRAIN_TILE });
-  const random = makeRandom(0x6a1f);
-  for (let i = 0; i < png.data.length; i += 4) {
-    // Monochrome, so compositing it lightens and darkens the canvas without
-    // dragging a hue across it.
-    const value = Math.round(random.gauss(128, 56));
-    png.data[i] = Math.min(255, Math.max(0, value));
-    png.data[i + 1] = png.data[i]!;
-    png.data[i + 2] = png.data[i]!;
-    png.data[i + 3] = 255;
-  }
-  return PNG.sync.write(png, { colorType: 0 });
-}
-
-/* ----------------------------------------------------------------- run -- */
-
-type Output = { name: string; contents: string | Uint8Array; directories: ReadonlyArray<string> };
-
-const renderAll = (): ReadonlyArray<Output> => [
-  ...(["cyberpunk", "codex"] as const).flatMap((theme) =>
-    (["dark", "light"] as const).flatMap((appearance) =>
-      (["a", "b"] as const).map((cluster) => ({
-        name: `${theme}-splatter-${appearance}-${cluster}.svg`,
-        contents: renderCluster(CLUSTERS[cluster], PALETTES[theme][appearance]),
-        directories: OUTPUT_DIRECTORIES,
-      })),
-    ),
-  ),
-  // Web builds its grain in CSS, so the tile is mobile's alone.
-  { name: "canvas-grain.png", contents: renderGrainTile(), directories: [MOBILE_DIRECTORY] },
-];
-
-const generateSplatter = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const repositoryRoot = path.resolve(import.meta.dirname, "..");
-  const check = process.argv.includes("--check");
-  let stale = false;
-
-  for (const { name, contents, directories } of renderAll()) {
-    const bytes =
-      typeof contents === "string" ? new TextEncoder().encode(contents) : new Uint8Array(contents);
-    for (const directory of directories) {
-      const file = path.join(repositoryRoot, directory, name);
-      if (!check) {
-        yield* fs.writeFile(file, bytes);
-        yield* Console.log(`wrote ${directory}/${name} (${(bytes.length / 1024).toFixed(1)} kB)`);
-        continue;
-      }
-      const current = yield* fs.readFile(file).pipe(Effect.orElseSucceed(() => null));
-      if (
-        current !== null &&
-        current.length === bytes.length &&
-        current.every((b, i) => b === bytes[i])
-      ) {
-        continue;
-      }
-      stale = true;
-      yield* Console.error(`stale: ${directory}/${name}`);
-    }
-  }
-
-  if (check && stale) {
-    yield* Console.error(
-      "Run `node scripts/generate-splatter-backdrops.ts` and commit the result.",
-    );
-    process.exitCode = 1;
-  }
-});
-
-if (import.meta.main) {
-  generateSplatter.pipe(Effect.provide(NodeServices.layer), NodeRuntime.runMain);
 }

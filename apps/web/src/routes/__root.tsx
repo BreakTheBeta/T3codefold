@@ -48,6 +48,7 @@ import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
+import { ThemeBackdropSync } from "../themeBackdrop";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -287,18 +288,6 @@ function GlassAppearanceSync() {
       style.removeProperty("--glass-blur");
     }
   }, [glassOpacity]);
-
-  return null;
-}
-
-function ThemeBackdropSync() {
-  const enabled = useClientSettings((settings) => settings.themeBackdropEnabled);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (enabled) delete root.dataset.themeBackdrop;
-    else root.dataset.themeBackdrop = "off";
-  }, [enabled]);
 
   return null;
 }
