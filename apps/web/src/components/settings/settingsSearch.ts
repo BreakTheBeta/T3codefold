@@ -391,6 +391,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["citation quote bubble popup highlight assistant text selection"],
   },
   {
+    id: "vim-thread-preview",
+    title: "Preview threads while navigating",
+    to: "/settings/general",
+    searchTerms: ["vim sidebar j k cycle selection preview open"],
+  },
+  {
     id: "vim-keyboard-mode",
     title: "Vim keyboard mode",
     to: "/settings/general",

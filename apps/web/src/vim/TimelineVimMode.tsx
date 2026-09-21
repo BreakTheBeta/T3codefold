@@ -472,13 +472,15 @@ function focusSidebarSearch(): void {
   focusSearch();
 }
 
-function moveSidebarFocus(direction: -1 | 1, repetitions: number): void {
+function moveSidebarFocus(direction: -1 | 1, repetitions: number): HTMLElement | undefined {
   const items = sidebarItems();
   if (items.length === 0) return;
   const active = document.activeElement;
   const current = active instanceof HTMLElement ? items.indexOf(active) : -1;
   const next = nextVimListIndex(items.length, current, direction, repetitions);
-  items[next]?.focus({ preventScroll: false });
+  const target = items[next];
+  target?.focus({ preventScroll: false });
+  return target;
 }
 
 export function activateSidebarThreadLifecycleAction(active: HTMLElement, key: "s" | "u"): boolean {
@@ -493,12 +495,14 @@ export function activateSidebarThreadLifecycleAction(active: HTMLElement, key: "
 
 export function TimelineVimMode({
   routeKey,
+  previewThreads = false,
   getScrollNode,
   focusComposer,
   onUserNavigation,
   onScrollToEnd,
 }: {
   routeKey: string;
+  previewThreads?: boolean;
   getScrollNode: () => HTMLElement | null;
   focusComposer: () => void;
   onUserNavigation: () => void;
@@ -553,6 +557,7 @@ export function TimelineVimMode({
 
   useEffect(() => {
     const vimScroller = timelineVimScroller;
+    let previewTimer: ReturnType<typeof setTimeout> | undefined;
     const currentMark = (): Mark | null => {
       const scrollNode = getScrollNode();
       if (!scrollNode) return null;
@@ -718,6 +723,7 @@ export function TimelineVimMode({
       focusRegion(order[(order.indexOf(current) + 1) % order.length]!);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
+      clearTimeout(previewTimer);
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
       const state = stateRef.current;
       const consume = () => {
@@ -957,11 +963,27 @@ export function TimelineVimMode({
       if (sidebarActive) {
         if (event.key === "j" || event.key === "k") {
           consume();
-          moveSidebarFocus(event.key === "j" ? 1 : -1, repetitions);
+          const target = moveSidebarFocus(event.key === "j" ? 1 : -1, repetitions);
+          if (previewThreads && target?.closest("[data-thread-item]")) {
+            // Let held keys pass over rows without loading every conversation.
+            previewTimer = setTimeout(() => {
+              if (
+                target.isConnected &&
+                document.activeElement === target &&
+                !target.matches('[aria-current="page"], [data-active=true]')
+              )
+                target.click();
+            }, 100);
+          }
         } else if (event.key === "/") {
           consume();
           focusSidebarSearch();
-        } else if (event.key === "Enter" || event.key === "o" || event.key === "l") {
+        } else if (
+          event.key === "Enter" ||
+          event.key === "o" ||
+          event.key === "l" ||
+          event.key === "i"
+        ) {
           consume();
           if (
             event.key !== "l" ||
@@ -969,6 +991,7 @@ export function TimelineVimMode({
             active.ariaExpanded !== "true"
           ) {
             if (active instanceof HTMLElement) active.click();
+            if (event.key === "i") focusComposer();
           }
         } else if (event.key === "h") {
           consume();
@@ -1131,11 +1154,21 @@ export function TimelineVimMode({
     window.addEventListener("keyup", handleKeyUp, true);
     window.addEventListener("blur", handleBlur);
     return () => {
+      clearTimeout(previewTimer);
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("keyup", handleKeyUp, true);
       window.removeEventListener("blur", handleBlur);
     };
-  }, [clear, focusComposer, getScrollNode, onScrollToEnd, onUserNavigation, routeKey, update]);
+  }, [
+    clear,
+    focusComposer,
+    getScrollNode,
+    onScrollToEnd,
+    onUserNavigation,
+    previewThreads,
+    routeKey,
+    update,
+  ]);
 
   const matchingHints = view.hints.filter((hint) => hint.label.startsWith(view.hintInput));
   return (
@@ -1184,7 +1217,7 @@ export function TimelineVimMode({
               <span>cycle threads / conversation / composer / right panel</span>
               <kbd>Sidebar j / k</kbd>
               <span>previous / next project or thread</span>
-              <kbd>Sidebar / · Enter</kbd>
+              <kbd>Sidebar / · Enter / i</kbd>
               <span>filter threads · open selection</span>
               <kbd>Sidebar s / u</kbd>
               <span>settle / un-settle focused thread</span>

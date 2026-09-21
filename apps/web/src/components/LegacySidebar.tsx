@@ -745,7 +745,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
         className={`${resolveThreadRowClassName({
           isActive,
           isSelected,
-        })} relative isolate${isFileDragOver ? " ring-1 ring-inset ring-primary/70" : ""}`}
+        })} sidebar-thread-choice relative isolate${isFileDragOver ? " ring-1 ring-inset ring-primary/70" : ""}`}
         onClick={handleRowClick}
         onDoubleClick={handleRowDoubleClick}
         onKeyDown={handleRowKeyDown}
