@@ -153,7 +153,7 @@ export function ProjectDefaultsSettings({
         category === "general"
           ? "New threads"
           : category === "integrations"
-            ? "Browser"
+            ? "Agent access"
             : "Repositories"
       }
     >
