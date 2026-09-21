@@ -82,6 +82,9 @@ interface AppearancePreferencesContextValue {
   readonly setThemeBackdropIntensity: (value: number) => void;
   readonly themeBackdropGlow: boolean;
   readonly setThemeBackdropGlow: (value: boolean) => void;
+  /** Splatter pattern variant; 0 is the original art. */
+  readonly themeBackdropSeed: number;
+  readonly setThemeBackdropSeed: (value: number) => void;
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
@@ -311,6 +314,13 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     },
     [updatePreferences],
   );
+  const themeBackdropSeed = storedPreferences?.themeBackdropSeed ?? 0;
+  const setThemeBackdropSeed = useCallback(
+    (value: number) => {
+      updatePreferences({ themeBackdropSeed: value });
+    },
+    [updatePreferences],
+  );
 
   const value = useMemo(
     (): AppearancePreferencesContextValue => ({
@@ -340,6 +350,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeBackdropIntensity,
       themeBackdropGlow,
       setThemeBackdropGlow,
+      themeBackdropSeed,
+      setThemeBackdropSeed,
     }),
     [
       appearance,
@@ -367,6 +379,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeBackdropIntensity,
       themeBackdropGlow,
       setThemeBackdropGlow,
+      themeBackdropSeed,
+      setThemeBackdropSeed,
     ],
   );
 

@@ -15,6 +15,7 @@ const options: SplatterRenderOptions = {
   appearance: "dark",
   intensity: 1,
   glow: false,
+  seed: 0,
 };
 
 describe("parseOklch", () => {
@@ -95,6 +96,31 @@ describe("renderSplatterCluster", () => {
     );
     expect(paintAlpha(renderSplatterCluster("a", { ...options, intensity: 50 }))).toBe(1);
     expect(paintAlpha(renderSplatterCluster("a", { ...options, intensity: 0 }))).toBe(0);
+  });
+
+  it("draws a different pattern per seed, and the same one again for a seed", () => {
+    const original = renderSplatterCluster("a", options);
+    const seeded = renderSplatterCluster("a", { ...options, seed: 42 });
+    expect(seeded).not.toBe(original);
+    expect(renderSplatterCluster("a", { ...options, seed: 42 })).toBe(seeded);
+    expect(renderSplatterCluster("a", { ...options, seed: 43 })).not.toBe(seeded);
+    // Evicted and regrown after cycling past the cache, still identical.
+    for (let seed = 100; seed < 110; seed += 1) renderSplatterCluster("a", { ...options, seed });
+    expect(renderSplatterCluster("a", { ...options, seed: 42 })).toBe(seeded);
+    expect(renderSplatterCluster("a", options)).toBe(original);
+  });
+
+  it("keeps every seeded splat inside the frame", () => {
+    for (const seed of [1, 7, 999, 123456]) {
+      for (const match of renderSplatterCluster("b", { ...options, seed }).matchAll(
+        /<circle cx="([\d.-]+)" cy="([\d.-]+)" r="[\d.]+" fill="url/g,
+      )) {
+        expect(Number(match[1])).toBeGreaterThanOrEqual(0.05 * 600 - 0.1);
+        expect(Number(match[1])).toBeLessThanOrEqual(0.95 * 600 + 0.1);
+        expect(Number(match[2])).toBeGreaterThanOrEqual(0.05 * 600 - 0.1);
+        expect(Number(match[2])).toBeLessThanOrEqual(0.95 * 600 + 0.1);
+      }
+    }
   });
 
   it("adds stroke halos only in glow mode", () => {

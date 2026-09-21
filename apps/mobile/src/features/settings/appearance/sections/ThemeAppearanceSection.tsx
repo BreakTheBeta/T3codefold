@@ -19,9 +19,11 @@ import { getMobileUniwindThemeName } from "../../../../lib/mobileThemeRuntime";
 import { cn } from "../../../../lib/cn";
 import {
   MAX_THEME_BACKDROP_INTENSITY,
+  MAX_THEME_BACKDROP_SEED,
   MIN_THEME_BACKDROP_INTENSITY,
   type ThemeBackdropScope,
 } from "@t3tools/contracts";
+import { SettingsActionRow } from "../../components/SettingsActionRow";
 import { SettingsChoiceRow } from "../../components/SettingsChoiceRow";
 import { SettingsSection } from "../../components/SettingsSection";
 import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
@@ -323,6 +325,8 @@ export function ThemeAppearanceSection() {
     setThemeBackdropIntensity,
     themeBackdropGlow,
     setThemeBackdropGlow,
+    themeBackdropSeed,
+    setThemeBackdropSeed,
   } = useAppearancePreferences();
 
   return (
@@ -403,6 +407,26 @@ export function ThemeAppearanceSection() {
               onValueChange={setThemeBackdropGlow}
               value={themeBackdropGlow}
             />
+            <SettingsActionRow
+              disabled={!isReady}
+              icon="arrow.clockwise"
+              label={
+                themeBackdropSeed === 0
+                  ? "Shuffle pattern"
+                  : `Shuffle pattern (#${themeBackdropSeed})`
+              }
+              onPress={() =>
+                setThemeBackdropSeed(1 + Math.floor(Math.random() * MAX_THEME_BACKDROP_SEED))
+              }
+            />
+            {themeBackdropSeed !== 0 ? (
+              <SettingsActionRow
+                disabled={!isReady}
+                icon="paintbrush"
+                label="Original pattern"
+                onPress={() => setThemeBackdropSeed(0)}
+              />
+            ) : null}
           </>
         ) : null}
       </SettingsSection>

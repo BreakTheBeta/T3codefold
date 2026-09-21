@@ -351,6 +351,8 @@ export interface SplatterRenderOptions {
   readonly intensity: number;
   /** Neon mode: stronger bloom and a stroke halo around every mark. */
   readonly glow: boolean;
+  /** Pattern variant; 0 is the original art. */
+  readonly seed: number;
 }
 
 const BASE_ALPHA = {
@@ -367,13 +369,35 @@ type SplatMarkup = {
   readonly haze: string;
 };
 
-const markupCache = new Map<"a" | "b", ReadonlyArray<SplatMarkup>>();
+/** Enough for a dark/light pair of both clusters plus the seed being dragged to. */
+const MARKUP_CACHE_LIMIT = 6;
+const markupCache = new Map<string, ReadonlyArray<SplatMarkup>>();
 
-/** Colourless markup for one cluster, grown on first use and then reused. */
-function clusterMarkup(cluster: "a" | "b"): ReadonlyArray<SplatMarkup> {
-  const cached = markupCache.get(cluster);
+/**
+ * Where a splat lands for a given user seed. Seed 0 is the original art,
+ * untouched. Any other seed moves each splat a little and rescales it, but
+ * only a little: far enough that the pattern reads as new, near enough that
+ * the corner clusters keep the centre column clear on every seed.
+ */
+function placementFor(spec: Placement, seed: number): Placement {
+  if (seed === 0) return spec;
+  const random = makeRandom(Math.imul(spec.seed, 0x9e3779b1) ^ Math.imul(seed, 0x85ebca6b));
+  return {
+    x: Math.min(0.95, Math.max(0.05, spec.x + (random() - 0.5) * 0.16)),
+    y: Math.min(0.95, Math.max(0.05, spec.y + (random() - 0.5) * 0.16)),
+    radius: spec.radius * (0.8 + random() * 0.4),
+    hue: spec.hue,
+    seed: (spec.seed ^ Math.imul(seed, 0x27d4eb2f)) >>> 0,
+  };
+}
+
+/** Colourless markup for one cluster and seed, grown on first use and then reused. */
+function clusterMarkup(cluster: "a" | "b", seed: number): ReadonlyArray<SplatMarkup> {
+  const key = `${cluster}:${seed}`;
+  const cached = markupCache.get(key);
   if (cached) return cached;
-  const markup = CLUSTERS[cluster].map((spec) => {
+  const markup = CLUSTERS[cluster].map((base) => {
+    const spec = placementFor(base, seed);
     const cx = spec.x * SIZE;
     const cy = spec.y * SIZE;
     const { paths, drops, haze } = splatter(cx, cy, spec.radius, makeRandom(spec.seed));
@@ -402,7 +426,9 @@ function clusterMarkup(cluster: "a" | "b"): ReadonlyArray<SplatMarkup> {
           .join(""),
     };
   });
-  markupCache.set(cluster, markup);
+  // Oldest out first: a Map iterates in insertion order.
+  if (markupCache.size >= MARKUP_CACHE_LIMIT) markupCache.delete(markupCache.keys().next().value!);
+  markupCache.set(key, markup);
   return markup;
 }
 
@@ -418,7 +444,7 @@ export function renderSplatterCluster(cluster: "a" | "b", options: SplatterRende
   const glows: Array<string> = [];
   const layers: Array<string> = [];
 
-  clusterMarkup(cluster).forEach((splat, index) => {
+  clusterMarkup(cluster, options.seed).forEach((splat, index) => {
     const color = options.colors[splat.hue] ?? options.colors[0];
     defs.push(
       `<radialGradient id="g${index}">` +

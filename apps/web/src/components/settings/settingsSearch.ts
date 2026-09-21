@@ -232,6 +232,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["splat splatter strength opacity subtle bold"],
   },
   {
+    id: "theme-backdrop-seed",
+    title: "Splatter pattern",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter seed shuffle random pattern layout"],
+  },
+  {
     id: "theme-backdrop-glow",
     title: "Neon glow",
     to: "/settings/appearance",
