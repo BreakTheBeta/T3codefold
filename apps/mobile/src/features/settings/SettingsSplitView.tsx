@@ -17,14 +17,14 @@ import { SettingsSectionBody } from "./SettingsSectionBodies";
  * right, mirroring the web settings sidebar. Rows inside a section still push their
  * detail screens onto the settings stack.
  */
-export function SettingsSplitView() {
+export function SettingsSplitView(props: { readonly sectionListWidth: number }) {
   const insets = useSafeAreaInsets();
   const [section, setSection] = useState<SettingsSectionId>("general");
   const bottomPadding = Math.max(insets.bottom, 18) + 18;
 
   return (
     <View className="flex-1 flex-row">
-      <View className="w-[320px] border-r border-border-subtle">
+      <View className="border-r border-border-subtle" style={{ width: props.sectionListWidth }}>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}

@@ -5,6 +5,7 @@ import {
   deriveCenteredContentHorizontalPadding,
   deriveFileInspectorPaneLayout,
   deriveLayout,
+  deriveSettingsSectionListWidth,
   deriveThreadFeedInitialContentInset,
   deriveThreadWorkLogSizing,
   deriveWorkspacePaneLayout,
@@ -427,5 +428,24 @@ describe("deriveWorkspacePaneLayout", () => {
       auxiliaryPaneVisible: false,
       auxiliaryPaneWidth: null,
     });
+  });
+});
+
+describe("deriveSettingsSectionListWidth", () => {
+  it("drills in when the content pane beside the sidebar is foldable-narrow", () => {
+    const layout = deriveLayout({ width: 750, height: 840 });
+    const panes = deriveWorkspacePaneLayout({
+      layout,
+      viewportWidth: 750,
+      primarySidebarPreferredVisible: true,
+      auxiliaryPanePreferredVisible: false,
+    });
+
+    expect(deriveSettingsSectionListWidth(panes.contentPaneWidth)).toBeNull();
+  });
+
+  it("splits once the pane leaves the selected section a readable width", () => {
+    expect(deriveSettingsSectionListWidth(640)).toBe(260);
+    expect(deriveSettingsSectionListWidth(1000)).toBe(320);
   });
 });

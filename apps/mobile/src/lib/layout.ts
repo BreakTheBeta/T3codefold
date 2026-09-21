@@ -243,6 +243,27 @@ export function constrainAuxiliaryPaneWidth(input: {
   return clamp(Math.round(safePreferredWidth), AUXILIARY_PANE_MIN_WIDTH, maxWidth);
 }
 
+const SETTINGS_SPLIT_MIN_WIDTH = 640;
+const SETTINGS_SECTION_LIST_MIN_WIDTH = 260;
+const SETTINGS_SECTION_LIST_MAX_WIDTH = 320;
+
+/**
+ * Settings nests its own section list inside the workspace content pane, so it
+ * splits on the pane's width, not the window's. An unfolded foldable is wide
+ * enough for the thread sidebar but not for two more columns beside it.
+ * Returns the section list width, or null when settings should drill in instead.
+ */
+export function deriveSettingsSectionListWidth(contentPaneWidth: number): number | null {
+  if (!Number.isFinite(contentPaneWidth) || contentPaneWidth < SETTINGS_SPLIT_MIN_WIDTH) {
+    return null;
+  }
+  return clamp(
+    Math.round(contentPaneWidth * 0.36),
+    SETTINGS_SECTION_LIST_MIN_WIDTH,
+    SETTINGS_SECTION_LIST_MAX_WIDTH,
+  );
+}
+
 export function deriveCenteredContentHorizontalPadding(input: {
   readonly viewportWidth: number;
   readonly maxContentWidth: number | null;

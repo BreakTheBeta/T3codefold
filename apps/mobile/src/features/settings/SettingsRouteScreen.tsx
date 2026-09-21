@@ -3,6 +3,7 @@ import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { deriveSettingsSectionListWidth } from "../../lib/layout";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -16,8 +17,16 @@ import { resolveSettingsSectionRoute } from "./settingsSections.logic";
 
 export function SettingsRouteScreen() {
   const navigation = useNavigation();
-  const { layout } = useAdaptiveWorkspaceLayout();
-  const content = layout.usesSplitView ? <SettingsSplitView /> : <SettingsIndex />;
+  const { layout, panes } = useAdaptiveWorkspaceLayout();
+  const sectionListWidth = layout.usesSplitView
+    ? deriveSettingsSectionListWidth(panes.contentPaneWidth)
+    : null;
+  const content =
+    sectionListWidth === null ? (
+      <SettingsIndex />
+    ) : (
+      <SettingsSplitView sectionListWidth={sectionListWidth} />
+    );
 
   return (
     <>
