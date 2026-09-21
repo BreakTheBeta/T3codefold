@@ -28,6 +28,8 @@ interface PreviewAutomationFocusSession {
   nativeFocusElements: Set<HTMLElement>;
   windowBlurred: boolean;
   windowRefocused: boolean;
+  restoreFrame: number | null;
+  restoreTimeout: ReturnType<typeof setTimeout> | null;
   dispose: () => void;
 }
 
@@ -47,11 +49,17 @@ const startFocusSession = (): PreviewAutomationFocusSession => {
     nativeFocusElements: new Set(),
     windowBlurred: false,
     windowRefocused: false,
+    restoreFrame: null,
+    restoreTimeout: null,
     dispose: () => {},
   };
 
   const markPendingUserFocus = (event: Event): void => {
     if (!event.isTrusted) return;
+    if (session.activeOperations === 0) {
+      closeFocusSession(session);
+      return;
+    }
     session.pendingUserFocus = true;
     const version = ++session.pendingVersion;
     queueMicrotask(() => {
@@ -79,6 +87,15 @@ const startFocusSession = (): PreviewAutomationFocusSession => {
   };
   const onWindowFocus = (): void => {
     if (session.windowBlurred) session.windowRefocused = true;
+    // Native focus can arrive after the bridge promise resolves. Let the
+    // accompanying focusin event identify the restored host control first.
+    if (session.restoreFrame !== null) window.cancelAnimationFrame(session.restoreFrame);
+    session.restoreFrame = window.requestAnimationFrame(() => {
+      session.restoreFrame = null;
+      if (activeSession !== session) return;
+      session.windowBlurred = false;
+      if (session.activeOperations === 0) finishFocusSession(session);
+    });
   };
 
   if (typeof document !== "undefined") {
@@ -104,41 +121,61 @@ const startFocusSession = (): PreviewAutomationFocusSession => {
   return session;
 };
 
-/**
- * Keeps preview automation from changing focus in the shared renderer.
- */
+const closeFocusSession = (session: PreviewAutomationFocusSession): void => {
+  if (activeSession === session) activeSession = null;
+  if (session.restoreTimeout !== null) clearTimeout(session.restoreTimeout);
+  if (session.restoreFrame !== null) window.cancelAnimationFrame(session.restoreFrame);
+  session.dispose();
+};
+
+const finishFocusSession = (session: PreviewAutomationFocusSession): void => {
+  if (
+    !session.userFocusObserved &&
+    session.wasDocumentFocused &&
+    session.previouslyFocused?.isConnected &&
+    (!isDocumentFocused() || session.windowBlurred)
+  ) {
+    // Bound the native-event grace period: returning from another application
+    // much later must not revive a stale automation focus snapshot.
+    session.restoreTimeout ??= setTimeout(() => closeFocusSession(session), 1_000);
+    return;
+  }
+  closeFocusSession(session);
+  const activeElement = getMeaningfulActiveElement();
+  const activeFocusIsExpected =
+    !activeElement ||
+    activeElement === session.previouslyFocused ||
+    session.nativeFocusElements.has(activeElement);
+  if (
+    !session.userFocusObserved &&
+    session.wasDocumentFocused &&
+    !session.windowBlurred &&
+    isDocumentFocused() &&
+    session.previouslyFocused?.isConnected &&
+    activeFocusIsExpected &&
+    activeElement !== session.previouslyFocused
+  ) {
+    try {
+      session.previouslyFocused.focus({ preventScroll: true });
+    } catch {
+      // Focus restoration is best effort; never mask the automation result.
+    }
+  }
+};
+
+/** Keeps preview automation from changing focus in the shared renderer. */
 export async function withPreviewAutomationFocus<T>(operation: () => Promise<T>): Promise<T> {
   const session = activeSession ?? (activeSession = startFocusSession());
+  if (session.restoreTimeout !== null) {
+    clearTimeout(session.restoreTimeout);
+    session.restoreTimeout = null;
+  }
   session.activeOperations += 1;
 
   try {
     return await operation();
   } finally {
     session.activeOperations -= 1;
-    if (session.activeOperations === 0) {
-      if (activeSession === session) activeSession = null;
-      session.dispose();
-
-      const activeElement = getMeaningfulActiveElement();
-      const activeFocusIsExpected =
-        !activeElement ||
-        activeElement === session.previouslyFocused ||
-        session.nativeFocusElements.has(activeElement);
-      if (
-        !session.userFocusObserved &&
-        session.wasDocumentFocused &&
-        !session.windowBlurred &&
-        isDocumentFocused() &&
-        session.previouslyFocused?.isConnected &&
-        activeFocusIsExpected &&
-        activeElement !== session.previouslyFocused
-      ) {
-        try {
-          session.previouslyFocused.focus({ preventScroll: true });
-        } catch {
-          // Focus restoration is best effort; never mask the automation result.
-        }
-      }
-    }
+    if (session.activeOperations === 0) finishFocusSession(session);
   }
 }

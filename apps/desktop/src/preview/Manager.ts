@@ -6,6 +6,7 @@
  * here). Single layer-scoped browser session partition.
  */
 import * as NodeCrypto from "node:crypto";
+import { createAutomationFocusScope } from "./automationFocus.js";
 import {
   DesktopPreviewRecordingInputSchema,
   DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER,
@@ -3848,31 +3849,26 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
 
-  // Dispatching input moves keyboard focus into the guest renderer as a side
-  // effect. Hand it back to whatever had it before, so the user's next keystroke
-  // does not land in the previewed page, which may not even be visible.
-  const restoreFocusedWebContents = Effect.fn("PreviewManager.restoreFocusedWebContents")(
-    function* (
-      operation: string,
-      tabId: string,
-      wc: Electron.WebContents,
-      previouslyFocused: Electron.WebContents | null,
-    ) {
-      if (!previouslyFocused || previouslyFocused.id === wc.id || previouslyFocused.isDestroyed()) {
-        return;
-      }
-      // A newer selection the user made while the action ran wins over the restore.
-      const focusedNow = yield* attempt({ operation, tabId, webContentsId: wc.id }, () =>
-        webContents.getFocusedWebContents(),
-      ).pipe(Effect.orElseSucceed(() => null));
-      if (focusedNow && focusedNow.id !== wc.id && focusedNow.id !== previouslyFocused.id) {
-        return;
-      }
-      yield* attempt({ operation, tabId, webContentsId: previouslyFocused.id }, () =>
-        previouslyFocused.focus(),
-      ).pipe(Effect.ignore);
-    },
+  const beginAutomationFocus = createAutomationFocusScope(() =>
+    webContents.getFocusedWebContents(),
   );
+  const withAutomationFocus = Effect.fn("PreviewManager.withAutomationFocus")(function* (
+    tabId: string,
+    wc: Electron.WebContents,
+    action: Effect.Effect<void, PreviewManagerError>,
+  ) {
+    yield* Effect.acquireUseRelease(
+      attempt({ operation: "automation.getFocusedWebContents", tabId, webContentsId: wc.id }, () =>
+        beginAutomationFocus(wc),
+      ),
+      () => action,
+      (restore) =>
+        attempt(
+          { operation: "automation.restoreFocusedWebContents", tabId, webContentsId: wc.id },
+          restore,
+        ).pipe(Effect.ignore),
+    );
+  });
 
   const performAutomationClick = Effect.fn("PreviewManager.performAutomationClick")(function* (
     tabId: string,
@@ -3880,20 +3876,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     input: PreviewAutomationClickInput,
     send: SendCommand,
   ) {
-    const previouslyFocused = yield* attempt(
-      { operation: "automationClick.getFocusedWebContents", tabId, webContentsId: wc.id },
-      () => webContents.getFocusedWebContents(),
-    );
-    yield* dispatchAutomationClick(tabId, input, send).pipe(
-      Effect.ensuring(
-        restoreFocusedWebContents(
-          "automationClick.restoreFocusedWebContents",
-          tabId,
-          wc,
-          previouslyFocused,
-        ),
-      ),
-    );
+    yield* withAutomationFocus(tabId, wc, dispatchAutomationClick(tabId, input, send));
   });
 
   const dispatchAutomationClick = Effect.fn("PreviewManager.dispatchAutomationClick")(function* (
@@ -4429,7 +4412,11 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   ) {
     const wc = yield* requireWebContents(tabId);
     yield* withControlSession(tabId, wc, "press", (send, sendCleanup, checkControl) =>
-      performAutomationPress(tabId, wc, input, send, sendCleanup, checkControl),
+      withAutomationFocus(
+        tabId,
+        wc,
+        performAutomationPress(tabId, wc, input, send, sendCleanup, checkControl),
+      ),
     );
   });
 

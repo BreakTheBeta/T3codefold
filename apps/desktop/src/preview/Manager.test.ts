@@ -4125,21 +4125,28 @@ describe("PreviewManager", () => {
       withManager((manager) =>
         Effect.gen(function* () {
           let humanInput: ((_event: unknown, signal: unknown) => void) | undefined;
+          let focusedId = 7;
           const sendCommand = vi.fn(async (method: string, params?: Record<string, unknown>) => {
             if (method === "Runtime.evaluate") {
               return { result: { value: { width: 800, height: 600 } } };
             }
             if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed") {
+              focusedId = 42;
               humanInput?.({}, { kind: "pointer", x: params.x, y: params.y, button: 0 });
             }
             return undefined;
           });
-          const restoreFocus = vi.fn();
-          getFocusedWebContents.mockReturnValue({
-            id: 7,
-            isDestroyed: () => false,
-            focus: restoreFocus,
-          } as never);
+          const restoreFocus = vi.fn(() => {
+            focusedId = 7;
+          });
+          getFocusedWebContents.mockImplementation(
+            () =>
+              ({
+                id: focusedId,
+                isDestroyed: () => false,
+                focus: restoreFocus,
+              }) as never,
+          );
           fromId.mockReturnValue({
             id: 42,
             isDestroyed: () => false,
@@ -4191,7 +4198,7 @@ describe("PreviewManager", () => {
             .pipe(Effect.exit, Effect.forkChild({ startImmediately: true }));
           yield* TestClock.adjust(200);
           expect((yield* Fiber.join(offscreen))._tag).toBe("Failure");
-          expect(restoreFocus).toHaveBeenCalledTimes(2);
+          expect(restoreFocus).toHaveBeenCalledTimes(1);
 
           // Focus that moved to a third renderer while the click ran is left alone.
           getFocusedWebContents
@@ -4202,7 +4209,7 @@ describe("PreviewManager", () => {
             .pipe(Effect.forkChild({ startImmediately: true }));
           yield* TestClock.adjust(200);
           yield* Fiber.join(moved);
-          expect(restoreFocus).toHaveBeenCalledTimes(2);
+          expect(restoreFocus).toHaveBeenCalledTimes(1);
         }),
       ),
   );
