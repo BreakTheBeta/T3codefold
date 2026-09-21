@@ -26,6 +26,7 @@ import {
   ComboboxStatus,
 } from "./ui/combobox";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { MiddleTruncate } from "./ui/middle-truncate";
 
 /** Shared composer picker UI. The caller owns selection and any checkout mutations. */
 export function BranchPicker({
@@ -44,6 +45,7 @@ export function BranchPicker({
   originControl,
   popupProps,
   renderItem,
+  onSelectItem,
   getItemType,
   children,
 }: {
@@ -62,15 +64,21 @@ export function BranchPicker({
   originControl?: { checked: boolean; onCheckedChange: (checked: boolean) => void } | undefined;
   popupProps: Omit<ComponentProps<typeof ComboboxPopup>, "children">;
   renderItem: (value: string, index: number) => ReactNode;
+  /** Activates an item; Enter in the search field routes here too. */
+  onSelectItem: (value: string) => void;
   getItemType?: ((value: string) => string) | undefined;
   children: ReactNode;
 }) {
   const startFromOriginSwitchId = useId();
   const branchListScrollElementRef = useRef<HTMLElement | null>(null);
   const previousBranchListScrollTopRef = useRef<number | null>(null);
+  // Tracks the highlighted picker value so Enter can activate it even when the
+  // virtualized row is not mounted (Base UI Enter clicks the mounted element).
+  const highlightedValueRef = useRef<string | null>(null);
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       previousBranchListScrollTopRef.current = null;
+      if (!nextOpen) highlightedValueRef.current = null;
       onOpenChange(nextOpen);
     },
     [onOpenChange],
@@ -154,7 +162,8 @@ export function BranchPicker({
       filteredItems={filteredItems}
       autoHighlight
       virtualized
-      onItemHighlighted={(_value, eventDetails) => {
+      onItemHighlighted={(value, eventDetails) => {
+        highlightedValueRef.current = typeof value === "string" ? value : null;
         if (!open || eventDetails.index < 0 || eventDetails.reason !== "keyboard") {
           return;
         }
@@ -173,6 +182,22 @@ export function BranchPicker({
           placeholder="Search refs..."
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) {
+              return;
+            }
+            const highlightedValue = highlightedValueRef.current;
+            if (highlightedValue === null || !filteredItems.includes(highlightedValue)) {
+              return;
+            }
+            (
+              event as typeof event & { preventBaseUIHandler?: () => void }
+            ).preventBaseUIHandler?.();
+            event.preventDefault();
+            event.stopPropagation();
+            highlightedValueRef.current = null;
+            onSelectItem(highlightedValue);
+          }}
         />
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <ComboboxEmpty>No refs found.</ComboboxEmpty>
@@ -276,7 +301,7 @@ export function BranchPickerRefItem({
       onContextMenu={onContextMenu}
     >
       <div className="flex w-full min-w-0 items-center justify-between gap-2">
-        <span className="min-w-0 flex-1 truncate">{itemValue}</span>
+        <MiddleTruncate value={itemValue} className="flex-1" />
         {badge && <span className="shrink-0 text-[10px] text-muted-foreground/45">{badge}</span>}
       </div>
     </ComboboxItem>

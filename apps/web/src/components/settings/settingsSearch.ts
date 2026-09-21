@@ -669,13 +669,13 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "browser-recording-key-presses",
     title: "Show key presses in recordings",
-    to: "/settings/integrations",
+    to: "/settings/tools",
     searchTerms: ["browser preview keyboard shortcuts keystrokes overlay capture"],
   },
   {
     id: "browser-recording-mouse-presses",
     title: "Show mouse presses in recordings",
-    to: "/settings/integrations",
+    to: "/settings/tools",
     searchTerms: ["browser preview clicks buttons drag overlay capture"],
   },
   {
