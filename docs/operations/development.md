@@ -147,9 +147,12 @@ the problem:
 ccache only shares across worktrees because the build sets `CCACHE_BASEDIR` to the checkout root,
 which rewrites checkout-absolute paths to be relative before hashing, and relaxes the timestamp
 comparisons that differ between two pnpm copies of the same dependency. The Android NDK lives
-outside any checkout, so a toolchain change stays a miss, which is what you want. Those settings
-are only read when CMake configures, so a worktree that already configured `.cxx` before ccache was
-installed keeps missing until the next prebuild regenerates its native project.
+outside any checkout, so a toolchain change stays a miss, which is what you want. Precompiled
+headers are the exception to that path rewriting: they live under AGP's `.cxx/<variant>/<hash>`
+directory, whose hash derives from the absolute project path, so the same plugin turns PCH off for
+ccache builds. Leaving it on drops cross-worktree hits to about half. Those settings are only read
+when CMake configures, so a worktree that already configured `.cxx` before ccache was installed
+keeps missing until the next prebuild regenerates its native project.
 
 Do not try to share anything else. The generated `apps/mobile/android/` tree and its `.gradle`,
 `build`, and `.cxx` directories record absolute paths; symlinking or copying them between worktrees
