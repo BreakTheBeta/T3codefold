@@ -1,9 +1,9 @@
-import { ProjectIconColor, type ClientSettings } from "@t3tools/contracts";
+import type { ClientSettings } from "@t3tools/contracts";
 import {
   mergeDayStart,
   mergeSplats,
-  rememberMerges,
-  type MergedPullRequest,
+  mergesSince,
+  nextMergeDayStart,
 } from "@t3tools/shared/mergeSplatters";
 import type { ThemeAppearance } from "@t3tools/shared/themePalettes";
 import {
@@ -14,15 +14,12 @@ import {
   renderSplatterField,
   type SplatterRenderOptions,
 } from "@t3tools/shared/splatterBackdrop";
-import * as Schema from "effect/Schema";
-import { useEffect, useLayoutEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 
-import { useLocalStorage } from "./hooks/useLocalStorage";
 import { useMediaQuery } from "./hooks/useMediaQuery";
-import { useNowMinute } from "./hooks/useNowMinute";
 import { useClientSettings } from "./hooks/useSettings";
 import { useTheme } from "./hooks/useTheme";
-import { useProjects, useThreadShells } from "./state/entities";
+import { useMergedPullRequests } from "./state/entities";
 import {
   getStandardThemeColors,
   getThemeColorsForMode,
@@ -187,39 +184,43 @@ export function ThemeBackdropSync() {
   return options && themeBackdropDynamic ? <MergeSplatterSync options={options} /> : null;
 }
 
-const MERGES_STORAGE_KEY = "t3code:splatter-merges:v1";
-const MergedPullRequests = Schema.Array(
-  Schema.Struct({ key: Schema.String, color: ProjectIconColor, mergedAt: Schema.String }),
-);
-const NO_MERGES: ReadonlyArray<MergedPullRequest> = [];
+/**
+ * Epoch ms of the last 6am. One timer wakes at the next rollover; returning
+ * to the tab re-reads the clock, since a sleeping machine can hold a timer
+ * past it. An unchanged reading sets the same number, which React skips.
+ */
+function useMergeDayStart(): number {
+  const [since, setSince] = useState(() => mergeDayStart(new Date()).getTime());
+  useEffect(() => {
+    let timer = 0;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(refresh, nextMergeDayStart(new Date()) - Date.now());
+    };
+    const refresh = () => {
+      setSince(mergeDayStart(new Date()).getTime());
+      schedule();
+    };
+    schedule();
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+  return since;
+}
 
 /**
  * Dynamic mode: paints a splat for each PR merged since 6am, as its own
- * layer so a merge re-renders only the few splats it adds to. Mounted only
- * while the mode is on, so the thread list is not watched otherwise.
+ * layer so a merge redraws only that layer. Mounted only while the mode is
+ * on, so nothing is derived otherwise.
  */
 function MergeSplatterSync({ options }: { readonly options: SplatterRenderOptions }) {
-  const threads = useThreadShells();
-  const projects = useProjects();
+  const allMerges = useMergedPullRequests();
+  const since = useMergeDayStart();
   const compact = useMediaQuery("(max-width: 640px)");
-  const minute = useNowMinute();
-  // The minute clock only moves `since` when the day rolls over at 6am.
-  const since = mergeDayStart(new Date(`${minute}Z`)).getTime();
-  const [remembered, setRemembered] = useLocalStorage(
-    MERGES_STORAGE_KEY,
-    NO_MERGES,
-    MergedPullRequests,
-  );
-
-  useEffect(() => {
-    const next = rememberMerges(remembered, threads, projects, new Date(since));
-    if (next !== remembered) setRemembered(next);
-  }, [remembered, setRemembered, threads, projects, since]);
-
-  const merges = useMemo(
-    () => rememberMerges(remembered, [], [], new Date(since)),
-    [remembered, since],
-  );
+  const merges = useMemo(() => mergesSince(allMerges, since), [allMerges, since]);
 
   useLayoutEffect(() => {
     const root = document.documentElement;

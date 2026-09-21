@@ -2,7 +2,14 @@
 import { ProjectId, type ThreadPullRequestLink } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { mergeDayStart, projectSplatterColor, rememberMerges } from "./mergeSplatters.ts";
+import {
+  collectMergedPullRequests,
+  mergeDayStart,
+  mergesSince,
+  nextMergeDayStart,
+  projectSplatterColor,
+  sameMerges,
+} from "./mergeSplatters.ts";
 import { renderMergeSplatters } from "./splatterBackdrop.ts";
 
 const projectId = ProjectId.make("project-1");
@@ -46,28 +53,29 @@ describe("mergeDayStart", () => {
   it("rolls over at 6am local", () => {
     expect(mergeDayStart(at(9))).toEqual(new Date(2026, 8, 21, 6));
     expect(mergeDayStart(at(5))).toEqual(new Date(2026, 8, 20, 6));
+    expect(nextMergeDayStart(at(5))).toBe(new Date(2026, 8, 21, 6).getTime());
+    expect(nextMergeDayStart(at(9))).toBe(new Date(2026, 8, 22, 6).getTime());
   });
 });
 
-describe("rememberMerges", () => {
-  const since = mergeDayStart(at(12));
+describe("merged pull requests", () => {
+  const since = mergeDayStart(at(12)).getTime();
 
   it("keeps each of today's merges once, in the project's colour", () => {
-    const merges = rememberMerges(
-      [],
+    const merges = collectMergedPullRequests(
       [thread([link(1, at(8)), link(2, at(5)), link(3, null, "open")]), thread([link(1, at(8))])],
       [project],
-      since,
     );
-    expect(merges).toEqual([
+    expect(mergesSince(merges, since)).toEqual([
       { key: "github.com/acme/app#1", color: "teal", mergedAt: at(8).toISOString() },
     ]);
   });
 
-  it("keeps remembered merges after their thread leaves the list, until the rollover", () => {
-    const merges = rememberMerges([], [thread([link(1, at(8))])], [project], since);
-    expect(rememberMerges(merges, [], [], since)).toBe(merges);
-    expect(rememberMerges(merges, [], [], mergeDayStart(at(7, 22)))).toEqual([]);
+  it("collects the same list from the same threads, and is empty after the rollover", () => {
+    const threads = [thread([link(1, at(8))])];
+    const merges = collectMergedPullRequests(threads, [project]);
+    expect(sameMerges(merges, collectMergedPullRequests(threads, [project]))).toBe(true);
+    expect(mergesSince(merges, mergeDayStart(at(7, 22)).getTime())).toEqual([]);
   });
 });
 

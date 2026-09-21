@@ -755,6 +755,47 @@ function hashKey(key: string): number {
 const COMPACT_MERGE_WIDTH = 600;
 const COMPACT_MERGE_HEIGHT = 1200;
 
+type MergeGeometry = Omit<SplatMarkup, "hue">;
+
+/** The most splats one layer paints, newest kept, so a busy day stays cheap. */
+const MAX_MERGE_SPLATS = 40;
+/** A capped day of merges in both frames, with room to spare. */
+const MERGE_CACHE_LIMIT = MAX_MERGE_SPLATS * 3;
+const mergeGeometryCache = new Map<string, MergeGeometry>();
+
+/**
+ * Colourless markup for one merge's splat. Cached, so a new merge grows only
+ * its own splat and a theme change regrows none.
+ */
+function mergeGeometry(key: string, compact: boolean): MergeGeometry {
+  const cacheKey = `${compact ? "c" : "w"}:${key}`;
+  const cached = mergeGeometryCache.get(cacheKey);
+  if (cached) return cached;
+  const [width, height] = compact
+    ? [COMPACT_MERGE_WIDTH, COMPACT_MERGE_HEIGHT]
+    : [FIELD_WIDTH, FIELD_HEIGHT];
+  const random = makeRandom(hashKey(key));
+  let u = random.range(0.06, 0.94);
+  // Fold centre-column landings out to the sides, keeping which side they chose.
+  if (!compact && Math.abs(u - 0.5) < 0.2) u += u < 0.5 ? -0.2 : 0.2;
+  const x = u * width;
+  const y = random.range(0.08, 0.9) * height;
+  const radius = random.range(9, 20) * (compact ? 1.4 : 1);
+  const { paths, drops, haze } = splatter(x, y, radius, random);
+  const geometry = {
+    x,
+    y,
+    radius,
+    marks: paths.map((d) => `<path d="${d}"/>`).join("") + drops.map(dropMarkup).join(""),
+    haze: haze.map(hazeMarkup).join(""),
+  };
+  if (mergeGeometryCache.size >= MERGE_CACHE_LIMIT) {
+    mergeGeometryCache.delete(mergeGeometryCache.keys().next().value!);
+  }
+  mergeGeometryCache.set(cacheKey, geometry);
+  return geometry;
+}
+
 /**
  * The dynamic layer: one splat per pull request merged today, each in its
  * repository's colour. Where a splat lands and how it is shaped come from
@@ -769,34 +810,25 @@ export function renderMergeSplatters(
   options: SplatterRenderOptions,
   compact = false,
 ): string {
-  const [width, height] = compact
-    ? [COMPACT_MERGE_WIDTH, COMPACT_MERGE_HEIGHT]
-    : [FIELD_WIDTH, FIELD_HEIGHT];
   const { bloom } = alphas(options);
   let defs = "";
   let glows = "";
   let body = "";
-  splats.forEach((splat, index) => {
-    const random = makeRandom(hashKey(splat.key));
-    let u = random.range(0.06, 0.94);
-    // Fold centre-column landings out to the sides, keeping which side they chose.
-    if (!compact && Math.abs(u - 0.5) < 0.2) u += u < 0.5 ? -0.2 : 0.2;
-    const x = u * width;
-    const y = random.range(0.08, 0.9) * height;
-    const radius = random.range(9, 20) * (compact ? 1.4 : 1);
-    const { paths, drops, haze } = splatter(x, y, radius, random);
-    const [gradient, marks] = [`mg${index}`, `mm${index}`];
+  // Each splat is ~10 kB of markup; the newest cap's worth is plenty of paint.
+  splats.slice(-MAX_MERGE_SPLATS).forEach((splat, index) => {
+    const { x, y, radius, marks, haze } = mergeGeometry(splat.key, compact);
+    const [gradient, id] = [`mg${index}`, `mm${index}`];
     defs +=
       `<radialGradient id="${gradient}">` +
       `<stop offset="0" stop-color="${splat.color}" stop-opacity="${bloom}"/>` +
       `<stop offset="1" stop-color="${splat.color}" stop-opacity="0"/></radialGradient>` +
-      `<g id="${marks}">${paths.map((d) => `<path d="${d}"/>`).join("")}${drops.map(dropMarkup).join("")}</g>`;
+      `<g id="${id}">${marks}</g>`;
     glows += `<circle cx="${round(x)}" cy="${round(y)}" r="${round(radius * 4.6)}" fill="url(#${gradient})"/>`;
-    body += paintLayers(marks, splat.color, haze.map(hazeMarkup).join(""), options);
+    body += paintLayers(id, splat.color, haze, options);
   });
   return svgDocument(
-    width,
-    height,
+    compact ? COMPACT_MERGE_WIDTH : FIELD_WIDTH,
+    compact ? COMPACT_MERGE_HEIGHT : FIELD_HEIGHT,
     `<defs>${defs}</defs>${glows}${body}`,
     ` preserveAspectRatio="xMidYMid slice"`,
   );

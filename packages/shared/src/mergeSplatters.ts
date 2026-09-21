@@ -4,9 +4,10 @@
  * merged since the day last rolled over at 6am local time, in the colour of
  * the project it merged in.
  *
- * Clients remember what they have seen in local storage, because the thread
- * a PR is linked to is often archived right after the merge and drops out of
- * the live thread list. The remembered list is pruned at the rollover.
+ * Stateless: everything derives from the PR links already on the client's
+ * thread shells, across every connected environment. Merged threads settle
+ * rather than archive, so they stay in that list; a thread archived by hand
+ * takes its splat with it.
  */
 import {
   ProjectIconColor,
@@ -63,42 +64,67 @@ type ScopedProject = Pick<OrchestrationProjectShell, "id" | "title" | "projectIc
 };
 
 /**
- * Folds the merges visible in these threads into `remembered`, dropping any
- * from before `since`. Returns `remembered` itself when nothing changed, so
- * callers can skip a write.
+ * Every merged PR on these threads, once each, oldest merge first so later
+ * splats paint over earlier ones. Callers narrow it to the day with
+ * `mergesSince`; keeping time out of here lets the result be memoized on the
+ * thread list alone.
  */
-export function rememberMerges(
-  remembered: ReadonlyArray<MergedPullRequest>,
+export function collectMergedPullRequests(
   threads: ReadonlyArray<ScopedThread>,
   projects: ReadonlyArray<ScopedProject>,
-  since: Date,
 ): ReadonlyArray<MergedPullRequest> {
-  const cutoff = since.getTime();
-  const isToday = (mergedAt: string) => Date.parse(mergedAt) >= cutoff;
-  const kept = remembered.filter((merge) => isToday(merge.mergedAt));
-  const seen = new Set(kept.map((merge) => merge.key));
-  const added: Array<MergedPullRequest> = [];
+  const merges = new Map<string, MergedPullRequest>();
+  let colors: Map<string, ProjectIconColor> | null = null;
   for (const thread of threads) {
     for (const link of thread.pullRequests) {
       const mergedAt = link.snapshot?.state === "merged" ? link.snapshot.mergedAt : null;
-      if (!mergedAt || link.source === "stack-dismissed" || !isToday(mergedAt)) continue;
-      const key = `${link.host}/${link.repository}#${link.number}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const project = projects.find(
-        (candidate) =>
-          candidate.id === thread.projectId && candidate.environmentId === thread.environmentId,
+      if (!mergedAt || link.source === "stack-dismissed") continue;
+      const key = `${link.host}/${link.repository}#${link.number}`.toLowerCase();
+      if (merges.has(key)) continue;
+      // Built lazily: most thread lists carry no merged link at all.
+      colors ??= new Map(
+        projects.map((project) => [
+          `${project.environmentId}:${project.id}`,
+          projectSplatterColor(project),
+        ]),
       );
-      added.push({
-        key,
-        color: project ? projectSplatterColor(project) : "gray",
-        mergedAt,
-      });
+      const color = colors.get(`${thread.environmentId}:${thread.projectId}`) ?? "gray";
+      merges.set(key, { key, color, mergedAt });
     }
   }
-  if (added.length === 0 && kept.length === remembered.length) return remembered;
   // Hermes has no toSorted; this array is fresh.
-  return [...kept, ...added].sort((a, b) => Date.parse(a.mergedAt) - Date.parse(b.mergedAt));
+  return [...merges.values()].sort((a, b) => Date.parse(a.mergedAt) - Date.parse(b.mergedAt));
+}
+
+/** Whether two collected lists would paint the same splats. */
+export function sameMerges(
+  a: ReadonlyArray<MergedPullRequest>,
+  b: ReadonlyArray<MergedPullRequest>,
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (merge, index) =>
+        merge.key === b[index]?.key &&
+        merge.color === b[index]?.color &&
+        merge.mergedAt === b[index]?.mergedAt,
+    )
+  );
+}
+
+/** The merges on or after `since` (epoch ms), in order. */
+export function mergesSince(
+  merges: ReadonlyArray<MergedPullRequest>,
+  since: number,
+): ReadonlyArray<MergedPullRequest> {
+  return merges.filter((merge) => Date.parse(merge.mergedAt) >= since);
+}
+
+/** Epoch ms of the next rollover after `now`, for a single wake-up timer. */
+export function nextMergeDayStart(now: Date): number {
+  const next = mergeDayStart(now);
+  next.setDate(next.getDate() + 1);
+  return next.getTime();
 }
 
 /** Tailwind's 500 shades, which the project icon swatches use. */

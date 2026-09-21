@@ -1,8 +1,8 @@
 import {
   mergeDayStart,
   mergeSplats,
-  rememberMerges,
-  type MergedPullRequest,
+  mergesSince,
+  nextMergeDayStart,
 } from "@t3tools/shared/mergeSplatters";
 import {
   renderMergeSplatters,
@@ -13,10 +13,10 @@ import {
 } from "@t3tools/shared/splatterBackdrop";
 import { Image } from "expo-image";
 import { memo, useEffect, useMemo, useState } from "react";
-import { Image as RNImage, useWindowDimensions } from "react-native";
+import { AppState, Image as RNImage, useWindowDimensions } from "react-native";
 
 import { themeSplatterColors } from "../../lib/splatterColors";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useMergedPullRequests } from "../../state/entities";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 
 /**
@@ -143,11 +143,32 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
 });
 
 /**
- * The day's merges, kept for the life of the app process: a PR's thread is
- * often archived right after it merges and leaves the thread list, and the
- * splat should outlive that. Web persists the same list in local storage.
+ * Epoch ms of the last 6am. One timer wakes at the next rollover; coming back
+ * to the foreground re-reads the clock, since a suspended app holds timers.
  */
-let rememberedMerges: ReadonlyArray<MergedPullRequest> = [];
+function useMergeDayStart(): number {
+  const [since, setSince] = useState(() => mergeDayStart(new Date()).getTime());
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(refresh, nextMergeDayStart(new Date()) - Date.now());
+    };
+    const refresh = () => {
+      setSince(mergeDayStart(new Date()).getTime());
+      schedule();
+    };
+    schedule();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => {
+      clearTimeout(timer);
+      subscription.remove();
+    };
+  }, []);
+  return since;
+}
 
 /** Dynamic mode: a splat per PR merged since 6am, in its project's colour. */
 const MergeSplatters = memo(function MergeSplatters({
@@ -159,25 +180,9 @@ const MergeSplatters = memo(function MergeSplatters({
   readonly width: number;
   readonly height: number;
 }) {
-  const threads = useThreadShells();
-  const projects = useProjects();
-  const [since, setSince] = useState(() => mergeDayStart(new Date()).getTime());
-  const [merges, setMerges] = useState(rememberedMerges);
-  // Wake at the next rollover rather than polling a clock.
-  useEffect(() => {
-    const timer = setTimeout(
-      () => setSince(mergeDayStart(new Date()).getTime()),
-      since + 24 * 60 * 60 * 1000 - Date.now(),
-    );
-    return () => clearTimeout(timer);
-  }, [since]);
-
-  useEffect(() => {
-    const next = rememberMerges(rememberedMerges, threads, projects, new Date(since));
-    if (next === rememberedMerges) return;
-    rememberedMerges = next;
-    setMerges(next);
-  }, [threads, projects, since]);
+  const allMerges = useMergedPullRequests();
+  const since = useMergeDayStart();
+  const merges = useMemo(() => mergesSince(allMerges, since), [allMerges, since]);
 
   const source = useMemo(
     () =>
