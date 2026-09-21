@@ -46,7 +46,8 @@ export function SettingsThreadsRouteScreen() {
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         >
           <AutoSettleSettingsRows />
-          <LegacySettingsSection />
+          <LegacyThreadListSection />
+          <PlanModeSection />
         </ScrollView>
       </SettingsScreen>
     </>
@@ -58,7 +59,7 @@ const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_SERVER_SETTINGS.sidebarAutoSettleAfterD
 /**
  * Mobile edits auto-settle defaults across selected capable targets.
  */
-function AutoSettleSettingsRows() {
+export function AutoSettleSettingsRows() {
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
   const projectSelected = selectedProjectKey !== null;
@@ -229,27 +230,31 @@ function AutoSettleSettingsRows() {
   );
 }
 
-/**
- * Device-local legacy toggles. Mobile has no client-settings sync, so this is
- * the counterpart of web's Settings → General → Legacy features backed by
- * mobile preferences.
- */
-function LegacySettingsSection() {
+/** Device-local: restores the retired thread list. */
+export function LegacyThreadListSection() {
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const threadListV2Enabled = useThreadListV2Enabled();
+  return (
+    <SettingsSection title="Legacy">
+      <SettingsSwitchRow
+        icon="sidebar.left"
+        label="Legacy Thread List"
+        value={!threadListV2Enabled}
+        onValueChange={(value) => savePreferences({ legacyThreadListEnabled: value })}
+      />
+    </SettingsSection>
+  );
+}
+
+/** Device-local: restores the Build/Plan control in the composer. */
+export function PlanModeSection() {
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const threadListV2Enabled = useThreadListV2Enabled();
   const planModeEnabled =
     AsyncResult.isSuccess(preferences) && preferences.value.planModeEnabled === true;
-
   return (
     <View className="gap-3">
       <SettingsSection title="Legacy">
-        <SettingsSwitchRow
-          icon="sidebar.left"
-          label="Legacy Thread List"
-          value={!threadListV2Enabled}
-          onValueChange={(value) => savePreferences({ legacyThreadListEnabled: value })}
-        />
         <SettingsSwitchRow
           icon="hammer"
           label="Plan Mode"
@@ -258,8 +263,7 @@ function LegacySettingsSection() {
         />
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
-        Opt into retired interfaces kept for compatibility. Plan Mode restores the Build/Plan
-        control; otherwise every task runs in Build mode.
+        Restores the Build/Plan control. Otherwise every task runs in Build mode.
       </Text>
     </View>
   );

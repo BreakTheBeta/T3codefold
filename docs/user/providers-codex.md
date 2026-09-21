@@ -1,7 +1,7 @@
 # Codex
 
 For one account, use the default Codex provider with your normal Codex login.
-[Provider setup](./install.md#providers) covers installation, Settings > Providers,
+[Provider setup](./install.md#providers) covers installation, Settings > Agents,
 and custom binaries or environment variables.
 
 ## Use multiple accounts
@@ -18,7 +18,7 @@ mkdir -p ~/.codex_personal
 CODEX_HOME=~/.codex_personal codex login
 ```
 
-Then add a second Codex instance in **Settings > Providers**:
+Then add a second Codex instance in **Settings > Agents**:
 
 | Instance       | CODEX_HOME path | Shadow home path    |
 | -------------- | --------------- | ------------------- |

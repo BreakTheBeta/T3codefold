@@ -37,12 +37,6 @@ const GROUPING_OPTIONS: ReadonlyArray<{
 
 export function SettingsProjectGroupingRouteScreen() {
   const insets = useSafeAreaInsets();
-  const preferencesResult = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
-  const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
-  const selectedMode = AsyncResult.isSuccess(preferencesResult)
-    ? resolveMobileProjectGroupingSettings(preferencesResult.value).sidebarProjectGroupingMode
-    : null;
 
   return (
     <SettingsScreen title="Organization">
@@ -53,20 +47,34 @@ export function SettingsProjectGroupingRouteScreen() {
         contentContainerClassName="gap-3 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        <SettingsSection title="Project grouping">
-          {GROUPING_OPTIONS.map((option, index) => (
-            <SettingsChoiceRow
-              key={option.mode}
-              label={option.label}
-              description={option.description}
-              selected={selectedMode === option.mode}
-              separated={index > 0}
-              disabled={!preferencesReady}
-              onPress={() => savePreferences(mobileProjectGroupingModePatch(option.mode))}
-            />
-          ))}
-        </SettingsSection>
+        <ProjectGroupingSection />
       </ScrollView>
     </SettingsScreen>
+  );
+}
+
+/** How the thread list groups workspaces into projects. Device-local. */
+export function ProjectGroupingSection() {
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
+  const selectedMode = AsyncResult.isSuccess(preferencesResult)
+    ? resolveMobileProjectGroupingSettings(preferencesResult.value).sidebarProjectGroupingMode
+    : null;
+
+  return (
+    <SettingsSection title="Project grouping">
+      {GROUPING_OPTIONS.map((option, index) => (
+        <SettingsChoiceRow
+          key={option.mode}
+          label={option.label}
+          description={option.description}
+          selected={selectedMode === option.mode}
+          separated={index > 0}
+          disabled={!preferencesReady}
+          onPress={() => savePreferences(mobileProjectGroupingModePatch(option.mode))}
+        />
+      ))}
+    </SettingsSection>
   );
 }

@@ -29,6 +29,54 @@ export const PitbossBrief = Schema.Struct({
   verificationMode: Schema.optional(Schema.Literals(["user-approved", "automatic"])),
 });
 export type PitbossBrief = typeof PitbossBrief.Type;
+export const PITBOSS_DEFAULT_QUALITY =
+  "Show evidence that the requested outcome works and preserve existing behavior outside scope.";
+export const PITBOSS_DEFAULT_MODEL_GUIDANCE =
+  "Use the default worker for well-scoped implementation and verification. Choose the alternative when the task needs a different strength, deeper investigation, or recovery from a blocker. Explain the choice and keep the verification standard the same.";
+/** The brief every client starts from, so GLaDOS behaves the same wherever it was set up. */
+export function defaultPitbossBrief(input: {
+  workerModel: ModelSelection;
+  projectIds: ReadonlyArray<ProjectId>;
+  priorities?: string;
+}): PitbossBrief {
+  return withPitbossAutonomy(
+    {
+      priorities: input.priorities ?? "",
+      quality: PITBOSS_DEFAULT_QUALITY,
+      projectIds: [...input.projectIds],
+      maxWorkers: 3,
+      maxAttempts: 3,
+      workerModel: input.workerModel,
+      managedPeerIds: [],
+    },
+    "ask",
+  );
+}
+/**
+ * Autonomy is the one permission choice users make. It sets GLaDOS permissions, worker
+ * permissions and verification together; "custom" only describes older mixed briefs.
+ */
+export type PitbossAutonomy = "ask" | "full-auto";
+export function pitbossAutonomy(brief: PitbossBrief): PitbossAutonomy | "custom" {
+  const full =
+    brief.coordinatorRuntimeMode === "full-access" &&
+    brief.workerRuntimeMode === "full-access" &&
+    brief.verificationMode === "automatic";
+  const ask =
+    (brief.coordinatorRuntimeMode ?? "approval-required") === "approval-required" &&
+    (brief.workerRuntimeMode ?? "approval-required") === "approval-required" &&
+    (brief.verificationMode ?? "user-approved") === "user-approved";
+  return full ? "full-auto" : ask ? "ask" : "custom";
+}
+export function withPitbossAutonomy(brief: PitbossBrief, autonomy: PitbossAutonomy): PitbossBrief {
+  const full = autonomy === "full-auto";
+  return {
+    ...brief,
+    coordinatorRuntimeMode: full ? "full-access" : "approval-required",
+    workerRuntimeMode: full ? "full-access" : "approval-required",
+    verificationMode: full ? "automatic" : "user-approved",
+  };
+}
 export const PitbossRole = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
@@ -406,6 +454,8 @@ export const PitbossAction = Schema.Union([
     brief: PitbossBrief,
   }),
   Schema.Struct({ type: Schema.Literal("dismiss") }),
+  /** Cancels open local work and gives GLaDOS a fresh home thread; the brief is kept. */
+  Schema.Struct({ type: Schema.Literal("reset") }),
   Schema.Struct({ type: Schema.Literal("pause"), paused: Schema.Boolean }),
   Schema.Struct({
     type: Schema.Literal("brief"),

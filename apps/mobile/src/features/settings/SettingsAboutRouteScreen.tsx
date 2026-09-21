@@ -34,7 +34,7 @@ export function SettingsAboutRouteScreen() {
   );
 }
 
-function AppSettingsSection() {
+export function AppSettingsSection() {
   const [updateState, setUpdateState] = useState<AppUpdateCheckState>("idle");
   const updateInFlight = useRef(false);
   const hiddenUpdateTapCount = useRef(0);

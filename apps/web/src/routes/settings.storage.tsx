@@ -1,4 +1,16 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { StorageSettingsPanel } from "../components/settings/StorageSettings";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/settings/storage")({ component: StorageSettingsPanel });
+/** Old settings URL; its content moved to /settings/git. */
+export const Route = createFileRoute("/settings/storage")({
+  beforeLoad: ({ location }) => {
+    if (location.hash === "storage-artifacts") {
+      throw redirect({ to: "/settings/about", search: true, hash: location.hash, replace: true });
+    }
+    throw redirect({
+      to: "/settings/git",
+      search: true,
+      hash: location.hash || "storage-worktrees",
+      replace: true,
+    });
+  },
+});

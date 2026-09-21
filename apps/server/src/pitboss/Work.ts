@@ -237,7 +237,7 @@ export function decide(
   // GLaDOS records the brief, pause, decision, permission and verification changes the user
   // asks for in conversation. Only electing the role stays with the user, because that is what
   // grants the authority every other command is checked against.
-  const userActions = ["activate-home", "elect"];
+  const userActions = ["activate-home", "elect", "reset"];
   if (userActions.includes(action.type) && !user)
     fail("Only the user can elect GLaDOS.", "forbidden");
   if (!["report", "submit", "request-decision"].includes(action.type) && !manager)
@@ -587,6 +587,38 @@ export function decide(
       },
     };
   if (action.type === "dismiss") return { ...next, role: null };
+  // Reset clears this environment's work before the home re-elects a fresh thread. The role and
+  // brief survive (with a new generation fencing the old coordinator) so a failed re-election
+  // can be retried. Mirrored tasks belong to their peer home; sources and peers are configuration.
+  if (action.type === "reset") {
+    if (!state.role) return fail("Activate GLaDOS first.");
+    return {
+      ...next,
+      role: { ...state.role, generation: next.revision },
+      tasks: state.tasks.map((task) =>
+        task.homeEnvironmentId || ["done", "cancelled"].includes(task.status)
+          ? task
+          : {
+              ...task,
+              status: "cancelled",
+              note: "Cancelled by GLaDOS reset",
+              closedAt: now,
+              closedReason: "Cancelled by GLaDOS reset",
+              acceptedEvidenceId: null,
+              reworkRequestedAt: undefined,
+              revisionRequest: undefined,
+              revision: task.revision + 1,
+              attempts: task.attempts.map((attempt) =>
+                ["pending", "running", "submitted"].includes(attempt.state)
+                  ? { ...attempt, state: "stop_requested" }
+                  : attempt,
+              ),
+            },
+      ),
+      leads: state.leads?.map((lead) => ({ ...lead, status: "dormant" })),
+      messages: state.messages.map((message) => ({ ...message, acknowledged: true })),
+    };
+  }
   if (action.type === "pause" || action.type === "brief") {
     if (!state.role) return fail("Activate GLaDOS first.");
     return {

@@ -21,11 +21,19 @@ export function SettingsAppearanceRouteScreen() {
           paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
-        <ThemeAppearanceSection />
-        <TextAppearanceSection />
-        <TerminalAppearanceSection />
-        <CodeAppearanceSection />
+        <AppearanceSettingsSections />
       </ScrollView>
     </SettingsScreen>
+  );
+}
+
+export function AppearanceSettingsSections() {
+  return (
+    <>
+      <ThemeAppearanceSection />
+      <TextAppearanceSection />
+      <TerminalAppearanceSection />
+      <CodeAppearanceSection />
+    </>
   );
 }

@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { IntegrationsSettingsPanel } from "../components/settings/IntegrationsSettings";
-
+/** Old settings URL; its content moved to /settings/tools. */
 export const Route = createFileRoute("/settings/integrations")({
-  component: IntegrationsSettingsPanel,
+  beforeLoad: ({ location }) => {
+    throw redirect({ to: "/settings/tools", search: true, hash: location.hash, replace: true });
+  },
 });

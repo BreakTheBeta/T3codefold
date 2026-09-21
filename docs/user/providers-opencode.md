@@ -1,7 +1,7 @@
 # OpenCode
 
 Install and authenticate OpenCode on the machine running your environment, then
-enable it in **Settings > Providers**. See [provider setup](./install.md#providers).
+enable it in **Settings > Agents**. See [provider setup](./install.md#providers).
 T3 Code requires OpenCode 1.14.19 or newer, including when you connect an existing
 OpenCode server.
 
@@ -35,7 +35,7 @@ does not stop the whole turn.
 ## Refresh models, commands, and skills
 
 After changing an OpenCode login or configuration, use **Refresh provider status**
-in **Settings > Providers** for that environment. On mobile, use **Refresh models**
+in **Settings > Agents** for that environment. On mobile, use **Refresh models**
 in the thread settings. Reconnecting also refreshes the catalog; periodic provider
 health checks do not.
 

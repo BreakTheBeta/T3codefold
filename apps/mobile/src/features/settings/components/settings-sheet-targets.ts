@@ -18,6 +18,8 @@ export type SettingsSheetTarget =
   | "SettingsClientStorage"
   | "SettingsDiagnostics"
   | "SettingsOpenSourceLicenses"
-  | "SettingsUsage";
+  | "SettingsUsage"
+  | "SettingsEnvironmentNew"
+  | "SettingsGlados";
 
 export type SettingsLegalDocumentTarget = "SettingsLegal";

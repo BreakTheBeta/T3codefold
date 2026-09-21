@@ -5,13 +5,15 @@ import {
   hasCurrentVerification,
   pitbossTaskNextAction,
   pitbossTaskNextActionLabel,
+  defaultPitbossBrief,
+  withPitbossAutonomy,
   type PitbossAction,
+  type PitbossAutonomy,
   type PitbossBrief,
   type PitbossMessage,
   type PitbossSnapshot,
   type PitbossTask,
   type ProjectId,
-  type ThreadId,
   type ModelSelection,
 } from "@t3tools/contracts";
 import { deriveLayout } from "../../lib/layout";
@@ -86,27 +88,19 @@ export function gladosInboxLayout(width: number, height: number) {
   return { split, listWidth: split ? Math.min(340, Math.max(280, width * 0.38)) : width };
 }
 
-/** Moving the role changes its address, not the user's operating agreement. */
-export function gladosElection(input: {
-  threadId: ThreadId;
-  projectId: ProjectId;
-  priorities: string;
+/** Setting up asks the server for an environment home with the brief every client starts from. */
+export function gladosSetup(input: {
   modelSelection: ModelSelection;
-  brief?: PitbossBrief;
+  projectIds: ReadonlyArray<ProjectId>;
+  priorities?: string;
 }): PitbossAction {
   return {
-    ...(input.brief
-      ? { type: "elect" as const, threadId: input.threadId, projectId: input.projectId }
-      : { type: "activate-home" as const }),
-    brief: input.brief ?? {
-      priorities: input.priorities,
-      quality: "Prove the requested outcome and preserve unrelated work.",
-      projectIds: [input.projectId],
-      maxWorkers: 10,
-      maxAttempts: 3,
+    type: "activate-home",
+    brief: defaultPitbossBrief({
       workerModel: input.modelSelection,
-      managedPeerIds: [],
-    },
+      projectIds: input.projectIds,
+      ...(input.priorities === undefined ? {} : { priorities: input.priorities }),
+    }),
   };
 }
 
@@ -133,17 +127,37 @@ export function gladosNewTask(input: {
   };
 }
 
-/** Explicit user activation preserves scope and asks the server to apply coordinator permissions. */
-export function gladosFullAuto(brief: PitbossBrief): PitbossAction {
+/** Explicit user choice preserves scope and asks the server to apply coordinator permissions. */
+export function gladosAutonomy(brief: PitbossBrief, autonomy: PitbossAutonomy): PitbossAction {
   return {
     type: "brief",
-    brief: {
-      ...brief,
-      coordinatorRuntimeMode: "full-access",
-      workerRuntimeMode: "full-access",
-      verificationMode: "automatic",
-    },
+    brief: withPitbossAutonomy(brief, autonomy),
     applyCoordinatorPermissions: true,
+  };
+}
+
+/** Adds or removes one project from GLaDOS's scope, keeping the user's order. */
+export function gladosToggleProject(brief: PitbossBrief, projectId: ProjectId): PitbossBrief {
+  return {
+    ...brief,
+    projectIds: brief.projectIds.includes(projectId)
+      ? brief.projectIds.filter((id) => id !== projectId)
+      : [...brief.projectIds, projectId],
+  };
+}
+
+/** One-line status for the settings header; counts match the work board's buckets. */
+export function gladosStatus(state: PitbossSnapshot | undefined) {
+  const role = state?.role;
+  if (!state || !role) return { title: "GLaDOS is not set up", detail: null };
+  const working = state.tasks.filter((task) => task.status === "active").length;
+  const needsYou = gladosInboxRows(state, "needs-you").length;
+  return {
+    title: role.paused ? "GLaDOS is paused" : "GLaDOS is running",
+    detail: [
+      `${working} ${working === 1 ? "task" : "tasks"} working`,
+      ...(needsYou ? [`${needsYou} ${needsYou === 1 ? "needs" : "need"} you`] : []),
+    ].join(" · "),
   };
 }
 

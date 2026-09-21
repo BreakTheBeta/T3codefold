@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronRightIcon, NetworkIcon } from "lucide-react";
 import {
   EnvironmentId,
   type PitbossAction,
@@ -27,7 +28,6 @@ export function PitbossPeers({
     label: "GLaDOS shared coordination",
   });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [replyIds, setReplyIds] = useState<Record<string, string>>({});
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,12 +60,27 @@ export function PitbossPeers({
     else setSecret("");
   };
   const self = query.data?.environmentId;
+  const connected =
+    query.data?.peers.filter((peer) => peer.config.enabled && !peer.error && peer.lastSeenAt)
+      .length ?? 0;
   return (
     <details
-      className="mt-3 rounded-xl border border-border bg-background p-3"
+      className="group px-3 py-3 sm:px-4"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary className="cursor-pointer text-sm font-semibold">Connected GLaDOS peers</summary>
+      <summary className="flex cursor-pointer list-none items-center gap-3">
+        <NetworkIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">Peers</span>
+          <span className="block text-[13px] text-muted-foreground/80">
+            Share work with GLaDOS on other environments
+          </span>
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {query.data?.peers.length ? `${connected} connected` : "None"}
+        </span>
+        <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground group-open:rotate-90" />
+      </summary>
       <p className="my-2 text-xs text-muted-foreground">
         Each environment keeps its own GLaDOS. Sharing a tracker scope requires approval on both
         environments. Offline peers keep their existing authority; there is no automatic takeover.
@@ -110,7 +125,6 @@ export function PitbossPeers({
                 type: "send-peer",
                 peerId: peer.config.id,
                 text: drafts[peer.config.id] ?? "",
-                ...(replyIds[peer.config.id] ? { replyTo: replyIds[peer.config.id] } : {}),
               }).then((sent) => {
                 if (sent) {
                   setDrafts((values) => ({ ...values, [peer.config.id]: "" }));
@@ -128,16 +142,6 @@ export function PitbossPeers({
                 value={drafts[peer.config.id] ?? ""}
                 onChange={(event) =>
                   setDrafts((values) => ({ ...values, [peer.config.id]: event.target.value }))
-                }
-              />
-            </label>
-            <label className="grid gap-1">
-              Reply to message ID (optional)
-              <input
-                className={inputClass}
-                value={replyIds[peer.config.id] ?? ""}
-                onChange={(event) =>
-                  setReplyIds((values) => ({ ...values, [peer.config.id]: event.target.value }))
                 }
               />
             </label>
