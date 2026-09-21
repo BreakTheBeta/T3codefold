@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { withPreviewAutomationFocus } from "./previewAutomationFocus";
 
@@ -14,7 +14,13 @@ const setActiveElement = (activeElement: MockHTMLElement | null): void => {
     activeElement;
 };
 
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
 afterEach(() => {
+  vi.runOnlyPendingTimers();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -23,6 +29,8 @@ const setupDocument = (activeElement: MockHTMLElement | null, focused = true) =>
   const documentElement = new MockHTMLElement();
   let documentFocused = focused;
   const documentListeners = new Map<string, Set<(event: Event) => void>>();
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 0;
   const windowListeners = new Map<string, Set<() => void>>();
   vi.stubGlobal("HTMLElement", MockHTMLElement);
   vi.stubGlobal("document", {
@@ -40,6 +48,11 @@ const setupDocument = (activeElement: MockHTMLElement | null, focused = true) =>
     },
   });
   vi.stubGlobal("window", {
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    },
+    cancelAnimationFrame: (id: number) => frames.delete(id),
     addEventListener: (type: string, listener: () => void) => {
       const listeners = windowListeners.get(type) ?? new Set();
       listeners.add(listener);
@@ -50,6 +63,11 @@ const setupDocument = (activeElement: MockHTMLElement | null, focused = true) =>
     },
   });
   return {
+    flushFrames: () => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    },
     body,
     setDocumentFocused: (value: boolean) => {
       documentFocused = value;
@@ -254,5 +272,90 @@ describe("withPreviewAutomationFocus", () => {
 
     expect(composer.focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(globalThis.document.activeElement).toBe(composer);
+  });
+  it.each([false, true])(
+    "restores after a late native window focus (focusin=%s)",
+    async (withFocusIn) => {
+      const composer = new MockHTMLElement();
+      const hostButton = new MockHTMLElement();
+      const { body, setDocumentFocused, dispatchWindow, dispatchDocument, flushFrames } =
+        setupDocument(composer);
+      await withPreviewAutomationFocus(async () => {
+        setActiveElement(body);
+        setDocumentFocused(false);
+        dispatchWindow("blur");
+      });
+      expect(composer.focus).not.toHaveBeenCalled();
+      setDocumentFocused(true);
+      dispatchWindow("focus");
+      if (withFocusIn) {
+        setActiveElement(hostButton);
+        dispatchDocument("focusin", hostButton);
+      }
+      flushFrames();
+      expect(Object.is(document.activeElement, composer)).toBe(true);
+    },
+  );
+
+  it("keeps the original target when another operation starts before native focus returns", async () => {
+    const composer = new MockHTMLElement();
+    const { body, setDocumentFocused, dispatchWindow, flushFrames } = setupDocument(composer);
+    await withPreviewAutomationFocus(async () => {
+      setActiveElement(body);
+      setDocumentFocused(false);
+      dispatchWindow("blur");
+    });
+    await withPreviewAutomationFocus(async () => undefined);
+    setDocumentFocused(true);
+    dispatchWindow("focus");
+    flushFrames();
+    expect(Object.is(document.activeElement, composer)).toBe(true);
+  });
+
+  it.each(["pointerdown", "keydown"])("cancels a late restore on deliberate %s", async (type) => {
+    const composer = new MockHTMLElement();
+    const chosen = new MockHTMLElement();
+    const { body, setDocumentFocused, dispatchWindow, dispatchDocument, flushFrames } =
+      setupDocument(composer);
+    await withPreviewAutomationFocus(async () => {
+      setActiveElement(body);
+      setDocumentFocused(false);
+      dispatchWindow("blur");
+    });
+    setDocumentFocused(true);
+    dispatchWindow("focus");
+    dispatchDocument(type, chosen);
+    setActiveElement(chosen);
+    dispatchDocument("focusin", chosen);
+    flushFrames();
+    expect(Object.is(document.activeElement, chosen)).toBe(true);
+    expect(composer.focus).not.toHaveBeenCalled();
+  });
+
+  it("expires a pending restore instead of changing focus on a later app switch", async () => {
+    const composer = new MockHTMLElement();
+    const { body, setDocumentFocused, dispatchWindow, flushFrames } = setupDocument(composer);
+    await withPreviewAutomationFocus(async () => {
+      setActiveElement(body);
+      setDocumentFocused(false);
+      dispatchWindow("blur");
+    });
+    vi.runOnlyPendingTimers();
+    setDocumentFocused(true);
+    dispatchWindow("focus");
+    flushFrames();
+    expect(composer.focus).not.toHaveBeenCalled();
+  });
+  it("restores when native window focus returns before the operation finishes without focusin", async () => {
+    const composer = new MockHTMLElement();
+    const { body, dispatchWindow, flushFrames } = setupDocument(composer);
+    await withPreviewAutomationFocus(async () => {
+      setActiveElement(body);
+      dispatchWindow("blur");
+      dispatchWindow("focus");
+      flushFrames();
+      expect(composer.focus).not.toHaveBeenCalled();
+    });
+    expect(composer.focus).toHaveBeenCalledOnce();
   });
 });
