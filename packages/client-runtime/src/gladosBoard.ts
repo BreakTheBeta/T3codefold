@@ -9,7 +9,7 @@ import {
 } from "@t3tools/contracts";
 
 // Like t3code-custom's agent board, lanes follow live state rather than manual moves.
-export const GLADOS_BOARD_LANES = [
+const GLADOS_BOARD_LANES = [
   { id: "needs-you", label: "Chat input", tone: "attention" },
   { id: "queued", label: "Up next", tone: "muted" },
   { id: "working", label: "Working", tone: "working" },
@@ -60,7 +60,7 @@ export function managedWorkerRows(
   }));
 }
 
-export function isManagedWorkerLive(attempt: PitbossAttempt | undefined): boolean {
+function isManagedWorkerLive(attempt: PitbossAttempt | undefined): boolean {
   return !!attempt && ["pending", "running", "submitted", "stop_requested"].includes(attempt.state);
 }
 

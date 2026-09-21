@@ -4,7 +4,7 @@ import { cn } from "../../lib/utils";
 const GroupedRows = createContext(false);
 
 /** Groups may span virtualized timeline items. Each part owns its trailing space. */
-export function WorkLogBlock({
+function WorkLogBlock({
   layout = "standalone",
   continues = false,
   children,
@@ -29,7 +29,7 @@ export function WorkLogBlock({
 }
 
 /** Expanded members align with the header and use the same compact row geometry. */
-export function WorkLogList({ children }: { children: ReactNode }) {
+function WorkLogList({ children }: { children: ReactNode }) {
   return (
     <GroupedRows value>
       <div className="flex min-w-0 flex-col">{children}</div>
@@ -101,7 +101,7 @@ export function WorkLogRow({
   );
 }
 
-export function WorkLogDetails({
+function WorkLogDetails({
   children,
   kind = "text",
 }: {

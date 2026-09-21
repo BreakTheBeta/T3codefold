@@ -31,7 +31,7 @@ export function usePanelNavigationSuppression(navigationKey: string): boolean {
   return suppressed;
 }
 
-export function observeResponsiveBreakpointFade(options: {
+function observeResponsiveBreakpointFade(options: {
   target: HTMLElement;
   container: HTMLElement;
   active: boolean;

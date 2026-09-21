@@ -22,7 +22,7 @@ import { resolveMediaSource } from "../mediaSource.ts";
  * is rendered by the card on web and mobile, never as a
  * worklog entry, so it is hidden from the activity feed even when it failed.
  */
-export function isWorktreeSetupActivity(kind: string): boolean {
+function isWorktreeSetupActivity(kind: string): boolean {
   return (
     kind === "setup-script.requested" ||
     kind === "setup-script.started" ||
@@ -734,7 +734,7 @@ export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEnt
   return { summary, hasFailure: summaries.some((group) => group.failedCount > 0) };
 }
 
-export function omitSupersededLifecycleMarkers<T>(
+function omitSupersededLifecycleMarkers<T>(
   entries: readonly T[],
   workEntryFor: (entry: T) => WorkLogPresentationEntry,
 ): T[] {

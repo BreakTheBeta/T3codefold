@@ -116,7 +116,7 @@ function isInlineTerminalContextBoundaryWhitespace(char: string | undefined): bo
   return char === undefined || char === " " || char === "\n" || char === "\t" || char === "\r";
 }
 
-export function insertInlineTerminalContextPlaceholder(
+function insertInlineTerminalContextPlaceholder(
   prompt: string,
   cursorInput: number,
 ): { prompt: string; cursor: number; contextIndex: number } {
@@ -135,7 +135,7 @@ export function stripInlineTerminalContextPlaceholders(prompt: string): string {
   return prompt.replaceAll(INLINE_TERMINAL_CONTEXT_PLACEHOLDER, "");
 }
 
-export function removeInlineTerminalContextPlaceholder(
+function removeInlineTerminalContextPlaceholder(
   prompt: string,
   contextIndex: number,
 ): { prompt: string; cursor: number } {
@@ -160,7 +160,7 @@ export function removeInlineTerminalContextPlaceholder(
   return { prompt, cursor: prompt.length };
 }
 
-export function countInlineTerminalContextPlaceholders(prompt: string): number {
+function countInlineTerminalContextPlaceholders(prompt: string): number {
   let count = 0;
   for (const char of prompt) {
     if (char === INLINE_TERMINAL_CONTEXT_PLACEHOLDER) {

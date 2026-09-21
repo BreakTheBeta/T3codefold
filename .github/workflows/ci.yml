@@ -331,7 +331,7 @@ jobs:
         run: brew bundle install --file apps/mobile/Brewfile
 
       - name: Lint mobile native sources
-        run: vp run lint:mobile
+        run: node scripts/mobile-native-static-check.ts
 
   release_smoke:
     name: Release Smoke

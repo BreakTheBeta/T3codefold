@@ -1,6 +1,6 @@
 /** Fold distributions are GitHub release assets; the npm `t3` package is upstream. */
 export const FOLD_REPOSITORY = "BreakTheBeta/T3codefold";
-export const FOLD_RELEASES_URL = `https://github.com/${FOLD_REPOSITORY}/releases`;
+const FOLD_RELEASES_URL = `https://github.com/${FOLD_REPOSITORY}/releases`;
 
 export function foldServerPackageSpec(version: string): string {
   if (version === "latest" || version === "nightly") {

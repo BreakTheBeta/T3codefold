@@ -28,7 +28,7 @@ const messages = new WeakMap<OrchestrationMessage, OrchestrationV2ConversationMe
 const visibleItems = new WeakMap<OrchestrationV2TurnItem, OrchestrationV2ProjectedTurnItem>();
 const runId = (value: string) => RunId.make(value);
 
-export function legacyAppThread(
+function legacyAppThread(
   thread: OrchestrationThread | OrchestrationThreadShell,
 ): OrchestrationV2AppThread {
   return {

@@ -29,7 +29,7 @@ function setGhost(next: ThreadContextDragGhost | null) {
   for (const listener of listeners) listener();
 }
 
-export function useThreadContextDragGhost(): ThreadContextDragGhost | null {
+function useThreadContextDragGhost(): ThreadContextDragGhost | null {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
@@ -51,7 +51,7 @@ function findDropTarget(point: { x: number; y: number }): HTMLElement | null {
 }
 
 /** Tracks the ghost and the highlighted drop target while the pointer is outside the list. */
-export function moveThreadContextDrag(
+function moveThreadContextDrag(
   point: { x: number; y: number },
   label: { title: string; count: number },
 ) {
@@ -64,14 +64,14 @@ export function moveThreadContextDrag(
   setGhost({ x: point.x, y: point.y, ...label });
 }
 
-export function endThreadContextDrag() {
+function endThreadContextDrag() {
   overTarget?.removeAttribute(DROP_OVER_ATTRIBUTE);
   overTarget = null;
   setGhost(null);
 }
 
 /** True when a composer accepted the drop. */
-export function dropThreadContext(
+function dropThreadContext(
   point: { x: number; y: number },
   threads: ReadonlyArray<ScopedThreadRef>,
 ): boolean {

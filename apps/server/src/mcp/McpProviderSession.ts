@@ -55,12 +55,12 @@ export function clearMcpProviderSession(threadId: ThreadId): void {
   sessionsByThread.delete(threadId);
 }
 
-export function clearAllMcpProviderSessions(): void {
+function clearAllMcpProviderSessions(): void {
   sessionsByThread.clear();
 }
 
 /** Shell agents receive the same revocable, thread-scoped authority as MCP tools. */
-export function workCliEnvironment(threadId: ThreadId): Readonly<Record<string, string>> {
+function workCliEnvironment(threadId: ThreadId): Readonly<Record<string, string>> {
   const session = readMcpProviderSession(threadId);
   return session
     ? { T3_WORK_ENDPOINT: session.endpoint, T3_WORK_AUTHORIZATION: session.authorizationHeader }

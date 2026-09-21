@@ -353,7 +353,7 @@ const runStartupPhase = <A, E, R>(phase: string, effect: Effect.Effect<A, E, R>)
     Effect.withSpan(`server.startup.${phase}`),
   );
 
-export function interruptedWorktreeSetup(
+function interruptedWorktreeSetup(
   snapshot: WorktreeSetupSnapshot,
   interruptedAt: string,
 ): WorktreeSetupSnapshot {

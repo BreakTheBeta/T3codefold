@@ -78,7 +78,7 @@ export function isVideoAttachment(attachment: ChatFileAttachment): boolean {
   return videoMimeType(attachment) !== null;
 }
 
-export function isBrowserPreviewAttachment(attachment: ChatFileAttachment): boolean {
+function isBrowserPreviewAttachment(attachment: ChatFileAttachment): boolean {
   const mimeType = attachment.mimeType.split(";", 1)[0]?.trim().toLowerCase();
   return (
     /\.(?:html?|pdf)$/i.test(attachment.name) ||
