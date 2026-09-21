@@ -17,7 +17,15 @@ import {
 } from "../../../../lib/mobileTheme";
 import { getMobileUniwindThemeName } from "../../../../lib/mobileThemeRuntime";
 import { cn } from "../../../../lib/cn";
+import {
+  MAX_THEME_BACKDROP_INTENSITY,
+  MIN_THEME_BACKDROP_INTENSITY,
+  type ThemeBackdropScope,
+} from "@t3tools/contracts";
+import { SettingsChoiceRow } from "../../components/SettingsChoiceRow";
+import { SettingsSection } from "../../components/SettingsSection";
 import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
+import { FontSizeSliderRow } from "../components/FontSizeSliderRow";
 import { useAppearancePreferences } from "../AppearancePreferencesProvider";
 
 const APPEARANCE_MODES: ReadonlyArray<{
@@ -285,6 +293,19 @@ function SectionLabel({ children }: { readonly children: string }) {
   return <Text className="px-2 text-sm font-t3-medium text-foreground-muted">{children}</Text>;
 }
 
+const BACKDROP_SCOPE_CHOICES: ReadonlyArray<{
+  readonly scope: ThemeBackdropScope;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  {
+    scope: "featured",
+    label: "Cyberpunk & Codex",
+    description: "The themes that ship with it.",
+  },
+  { scope: "all", label: "Every theme", description: "In each theme's own colors." },
+];
+
 export function ThemeAppearanceSection() {
   const {
     isReady,
@@ -296,6 +317,12 @@ export function ThemeAppearanceSection() {
     systemColorsAvailable,
     themeBackdropEnabled,
     setThemeBackdropEnabled,
+    themeBackdropScope,
+    setThemeBackdropScope,
+    themeBackdropIntensity,
+    setThemeBackdropIntensity,
+    themeBackdropGlow,
+    setThemeBackdropGlow,
   } = useAppearancePreferences();
 
   return (
@@ -337,14 +364,48 @@ export function ThemeAppearanceSection() {
         </View>
       </View>
 
-      {/* Only Cyberpunk and Codex ship a backdrop; the switch is a no-op elsewhere. */}
-      <SettingsSwitchRow
-        disabled={!isReady}
-        icon="paintbrush"
-        label="Splatter backdrop"
-        onValueChange={setThemeBackdropEnabled}
-        value={themeBackdropEnabled}
-      />
+      <SettingsSection title="Splatter backdrop">
+        <SettingsSwitchRow
+          disabled={!isReady}
+          icon="paintbrush"
+          label="Show splatter"
+          onValueChange={setThemeBackdropEnabled}
+          value={themeBackdropEnabled}
+        />
+        {themeBackdropEnabled ? (
+          <>
+            {BACKDROP_SCOPE_CHOICES.map((choice) => (
+              <SettingsChoiceRow
+                key={choice.scope}
+                label={choice.label}
+                description={choice.description}
+                selected={themeBackdropScope === choice.scope}
+                separated
+                disabled={!isReady}
+                onPress={() => setThemeBackdropScope(choice.scope)}
+              />
+            ))}
+            <FontSizeSliderRow
+              disabled={!isReady}
+              icon="slider.horizontal.3"
+              label="Intensity"
+              max={MAX_THEME_BACKDROP_INTENSITY}
+              min={MIN_THEME_BACKDROP_INTENSITY}
+              onChange={setThemeBackdropIntensity}
+              step={5}
+              value={themeBackdropIntensity}
+              valueLabel={`${themeBackdropIntensity}%`}
+            />
+            <SettingsSwitchRow
+              disabled={!isReady}
+              icon="sun.max"
+              label="Neon glow"
+              onValueChange={setThemeBackdropGlow}
+              value={themeBackdropGlow}
+            />
+          </>
+        ) : null}
+      </SettingsSection>
     </View>
   );
 }

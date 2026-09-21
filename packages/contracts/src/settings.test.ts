@@ -633,6 +633,21 @@ describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);
     expect(decodeClientSettings({}).themeBackdropEnabled).toBe(true);
+    const backdrop = decodeClientSettings({});
+    expect(backdrop.themeBackdropScope).toBe("featured");
+    expect(backdrop.themeBackdropColors).toBeNull();
+    expect(backdrop.themeBackdropIntensity).toBe(100);
+    expect(backdrop.themeBackdropGlow).toBe(false);
+    expect(
+      decodeClientSettings({ themeBackdropColors: ["#39ff88", "#29D9FF", "#ff3dcb"] })
+        .themeBackdropColors,
+    ).toEqual(["#39ff88", "#29D9FF", "#ff3dcb"]);
+    expect(() =>
+      decodeClientSettings({ themeBackdropColors: ["red", "#000000", "#000000"] }),
+    ).toThrow();
+    expect(() => decodeClientSettings({ themeBackdropColors: ["#000000"] })).toThrow();
+    expect(() => decodeClientSettings({ themeBackdropIntensity: 10 })).toThrow();
+    expect(() => decodeClientSettings({ themeBackdropScope: "some" })).toThrow();
   });
 
   it.each([39, 101, 72.5])("rejects an invalid glass opacity: %s", (value) => {
