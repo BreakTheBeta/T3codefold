@@ -43,7 +43,7 @@ export interface VoiceWorkspaceDependencies {
   createCallId(): string;
   savePreferences?(preferences: VoicePreferences): void;
 }
-export function sameVoiceTarget(a: VoiceTarget | null, b: VoiceTarget | null) {
+function sameVoiceTarget(a: VoiceTarget | null, b: VoiceTarget | null) {
   return (
     a !== null && b !== null && a.threadId === b.threadId && a.environmentId === b.environmentId
   );

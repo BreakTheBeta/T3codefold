@@ -93,7 +93,7 @@ export function useEnvironmentIds() {
   return useAtomValue(environmentSummaries.environmentIdsAtom);
 }
 
-export function useEnvironmentIdentities() {
+function useEnvironmentIdentities() {
   return useAtomValue(environmentSummaries.identitiesAtom);
 }
 
@@ -101,6 +101,6 @@ export function usePullRequestsSupported() {
   return useAtomValue(environmentSummaries.pullRequestsSupportedAtom);
 }
 
-export function useEnvironmentMachines() {
+function useEnvironmentMachines() {
   return useAtomValue(environmentSummaries.machineByIdAtom);
 }

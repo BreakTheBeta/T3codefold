@@ -262,7 +262,7 @@ const ThreadInterruptTool = Tool.make("t3_thread_interrupt", {
   .annotate(Tool.Title, "Interrupt a T3 thread")
   .annotate(Tool.Destructive, true);
 
-export const EnvironmentListTool = Tool.make("t3_environment_list", {
+const EnvironmentListTool = Tool.make("t3_environment_list", {
   description: "List this environment and environments reachable through connected T3 clients.",
   success: FleetEnvironmentList,
   failure: OrchestratorMcpFailure,
@@ -271,7 +271,7 @@ export const EnvironmentListTool = Tool.make("t3_environment_list", {
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Idempotent, true);
-export const WorkReadTool = Tool.make("work_read", {
+const WorkReadTool = Tool.make("work_read", {
   description:
     "Read your pitboss brief, task assignments, criteria and messages. Workers see only their own tasks. Read the current revision before a work_command.",
   parameters: PitbossReadInput,
@@ -280,7 +280,7 @@ export const WorkReadTool = Tool.make("work_read", {
   failureMode: "return",
   dependencies: [McpInvocationContext.McpInvocationContext, WorkStore],
 }).annotate(Tool.Readonly, true);
-export const WorkCommandTool = Tool.make("work_command", {
+const WorkCommandTool = Tool.make("work_command", {
   description:
     "Manage durable T3 work using a typed action. GLaDOS can create-lead and lead-message; project leads manage only their own local tasks and use lead-context/lead-report. Create action requires type=create, taskId, projectId, title, outcome, criteria, verifyCommand, priority, dependencies, workspaceStrategy. create-lead, assign, and active lead-status may include runtimeMode='approval-required' or 'full-access'; it cannot exceed the calling thread's current mode, is saved for that launch, and omission uses the saved worker default. Include authorityGeneration from your role or lead record on management commands. Managers create/assign tasks, inspect and accept evidence, request rework, and acknowledge messages. Workers report questions/progress and submit candidate evidence. Retry an uncertain call with exactly the same commandId and payload. New decisions require the current snapshot revision. When the user asks in conversation, GLaDOS records brief, pause, resolve-decision, approve-verification, verification-profile and verification-recipe changes herself, including revising proof after an attempt. Only electing the role still requires the user.",
   parameters: PitbossCommand,

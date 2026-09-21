@@ -1,6 +1,6 @@
 import type { ProjectIconColor } from "@t3tools/contracts";
 
-export const PROJECT_ICON_NAMES = [
+const PROJECT_ICON_NAMES = [
   "ai",
   "book",
   "cloud",

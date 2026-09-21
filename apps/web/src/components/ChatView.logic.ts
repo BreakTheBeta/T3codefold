@@ -285,7 +285,7 @@ export {
 } from "@t3tools/client-runtime/worktree-setup";
 
 /** Keep setup visible across local dispatch, durable preparation, and the live stream. */
-export function resolveWorktreeSetupProgress(input: {
+function resolveWorktreeSetupProgress(input: {
   threadId: ThreadId;
   localPreparing: boolean;
   runStatus: NonNullable<Thread["latestRun"]>["status"] | undefined;
@@ -1336,7 +1336,7 @@ export function hasServerAcknowledgedLocalDispatch(input: {
 // away. The exceptions are places where focus is deliberate: another text field, a terminal in
 // the drawer or the right panel, or an open dialog or popup. A focused button outside those is
 // not one of them, so it yields to the composer.
-export function shouldRefocusComposerOnWindowFocus(
+function shouldRefocusComposerOnWindowFocus(
   activeElement:
     | (Pick<Element, "tagName" | "closest" | "getAttribute"> & { isContentEditable?: boolean })
     | null,

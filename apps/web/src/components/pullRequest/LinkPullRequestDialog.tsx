@@ -49,7 +49,7 @@ interface LinkPullRequestDialogProps {
 }
 
 /** Mounted once per chat view; shows the dialog for whichever thread asked for it. */
-export function LinkPullRequestDialogHost() {
+function LinkPullRequestDialogHost() {
   const threadRef = useAtomValue(linkPullRequestDialogThreadAtom);
   const thread = useThreadShell(threadRef);
   const linking = usePullRequestLinking(threadRef?.environmentId);

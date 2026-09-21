@@ -488,7 +488,7 @@ function serverConfigStateChanges(
   );
 }
 
-export function applyServerWelcomeEvent(
+function applyServerWelcomeEvent(
   current: EnvironmentServerWelcomeState,
   session: RpcSession,
   event: {
@@ -511,13 +511,13 @@ export interface EnvironmentServerWelcomeState {
   readonly welcome: ServerLifecycleWelcomePayload | null;
 }
 
-export function resolveServerWelcomeState(
+function resolveServerWelcomeState(
   state: EnvironmentServerWelcomeState,
 ): ServerLifecycleWelcomePayload | null {
   return state.currentSession === state.welcomeSession ? state.welcome : null;
 }
 
-export const makeEnvironmentServerWelcomeState = Effect.fn("EnvironmentServerWelcomeState.make")(
+const makeEnvironmentServerWelcomeState = Effect.fn("EnvironmentServerWelcomeState.make")(
   function* () {
     const supervisor = yield* EnvironmentSupervisor;
     const initialSession = Option.getOrNull(yield* SubscriptionRef.get(supervisor.session));

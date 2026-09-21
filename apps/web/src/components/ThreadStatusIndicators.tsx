@@ -492,7 +492,7 @@ export function threadChangeRequestSnapshotsEqual(
   );
 }
 
-export function setThreadChangeRequestSnapshot(
+function setThreadChangeRequestSnapshot(
   threadKey: string,
   snapshot: ThreadChangeRequestSnapshot | null,
 ): void {

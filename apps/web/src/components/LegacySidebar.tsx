@@ -364,7 +364,7 @@ interface SidebarThreadRowProps {
   onFileDropThreads: (threadRef: ScopedThreadRef, files: File[]) => void;
 }
 
-export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
+const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
   const {
     orderedProjectThreadKeys,
     isActive,

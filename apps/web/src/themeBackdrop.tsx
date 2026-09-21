@@ -40,7 +40,7 @@ const colorOf = (value: string | undefined) => parseOklch(toCanonicalThemeColor(
  * nothing. Theme colours come from the palette's accent and action roles, so
  * a custom or published theme gets matching paint with no art of its own.
  */
-export function resolveThemeBackdrop(input: {
+function resolveThemeBackdrop(input: {
   readonly settings: BackdropSettings;
   readonly themeId: string | null;
   readonly accent: string | undefined;

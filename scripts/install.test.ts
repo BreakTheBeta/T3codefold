@@ -81,7 +81,7 @@ describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer termi
           child.on("error", reject);
           child.on("close", resolve);
         });
-        const versions = NodePath.join(root, "home/runtime/versions");
+        const versions = NodePath.join(root, "home/runtime/fold/versions");
         if (fail) {
           expect(code).not.toBe(0);
           expect(output).toContain("500");

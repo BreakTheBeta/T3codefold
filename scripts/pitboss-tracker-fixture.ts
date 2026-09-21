@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off globalFetch:off globalDate:off globalConsole:off - Standalone tracker fixture uses Node APIs without an Effect runtime.
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";

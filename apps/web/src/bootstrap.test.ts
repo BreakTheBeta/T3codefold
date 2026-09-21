@@ -39,6 +39,7 @@ describe("app startup failures", () => {
   });
 
   it("shows failures from asynchronous app startup", async () => {
+    vi.stubEnv("DEV", true);
     vi.doMock("./main", () => ({ startup: Promise.reject(new Error("Startup chunks failed")) }));
 
     await import("./bootstrap");

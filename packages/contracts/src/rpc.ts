@@ -1203,27 +1203,27 @@ const WsProviderUploadFeedbackRpc = Rpc.make(WS_METHODS.providerUploadFeedback, 
   error: Schema.Union([ProviderUploadFeedbackError, EnvironmentAuthorizationError]),
 });
 
-export const WsProviderRealtimeVoiceStartRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceStart, {
+const WsProviderRealtimeVoiceStartRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceStart, {
   payload: ProviderRealtimeVoiceStartInput,
   success: ProviderRealtimeVoiceStartResult,
   error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
 });
 
-export const WsProviderRealtimeVoiceStopRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceStop, {
+const WsProviderRealtimeVoiceStopRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceStop, {
   payload: ProviderRealtimeVoiceStopInput,
   error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
 });
 
-export const WsProviderRealtimeVoiceListRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceList, {
+const WsProviderRealtimeVoiceListRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceList, {
   payload: ProviderRealtimeVoiceStopInput,
   success: ProviderRealtimeVoiceListResult,
   error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
 });
-export const WsProviderRealtimeVoiceContextRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceContext, {
+const WsProviderRealtimeVoiceContextRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceContext, {
   payload: ProviderRealtimeVoiceContextInput,
   error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
 });
-export const WsProviderRealtimeVoiceEventsRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceEvents, {
+const WsProviderRealtimeVoiceEventsRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceEvents, {
   payload: ProviderRealtimeVoiceStopInput,
   success: ProviderRealtimeVoiceEvent,
   stream: true,
@@ -1653,44 +1653,44 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
-export const WsPitbossPeersRpc = Rpc.make(WS_METHODS.pitbossPeers, {
+const WsPitbossPeersRpc = Rpc.make(WS_METHODS.pitbossPeers, {
   payload: PitbossReadInput,
   success: PitbossPeerList,
   error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
 });
-export const WsPitbossPeerCommandRpc = Rpc.make(WS_METHODS.pitbossPeerCommand, {
+const WsPitbossPeerCommandRpc = Rpc.make(WS_METHODS.pitbossPeerCommand, {
   payload: PitbossPeerCommand,
   success: PitbossPeerList,
   error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
 });
-export const WsPitbossSourcesRpc = Rpc.make(WS_METHODS.pitbossSources, {
+const WsPitbossSourcesRpc = Rpc.make(WS_METHODS.pitbossSources, {
   payload: PitbossReadInput,
   success: PitbossSourcesResult,
   error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
 });
-export const WsPitbossSourceCommandRpc = Rpc.make(WS_METHODS.pitbossSourceCommand, {
+const WsPitbossSourceCommandRpc = Rpc.make(WS_METHODS.pitbossSourceCommand, {
   payload: PitbossSourceRequest,
   success: PitbossSourcesResult,
   error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
 });
-export const WsPitbossReadRpc = Rpc.make(WS_METHODS.pitbossRead, {
+const WsPitbossReadRpc = Rpc.make(WS_METHODS.pitbossRead, {
   payload: PitbossReadInput,
   success: PitbossSnapshot,
   error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
 });
-export const WsPitbossSubscribeRpc = Rpc.make(WS_METHODS.pitbossSubscribe, {
+const WsPitbossSubscribeRpc = Rpc.make(WS_METHODS.pitbossSubscribe, {
   payload: PitbossReadInput,
   success: PitbossSnapshot,
   stream: true,
   error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
 });
-export const WsPitbossCommandRpc = Rpc.make(WS_METHODS.pitbossCommand, {
+const WsPitbossCommandRpc = Rpc.make(WS_METHODS.pitbossCommand, {
   payload: PitbossCommand,
   success: PitbossSnapshot,
   error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
 });
 
-export const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
+const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
   error: Schema.Union([ScheduledTaskError, EnvironmentAuthorizationError]),

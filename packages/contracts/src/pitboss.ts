@@ -748,7 +748,7 @@ export function taskAwaitingApproval(
 }
 
 /** User attention is a concrete decision or setup review, not every operational blocker. */
-export function workNeedsUserInput(
+function workNeedsUserInput(
   task: Pick<PitbossTask, "status" | "decisions" | "proposedVerificationRecipe">,
 ) {
   return (

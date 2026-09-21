@@ -284,7 +284,9 @@ describe("ConnectionResolver", () => {
       const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
 
       expect(error).toMatchObject({ reason: "unsupported" });
-      expect(error.message).toContain("This client is not supported");
+      expect(error.message).toContain(
+        `The host uses orchestration protocol ${ORCHESTRATION_PROTOCOL_VERSION + 1}, while this client requires ${ORCHESTRATION_PROTOCOL_VERSION}.`,
+      );
     }),
   );
 

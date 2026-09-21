@@ -2194,7 +2194,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         (request) => request.status === "pending",
       );
       const blockingRequestExists = pendingRequests.some(
-        (request) => request.kind !== "user_input" || request.responseCapability.type !== "message",
+        (request) =>
+          !allowAsyncQuestionDismissal ||
+          request.kind !== "user_input" ||
+          request.responseCapability.type !== "message",
       );
       if (activeRunExists || blockingRequestExists) {
         return yield* new OrchestratorDispatchError({
@@ -2263,28 +2266,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           })
         : null;
 
-    if (command.type === "thread.settle" && allowAsyncQuestionDismissal) {
-      const projection = yield* loadProjectionForCommand(command);
-      for (const request of projection.runtimeRequests) {
-        if (
-          request.status === "pending" &&
-          request.kind === "user_input" &&
-          request.responseCapability.type === "message"
-        ) {
-          yield* dispatchRuntimeRequestRespond(
-            {
-              type: "runtime-request.respond",
-              commandId: command.commandId,
-              threadId: command.threadId,
-              requestId: request.id,
-              decision: "cancel",
-            },
-            events,
-            effects,
-          );
-        }
-      }
-    }
     const now = yield* DateTime.now;
     let snoozedUntil: DateTime.Utc | null = null;
     if (command.type === "thread.snooze") {

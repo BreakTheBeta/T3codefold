@@ -44,6 +44,10 @@ it.live(
       yield* Fs.writeFileString(fixtureTool, candidateTool);
       if (platform !== "win32") yield* Fs.chmod(fixtureTool, 0o755);
       yield* git(["add", "."]);
+      // The server test setup disables core.filemode; pin the candidate's executable bit.
+      if (platform !== "win32") {
+        yield* git(["update-index", "--chmod=+x", "--", Path.relative(root, fixtureTool)]);
+      }
       yield* git([
         "-c",
         "user.name=Fixture",
