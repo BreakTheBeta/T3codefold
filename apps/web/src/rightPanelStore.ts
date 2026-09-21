@@ -412,7 +412,7 @@ const automaticUpdate = (
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
 ): Partial<RightPanelStoreState> => ({
-  ...updateThread(state, threadKey, updater),
+  ...updateThread(state, threadKey, updater, true),
 });
 
 const userAction = (

@@ -44,12 +44,13 @@ function renderPendingActions(isRunning: boolean) {
   );
 }
 
-function renderRunningActions(hasSendableContent: boolean) {
+function renderRunningActions(hasSendableContent: boolean, followUpBehavior: "queue" | "steer") {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
       pendingAction: null,
       isRunning: true,
+      followUpBehavior,
       showPlanFollowUpPrompt: false,
       promptHasText: hasSendableContent,
       isSendBusy: false,
@@ -124,18 +125,24 @@ describe("ComposerPrimaryActions", () => {
     expect(markup).not.toContain("stage-nightly");
   });
 
-  it("renders a queue action alongside stop while running with a sendable draft", () => {
-    const markup = renderRunningActions(true);
+  it.each([
+    ["queue", "Queue message"],
+    ["steer", "Steer message"],
+  ] as const)(
+    "renders the %s action alongside stop while running with a sendable draft",
+    (behavior, label) => {
+      const markup = renderRunningActions(true, behavior);
 
-    expect(markup).toContain('aria-label="Stop generation"');
-    expect(markup).toContain('aria-label="Queue message"');
-    expect(markup).toContain('type="submit"');
-  });
+      expect(markup).toContain('aria-label="Stop generation"');
+      expect(markup).toContain(`aria-label="${label}"`);
+      expect(markup).toContain('type="submit"');
+    },
+  );
 
   it("keeps stop as the only action while running with an empty composer", () => {
-    const markup = renderRunningActions(false);
+    const markup = renderRunningActions(false, "steer");
 
     expect(markup).toContain('aria-label="Stop generation"');
-    expect(markup).not.toContain('aria-label="Queue message"');
+    expect(markup).not.toContain('type="submit"');
   });
 });
