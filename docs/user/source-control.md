@@ -132,8 +132,24 @@ in either direction. Forgejo, GitLab, Bitbucket, and Azure DevOps expose no reco
 server you are connected to keeps them instead: they follow you across the apps connected to that
 server, but the host's own site will not show them, and the count reads **viewed in T3 Code**.
 
-The **Code** tab is a web and desktop surface. The mobile app reports a pull request's status but
-does not show its diff, so marks are made and read on web and desktop.
+### Review on mobile
+
+Open **Pull requests** from the pull request button in the thread list header or the command
+palette. Opening a thread's pull request from its Git actions also stays in the app. The mobile app
+reads and writes through the connected environment's host credentials, so the phone needs no GitHub
+sign-in of its own.
+
+A pull request shows its description, checks, reviewers, and conversation. Tap an image in a
+description or comment to open it full screen; pinch or double-tap to zoom. Screenshots uploaded to
+a private repository load through the environment's GitHub credential. **Files** opens the diff:
+tap a line to comment on it, reply to its threads, or resolve them. **Add to review** holds a comment
+until you submit a review with a verdict; **Post now** sends it at once. Viewed marks work as they do
+on web and desktop.
+
+On a wide screen such as an unfolded foldable or a tablet, the list keeps the selected pull request
+open beside it, the detail puts checks and reviewers in a side column, and the diff shows its changed
+files in a side pane. The thread sidebar starts hidden on these screens; the sidebar button brings it
+back. Merging, labels, and reviewer requests are available on web and desktop.
 
 ## Troubleshooting
 

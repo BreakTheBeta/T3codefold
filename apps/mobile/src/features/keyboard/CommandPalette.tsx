@@ -248,6 +248,13 @@ export function CommandPalette(props: {
           }),
       },
       {
+        key: "pullRequests",
+        kind: "action",
+        title: "Pull requests",
+        searchTerms: ["pr", "review", "code review", "github"],
+        run: () => navigation.navigate("PullRequests"),
+      },
+      {
         key: "archive",
         kind: "action",
         title: "Archived threads",

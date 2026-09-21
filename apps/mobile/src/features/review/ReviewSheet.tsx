@@ -291,7 +291,7 @@ const ReviewFileNavigatorRow = memo(function ReviewFileNavigatorRow(props: {
   );
 });
 
-interface ReviewFileNavigatorHandle {
+export interface ReviewFileNavigatorHandle {
   readonly setVisibleFile: (fileId: string | null) => void;
 }
 
@@ -303,7 +303,8 @@ interface ReviewFileNavigatorProps {
   readonly ref?: Ref<ReviewFileNavigatorHandle>;
 }
 
-function ReviewFileNavigator({
+/** The changed-files column beside a diff; shared by thread review and pull request review. */
+export function ReviewFileNavigator({
   files,
   headerInset,
   sectionId,

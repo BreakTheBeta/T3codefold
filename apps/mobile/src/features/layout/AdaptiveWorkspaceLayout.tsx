@@ -239,7 +239,17 @@ function AdaptiveWorkspaceLayoutContent(
   const navigation = useNavigation();
   const activeRoleOwner = useRef<symbol | null>(null);
   const [primarySidebarPreferredVisible, setPrimarySidebarPreferredVisible] = useState(true);
-  const showPrimarySidebar = pathname === "/" || primarySidebarPreferredVisible;
+  // Pull request review keeps its own sidebar choice, hidden by default: a list beside a PR
+  // (or a diff beside its files) needs the whole width. The sidebar button still reveals it.
+  const onPullRequestRoute = /^\/pull-requests(?:\/|$)/.test(pathname);
+  const [pullRequestSidebarPreferredVisible, setPullRequestSidebarPreferredVisible] =
+    useState(false);
+  const setSidebarPreferredVisible = onPullRequestRoute
+    ? setPullRequestSidebarPreferredVisible
+    : setPrimarySidebarPreferredVisible;
+  const showPrimarySidebar =
+    pathname === "/" ||
+    (onPullRequestRoute ? pullRequestSidebarPreferredVisible : primarySidebarPreferredVisible);
   const [supplementaryPanePreferredVisible, setSupplementaryPanePreferredVisible] = useState(true);
   const [supplementaryPanePreferredWidth, setSupplementaryPanePreferredWidth] = useState<
     number | null
@@ -364,17 +374,22 @@ function AdaptiveWorkspaceLayoutContent(
     }
     if (!panes.primarySidebarVisible && panes.primarySidebarSuppressedByAuxiliary) {
       setFileInspectorPreferredVisible(false);
-      setPrimarySidebarPreferredVisible(true);
+      setSidebarPreferredVisible(true);
       return;
     }
-    setPrimarySidebarPreferredVisible((current) => !current);
-  }, [panes.primarySidebarSuppressedByAuxiliary, panes.primarySidebarVisible, pathname]);
+    setSidebarPreferredVisible((current) => !current);
+  }, [
+    panes.primarySidebarSuppressedByAuxiliary,
+    panes.primarySidebarVisible,
+    pathname,
+    setSidebarPreferredVisible,
+  ]);
   const revealPrimarySidebar = useCallback(() => {
     if (panes.primarySidebarSuppressedByAuxiliary) {
       setFileInspectorPreferredVisible(false);
     }
-    setPrimarySidebarPreferredVisible(true);
-  }, [panes.primarySidebarSuppressedByAuxiliary]);
+    setSidebarPreferredVisible(true);
+  }, [panes.primarySidebarSuppressedByAuxiliary, setSidebarPreferredVisible]);
   const handleToggleSidebarCommand = useCallback(() => {
     togglePrimarySidebar();
     return true;
@@ -428,6 +443,10 @@ function AdaptiveWorkspaceLayoutContent(
       screen: "SettingsContent",
       params: { screen: "Settings" },
     });
+  }, [navigation]);
+
+  const handleOpenPullRequests = useCallback(() => {
+    navigation.navigate("PullRequests");
   }, [navigation]);
 
   const handleStartNewTask = useCallback(() => {
@@ -596,6 +615,7 @@ function AdaptiveWorkspaceLayoutContent(
                     onRequestVisibility={revealPrimarySidebar}
                     selectedThreadKey={selectedThreadKey}
                     onOpenSettings={handleOpenSettings}
+                    onOpenPullRequests={handleOpenPullRequests}
                     onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
                     onNewThreadInProject={handleNewThreadInProject}
                     onNewThreadOnBranch={handleNewThreadOnBranch}
