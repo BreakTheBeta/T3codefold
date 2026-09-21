@@ -11,6 +11,7 @@ vi.mock("./ui/toast", () => ({
 }));
 
 import { showDesktopUpdateDownloadedToast } from "./desktopUpdate.toast";
+import { getDesktopUpdateReleaseUrl } from "./desktopUpdate.logic";
 
 type ClickableElement = ReactElement<{ readonly onClick?: () => void }>;
 
@@ -72,9 +73,7 @@ describe("showDesktopUpdateDownloadedToast", () => {
     const link = findReleaseNotesLink(getDescription());
     link?.props.onClick?.();
     await vi.waitFor(() => {
-      expect(openExternal).toHaveBeenCalledWith(
-        "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30",
-      );
+      expect(openExternal).toHaveBeenCalledWith(getDesktopUpdateReleaseUrl("0.0.30"));
     });
     expect(testState.addToast).toHaveBeenCalledTimes(1);
   });
@@ -90,9 +89,7 @@ describe("showDesktopUpdateDownloadedToast", () => {
     findReleaseNotesLink(getDescription())?.props.onClick?.();
 
     await vi.waitFor(() => {
-      expect(openExternal).toHaveBeenCalledWith(
-        "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30",
-      );
+      expect(openExternal).toHaveBeenCalledWith(getDesktopUpdateReleaseUrl("0.0.30"));
     });
   });
 

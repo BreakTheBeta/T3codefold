@@ -56,9 +56,13 @@ const message = (taskId: string | null): PitbossMessage => ({
   createdAt: "2026-09-18",
   acknowledged: false,
 });
-const contents = (tasks: PitbossTask[], messages: PitbossMessage[] = []) =>
+const contents = (
+  tasks: PitbossTask[],
+  messages: PitbossMessage[] = [],
+  awaitingApproval?: readonly string[],
+) =>
   Object.fromEntries(
-    buildGladosBoard({ tasks, messages }).map((lane) => [
+    buildGladosBoard({ tasks, messages, awaitingApproval }).map((lane) => [
       lane.id,
       lane.items.map((item) => item.key),
     ]),
@@ -168,6 +172,32 @@ describe("GLaDOS board", () => {
         { ...task("urgent", "queued"), priority: 1 },
       ]).queued,
     ).toEqual(["task:urgent", "task:new", "task:old"]);
+  });
+  it("moves a task whose live worker waits for a permission answer into the user lane", () => {
+    const blocked = task("blocked", "active");
+    expect(contents([blocked]).working).toEqual(["task:blocked"]);
+    const waiting = contents([blocked], [], ["attempt-blocked"]);
+    expect(waiting["needs-you"]).toEqual(["task:blocked"]);
+    expect(waiting.working).toEqual([]);
+  });
+  it("labels the current worker row with what the user owes it", () => {
+    const blocked = task("blocked", "active");
+    expect(managedWorkerRows(blocked, ["attempt-blocked"])[0]?.state).toBe(
+      "waiting for your approval",
+    );
+    expect(managedWorkerRows(blocked)[0]?.state).toBe("running");
+    // An attempt still named in the list after it was replaced is history, not the user's to answer.
+    const relaunched = {
+      ...blocked,
+      attempts: [
+        ...blocked.attempts,
+        { ...blocked.attempts[0]!, id: "attempt-next", generation: 2 },
+      ],
+    };
+    expect(managedWorkerRows(relaunched, ["attempt-blocked"]).map((row) => row.state)).toEqual([
+      "running",
+      "running",
+    ]);
   });
   it("adapts columns to folded and unfolded modal widths", () => {
     expect(gladosBoardColumnWidth(280)).toBe(240);

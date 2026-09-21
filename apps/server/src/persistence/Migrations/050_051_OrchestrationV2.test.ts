@@ -13,7 +13,7 @@ layer("050_051_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 61 }, (_, index) => index + 1),
+        Array.from({ length: migrationEntries.length }, (_, index) => index + 1),
       );
     }),
   );
@@ -39,7 +39,7 @@ layer("050_051_OrchestrationV2", (it) => {
         const executed = yield* runMigrations();
         assert.deepStrictEqual(
           executed.map(([id]) => id),
-          Array.from({ length: 12 }, (_, i) => i + 50),
+          migrationEntries.map(([id]) => id).filter((id) => id >= 50),
         );
         const threads = yield* sql<{
           readonly title: string;
@@ -88,7 +88,7 @@ layer("050_051_OrchestrationV2", (it) => {
       const executed = yield* runMigrations();
       assert.deepStrictEqual(
         executed.map(([id]) => id),
-        Array.from({ length: 11 }, (_, index) => index + 51),
+        migrationEntries.map(([id]) => id).filter((id) => id >= 51),
       );
       const migration = yield* sql<{ readonly name: string }>`
         SELECT name FROM effect_sql_migrations WHERE migration_id = 50

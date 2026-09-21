@@ -99,6 +99,10 @@ export class WorkStore extends Context.Service<
       detail: string,
       workspacePath?: string,
     ) => Effect.Effect<void, PitbossError>;
+    /** Live workers parked on a user permission prompt. Observed, not journaled: no revision bump. */
+    observeAwaitingApproval: (
+      attemptIds: ReadonlyArray<string>,
+    ) => Effect.Effect<void, PitbossError>;
     setSourceAuthority: (authority: PitbossSourceAuthority) => Effect.Effect<void, PitbossError>;
     importSources: (
       config: PitbossSourceConfig,
@@ -524,6 +528,31 @@ export const layer = Layer.effect(
           )
           .pipe(
             Effect.tap(() => PubSub.publish(notifications, undefined)),
+            Effect.mapError(unavailable),
+          ),
+      observeAwaitingApproval: (attemptIds) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const state = yield* readAll();
+              const next = [...new Set(attemptIds)].toSorted();
+              const current = state.awaitingApproval ?? [];
+              // An unchanged observation must not publish: the runtime drains on every change, so
+              // notifying here would make the drain re-trigger itself forever.
+              if (
+                current.length === next.length &&
+                current.every((id, index) => id === next[index])
+              )
+                return false;
+              yield* persist({ ...state, awaitingApproval: next });
+              return true;
+            }),
+          )
+          .pipe(
+            Effect.tap((changed) =>
+              changed ? PubSub.publish(notifications, undefined) : Effect.void,
+            ),
+            Effect.asVoid,
             Effect.mapError(unavailable),
           ),
       setSourceAuthority: (authority) =>

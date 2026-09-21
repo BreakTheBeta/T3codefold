@@ -1419,6 +1419,17 @@ export const OrchestrationV2PendingRuntimeRequestSummary = Schema.Struct({
 export type OrchestrationV2PendingRuntimeRequestSummary =
   typeof OrchestrationV2PendingRuntimeRequestSummary.Type;
 
+/**
+ * A pending request the user must approve before the agent may proceed. The agent asking its own
+ * question and a credential that needs refreshing block the same way but are not approvals, and
+ * both the server and the clients must classify them identically.
+ */
+export function isPendingApprovalRequest(
+  request: { readonly kind: OrchestrationV2RuntimeRequest["kind"] } | null | undefined,
+) {
+  return !!request && request.kind !== "user_input" && request.kind !== "auth_refresh";
+}
+
 export const OrchestrationV2LatestVisibleMessageSummary = Schema.Struct({
   id: MessageId,
   role: OrchestrationV2ConversationMessage.fields.role,

@@ -81,6 +81,11 @@ const unitTestProject = {
     // run, those async tests can exceed Vitest's default 5s budget.
     hookTimeout: 15_000,
     testTimeout: 15_000,
+    // `react/index.js` picks its build from NODE_ENV, and the production build omits `act`,
+    // so without this the renderer tests fail on `act is not a function` rather than on
+    // anything they assert. A handful of files still resolve the production copy through
+    // their own import graph; those are tracked separately.
+    env: { NODE_ENV: "test" },
     setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
   },
 } satisfies TestProjectInlineConfiguration;
