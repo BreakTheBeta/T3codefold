@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { BUILT_IN_THEME_IDS } from "@t3tools/shared/themePalettes";
 
 import {
   createMobileThemeRuntimeOperations,
@@ -11,6 +12,12 @@ const initialState: MobileThemeRuntimeState = {
   themeAppearance: "light",
   themeMode: "system",
 };
+
+const registeredThemeNames = [
+  "light",
+  "dark",
+  ...BUILT_IN_THEME_IDS.flatMap((themeId) => [`${themeId}-light`, `${themeId}-dark`]),
+];
 
 describe("mobileThemeRuntime", () => {
   it("keeps the default palette on Uniwind's built-in appearance themes", () => {
@@ -28,8 +35,9 @@ describe("mobileThemeRuntime", () => {
       (operation) => operation.kind === "update-text-variables",
     );
 
-    expect(variableOperations).toHaveLength(12);
-    expect(variableOperations.at(-1)?.themeName).toBe("iris-dark");
+    expect(variableOperations.map((operation) => operation.themeName)).toEqual(
+      registeredThemeNames,
+    );
     expect(operations.at(-1)).toEqual({
       kind: "set-appearance-mode",
       appearance: "light",
@@ -68,12 +76,13 @@ describe("mobileThemeRuntime", () => {
       baseFontSize: 18,
     });
 
-    expect(operations).toHaveLength(12);
-    expect(operations.every((operation) => operation.kind === "update-text-variables")).toBe(true);
-    expect(operations.at(-1)).toMatchObject({
-      kind: "update-text-variables",
-      themeName: "iris-dark",
-    });
+    const variableOperations = operations.filter(
+      (operation) => operation.kind === "update-text-variables",
+    );
+    expect(variableOperations).toHaveLength(operations.length);
+    expect(variableOperations.map((operation) => operation.themeName)).toEqual(
+      registeredThemeNames,
+    );
   });
 
   it("does no native work when persistence echoes an already-applied state", () => {
