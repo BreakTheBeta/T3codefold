@@ -80,6 +80,9 @@ interface AppearancePreferencesContextValue {
   /** Percent of the tuned default alpha. */
   readonly themeBackdropIntensity: number;
   readonly setThemeBackdropIntensity: (value: number) => void;
+  /** Percent of the tuned default number of marks across the canvas. */
+  readonly themeBackdropAmount: number;
+  readonly setThemeBackdropAmount: (value: number) => void;
   readonly themeBackdropGlow: boolean;
   readonly setThemeBackdropGlow: (value: boolean) => void;
   /** Splatter pattern variant; 0 is the original art. */
@@ -310,6 +313,13 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     },
     [updatePreferences],
   );
+  const themeBackdropAmount = storedPreferences?.themeBackdropAmount ?? 100;
+  const setThemeBackdropAmount = useCallback(
+    (value: number) => {
+      updatePreferences({ themeBackdropAmount: value });
+    },
+    [updatePreferences],
+  );
   const themeBackdropGlow = storedPreferences?.themeBackdropGlow ?? false;
   const setThemeBackdropGlow = useCallback(
     (value: boolean) => {
@@ -359,6 +369,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeBackdropScope,
       themeBackdropIntensity,
       setThemeBackdropIntensity,
+      themeBackdropAmount,
+      setThemeBackdropAmount,
       themeBackdropGlow,
       setThemeBackdropGlow,
       themeBackdropSeed,
@@ -390,6 +402,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setThemeBackdropScope,
       themeBackdropIntensity,
       setThemeBackdropIntensity,
+      themeBackdropAmount,
+      setThemeBackdropAmount,
       themeBackdropGlow,
       setThemeBackdropGlow,
       themeBackdropSeed,

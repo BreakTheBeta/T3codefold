@@ -393,6 +393,8 @@ export interface SplatterRenderOptions {
   readonly glow: boolean;
   /** Pattern variant; 0 is the original art. */
   readonly seed: number;
+  /** Multiplier on how many marks the field scatters; 1 is the tuned default, 0 leaves only the corner clusters. */
+  readonly amount: number;
 }
 
 const BASE_ALPHA = {
@@ -409,9 +411,37 @@ type SplatMarkup = {
   readonly haze: string;
 };
 
-/** Enough for a dark/light pair of both clusters plus the seed being dragged to. */
-const MARKUP_CACHE_LIMIT = 6;
-const markupCache = new Map<string, ReadonlyArray<SplatMarkup>>();
+/** Colourless field markup, one entry per paint colour. */
+type FieldMarkup = {
+  readonly marks: readonly [string, string, string];
+  readonly haze: readonly [string, string, string];
+  /** Path data for the spray grain, one path per colour. */
+  readonly grain: readonly [string, string, string];
+};
+
+/**
+ * One grain of spray as a tiny square subpath. At a pixel or two a square
+ * rasterizes the same as a circle, and a few thousand of these as path
+ * commands cost a fraction of the bytes of as many <circle> elements.
+ */
+const grainMarkup = (x: number, y: number, size: number) => {
+  const side = round(size);
+  return `M${coarse(x)} ${coarse(y)}h${side}v${side}h-${side}z`;
+};
+
+/** Enough for the live seed's three layers plus the seed being dragged to. */
+const MARKUP_CACHE_LIMIT = 8;
+const markupCache = new Map<string, unknown>();
+
+/** Grows markup on first use and reuses it after; geometry never depends on colour. */
+function cachedMarkup<T>(key: string, grow: () => T): T {
+  if (markupCache.has(key)) return markupCache.get(key) as T;
+  const markup = grow();
+  // Oldest out first: a Map iterates in insertion order.
+  if (markupCache.size >= MARKUP_CACHE_LIMIT) markupCache.delete(markupCache.keys().next().value!);
+  markupCache.set(key, markup);
+  return markup;
+}
 
 /**
  * Where a splat lands for a given user seed. Seed 0 is the original art,
@@ -431,92 +461,328 @@ function placementFor(spec: Placement, seed: number): Placement {
   };
 }
 
-/** Colourless markup for one cluster and seed, grown on first use and then reused. */
+const hazeMarkup = (d: Drop) =>
+  `<circle cx="${coarse(d.cx)}" cy="${coarse(d.cy)}" r="${round(d.rx)}"/>`;
+
+function dropMarkup(d: Drop): string {
+  if (d.rx < 0.8) return `<circle cx="${coarse(d.cx)}" cy="${coarse(d.cy)}" r="${round(d.ry)}"/>`;
+  const at = `cx="${round(d.cx)}" cy="${round(d.cy)}"`;
+  if (Math.abs(d.rx - d.ry) < 0.05) return `<circle ${at} r="${round(d.rx)}"/>`;
+  return (
+    `<ellipse ${at} rx="${round(d.rx)}" ry="${round(d.ry)}" ` +
+    `transform="rotate(${round(d.angle)} ${round(d.cx)} ${round(d.cy)})"/>`
+  );
+}
+
+/** Colourless markup for one cluster and seed. */
 function clusterMarkup(cluster: "a" | "b", seed: number): ReadonlyArray<SplatMarkup> {
-  const key = `${cluster}:${seed}`;
-  const cached = markupCache.get(key);
-  if (cached) return cached;
-  const markup = CLUSTERS[cluster].map((base) => {
-    const spec = placementFor(base, seed);
-    const cx = spec.x * SIZE;
-    const cy = spec.y * SIZE;
-    const { paths, drops, haze } = splatter(cx, cy, spec.radius, makeRandom(spec.seed));
+  return cachedMarkup(`${cluster}:${seed}`, () =>
+    CLUSTERS[cluster].map((base) => {
+      const spec = placementFor(base, seed);
+      const cx = spec.x * SIZE;
+      const cy = spec.y * SIZE;
+      const { paths, drops, haze } = splatter(cx, cy, spec.radius, makeRandom(spec.seed));
+      return {
+        x: cx,
+        y: cy,
+        radius: spec.radius,
+        hue: spec.hue,
+        haze: haze.map(hazeMarkup).join(""),
+        marks: paths.map((d) => `<path d="${d}"/>`).join("") + drops.map(dropMarkup).join(""),
+      };
+    }),
+  );
+}
+
+/**
+ * The field's frame. It is painted with `cover`, so a screen of any shape
+ * crops it rather than stretching it, and it grows with the screen: a 4K
+ * canvas gets the same composition as a laptop, not a laptop's worth of paint
+ * marooned in two corners.
+ */
+const FIELD_WIDTH = 1600;
+const FIELD_HEIGHT = 1000;
+
+/** Mostly the lead paint, some second, a rare accent, like the clusters. */
+const pickHue = (random: Random) => {
+  const roll = random();
+  return roll < 0.62 ? 0 : roll < 0.9 ? 1 : 2;
+};
+
+/** Field marks at an amount of 1; the amount setting scales every count. */
+const FIELD_THROWS = 18;
+const FIELD_BURSTS = 16;
+const FIELD_GRAIN = 1400;
+
+/**
+ * Where the nth mark of a kind lands, from the R2 low-discrepancy sequence:
+ * each new point falls in the biggest gap left so far, so raising the amount
+ * fills the canvas evenly instead of clumping. `offset` varies it per seed.
+ */
+const spreadPoint = (index: number, offset: number): Point => [
+  (0.5 + (index + offset) * 0.7548776662) % 1,
+  (0.5 + (index + offset) * 0.569840291) % 1,
+];
+
+/**
+ * Paint flung across the whole canvas, between the two corner clusters:
+ * small throws, bursts of fine spray, and loose grain over all of it. It is
+ * sparser than the clusters and thins through the centre column, so it reads
+ * as the same canvas worked over rather than a pattern behind the text.
+ *
+ * Every mark grows from its own random stream, keyed by seed, kind and index,
+ * so changing `amount` adds or removes marks at the end of each run and never
+ * reshuffles the ones already on screen.
+ */
+function fieldMarkup(seed: number, amount: number): FieldMarkup {
+  return cachedMarkup(`field:${seed}:${amount}`, () => {
+    const streamFor = (kind: number, index: number) =>
+      makeRandom(
+        (Math.imul(seed + 1, 0x9e3779b1) ^
+          Math.imul(kind, 0x85ebca6b) ^
+          Math.imul(index + 1, 0xc2b2ae35)) >>>
+          0,
+      );
+    const offset = (seed * 7919) % 10007;
+    const count = (base: number) => Math.round(base * Math.max(0, amount));
+    const marks: [Array<string>, Array<string>, Array<string>] = [[], [], []];
+    const haze: [Array<string>, Array<string>, Array<string>] = [[], [], []];
+    const grain: [Array<string>, Array<string>, Array<string>] = [[], [], []];
+    const central = (x: number) => Math.abs(x / FIELD_WIDTH - 0.5) < 0.2;
+
+    // Small throws.
+    for (let i = 0; i < count(FIELD_THROWS); i += 1) {
+      const random = streamFor(1, i);
+      const [u, v] = spreadPoint(i, offset);
+      const x = (u + random.range(-0.03, 0.03)) * FIELD_WIDTH;
+      const y = (v + random.range(-0.03, 0.03)) * FIELD_HEIGHT;
+      if (central(x) && random() < 0.65) continue;
+      const hue = pickHue(random);
+      const splat = splatter(x, y, random.skewed(2, 18, 2.8), random);
+      marks[hue].push(
+        ...splat.paths.map((d) => `<path d="${d}"/>`),
+        ...splat.drops.map(dropMarkup),
+      );
+      haze[hue].push(...splat.haze.map(hazeMarkup));
+    }
+
+    // Spray bursts: a fan of fine grain flung from one point, dense where the
+    // paint left the nozzle and thinning toward the edge of the cone, with the
+    // odd heavier droplet. Grain is scattered, never strung along a path, so a
+    // burst reads as airbrushed texture rather than a dotted line.
+    for (let i = 0; i < count(FIELD_BURSTS); i += 1) {
+      const random = streamFor(2, i);
+      const [u, v] = spreadPoint(i, offset + 5003);
+      const [originX, originY] = [u * FIELD_WIDTH, v * FIELD_HEIGHT];
+      if (central(originX) && random() < 0.5) continue;
+      const hue = pickHue(random);
+      const heading = random() * Math.PI * 2;
+      const spread = random.range(0.35, 1.1);
+      const reach = random.range(90, 320);
+      const specks = Math.round(reach * random.range(2, 3.2));
+      for (let j = 0; j < specks; j += 1) {
+        const angle = random.gauss(heading, spread);
+        // Most paint lands near the origin; a long tail carries the fine mist.
+        const distance = reach * random.skewed(0.03, 1, 1.7);
+        const x = originX + Math.cos(angle) * distance;
+        const y = originY + Math.sin(angle) * distance;
+        if (random() < 0.025) {
+          const size = random.range(1, 2.4) * (1 - (distance / reach) * 0.5);
+          marks[hue].push(
+            dropMarkup({
+              cx: x,
+              cy: y,
+              rx: size * random.range(1, 1.7),
+              ry: size,
+              angle: (angle * 180) / Math.PI,
+            }),
+          );
+        } else {
+          grain[hue].push(grainMarkup(x, y, random.skewed(0.6, 1.6, 2.2)));
+        }
+      }
+    }
+
+    // Loose grain over everything, so the spaces between bursts still read
+    // as a sprayed surface.
+    for (let i = 0; i < count(FIELD_GRAIN); i += 1) {
+      const random = streamFor(3, i);
+      const x = random() * FIELD_WIDTH;
+      if (central(x) && random() < 0.4) continue;
+      grain[pickHue(random)].push(
+        grainMarkup(x, random() * FIELD_HEIGHT, random.skewed(0.6, 1.8, 2.5)),
+      );
+    }
+
     return {
-      x: cx,
-      y: cy,
-      radius: spec.radius,
-      hue: spec.hue,
-      haze: haze
-        .map((d) => `<circle cx="${coarse(d.cx)}" cy="${coarse(d.cy)}" r="${round(d.rx)}"/>`)
-        .join(""),
-      marks:
-        paths.map((d) => `<path d="${d}"/>`).join("") +
-        drops
-          .map((d) => {
-            if (d.rx < 0.8) {
-              return `<circle cx="${coarse(d.cx)}" cy="${coarse(d.cy)}" r="${round(d.ry)}"/>`;
-            }
-            const at = `cx="${round(d.cx)}" cy="${round(d.cy)}"`;
-            if (Math.abs(d.rx - d.ry) < 0.05) return `<circle ${at} r="${round(d.rx)}"/>`;
-            return (
-              `<ellipse ${at} rx="${round(d.rx)}" ry="${round(d.ry)}" ` +
-              `transform="rotate(${round(d.angle)} ${round(d.cx)} ${round(d.cy)})"/>`
-            );
-          })
-          .join(""),
+      marks: [marks[0].join(""), marks[1].join(""), marks[2].join("")],
+      haze: [haze[0].join(""), haze[1].join(""), haze[2].join("")],
+      grain: [grain[0].join(""), grain[1].join(""), grain[2].join("")],
     };
   });
-  // Oldest out first: a Map iterates in insertion order.
-  if (markupCache.size >= MARKUP_CACHE_LIMIT) markupCache.delete(markupCache.keys().next().value!);
-  markupCache.set(key, markup);
-  return markup;
 }
+
+/* ------------------------------------------------------------ compose -- */
 
 const alpha = (value: number) => Math.round(Math.min(1, Math.max(0, value)) * 1000) / 1000;
 
-export function renderSplatterCluster(cluster: "a" | "b", options: SplatterRenderOptions): string {
+function alphas(options: SplatterRenderOptions) {
   const base = BASE_ALPHA[options.appearance];
   const intensity = Math.max(0, options.intensity);
-  const paint = alpha(base.paint * intensity);
-  const haze = alpha(base.paint * base.haze * intensity);
-  const bloom = alpha(base.glow * intensity * (options.glow ? 2.4 : 1));
+  return {
+    paint: alpha(base.paint * intensity),
+    haze: alpha(base.paint * base.haze * intensity),
+    bloom: alpha(base.glow * intensity * (options.glow ? 2.4 : 1)),
+  };
+}
+
+type Layers = { readonly defs: string; readonly body: string };
+
+/**
+ * Paint for one group of marks: its haze, the glow halos in neon mode, then
+ * the marks themselves, reusing `#id` by reference.
+ */
+function paintLayers(
+  id: string,
+  color: string,
+  haze: string,
+  options: SplatterRenderOptions,
+): string {
+  const { paint, haze: hazeAlpha } = alphas(options);
+  let layers = haze ? `<g fill="${color}" fill-opacity="${hazeAlpha}">${haze}</g>` : "";
+  if (options.glow) {
+    // Two soft rings under the paint stand in for a blur: a wide faint one
+    // and a tighter brighter one.
+    for (const [width, strength] of [
+      [6, 0.35],
+      [2.6, 0.7],
+    ] as const) {
+      layers +=
+        `<use xlink:href="#${id}" fill="none" stroke="${color}" ` +
+        `stroke-width="${width}" stroke-linejoin="round" stroke-opacity="${alpha(paint * strength)}"/>`;
+    }
+  }
+  return `${layers}<use xlink:href="#${id}" fill="${color}" fill-opacity="${paint}"/>`;
+}
+
+/** `prefix` keeps ids unique when several layers share one document. */
+function clusterLayers(cluster: "a" | "b", options: SplatterRenderOptions, prefix = ""): Layers {
+  const { bloom } = alphas(options);
   const defs: Array<string> = [];
   const glows: Array<string> = [];
   const layers: Array<string> = [];
-
   clusterMarkup(cluster, options.seed).forEach((splat, index) => {
     const color = options.colors[splat.hue] ?? options.colors[0];
+    const [gradient, marks] = [`${prefix}g${index}`, `${prefix}m${index}`];
     defs.push(
-      `<radialGradient id="g${index}">` +
+      `<radialGradient id="${gradient}">` +
         `<stop offset="0" stop-color="${color}" stop-opacity="${bloom}"/>` +
         `<stop offset=".45" stop-color="${color}" stop-opacity="${alpha(bloom * 0.4)}"/>` +
         `<stop offset="1" stop-color="${color}" stop-opacity="0"/></radialGradient>`,
-      `<g id="m${index}">${splat.marks}</g>`,
+      `<g id="${marks}">${splat.marks}</g>`,
     );
     glows.push(
       `<circle cx="${round(splat.x)}" cy="${round(splat.y)}" ` +
-        `r="${round(splat.radius * (options.glow ? 5.6 : 4.6))}" fill="url(#g${index})"/>`,
+        `r="${round(splat.radius * (options.glow ? 5.6 : 4.6))}" fill="url(#${gradient})"/>`,
     );
-    layers.push(`<g fill="${color}" fill-opacity="${haze}">${splat.haze}</g>`);
-    if (options.glow) {
-      // Two soft rings under the paint stand in for a blur: a wide faint one
-      // and a tighter brighter one, both reusing the marks by reference.
-      for (const [width, strength] of [
-        [6, 0.35],
-        [2.6, 0.7],
-      ] as const) {
-        layers.push(
-          `<use xlink:href="#m${index}" fill="none" stroke="${color}" ` +
-            `stroke-width="${width}" stroke-linejoin="round" stroke-opacity="${alpha(paint * strength)}"/>`,
-        );
-      }
-    }
-    layers.push(`<use xlink:href="#m${index}" fill="${color}" fill-opacity="${paint}"/>`);
+    layers.push(paintLayers(marks, color, splat.haze, options));
   });
+  return { defs: defs.join(""), body: glows.join("") + layers.join("") };
+}
 
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
-    `viewBox="0 0 ${SIZE} ${SIZE}" fill="none">` +
-    `<defs>${defs.join("")}</defs>${glows.join("")}${layers.join("")}</svg>`
+function fieldLayers(options: SplatterRenderOptions, prefix = ""): Layers {
+  const field = fieldMarkup(options.seed, options.amount);
+  let defs = "";
+  let body = "";
+  const { paint } = alphas(options);
+  field.marks.forEach((marks, hue) => {
+    const id = `${prefix}f${hue}`;
+    const color = options.colors[hue] ?? options.colors[0];
+    defs += `<g id="${id}">${marks}</g>`;
+    // Grain takes stronger paint, since a grain covers barely a pixel, but no
+    // glow halos: a halo per grain would smear the texture into fog.
+    if (field.grain[hue]) {
+      body += `<path fill="${color}" fill-opacity="${alpha(paint * 2.6)}" d="${field.grain[hue]}"/>`;
+    }
+    body += paintLayers(id, color, field.haze[hue]!, options);
+  });
+  return { defs, body };
+}
+
+const svgDocument = (width: number, height: number, content: string, attributes = "") =>
+  `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+  `viewBox="0 0 ${width} ${height}"${attributes} fill="none">${content}</svg>`;
+
+/** One corner cluster, square, for anchoring in a corner of the canvas. */
+export function renderSplatterCluster(cluster: "a" | "b", options: SplatterRenderOptions): string {
+  const { defs, body } = clusterLayers(cluster, options);
+  return svgDocument(SIZE, SIZE, `<defs>${defs}</defs>${body}`);
+}
+
+/** The whole-canvas field that sits under the clusters. Paint it with `cover`. */
+export function renderSplatterField(options: SplatterRenderOptions): string {
+  const { defs, body } = fieldLayers(options);
+  return svgDocument(
+    FIELD_WIDTH,
+    FIELD_HEIGHT,
+    `<defs>${defs}</defs>${body}`,
+    ` preserveAspectRatio="xMidYMid slice"`,
+  );
+}
+
+export type SplatterFrame = { readonly x: number; readonly y: number; readonly size: number };
+
+/**
+ * Where the two square clusters sit on a canvas of this size, in its own
+ * units. Mirrors the [data-chat-canvas] rules in apps/web/src/index.css; keep
+ * the two in step.
+ *
+ * Wide canvases anchor the clusters to the corners and size them by height as
+ * well as width, so a 4K screen gets clusters in proportion instead of a
+ * laptop-sized pair. Compact ones scale both up to stay legible, and lift the
+ * lower one clear of the composer, which would otherwise bury its largest splat.
+ */
+export function splatterLayout(
+  width: number,
+  height: number,
+  compact = width <= 640,
+): { readonly a: SplatterFrame; readonly b: SplatterFrame } {
+  if (compact) {
+    const [a, b] = [width * 1.25, width * 1.3];
+    return {
+      a: { x: width - a, y: 0, size: a },
+      b: { x: width * -0.18, y: height * 0.88 - b, size: b },
+    };
+  }
+  const a = Math.min(width * 0.58, Math.max(720, height * 0.6));
+  const b = Math.min(width * 0.66, Math.max(820, height * 0.68));
+  return { a: { x: width - a, y: 0, size: a }, b: { x: 0, y: height - b, size: b } };
+}
+
+/**
+ * The whole backdrop composed into one image the size of a canvas, for
+ * previewing a pattern without painting it onto the app.
+ */
+export function renderSplatterPreview(
+  options: SplatterRenderOptions,
+  width: number,
+  height: number,
+  compact?: boolean,
+): string {
+  const layout = splatterLayout(width, height, compact);
+  const field = fieldLayers(options, "f");
+  const a = clusterLayers("a", options, "a");
+  const b = clusterLayers("b", options, "b");
+  const frame = ({ x, y, size }: SplatterFrame, body: string) =>
+    `<svg x="${round(x)}" y="${round(y)}" width="${round(size)}" height="${round(size)}" ` +
+    `viewBox="0 0 ${SIZE} ${SIZE}">${body}</svg>`;
+  return svgDocument(
+    width,
+    height,
+    `<defs>${field.defs}${a.defs}${b.defs}</defs>` +
+      `<svg width="${width}" height="${height}" viewBox="0 0 ${FIELD_WIDTH} ${FIELD_HEIGHT}" ` +
+      `preserveAspectRatio="xMidYMid slice">${field.body}</svg>` +
+      frame(layout.b, b.body) +
+      frame(layout.a, a.body),
   );
 }

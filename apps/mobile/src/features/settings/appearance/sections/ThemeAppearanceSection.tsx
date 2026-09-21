@@ -18,8 +18,10 @@ import {
 import { getMobileUniwindThemeName } from "../../../../lib/mobileThemeRuntime";
 import { cn } from "../../../../lib/cn";
 import {
+  MAX_THEME_BACKDROP_AMOUNT,
   MAX_THEME_BACKDROP_INTENSITY,
   MAX_THEME_BACKDROP_SEED,
+  MIN_THEME_BACKDROP_AMOUNT,
   MIN_THEME_BACKDROP_INTENSITY,
   type ThemeBackdropScope,
 } from "@t3tools/contracts";
@@ -28,6 +30,7 @@ import { SettingsChoiceRow } from "../../components/SettingsChoiceRow";
 import { SettingsSection } from "../../components/SettingsSection";
 import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
 import { FontSizeSliderRow } from "../components/FontSizeSliderRow";
+import { SplatterPatternStrip } from "../components/SplatterPatternStrip";
 import {
   splatterHexToHue,
   splatterHueToHex,
@@ -330,6 +333,8 @@ export function ThemeAppearanceSection() {
     setThemeBackdropScope,
     themeBackdropIntensity,
     setThemeBackdropIntensity,
+    themeBackdropAmount,
+    setThemeBackdropAmount,
     themeBackdropGlow,
     setThemeBackdropGlow,
     themeBackdropSeed,
@@ -411,6 +416,17 @@ export function ThemeAppearanceSection() {
               value={themeBackdropIntensity}
               valueLabel={`${themeBackdropIntensity}%`}
             />
+            <FontSizeSliderRow
+              disabled={!isReady}
+              icon={{ ios: "sparkles", android: "auto_awesome" }}
+              label="Amount"
+              max={MAX_THEME_BACKDROP_AMOUNT}
+              min={MIN_THEME_BACKDROP_AMOUNT}
+              onChange={setThemeBackdropAmount}
+              step={10}
+              value={themeBackdropAmount}
+              valueLabel={`${themeBackdropAmount}%`}
+            />
             <SettingsSwitchRow
               disabled={!isReady}
               icon="sun.max"
@@ -465,6 +481,18 @@ export function ThemeAppearanceSection() {
                 })}
               </>
             ) : null}
+            <SplatterPatternStrip
+              disabled={!isReady}
+              options={{
+                colors: themeBackdropColors ?? themeSplatterColors(themeId, themeAppearance),
+                appearance: themeAppearance,
+                intensity: themeBackdropIntensity / 100,
+                amount: themeBackdropAmount / 100,
+                glow: themeBackdropGlow,
+              }}
+              selectedSeed={themeBackdropSeed}
+              onSelect={setThemeBackdropSeed}
+            />
             <SettingsActionRow
               disabled={!isReady}
               icon="arrow.clockwise"

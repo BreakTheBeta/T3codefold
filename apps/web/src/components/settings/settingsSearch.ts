@@ -232,6 +232,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["splat splatter strength opacity subtle bold"],
   },
   {
+    id: "theme-backdrop-amount",
+    title: "Splatter amount",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter density more less spray grain specks busy"],
+  },
+  {
     id: "theme-backdrop-seed",
     title: "Splatter pattern",
     to: "/settings/appearance",

@@ -641,6 +641,9 @@ describe("ClientSettings glass opacity", () => {
     expect(backdrop.themeBackdropScope).toBe("featured");
     expect(backdrop.themeBackdropColors).toBeNull();
     expect(backdrop.themeBackdropIntensity).toBe(100);
+    expect(backdrop.themeBackdropAmount).toBe(100);
+    expect(decodeClientSettings({ themeBackdropAmount: 0 }).themeBackdropAmount).toBe(0);
+    expect(() => decodeClientSettings({ themeBackdropAmount: 201 })).toThrow();
     expect(backdrop.themeBackdropGlow).toBe(false);
     expect(backdrop.themeBackdropSeed).toBe(0);
     expect(decodeClientSettings({ themeBackdropSeed: 4242 }).themeBackdropSeed).toBe(4242);

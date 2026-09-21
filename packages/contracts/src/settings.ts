@@ -307,6 +307,14 @@ export const ThemeBackdropIntensity = Schema.Int.check(
 );
 export type ThemeBackdropIntensity = typeof ThemeBackdropIntensity.Type;
 
+export const MIN_THEME_BACKDROP_AMOUNT = 0;
+export const MAX_THEME_BACKDROP_AMOUNT = 200;
+/** Percent of the tuned default number of marks scattered across the canvas. */
+export const ThemeBackdropAmount = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_THEME_BACKDROP_AMOUNT, maximum: MAX_THEME_BACKDROP_AMOUNT }),
+);
+export type ThemeBackdropAmount = typeof ThemeBackdropAmount.Type;
+
 export const MAX_THEME_BACKDROP_SEED = 999_999;
 /** Splatter pattern variant; 0 is the original art. */
 export const ThemeBackdropSeed = Schema.Int.check(
@@ -410,6 +418,7 @@ export const ClientSettingsSchema = Schema.Struct({
   themeBackdropIntensity: ThemeBackdropIntensity.pipe(
     Schema.withDecodingDefault(Effect.succeed(100)),
   ),
+  themeBackdropAmount: ThemeBackdropAmount.pipe(Schema.withDecodingDefault(Effect.succeed(100))),
   themeBackdropGlow: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   themeBackdropSeed: ThemeBackdropSeed.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
   fontSizeInterface: InterfaceFontSize.pipe(
@@ -1680,6 +1689,7 @@ export const ClientSettingsPatch = Schema.Struct({
   themeBackdropScope: Schema.optionalKey(ThemeBackdropScope),
   themeBackdropColors: Schema.optionalKey(Schema.NullOr(ThemeBackdropColors)),
   themeBackdropIntensity: Schema.optionalKey(ThemeBackdropIntensity),
+  themeBackdropAmount: Schema.optionalKey(ThemeBackdropAmount),
   themeBackdropGlow: Schema.optionalKey(Schema.Boolean),
   themeBackdropSeed: Schema.optionalKey(ThemeBackdropSeed),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),

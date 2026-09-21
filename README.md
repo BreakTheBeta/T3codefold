@@ -19,6 +19,7 @@ Compared with upstream `main` at [adcd90858c](https://github.com/pingdotgg/t3cod
 | **Older-server compatibility** | Connect the same client to pre-orchestration and current servers; browse threads, send messages, and answer approvals and questions. [Compatibility guide](docs/user/updating.md#compatibility-with-older-servers).                                                                                                 | Web · Desktop, including macOS · Android |
 | **Optional Cite bubble**       | Hide the selection bubble through **Settings → General → Show Cite on text selection**, without disabling text selection.                                                                                                                                                                                           | Web · Desktop                            |
 | **Vim keyboard mode**          | Navigate threads, responses, controls, and the composer with Zed-style modal keyboard controls. Follow the [learning guide](docs/user/vim-keyboard-mode.md) to get started.                                                                                                                                         | Web · Desktop                            |
+| **Splatter backdrop**          | Paint splatter across the whole chat canvas in your theme's colours, sized to fill anything up to 4K. Choose how much paint with the **Splatter amount** slider, and browse patterns in a scrolling preview strip under **Settings → Appearance → Splatter pattern**. [See it](#splatter-backdrop).                 | Web · Desktop · Mobile                   |
 
 ### Android and foldable phones
 
@@ -81,6 +82,18 @@ Android's native selection controls work across mixed response content, includin
 <img src="docs/images/t3codefold-text-selection.webp" alt="Native Android text selection spanning Markdown headings, paragraphs, lists, links, inline code, and a table" width="420">
 
 Download the Android preview from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
+
+## Splatter backdrop
+
+Every screenshot below has the splatter backdrop turned on. Turn it on for any theme under **Settings → Appearance → Splatter backdrop**, set how much paint with **Splatter amount**, then scroll the pattern previews to pick one.
+
+![Cyberpunk with neon glow: splatter and bursts of spray across the whole canvas](docs/images/t3codefold-splatter-glow.webp)
+
+| Filling a 4K canvas                                                                                                | Codex, light                                                                           |
+| ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| ![Splatter spread across a 3840×2160 canvas instead of two small corners](docs/images/t3codefold-splatter-4k.webp) | ![Splatter in the Codex light theme](docs/images/t3codefold-splatter-codex-light.webp) |
+
+<img src="docs/images/t3codefold-splatter-patterns.webp" alt="Scrolling pattern previews under Settings, Appearance, Splatter pattern" width="620">
 
 ## About upstream T3 Code
 

@@ -1761,15 +1761,23 @@ body {
 }
 
 /* Backdrop artwork for the chat canvas: paint splatter in the active theme's
-   colours. Layout lives here; the two images come from the runtime
-   renderer described below.
+   colours. Layout lives here; the images come from the runtime renderer
+   described below.
 
-   Two corner clusters rather than one viewport-sized image: a single SVG
-   scaled with `cover` has to crop roughly 60% of its width on a phone, which
-   throws the composition away. Corner-anchored clusters sized in vw keep their
-   proportions and stay clear of the centre column at every aspect ratio.
+   Two corner clusters over a full-canvas field. The clusters carry the
+   composition: a single SVG scaled with `cover` has to crop roughly 60% of its
+   width on a phone, which throws the composition away, while corner-anchored
+   clusters keep their proportions and stay clear of the centre column at every
+   aspect ratio. They grow with the viewport's height as well as its width, so
+   a 4K canvas gets them in proportion rather than a laptop-sized pair. The
+   field is spray and small throws with no composition to lose, so it takes
+   `cover` and fills whatever the canvas is.
 
-   A third layer carries a grain tile. The chat canvas paints over the inset's
+   Cluster geometry is mirrored by splatterLayout() in
+   packages/shared/src/splatterBackdrop.ts, which draws the settings previews
+   and the mobile canvas. Keep the two in step.
+
+   A last layer carries a grain tile. The chat canvas paints over the inset's
    own grain, so without it the splatter would sit on the one surface in the
    app with no texture beneath it. It is a separate tile from --surface-grain
    rather than a reuse: the shared one is tuned to be almost subliminal on
@@ -1780,14 +1788,16 @@ body {
    are never re-blended afterwards. See the --surface-grain note above for what
    a full-viewport overlay cost us last time. */
 [data-chat-canvas] {
-  background-repeat: no-repeat, no-repeat, repeat;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
   background-position:
     top right,
     bottom left,
+    center,
     0 0;
   background-size:
-    min(58vw, 720px) auto,
-    min(66vw, 820px) auto,
+    min(58vw, max(720px, 60vh)) auto,
+    min(66vw, max(820px, 68vh)) auto,
+    cover,
     200px 200px;
 }
 
@@ -1798,16 +1808,18 @@ body {
     background-position:
       top right,
       left -18vw bottom 12%,
+      center,
       0 0;
     background-size:
       125vw auto,
       130vw auto,
+      cover,
       200px 200px;
   }
 }
 
 /* The art itself is rendered per theme at runtime (apps/web/src/themeBackdrop.tsx,
-   packages/shared/src/splatterBackdrop.ts), which sets --backdrop-a/-b to blob
+   packages/shared/src/splatterBackdrop.ts), which sets --backdrop-a/-b/-field to blob
    URLs and data-theme-backdrop="on" whenever Settings -> Appearance -> Splatter
    backdrop applies to the active theme. */
 
@@ -1825,7 +1837,8 @@ html.dark [data-chat-canvas] {
 }
 
 html[data-theme-backdrop="on"] [data-chat-canvas] {
-  background-image: var(--backdrop-a), var(--backdrop-b), var(--canvas-grain);
+  background-image:
+    var(--backdrop-a), var(--backdrop-b), var(--backdrop-field), var(--canvas-grain);
 }
 
 /* The live T3 Chat texture is a 128px grayscale tile with a constant 7/255
