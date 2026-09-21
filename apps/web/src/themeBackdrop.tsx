@@ -4,6 +4,7 @@ import {
   deriveSplatterColors,
   parseOklch,
   renderSplatterCluster,
+  renderSplatterField,
   type SplatterRenderOptions,
 } from "@t3tools/shared/splatterBackdrop";
 import { useLayoutEffect, useMemo } from "react";
@@ -61,6 +62,8 @@ export function resolveThemeBackdrop(input: {
   };
 }
 
+const BACKDROP_LAYERS = ["a", "b", "field"] as const;
+
 const selectBackdropSettings = (settings: ClientSettings): BackdropSettings => settings;
 
 /** The active theme's id and the two roles the paint colours derive from. */
@@ -88,8 +91,8 @@ export function useThemeDerivedBackdropColors(): readonly [string, string, strin
 }
 
 /**
- * Renders the splatter for the active theme and hands it to index.css as two
- * blob URLs on the root. Blob URLs rather than data URIs keep a ~100 kB SVG
+ * Renders the splatter for the active theme and hands it to index.css as
+ * blob URLs on the root: two corner clusters and the field beneath them. Blob URLs rather than data URIs keep a ~100 kB SVG
  * out of every style recalculation that reads the custom property.
  */
 export function ThemeBackdropSync() {
@@ -146,17 +149,16 @@ export function ThemeBackdropSync() {
     const root = document.documentElement;
     if (!options) {
       delete root.dataset.themeBackdrop;
-      root.style.removeProperty("--backdrop-a");
-      root.style.removeProperty("--backdrop-b");
+      for (const layer of BACKDROP_LAYERS) root.style.removeProperty(`--backdrop-${layer}`);
       return;
     }
-    const urls = (["a", "b"] as const).map((cluster) =>
-      URL.createObjectURL(
-        new Blob([renderSplatterCluster(cluster, options)], { type: "image/svg+xml" }),
-      ),
-    );
-    root.style.setProperty("--backdrop-a", `url("${urls[0]}")`);
-    root.style.setProperty("--backdrop-b", `url("${urls[1]}")`);
+    const urls = BACKDROP_LAYERS.map((layer) => {
+      const svg =
+        layer === "field" ? renderSplatterField(options) : renderSplatterCluster(layer, options);
+      const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+      root.style.setProperty(`--backdrop-${layer}`, `url("${url}")`);
+      return url;
+    });
     root.dataset.themeBackdrop = "on";
     return () => {
       for (const url of urls) URL.revokeObjectURL(url);

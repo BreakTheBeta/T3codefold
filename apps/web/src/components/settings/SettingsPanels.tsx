@@ -1,6 +1,7 @@
 import { VoiceSettings } from "../voice/VoiceWorkspaceProvider";
 import { SettingsGroup } from "./SettingsGroup";
 import { useThemeDerivedBackdropColors } from "../../themeBackdrop";
+import { SplatterPatternGallery } from "./SplatterPatternGallery";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
 import {
@@ -1504,7 +1505,7 @@ export function AppearanceSettingsPanel() {
 
             <SettingsRow
               {...searchableSetting("theme-backdrop-seed")}
-              description="Grows a different splatter pattern. 0 is the original."
+              description="Grows a different splatter pattern. 0 is the original; scroll the previews to browse."
               control={
                 <div className="flex items-center gap-2">
                   <NumberField
@@ -1544,7 +1545,18 @@ export function AppearanceSettingsPanel() {
                   </Button>
                 </div>
               }
-            />
+            >
+              <SplatterPatternGallery
+                options={{
+                  colors: settings.themeBackdropColors ?? themeBackdropColors,
+                  appearance: resolvedTheme,
+                  intensity: settings.themeBackdropIntensity / 100,
+                  glow: settings.themeBackdropGlow,
+                }}
+                selectedSeed={settings.themeBackdropSeed}
+                onSelect={(themeBackdropSeed) => updateSettings({ themeBackdropSeed })}
+              />
+            </SettingsRow>
 
             <SettingsRow
               {...searchableSetting("theme-backdrop-glow")}

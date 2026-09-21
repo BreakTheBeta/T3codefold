@@ -7,6 +7,9 @@ import {
   oklchToHex,
   parseOklch,
   renderSplatterCluster,
+  renderSplatterField,
+  renderSplatterPreview,
+  splatterLayout,
   type SplatterRenderOptions,
 } from "./splatterBackdrop.ts";
 
@@ -134,6 +137,52 @@ describe("renderSplatterCluster", () => {
   it("adds stroke halos only in glow mode", () => {
     expect(renderSplatterCluster("a", options)).not.toContain("stroke=");
     expect(renderSplatterCluster("a", { ...options, glow: true })).toContain('stroke="#39ff88"');
+  });
+});
+
+describe("renderSplatterField", () => {
+  it("draws a pattern per seed, in every colour, ASCII only", () => {
+    const field = renderSplatterField(options);
+    expect(renderSplatterField(options)).toBe(field);
+    expect(renderSplatterField({ ...options, seed: 5 })).not.toBe(field);
+    expect(field).toMatch(/^[\x20-\x7e]*$/);
+    for (const color of options.colors) expect(field).toContain(`fill="${color}"`);
+  });
+
+  it("covers the canvas rather than stretching to it", () => {
+    expect(renderSplatterField(options)).toContain('preserveAspectRatio="xMidYMid slice"');
+  });
+});
+
+describe("splatterLayout", () => {
+  it("keeps a laptop's clusters at their original size", () => {
+    const { a, b } = splatterLayout(1920, 1080);
+    expect(a).toEqual({ x: 1200, y: 0, size: 720 });
+    expect(b).toEqual({ x: 0, y: 1080 - 820, size: 820 });
+  });
+
+  it("grows the clusters with a 4K canvas", () => {
+    const { a, b } = splatterLayout(3840, 2160);
+    expect(a.size).toBeCloseTo(2160 * 0.6);
+    expect(b.size).toBeCloseTo(2160 * 0.68);
+    expect(a.x + a.size).toBe(3840);
+  });
+
+  it("scales up and lifts the lower cluster on a phone", () => {
+    const { a, b } = splatterLayout(400, 800);
+    expect(a.size).toBe(500);
+    expect(b.y + b.size).toBeCloseTo(800 * 0.88);
+  });
+});
+
+describe("renderSplatterPreview", () => {
+  it("keeps ids unique across the layers it composes", () => {
+    const preview = renderSplatterPreview({ ...options, glow: true }, 320, 200);
+    const ids = [...preview.matchAll(/ id="([^"]+)"/g)].map((match) => match[1]);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const [, ref] of preview.matchAll(/(?:href="#|url\(#)([^")]+)/g)) {
+      expect(ids).toContain(ref);
+    }
   });
 });
 

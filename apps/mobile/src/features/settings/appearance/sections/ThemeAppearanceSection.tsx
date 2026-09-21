@@ -28,6 +28,7 @@ import { SettingsChoiceRow } from "../../components/SettingsChoiceRow";
 import { SettingsSection } from "../../components/SettingsSection";
 import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
 import { FontSizeSliderRow } from "../components/FontSizeSliderRow";
+import { SplatterPatternStrip } from "../components/SplatterPatternStrip";
 import {
   splatterHexToHue,
   splatterHueToHex,
@@ -465,6 +466,17 @@ export function ThemeAppearanceSection() {
                 })}
               </>
             ) : null}
+            <SplatterPatternStrip
+              disabled={!isReady}
+              options={{
+                colors: themeBackdropColors ?? themeSplatterColors(themeId, themeAppearance),
+                appearance: themeAppearance,
+                intensity: themeBackdropIntensity / 100,
+                glow: themeBackdropGlow,
+              }}
+              selectedSeed={themeBackdropSeed}
+              onSelect={setThemeBackdropSeed}
+            />
             <SettingsActionRow
               disabled={!isReady}
               icon="arrow.clockwise"
