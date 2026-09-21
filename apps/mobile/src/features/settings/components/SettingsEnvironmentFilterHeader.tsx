@@ -1,6 +1,7 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackHeaderItem } from "@react-navigation/native-stack";
 import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import type { ReactNode } from "react";
 import { Platform, Pressable } from "react-native";
 
 import { ControlPillMenu } from "../../../components/ControlPill";
@@ -136,6 +137,27 @@ export function SettingsEnvironmentFilterHeader(props: {
 }
 
 export function AndroidSettingsEnvironmentFilter() {
+  const { selectedIds, selectedProjectKey } = useSettingsEnvironmentFilter();
+  const filterIcon =
+    selectedIds === null && selectedProjectKey === null
+      ? "line.3.horizontal.decrease"
+      : "line.3.horizontal.decrease.circle.fill";
+
+  return (
+    <SettingsScopeMenu>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Filter settings environments and projects"
+        className="size-11 items-center justify-center rounded-full"
+      >
+        <SymbolView name={filterIcon} size={22} tintColorClassName="accent-icon" />
+      </Pressable>
+    </SettingsScopeMenu>
+  );
+}
+
+/** Wraps a pressable in the environment/project scope menu on both platforms. */
+export function SettingsScopeMenu(props: { readonly children: ReactNode }) {
   const {
     availableTargets,
     selectedIds,
@@ -145,10 +167,6 @@ export function AndroidSettingsEnvironmentFilter() {
     selectedProjectKey,
     selectProject,
   } = useSettingsEnvironmentFilter();
-  const filterIcon =
-    selectedIds === null && selectedProjectKey === null
-      ? "line.3.horizontal.decrease"
-      : "line.3.horizontal.decrease.circle.fill";
 
   return (
     <ControlPillMenu
@@ -199,13 +217,7 @@ export function AndroidSettingsEnvironmentFilter() {
         }
       }}
     >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Filter settings environments and projects"
-        className="size-11 items-center justify-center rounded-full"
-      >
-        <SymbolView name={filterIcon} size={22} tintColorClassName="accent-icon" />
-      </Pressable>
+      {props.children}
     </ControlPillMenu>
   );
 }

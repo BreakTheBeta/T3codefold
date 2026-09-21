@@ -29,7 +29,7 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
   {
     id: "providers",
     title: "Providers",
-    to: "/settings/providers",
+    to: "/settings/agents",
     searchTerms: ["claude codex agents"],
   },
   {
@@ -115,7 +115,7 @@ describe("searchSettings", () => {
     (query) => {
       expect(searchSettings(query)[0]).toMatchObject({
         id: "usage-providers",
-        to: "/settings/providers",
+        to: "/settings/agents",
       });
     },
   );
@@ -297,7 +297,7 @@ describe("searchSettings", () => {
     const result = searchSettings("recording frame rate")[0];
     expect(result).toMatchObject({
       id: "browser-recording-frame-rate",
-      to: "/settings/integrations",
+      to: "/settings/tools",
     });
     expect(result).not.toHaveProperty("targetId");
   });
@@ -305,7 +305,7 @@ describe("searchSettings", () => {
   it("routes where links open to integrations", () => {
     expect(searchSettings("open links in")[0]).toMatchObject({
       id: "browser-link-target",
-      to: "/settings/integrations",
+      to: "/settings/tools",
     });
     expect(searchSettings("external links")[0]).toMatchObject({ id: "browser-link-target" });
   });
@@ -313,7 +313,7 @@ describe("searchSettings", () => {
   it("finds the default browser profile action in the profiles list", () => {
     expect(searchSettings("default profile")[0]).toMatchObject({
       id: "browser-default-profile",
-      to: "/settings/integrations",
+      to: "/settings/tools",
       targetId: "browser-profiles",
     });
   });
@@ -321,8 +321,8 @@ describe("searchSettings", () => {
   it.each([
     ["default model", "default-model", "/settings/general"],
     ["new threads", "new-threads", "/settings/general"],
-    ["agent browser access", "agent-browser-access", "/settings/integrations"],
-    ["automatically pull", "automatic-pull", "/settings/source-control"],
+    ["agent browser access", "agent-browser-access", "/settings/tools"],
+    ["automatically pull", "automatic-pull", "/settings/git"],
     ["actions", "project-actions", "/settings/projects"],
     ["project overview", "project-overview", "/settings/projects"],
   ])("routes %s to its owning category", (query, id, to) => {

@@ -21,7 +21,7 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
-import { SETTINGS_SECTION_LABELS } from "./settingsSearch";
+import { SETTINGS_SECTION_ROUTES, settingsPathLabel } from "./settingsSearch";
 import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope";
 import {
   ALL_ENVIRONMENTS_VALUE,
@@ -34,7 +34,9 @@ import {
 } from "./settingsScopeAxis";
 
 const SETTINGS_BREADCRUMB_LABELS: Readonly<Record<string, string>> = {
-  ...SETTINGS_SECTION_LABELS,
+  ...Object.fromEntries(SETTINGS_SECTION_ROUTES.map((section) => [section.to, section.label])),
+  "/settings/projects": settingsPathLabel("/settings/projects"),
+  "/settings/keybindings": settingsPathLabel("/settings/keybindings"),
   "/settings/diagnostics": "Diagnostics",
   "/settings/open-source-licenses": "Open source licenses",
 };

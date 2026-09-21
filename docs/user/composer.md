@@ -45,9 +45,9 @@ it steers when your default is Queue and queues when your default is Steer.
 Use `Cmd+Shift+Enter` on macOS or `Ctrl+Shift+Enter` on Windows and Linux to send
 the oldest queued message as a steer. This leaves the current draft intact and
 requires an active turn that supports steering. Change
-`thread.steerQueuedMessage` in **Settings → Keybindings** to use another shortcut.
+`thread.steerQueuedMessage` in **Settings → General → Keyboard shortcuts** to use another shortcut.
 
-Mobile has the same choice under **Settings → Follow-ups**. While a turn is
+Mobile has the same choice under **Settings → General**. While a turn is
 running the send button shows which action it will take. Long-press it to use the
 other action for a single message, or hold `Cmd` while sending from a hardware
 keyboard. The button only offers Steer when the running agent supports it.
@@ -61,7 +61,7 @@ device until you sign back into the same account.
 
 ## Custom models
 
-On web and desktop, use Settings → Providers → **Models** to add an unlisted model with a custom
+On web and desktop, use Settings → Agents → **Models** to add an unlisted model with a custom
 name and options. Only options supported by the provider integration affect turns. Antigravity
 uses its account catalog and does not support custom models.
 

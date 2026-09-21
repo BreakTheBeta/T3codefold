@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useNavigate } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
 import { useT3ProjectFileState } from "../../hooks/useT3ProjectFileScripts";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
@@ -44,9 +45,16 @@ import {
 /**
  * Rows for the settings a project may override. The same rows edit
  * environment defaults at an environment scope and project overrides at a
- * project or checkout scope; the scoped hooks route the write.
+ * project or checkout scope; the scoped hooks route the write. `children`
+ * appends related rows to the same section.
  */
-export function ProjectDefaultsSettings({ category }: { category: ProjectSettingsCategory }) {
+export function ProjectDefaultsSettings({
+  category,
+  children,
+}: {
+  category: ProjectSettingsCategory;
+  children?: ReactNode;
+}) {
   const { scope, target, targets, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -145,7 +153,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         category === "general"
           ? "New threads"
           : category === "integrations"
-            ? "Browser"
+            ? "Agent access"
             : "Repositories"
       }
     >
@@ -190,7 +198,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                     onOpenProviderSetup={(instanceId) => {
                       if (representative)
                         void navigate({
-                          to: "/settings/providers",
+                          to: "/settings/agents",
                           search: { environmentId: representative.environmentId, instanceId },
                         });
                     }}
@@ -454,6 +462,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           />
         </>
       )}
+      {children}
     </SettingsSection>
   );
 }

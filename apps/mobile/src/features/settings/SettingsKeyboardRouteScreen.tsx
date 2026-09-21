@@ -35,12 +35,6 @@ const ENTER_BEHAVIOR_OPTIONS: ReadonlyArray<{
 export function SettingsKeyboardRouteScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const preferencesResult = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
-  const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
-  const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
-    ? (preferencesResult.value.composerEnterBehavior ?? DEFAULT_COMPOSER_ENTER_BEHAVIOR)
-    : null;
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
@@ -57,23 +51,39 @@ export function SettingsKeyboardRouteScreen() {
         contentContainerClassName="gap-3 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        <SettingsSection title="Return key">
-          {ENTER_BEHAVIOR_OPTIONS.map((option, index) => (
-            <SettingsChoiceRow
-              key={option.behavior}
-              label={option.label}
-              description={option.description}
-              selected={selectedBehavior === option.behavior}
-              separated={index > 0}
-              disabled={!preferencesReady}
-              onPress={() => savePreferences({ composerEnterBehavior: option.behavior })}
-            />
-          ))}
-        </SettingsSection>
-        <Text className="px-2 text-sm text-foreground-muted">
-          Applies to the composer when a hardware keyboard is connected.
-        </Text>
+        <KeyboardSettingsSection title="Return key" />
       </ScrollView>
+    </View>
+  );
+}
+
+/** Hardware-keyboard Return behaviour in the composer. Device-local. */
+export function KeyboardSettingsSection(props: { readonly title: string }) {
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
+  const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
+    ? (preferencesResult.value.composerEnterBehavior ?? DEFAULT_COMPOSER_ENTER_BEHAVIOR)
+    : null;
+
+  return (
+    <View className="gap-3">
+      <SettingsSection title={props.title}>
+        {ENTER_BEHAVIOR_OPTIONS.map((option, index) => (
+          <SettingsChoiceRow
+            key={option.behavior}
+            label={option.label}
+            description={option.description}
+            selected={selectedBehavior === option.behavior}
+            separated={index > 0}
+            disabled={!preferencesReady}
+            onPress={() => savePreferences({ composerEnterBehavior: option.behavior })}
+          />
+        ))}
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        Applies to the composer when a hardware keyboard is connected.
+      </Text>
     </View>
   );
 }

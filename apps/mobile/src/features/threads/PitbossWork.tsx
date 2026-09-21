@@ -9,9 +9,7 @@ import {
   gladosInboxRows,
   gladosReceiptStatus,
   gladosInboxLayout,
-  gladosElection,
   gladosNewTask,
-  gladosFullAuto,
   gladosWorkKind,
   gladosWorkStatus,
   type GladosInboxTab,
@@ -124,7 +122,6 @@ export function PitbossWork(props: {
     const frame = requestAnimationFrame(finishDismiss);
     return () => cancelAnimationFrame(frame);
   }, [visible, finishDismiss]);
-  const [priorities, setPriorities] = useState("");
   const [title, setTitle] = useState("");
   const [criteria, setCriteria] = useState("");
   const [busy, setBusy] = useState(false);
@@ -184,13 +181,6 @@ export function PitbossWork(props: {
         );
         return false;
       }
-      if (action.type === "activate-home" && result.value.role) {
-        setVisible(false);
-        navigation.navigate("Thread", {
-          environmentId: props.environmentId,
-          threadId: result.value.role.threadId,
-        });
-      }
       return true;
     } finally {
       inFlight.current = false;
@@ -215,6 +205,14 @@ export function PitbossWork(props: {
     setShowProfiles(false);
     setShowCriteria(false);
     setShowManagement(false);
+  };
+  const openSettings = () => {
+    setVisible(false);
+    // "SettingsGlados" is registered in the settings content stack by the settings navigator.
+    navigation.navigate("SettingsSheet", {
+      screen: "SettingsContent",
+      params: { screen: "SettingsGlados", params: { environmentId: props.environmentId } },
+    });
   };
   const goBack = () => {
     if (panel !== "inbox") setPanel("inbox");
@@ -244,7 +242,6 @@ export function PitbossWork(props: {
       <Pressable
         accessibilityRole="button"
         onPress={() => {
-          setPriorities(role?.brief.priorities ?? "");
           setNow(Date.now());
           setVisible(true);
         }}
@@ -301,7 +298,8 @@ export function PitbossWork(props: {
           {panel === "inbox" ? (
             <>
               <View className="flex-row flex-wrap items-center justify-between gap-2 px-4 py-2">
-                {button("Brief & team", () => setPanel("settings"))}
+                {button("Team", () => setPanel("settings"))}
+                {button("Settings", openSettings)}
                 {isBoss &&
                   button("Talk to GLaDOS", () => {
                     composeAfterDismiss.current = true;
@@ -1075,120 +1073,11 @@ export function PitbossWork(props: {
                       </View>
                     );
                   })}
-                  {role && (
-                    <View className="gap-3 rounded-xl bg-subtle p-4">
-                      <Text className="font-semibold">Autonomy</Text>
-                      <Text className="text-sm">
-                        GLaDOS preference:{" "}
-                        {role.brief.coordinatorRuntimeMode === "full-access"
-                          ? "full access"
-                          : role.brief.coordinatorRuntimeMode === "approval-required"
-                            ? "approval required"
-                            : "keep current permissions"}
-                      </Text>
-                      <Text className="text-sm">
-                        New workers:{" "}
-                        {role.brief.workerRuntimeMode === "full-access"
-                          ? "full access"
-                          : "approval required"}
-                      </Text>
-                      <Text className="text-sm">
-                        Evidence setup:{" "}
-                        {role.brief.verificationMode === "automatic"
-                          ? "GLaDOS prepares and saves checks"
-                          : "review before saving"}
-                      </Text>
-                      <Text className="text-sm text-foreground-muted">
-                        Full auto lets GLaDOS and new workers act within your project scope and
-                        prepare evidence checks. Changes to checks after work starts still need your
-                        decision. Existing workers keep their assigned permissions.
-                      </Text>
-                      {isBoss &&
-                        button("Use full auto", () => void command(gladosFullAuto(role.brief)))}
-                      {isBoss &&
-                        role.brief.verificationMode === "automatic" &&
-                        button(
-                          "Review new evidence profiles myself",
-                          () =>
-                            void command({
-                              type: "brief",
-                              brief: { ...role.brief, verificationMode: "user-approved" },
-                            }),
-                        )}
-                    </View>
-                  )}
-                  <Text className="text-sm text-foreground-muted">Your priorities</Text>
-                  <TextInput
-                    accessibilityLabel="GLaDOS priorities"
-                    multiline
-                    value={priorities}
-                    onChangeText={setPriorities}
-                    className="rounded-xl border border-border p-3 text-foreground"
-                    placeholder="What should GLaDOS work on?"
-                  />
-                  {role && (
-                    <View className="gap-1 rounded-xl border border-border p-3">
-                      <Text className="text-sm font-semibold">Worker configurations</Text>
-                      {[
-                        role.brief.workerModel,
-                        ...(role.brief.alternateWorkerModel
-                          ? [role.brief.alternateWorkerModel]
-                          : []),
-                      ].map((model, index) => (
-                        <Text
-                          key={index === 0 ? "default" : "alternative"}
-                          className="text-sm text-foreground-muted"
-                        >
-                          {index === 0 ? "Default" : "Alternative"}: {model.instanceId} ·{" "}
-                          {model.model}
-                          {model.options
-                            ?.map((option) => ` · ${option.id}: ${option.value}`)
-                            .join("")}
-                        </Text>
-                      ))}
-                      {role.brief.modelGuidance && (
-                        <Text className="text-sm text-foreground-muted">
-                          {role.brief.modelGuidance}
-                        </Text>
-                      )}
-                      <Text className="text-xs text-foreground-muted">
-                        {role.brief.projectIds.length} projects ·{" "}
-                        {role.brief.managedPeerIds === undefined
-                          ? "All configured peers"
-                          : `${role.brief.managedPeerIds.length} permitted peers`}
-                        . Edit models, thinking levels, guidance and scope on web or desktop.
-                      </Text>
-                    </View>
-                  )}
-                  {isBoss ? (
-                    <View className="flex-row flex-wrap gap-2">
-                      {button(
-                        "Save priorities",
-                        () => void command({ type: "brief", brief: { ...role.brief, priorities } }),
-                      )}
-                      {button(
-                        role.paused ? "Resume" : "Pause new work",
-                        () => void command({ type: "pause", paused: !role.paused }),
-                      )}
-                      {button("Dismiss role", () => void command({ type: "dismiss" }))}
-                    </View>
-                  ) : (
-                    button(
-                      role ? "Move GLaDOS to this thread" : "Create GLaDOS home",
-                      () =>
-                        void command(gladosElection({ ...props, priorities, brief: role?.brief })),
-                    )
-                  )}
-                  {role &&
-                    !isBoss &&
-                    button("Open elected GLaDOS", () => {
-                      setVisible(false);
-                      navigation.navigate("Thread", {
-                        environmentId: props.environmentId,
-                        threadId: role.threadId,
-                      });
-                    })}
-                  <MobilePitbossPeers environmentId={props.environmentId} />
+                  <Text className="text-sm text-foreground-muted">
+                    Priorities, projects, autonomy, models, sources and peers live in GLaDOS
+                    settings.
+                  </Text>
+                  {button("Open GLaDOS settings", openSettings)}
                 </>
               )}
               {panel === "create" && isBoss && (
@@ -1304,111 +1193,5 @@ function PitbossPin({ environmentId, label }: { environmentId: EnvironmentId; la
         {query.error ? "Offline" : role.paused ? "Paused" : "Open work"}
       </Text>
     </Pressable>
-  );
-}
-
-function MobilePitbossPeers({ environmentId }: { environmentId: EnvironmentId }) {
-  const query = useEnvironmentQuery(serverEnvironment.pitbossPeers({ environmentId, input: {} }));
-  const mutate = useAtomCommand(
-    serverEnvironment.pitbossPeerCommand,
-    "approve shared coordination",
-  );
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  return (
-    <View className="gap-3">
-      <Text className="font-semibold">Connected GLaDOS peers</Text>
-      {(error || query.error) && <Text accessibilityRole="alert">{error ?? query.error}</Text>}
-      {query.data?.peers.length === 0 && (
-        <Text className="text-xs text-foreground-muted">
-          Connect shared tracker scopes from the web or desktop work panel. Each environment retains
-          its own GLaDOS.
-        </Text>
-      )}
-      {query.data?.peers.map((peer) => (
-        <View key={peer.config.id} className="gap-2 rounded-xl border border-border p-3">
-          <Text>
-            {peer.config.id} · {peer.error ?? "Paired"} · {peer.pendingMessages ?? 0} messages
-            pending
-          </Text>
-          {peer.view.proposals.map((proposal) => (
-            <View key={proposal.id} className="gap-2">
-              <Text className="text-sm">
-                Coordinator:{" "}
-                {proposal.coordinator === query.data?.environmentId
-                  ? "this environment"
-                  : peer.config.id}
-              </Text>
-              <Text className="text-xs">
-                Task home: {proposal.homeEnvironmentId ?? proposal.coordinator}
-              </Text>
-              <Text className="text-xs">
-                {proposal.participants.every((id) => peer.view.approvals[id] === proposal.id)
-                  ? "Approved by both environments"
-                  : "Awaiting approvals"}
-              </Text>
-              {query.data &&
-                peer.view.rejections?.[query.data.environmentId]?.includes(proposal.id) && (
-                  <Text className="text-xs text-foreground-muted">Declined locally</Text>
-                )}
-              {query.data &&
-                !peer.view.rejections?.[query.data.environmentId]?.includes(proposal.id) && (
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={busy || !peer.config.enabled}
-                    className="rounded-lg bg-primary/10 p-3"
-                    onPress={() => {
-                      setBusy(true);
-                      void mutate({
-                        environmentId,
-                        input: { type: "decline", peerId: peer.config.id, proposalId: proposal.id },
-                      }).then((result) => {
-                        setBusy(false);
-                        if (result._tag === "Failure")
-                          setError(
-                            "Decision could not be applied. Resolve active workers and refresh.",
-                          );
-                        query.refresh();
-                      });
-                    }}
-                  >
-                    <Text>
-                      {peer.view.approvals[query.data.environmentId] === proposal.id
-                        ? "Withdraw approval"
-                        : "Decline"}
-                    </Text>
-                  </Pressable>
-                )}
-              {query.data && peer.view.approvals[query.data.environmentId] !== proposal.id && (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={busy}
-                  className="rounded-lg bg-primary/10 p-3"
-                  onPress={() => {
-                    setBusy(true);
-                    void mutate({
-                      environmentId,
-                      input: { type: "approve", peerId: peer.config.id, proposalId: proposal.id },
-                    }).then((result) => {
-                      setBusy(false);
-                      if (result._tag === "Failure")
-                        setError(
-                          "Approval could not be applied. Resolve active workers and refresh.",
-                        );
-                      query.refresh();
-                    });
-                  }}
-                >
-                  <Text>Approve coordination change</Text>
-                </Pressable>
-              )}
-            </View>
-          ))}
-        </View>
-      ))}
-      <Pressable accessibilityRole="button" onPress={query.refresh}>
-        <Text className="text-sm text-primary">Refresh peers</Text>
-      </Pressable>
-    </View>
   );
 }

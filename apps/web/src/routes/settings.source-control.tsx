@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { SourceControlSettingsPanel } from "../components/settings/SourceControlSettings";
-
+/** Old settings URL; its content moved to /settings/git. */
 export const Route = createFileRoute("/settings/source-control")({
-  component: SourceControlSettingsPanel,
+  beforeLoad: ({ location }) => {
+    throw redirect({ to: "/settings/git", search: true, hash: location.hash, replace: true });
+  },
 });

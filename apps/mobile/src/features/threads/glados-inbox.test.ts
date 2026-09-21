@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  PITBOSS_DEFAULT_QUALITY,
   ProjectId,
   ThreadId,
   ProviderInstanceId,
@@ -8,12 +9,14 @@ import {
   type PitbossMessage,
 } from "@t3tools/contracts";
 import {
-  gladosElection,
-  gladosFullAuto,
+  gladosAutonomy,
   gladosInboxLayout,
   gladosInboxRows,
   gladosNewTask,
   gladosReceiptStatus,
+  gladosSetup,
+  gladosStatus,
+  gladosToggleProject,
 } from "./glados-inbox";
 const projectId = ProjectId.make("project");
 const model = {
@@ -75,19 +78,6 @@ const snapshot = (tasks: PitbossTask[], messages: PitbossMessage[] = []): Pitbos
 });
 
 describe("GLaDOS mobile decisions", () => {
-  it("moving the role retains the complete operating agreement, including future optional settings", () => {
-    const action = gladosElection({
-      threadId: ThreadId.make("new-thread"),
-      projectId,
-      priorities: "unsaved draft",
-      modelSelection: { ...model, model: "different" },
-      brief,
-    });
-    expect(action.type).toBe("elect");
-    if (action.type !== "elect") throw new Error("Expected election");
-    expect(action.brief).toBe(brief);
-    expect(action.threadId).toBe("new-thread");
-  });
   it("creates non-Git work by default and isolates code only when selected", () => {
     const fields = {
       id: "research",
@@ -236,15 +226,21 @@ describe("GLaDOS mobile decisions", () => {
   });
 });
 
-it("new GLaDOS creation requests an environment home instead of electing the current repository thread", () => {
-  const action = gladosElection({
-    threadId: ThreadId.make("unrelated"),
-    projectId,
-    priorities: "Useful work",
-    modelSelection: model,
-  });
-  expect(action.type).toBe("activate-home");
+it("new GLaDOS setup requests an environment home with the shared default brief", () => {
+  const action = gladosSetup({ modelSelection: model, projectIds: [projectId] });
+  if (action.type !== "activate-home") throw new Error("Expected home activation");
   expect(action).not.toHaveProperty("threadId");
+  expect(action.brief).toMatchObject({
+    priorities: "",
+    quality: PITBOSS_DEFAULT_QUALITY,
+    projectIds: [projectId],
+    maxWorkers: 3,
+    maxAttempts: 3,
+    workerModel: model,
+    coordinatorRuntimeMode: "approval-required",
+    workerRuntimeMode: "approval-required",
+    verificationMode: "user-approved",
+  });
 });
 it("surfaces unsaved verification proposals in Needs you without claiming approval", () => {
   const proposed = {
@@ -293,8 +289,8 @@ it("combines project and text filters without losing cancelled work or waiting d
   ).toEqual(["task:music archive"]);
   expect(gladosInboxRows(state, "all", { query: " missing " })).toEqual([]);
 });
-it("full auto is an explicit brief command that retains scope and limits", () => {
-  const action = gladosFullAuto(brief);
+it("autonomy is an explicit brief command that retains scope and limits in both directions", () => {
+  const action = gladosAutonomy(brief, "full-auto");
   if (action.type !== "brief") throw new Error("Expected brief");
   expect(action.applyCoordinatorPermissions).toBe(true);
   expect(action.brief).toEqual({
@@ -303,4 +299,49 @@ it("full auto is an explicit brief command that retains scope and limits", () =>
     coordinatorRuntimeMode: "full-access",
     verificationMode: "automatic",
   });
+  const back = gladosAutonomy(action.brief, "ask");
+  if (back.type !== "brief") throw new Error("Expected brief");
+  expect(back.brief).toEqual({
+    ...brief,
+    workerRuntimeMode: "approval-required",
+    coordinatorRuntimeMode: "approval-required",
+    verificationMode: "user-approved",
+  });
+});
+it("toggles projects in and out of scope without reordering the rest", () => {
+  const music = ProjectId.make("music");
+  const studio = ProjectId.make("studio");
+  expect(gladosToggleProject(brief, projectId).projectIds).toEqual([music]);
+  expect(gladosToggleProject(brief, studio).projectIds).toEqual([projectId, music, studio]);
+});
+it("summarizes GLaDOS status from the same buckets as the work board", () => {
+  expect(gladosStatus(undefined).title).toBe("GLaDOS is not set up");
+  expect(gladosStatus(snapshot([])).title).toBe("GLaDOS is not set up");
+  const role = {
+    threadId: ThreadId.make("home"),
+    projectId,
+    generation: 1,
+    paused: false,
+    brief,
+  };
+  const waiting = {
+    ...task("choice", "active"),
+    decisions: [
+      {
+        id: "d",
+        question: "Which?",
+        options: ["A", "B"],
+        recommendation: "A",
+        requestedAt: "2026-09-14",
+      },
+    ],
+  };
+  const state = { ...snapshot([task("a", "active"), task("b", "active"), waiting]), role };
+  expect(gladosStatus(state)).toEqual({
+    title: "GLaDOS is running",
+    detail: "3 tasks working · 1 needs you",
+  });
+  expect(
+    gladosStatus({ ...snapshot([task("a", "active")]), role: { ...role, paused: true } }),
+  ).toEqual({ title: "GLaDOS is paused", detail: "1 task working" });
 });

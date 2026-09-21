@@ -1,6 +1,6 @@
 # Keybindings
 
-Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
+Customize shortcuts in **Settings → General → Keyboard shortcuts** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
 ## Vim keyboard mode
@@ -61,7 +61,7 @@ inserts a new line. This applies to the web and desktop composer at desktop widt
 `mod+Enter` to do the opposite for one message, even when the send shortcut
 requires a modifier. In a new thread, `mod+Alt+Enter` starts the thread in the
 background and opens a fresh composer. Change either shortcut in
-**Settings → Keybindings** under **Composer: Opposite Queue or Steer Action** or
+**Settings → General → Keyboard shortcuts** under **Composer: Opposite Queue or Steer Action** or
 **Composer: Start in Background**. These bindings take priority over the send
 shortcut. Click the send button to use the configured follow-up behavior.
 
@@ -163,7 +163,7 @@ a shortcut.
 ## Commands with special behavior
 
 `thread.stop` interrupts the running turn in the focused thread. It has no default
-shortcut; assign one in **Settings → Keybindings**.
+shortcut; assign one in **Settings → General → Keyboard shortcuts**.
 
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your
@@ -185,6 +185,6 @@ Use `Cmd+Q` on macOS or `Ctrl+Q` on Windows and Linux. In the default **Hold** m
 hold for 1.2 seconds or press twice within 500 milliseconds. Holding requires
 keyboard repeat; if repeat is disabled, use two presses or the application menu.
 
-Change **Settings → General → Confirmations → Quit shortcut** to **Direct** for a
+Change **Settings → Threads → Confirmations → Quit shortcut** to **Direct** for a
 single press or **Double press** for two presses only. Choosing **Quit** from the
 application menu always quits immediately.

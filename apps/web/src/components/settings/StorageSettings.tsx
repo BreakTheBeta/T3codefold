@@ -11,8 +11,7 @@ import {
   NumberFieldIncrement,
   NumberFieldInput,
 } from "../ui/number-field";
-import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
-import { SettingsScopeNotice } from "./SettingsScopeNotice";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
 import type { ScopedSettingsTarget } from "./scopedSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import {
@@ -82,7 +81,8 @@ function RetentionControl({
   );
 }
 
-export function StorageSettingsPanel() {
+/** Cleanup settings shared by the worktree (Git) and artifact (About) sections. */
+function useStorageCleanupSettings() {
   const { scope, connectedEnvironments, targets, target } = useSettingsScope();
   const scopedSettings = useScopedSettings();
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
@@ -114,175 +114,201 @@ export function StorageSettingsPanel() {
       ? updateSettings({ worktreeCleanup: { mode: "custom", rules: patch } })
       : update(patch);
 
-  if (
+  const unsupportedMessage =
     isProjectScope &&
     connectedEnvironments.some(
       (environment) =>
         environment.serverConfig?.environment.capabilities.projectWorktreeCleanup !== true,
     )
-  ) {
-    return (
-      <SettingsScopeNotice target="all">
-        Update the selected machines to configure project worktree cleanup.
-      </SettingsScopeNotice>
-    );
-  }
-
-  if (
-    connectedEnvironments.some(
-      (environment) => environment.serverConfig?.environment.capabilities.storageCleanup !== true,
-    )
-  ) {
-    return (
-      <SettingsScopeNotice
-        target="environment"
-        eligibleEnvironmentIds={connectedEnvironments
-          .filter(
+      ? "Update the selected machines to configure project worktree cleanup."
+      : connectedEnvironments.some(
             (environment) =>
-              environment.serverConfig?.environment.capabilities.storageCleanup === true,
+              environment.serverConfig?.environment.capabilities.storageCleanup !== true,
           )
-          .map((environment) => environment.environmentId)}
-      >
-        Update the selected environments to use storage cleanup, or choose a machine that supports
-        it.
-      </SettingsScopeNotice>
+        ? "Update the selected environments to use storage cleanup, or choose a machine that supports it."
+        : null;
+  return {
+    isProjectScope,
+    settings,
+    mode,
+    mixedModes,
+    updateSettings,
+    clearSettings,
+    ruleStatus,
+    update,
+    updateWorktree,
+    unsupportedMessage,
+  };
+}
+
+function StorageCleanupUnavailable({ message }: { message: string }) {
+  return <p className="px-4 py-3 text-sm text-muted-foreground">{message}</p>;
+}
+
+export function StorageWorktreeSettings() {
+  const {
+    isProjectScope,
+    settings,
+    mode,
+    mixedModes,
+    updateSettings,
+    clearSettings,
+    ruleStatus,
+    updateWorktree,
+    unsupportedMessage,
+  } = useStorageCleanupSettings();
+  if (unsupportedMessage) {
+    return (
+      <SettingsSection id="storage-worktrees" title="Worktree cleanup">
+        <StorageCleanupUnavailable message={unsupportedMessage} />
+      </SettingsSection>
     );
   }
-
   return (
-    <SettingsPageContainer>
-      <SettingsSection id="storage-worktrees" title="Worktrees">
-        {isProjectScope && (
-          <SettingsRow
-            title="Automatic worktree cleanup"
-            description={
-              mode === "off"
-                ? "Keep this project's worktrees until you delete them manually."
-                : mode === "custom"
-                  ? "Use these rules for this project."
-                  : "Use each machine's worktree cleanup settings."
-            }
-            serverScoped
-            settingKeys={["worktreeCleanup"]}
-            mixed={mixedModes}
-            control={
-              <Select
-                value={mixedModes ? null : mode}
-                onValueChange={(next) => {
-                  if (next === "inherit") clearSettings(["worktreeCleanup"]);
-                  else if (next === "off") updateSettings({ worktreeCleanup: { mode: "off" } });
-                  else if (next === "custom")
-                    updateSettings({ worktreeCleanup: { mode: "custom", rules: {} } });
-                }}
-              >
-                <SelectTrigger size="sm" aria-label="Automatic worktree cleanup">
-                  <SelectValue>
-                    {mixedModes
-                      ? "Mixed"
-                      : mode === "inherit"
-                        ? "Inherit"
-                        : mode === "off"
-                          ? "Off"
-                          : "Custom"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem value="inherit">Inherit</SelectItem>
-                  <SelectItem value="off">Off</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
-                </SelectPopup>
-              </Select>
-            }
-          />
-        )}
-        {(!isProjectScope || (!mixedModes && mode === "custom")) && (
-          <>
-            <SettingsRow
-              title="Delete worktrees with deleted threads"
-              status={ruleStatus("worktreeOnDelete")}
-              description="Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept."
-              serverScoped={!isProjectScope}
-              control={
-                <Switch
-                  aria-label="Delete worktrees with deleted threads"
-                  checked={settings.worktreeOnDelete}
-                  onCheckedChange={(worktreeOnDelete) => updateWorktree({ worktreeOnDelete })}
-                />
-              }
-            />
-            <SettingsRow
-              title="Delete inactive worktrees"
-              status={ruleStatus("worktreeAfterDays")}
-              description="Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept."
-              serverScoped={!isProjectScope}
-              control={
-                <RetentionControl
-                  label="Delete inactive worktrees"
-                  value={settings.worktreeAfterDays}
-                  onChange={(worktreeAfterDays) => updateWorktree({ worktreeAfterDays })}
-                />
-              }
-            />
-            <SettingsRow
-              title="Delete merged worktrees"
-              status={ruleStatus("worktreeOnMerge")}
-              description="Remove worktrees whose pull request is merged and whose commits are included in the default branch."
-              serverScoped={!isProjectScope}
-              control={
-                <Switch
-                  aria-label="Delete merged worktrees"
-                  checked={settings.worktreeOnMerge}
-                  onCheckedChange={(worktreeOnMerge) => updateWorktree({ worktreeOnMerge })}
-                />
-              }
-            />
-            <SettingsRow
-              title="Delete unchanged worktrees"
-              status={ruleStatus("worktreeUnchanged")}
-              description="Remove worktrees with no commits beyond the default branch."
-              serverScoped={!isProjectScope}
-              control={
-                <Switch
-                  aria-label="Delete unchanged worktrees"
-                  checked={settings.worktreeUnchanged}
-                  onCheckedChange={(worktreeUnchanged) => updateWorktree({ worktreeUnchanged })}
-                />
-              }
-            />
-          </>
-        )}
-      </SettingsSection>
-
-      {!isProjectScope && (
-        <SettingsSection id="storage-artifacts" title="Artifacts and logs">
-          <SettingsRow
-            title="Delete old browser artifacts"
-            status={ruleStatus("browserArtifactsAfterDays")}
-            description="Delete saved browser captures after this many days. Older capture links will no longer open."
-            serverScoped
-            control={
-              <RetentionControl
-                label="Delete old browser artifacts"
-                value={settings.browserArtifactsAfterDays}
-                onChange={(browserArtifactsAfterDays) => update({ browserArtifactsAfterDays })}
-              />
-            }
-          />
-          <SettingsRow
-            title="Delete old rotated logs"
-            status={ruleStatus("logsAfterDays")}
-            description="Delete inactive rotated log files after this many days. Current logs are kept."
-            serverScoped
-            control={
-              <RetentionControl
-                label="Delete old rotated logs"
-                value={settings.logsAfterDays}
-                onChange={(logsAfterDays) => update({ logsAfterDays })}
-              />
-            }
-          />
-        </SettingsSection>
+    <SettingsSection id="storage-worktrees" title="Worktree cleanup">
+      {isProjectScope && (
+        <SettingsRow
+          title="Automatic worktree cleanup"
+          description={
+            mode === "off"
+              ? "Keep this project's worktrees until you delete them manually."
+              : mode === "custom"
+                ? "Use these rules for this project."
+                : "Use each machine's worktree cleanup settings."
+          }
+          serverScoped
+          settingKeys={["worktreeCleanup"]}
+          mixed={mixedModes}
+          control={
+            <Select
+              value={mixedModes ? null : mode}
+              onValueChange={(next) => {
+                if (next === "inherit") clearSettings(["worktreeCleanup"]);
+                else if (next === "off") updateSettings({ worktreeCleanup: { mode: "off" } });
+                else if (next === "custom")
+                  updateSettings({ worktreeCleanup: { mode: "custom", rules: {} } });
+              }}
+            >
+              <SelectTrigger size="sm" aria-label="Automatic worktree cleanup">
+                <SelectValue>
+                  {mixedModes
+                    ? "Mixed"
+                    : mode === "inherit"
+                      ? "Inherit"
+                      : mode === "off"
+                        ? "Off"
+                        : "Custom"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem value="inherit">Inherit</SelectItem>
+                <SelectItem value="off">Off</SelectItem>
+                <SelectItem value="custom">Custom</SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
       )}
-    </SettingsPageContainer>
+      {(!isProjectScope || (!mixedModes && mode === "custom")) && (
+        <>
+          <SettingsRow
+            title="Delete worktrees with deleted threads"
+            status={ruleStatus("worktreeOnDelete")}
+            description="Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept."
+            serverScoped={!isProjectScope}
+            control={
+              <Switch
+                aria-label="Delete worktrees with deleted threads"
+                checked={settings.worktreeOnDelete}
+                onCheckedChange={(worktreeOnDelete) => updateWorktree({ worktreeOnDelete })}
+              />
+            }
+          />
+          <SettingsRow
+            title="Delete inactive worktrees"
+            status={ruleStatus("worktreeAfterDays")}
+            description="Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept."
+            serverScoped={!isProjectScope}
+            control={
+              <RetentionControl
+                label="Delete inactive worktrees"
+                value={settings.worktreeAfterDays}
+                onChange={(worktreeAfterDays) => updateWorktree({ worktreeAfterDays })}
+              />
+            }
+          />
+          <SettingsRow
+            title="Delete merged worktrees"
+            status={ruleStatus("worktreeOnMerge")}
+            description="Remove worktrees whose pull request is merged and whose commits are included in the default branch."
+            serverScoped={!isProjectScope}
+            control={
+              <Switch
+                aria-label="Delete merged worktrees"
+                checked={settings.worktreeOnMerge}
+                onCheckedChange={(worktreeOnMerge) => updateWorktree({ worktreeOnMerge })}
+              />
+            }
+          />
+          <SettingsRow
+            title="Delete unchanged worktrees"
+            status={ruleStatus("worktreeUnchanged")}
+            description="Remove worktrees with no commits beyond the default branch."
+            serverScoped={!isProjectScope}
+            control={
+              <Switch
+                aria-label="Delete unchanged worktrees"
+                checked={settings.worktreeUnchanged}
+                onCheckedChange={(worktreeUnchanged) => updateWorktree({ worktreeUnchanged })}
+              />
+            }
+          />
+        </>
+      )}
+    </SettingsSection>
+  );
+}
+
+/** Retention for environment-wide artifacts; project scopes have none. */
+export function StorageArtifactSettings() {
+  const { isProjectScope, settings, ruleStatus, update, unsupportedMessage } =
+    useStorageCleanupSettings();
+  if (isProjectScope) return null;
+  if (unsupportedMessage) {
+    return (
+      <SettingsSection id="storage-artifacts" title="Artifacts and logs">
+        <StorageCleanupUnavailable message={unsupportedMessage} />
+      </SettingsSection>
+    );
+  }
+  return (
+    <SettingsSection id="storage-artifacts" title="Artifacts and logs">
+      <SettingsRow
+        title="Delete old browser artifacts"
+        status={ruleStatus("browserArtifactsAfterDays")}
+        description="Delete saved browser captures after this many days. Older capture links will no longer open."
+        serverScoped
+        control={
+          <RetentionControl
+            label="Delete old browser artifacts"
+            value={settings.browserArtifactsAfterDays}
+            onChange={(browserArtifactsAfterDays) => update({ browserArtifactsAfterDays })}
+          />
+        }
+      />
+      <SettingsRow
+        title="Delete old rotated logs"
+        status={ruleStatus("logsAfterDays")}
+        description="Delete inactive rotated log files after this many days. Current logs are kept."
+        serverScoped
+        control={
+          <RetentionControl
+            label="Delete old rotated logs"
+            value={settings.logsAfterDays}
+            onChange={(logsAfterDays) => update({ logsAfterDays })}
+          />
+        }
+      />
+    </SettingsSection>
   );
 }

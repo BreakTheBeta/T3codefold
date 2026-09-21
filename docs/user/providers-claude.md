@@ -17,7 +17,7 @@ mkdir -p ~/.claude_personal
 CLAUDE_CONFIG_DIR=~/.claude_personal claude auth login
 ```
 
-Add another Claude instance in **Settings > Providers**:
+Add another Claude instance in **Settings > Agents**:
 
 | Instance        | Binary path | CLAUDE_CONFIG_DIR path |
 | --------------- | ----------- | ---------------------- |
@@ -89,7 +89,7 @@ Claude Code session using that directory before starting the router setup. Cache
 login credentials can conflict with the router token.
 
 Select the model you want in T3 Code. For an OpenRouter model outside the built-in
-list, open that Claude instance in **Settings > Providers** and add its full model
+list, open that Claude instance in **Settings > Agents** and add its full model
 ID with **Add custom model**. Then select it in the chat model picker.
 `ANTHROPIC_DEFAULT_*_MODEL` variables map Claude Code aliases such as `sonnet`; they
 do not replace the explicit model ID selected in T3 Code. Custom models may have
