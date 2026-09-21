@@ -1,0 +1,72 @@
+/**
+ * Bakes the grain tile the mobile splatter backdrop repeats behind the thread
+ * canvas. The splatter art itself renders at runtime in the active theme's
+ * colours (packages/shared/src/splatterBackdrop.ts); web draws its grain from
+ * an feTurbulence data URI in index.css.
+ *
+ * React Native has no feTurbulence, and SVG filter support across the two
+ * platform decoders is not something to rely on, so the same texture ships as
+ * pixels and renders through RN's `resizeMode="repeat"`. Alpha stays flat; the
+ * appearances differ only in the opacity the component applies.
+ *
+ *   node scripts/generate-canvas-grain.ts
+ *   node scripts/generate-canvas-grain.ts --check   (fail if stale)
+ */
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import { PNG } from "pngjs";
+
+const OUTPUT = "apps/mobile/assets/themes/canvas-grain.png";
+const TILE = 128;
+
+/** Seeded mulberry32, so the committed tile regenerates byte-identical. */
+function makeRandom(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function renderGrainTile(): Buffer {
+  const png = new PNG({ width: TILE, height: TILE });
+  const random = makeRandom(0x6a1f);
+  // Roughly normal around mid-grey, so the tile lightens and darkens the
+  // canvas evenly without dragging a hue across it.
+  const gauss = (mean: number, deviation: number) =>
+    mean + ((random() + random() + random() + random() - 2) / 2) * deviation * 2;
+  for (let i = 0; i < png.data.length; i += 4) {
+    const value = Math.min(255, Math.max(0, Math.round(gauss(128, 56))));
+    png.data[i] = value;
+    png.data[i + 1] = value;
+    png.data[i + 2] = value;
+    png.data[i + 3] = 255;
+  }
+  return PNG.sync.write(png, { colorType: 0 });
+}
+
+const generateCanvasGrain = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const file = path.join(path.resolve(import.meta.dirname, ".."), OUTPUT);
+  const bytes = new Uint8Array(renderGrainTile());
+  if (!process.argv.includes("--check")) {
+    yield* fs.writeFile(file, bytes);
+    yield* Console.log(`wrote ${OUTPUT} (${(bytes.length / 1024).toFixed(1)} kB)`);
+    return;
+  }
+  const current = yield* fs.readFile(file).pipe(Effect.orElseSucceed(() => null));
+  if (current?.length === bytes.length && current.every((byte, i) => byte === bytes[i])) return;
+  yield* Console.error(`stale: ${OUTPUT}. Run \`node scripts/generate-canvas-grain.ts\`.`);
+  process.exitCode = 1;
+});
+
+if (import.meta.main) {
+  generateCanvasGrain.pipe(Effect.provide(NodeServices.layer), NodeRuntime.runMain);
+}

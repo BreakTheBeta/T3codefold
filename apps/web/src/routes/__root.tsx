@@ -48,6 +48,7 @@ import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
+import { ThemeBackdropSync } from "../themeBackdrop";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -287,23 +288,6 @@ function GlassAppearanceSync() {
       style.removeProperty("--glass-blur");
     }
   }, [glassOpacity]);
-
-  return null;
-}
-
-/** Mirrors the splatter backdrop setting onto the root; index.css reads it. */
-function ThemeBackdropSync() {
-  const enabled = useClientSettings((settings) => settings.themeBackdropEnabled);
-  const style = useClientSettings((settings) => settings.themeBackdropStyle);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    // Absent means "match theme", which the stylesheet can resolve before
-    // settings load; only an override needs the attribute.
-    if (!enabled) root.dataset.themeBackdrop = "off";
-    else if (style === "theme") delete root.dataset.themeBackdrop;
-    else root.dataset.themeBackdrop = style;
-  }, [enabled, style]);
 
   return null;
 }

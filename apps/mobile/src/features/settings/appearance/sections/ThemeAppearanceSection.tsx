@@ -17,10 +17,15 @@ import {
 } from "../../../../lib/mobileTheme";
 import { getMobileUniwindThemeName } from "../../../../lib/mobileThemeRuntime";
 import { cn } from "../../../../lib/cn";
-import type { ThemeBackdropStyle } from "@t3tools/contracts";
+import {
+  MAX_THEME_BACKDROP_INTENSITY,
+  MIN_THEME_BACKDROP_INTENSITY,
+  type ThemeBackdropScope,
+} from "@t3tools/contracts";
 import { SettingsChoiceRow } from "../../components/SettingsChoiceRow";
 import { SettingsSection } from "../../components/SettingsSection";
 import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
+import { FontSizeSliderRow } from "../components/FontSizeSliderRow";
 import { useAppearancePreferences } from "../AppearancePreferencesProvider";
 
 const APPEARANCE_MODES: ReadonlyArray<{
@@ -288,18 +293,17 @@ function SectionLabel({ children }: { readonly children: string }) {
   return <Text className="px-2 text-sm font-t3-medium text-foreground-muted">{children}</Text>;
 }
 
-const BACKDROP_STYLE_CHOICES: ReadonlyArray<{
-  readonly style: ThemeBackdropStyle;
+const BACKDROP_SCOPE_CHOICES: ReadonlyArray<{
+  readonly scope: ThemeBackdropScope;
   readonly label: string;
   readonly description: string;
 }> = [
   {
-    style: "theme",
-    label: "Match theme",
-    description: "Cyberpunk and Codex use their own. Other themes stay plain.",
+    scope: "featured",
+    label: "Cyberpunk & Codex",
+    description: "The themes that ship with it.",
   },
-  { style: "cyberpunk", label: "Cyberpunk neon", description: "Neon green on every theme." },
-  { style: "codex", label: "Codex teal", description: "Teal and cyan on every theme." },
+  { scope: "all", label: "Every theme", description: "In each theme's own colors." },
 ];
 
 export function ThemeAppearanceSection() {
@@ -313,8 +317,12 @@ export function ThemeAppearanceSection() {
     systemColorsAvailable,
     themeBackdropEnabled,
     setThemeBackdropEnabled,
-    themeBackdropStyle,
-    setThemeBackdropStyle,
+    themeBackdropScope,
+    setThemeBackdropScope,
+    themeBackdropIntensity,
+    setThemeBackdropIntensity,
+    themeBackdropGlow,
+    setThemeBackdropGlow,
   } = useAppearancePreferences();
 
   return (
@@ -364,19 +372,39 @@ export function ThemeAppearanceSection() {
           onValueChange={setThemeBackdropEnabled}
           value={themeBackdropEnabled}
         />
-        {themeBackdropEnabled
-          ? BACKDROP_STYLE_CHOICES.map((choice) => (
+        {themeBackdropEnabled ? (
+          <>
+            {BACKDROP_SCOPE_CHOICES.map((choice) => (
               <SettingsChoiceRow
-                key={choice.style}
+                key={choice.scope}
                 label={choice.label}
                 description={choice.description}
-                selected={themeBackdropStyle === choice.style}
+                selected={themeBackdropScope === choice.scope}
                 separated
                 disabled={!isReady}
-                onPress={() => setThemeBackdropStyle(choice.style)}
+                onPress={() => setThemeBackdropScope(choice.scope)}
               />
-            ))
-          : null}
+            ))}
+            <FontSizeSliderRow
+              disabled={!isReady}
+              icon="slider.horizontal.3"
+              label="Intensity"
+              max={MAX_THEME_BACKDROP_INTENSITY}
+              min={MIN_THEME_BACKDROP_INTENSITY}
+              onChange={setThemeBackdropIntensity}
+              step={5}
+              value={themeBackdropIntensity}
+              valueLabel={`${themeBackdropIntensity}%`}
+            />
+            <SettingsSwitchRow
+              disabled={!isReady}
+              icon="sun.max"
+              label="Neon glow"
+              onValueChange={setThemeBackdropGlow}
+              value={themeBackdropGlow}
+            />
+          </>
+        ) : null}
       </SettingsSection>
     </View>
   );

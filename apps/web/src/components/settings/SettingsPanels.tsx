@@ -1,5 +1,6 @@
 import { VoiceSettings } from "../voice/VoiceWorkspaceProvider";
 import { SettingsGroup } from "./SettingsGroup";
+import { useThemeDerivedBackdropColors } from "../../themeBackdrop";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
 import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
@@ -13,7 +14,6 @@ import {
   type ProviderInstanceId,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
-  type ThemeBackdropStyle,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -35,6 +35,7 @@ import {
   MAX_PROMPT_FONT_SIZE,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MAX_TERMINAL_FONT_SIZE,
+  MAX_THEME_BACKDROP_INTENSITY,
   MIN_CODE_FONT_SIZE,
   MIN_APPEARANCE_CONTRAST,
   MIN_GLASS_OPACITY,
@@ -44,6 +45,7 @@ import {
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   type ResponseStreamingMode,
   MIN_TERMINAL_FONT_SIZE,
+  MIN_THEME_BACKDROP_INTENSITY,
   type QuitConfirmationMode,
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -175,11 +177,21 @@ import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 
-const THEME_BACKDROP_STYLE_LABELS: Record<ThemeBackdropStyle, string> = {
-  theme: "Match theme",
-  cyberpunk: "Cyberpunk neon",
-  codex: "Codex teal",
+const THEME_BACKDROP_COLOR_ROLES = ["Lead", "Second", "Accent"] as const;
+
+const THEME_BACKDROP_DEFAULTS = {
+  themeBackdropEnabled: DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled,
+  themeBackdropScope: DEFAULT_UNIFIED_SETTINGS.themeBackdropScope,
+  themeBackdropColors: DEFAULT_UNIFIED_SETTINGS.themeBackdropColors,
+  themeBackdropIntensity: DEFAULT_UNIFIED_SETTINGS.themeBackdropIntensity,
+  themeBackdropGlow: DEFAULT_UNIFIED_SETTINGS.themeBackdropGlow,
 };
+
+function isThemeBackdropCustomized(settings: typeof DEFAULT_UNIFIED_SETTINGS): boolean {
+  return (Object.keys(THEME_BACKDROP_DEFAULTS) as Array<keyof typeof THEME_BACKDROP_DEFAULTS>).some(
+    (key) => settings[key] !== THEME_BACKDROP_DEFAULTS[key],
+  );
+}
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -538,10 +550,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Contrast"]
         : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
-      ...(settings.themeBackdropEnabled !== DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled ||
-      settings.themeBackdropStyle !== DEFAULT_UNIFIED_SETTINGS.themeBackdropStyle
-        ? ["Splatter backdrop"]
-        : []),
+      ...(isThemeBackdropCustomized(settings) ? ["Splatter backdrop"] : []),
       ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
         ? ["Diff colors"]
         : []),
@@ -686,7 +695,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.fontSizeTerminal,
       settings.glassOpacity,
       settings.themeBackdropEnabled,
-      settings.themeBackdropStyle,
+      settings.themeBackdropScope,
+      settings.themeBackdropColors,
+      settings.themeBackdropIntensity,
+      settings.themeBackdropGlow,
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
       settings.persistComposerContextStrip,
@@ -793,8 +805,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
-      themeBackdropEnabled: DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled,
-      themeBackdropStyle: DEFAULT_UNIFIED_SETTINGS.themeBackdropStyle,
+      ...THEME_BACKDROP_DEFAULTS,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
@@ -1181,6 +1192,14 @@ export function AppearanceSettingsPanel() {
   const environmentStageLabel = useEnvironmentStageLabel();
   const showEnvironmentIdentification =
     resolveEnvironmentIdentificationPillLabel(environmentStageLabel) !== null;
+  const themeBackdropColors = useThemeDerivedBackdropColors();
+  const themeBackdropIntensityRatio =
+    (settings.themeBackdropIntensity - MIN_THEME_BACKDROP_INTENSITY) /
+    (MAX_THEME_BACKDROP_INTENSITY - MIN_THEME_BACKDROP_INTENSITY);
+  const themeBackdropIntensitySliderStyle = {
+    "--settings-slider-progress": `${themeBackdropIntensityRatio * 100}%`,
+    "--settings-slider-fill-offset": `${0.5 - themeBackdropIntensityRatio}rem`,
+  } as CSSProperties;
   const glassOpacityRatio =
     (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
   const glassOpacitySliderStyle = {
@@ -1319,58 +1338,165 @@ export function AppearanceSettingsPanel() {
 
         <SettingsRow
           {...searchableSetting("theme-backdrop")}
-          description="Neon paint splatter and grain behind the conversation. Match theme uses the theme's own (Cyberpunk and Codex); pick one to use it with any theme."
+          description="Paint splatter and grain behind the conversation, in your theme's colors."
           resetAction={
-            settings.themeBackdropEnabled !== DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled ||
-            settings.themeBackdropStyle !== DEFAULT_UNIFIED_SETTINGS.themeBackdropStyle ? (
+            isThemeBackdropCustomized(settings) ? (
               <SettingResetButton
                 label="splatter backdrop"
-                onClick={() =>
-                  updateSettings({
-                    themeBackdropEnabled: DEFAULT_UNIFIED_SETTINGS.themeBackdropEnabled,
-                    themeBackdropStyle: DEFAULT_UNIFIED_SETTINGS.themeBackdropStyle,
-                  })
-                }
+                onClick={() => updateSettings(THEME_BACKDROP_DEFAULTS)}
               />
             ) : null
           }
           control={
-            <div className="flex w-full items-center gap-3 sm:w-auto">
-              <div className="min-w-0 flex-1 sm:w-40 sm:flex-none">
-                <Select
-                  disabled={!settings.themeBackdropEnabled}
-                  value={settings.themeBackdropStyle}
-                  onValueChange={(value) => {
-                    if (value === "theme" || value === "cyberpunk" || value === "codex")
-                      updateSettings({ themeBackdropStyle: value });
-                  }}
-                >
-                  <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Splatter style">
-                    <SelectValue>
-                      {THEME_BACKDROP_STYLE_LABELS[settings.themeBackdropStyle]}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    <SelectItem value="theme">
-                      {THEME_BACKDROP_STYLE_LABELS.theme} (default)
-                    </SelectItem>
-                    <SelectItem value="cyberpunk">
-                      {THEME_BACKDROP_STYLE_LABELS.cyberpunk}
-                    </SelectItem>
-                    <SelectItem value="codex">{THEME_BACKDROP_STYLE_LABELS.codex}</SelectItem>
-                  </SelectPopup>
-                </Select>
-              </div>
-              <Switch
-                checked={settings.themeBackdropEnabled}
-                onCheckedChange={(checked) =>
-                  updateSettings({ themeBackdropEnabled: Boolean(checked) })
-                }
-                aria-label="Show the splatter backdrop"
-              />
-            </div>
+            <Switch
+              checked={settings.themeBackdropEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ themeBackdropEnabled: Boolean(checked) })
+              }
+              aria-label="Show the splatter backdrop"
+            />
           }
         />
+
+        {settings.themeBackdropEnabled ? (
+          <>
+            <SettingsRow
+              {...searchableSetting("theme-backdrop-scope")}
+              description="Cyberpunk and Codex ship with it; turn it on for every theme, custom ones included."
+              control={
+                <div className="w-full sm:w-44">
+                  <Select
+                    value={settings.themeBackdropScope}
+                    onValueChange={(value) => {
+                      if (value === "featured" || value === "all")
+                        updateSettings({ themeBackdropScope: value });
+                    }}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      className="w-full min-w-0"
+                      aria-label="Show splatter on"
+                    >
+                      <SelectValue>
+                        {settings.themeBackdropScope === "all"
+                          ? "Every theme"
+                          : "Cyberpunk & Codex"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      <SelectItem value="featured">Cyberpunk & Codex (default)</SelectItem>
+                      <SelectItem value="all">Every theme</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </div>
+              }
+            />
+
+            <SettingsRow
+              {...searchableSetting("theme-backdrop-colors")}
+              description="Match the active theme's accent colors, or pick your own paint."
+              control={
+                <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                  {settings.themeBackdropColors
+                    ? settings.themeBackdropColors.map((color, index) => (
+                        <input
+                          key={THEME_BACKDROP_COLOR_ROLES[index]}
+                          aria-label={`${THEME_BACKDROP_COLOR_ROLES[index]} splatter color`}
+                          className="size-7 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+                          type="color"
+                          value={color}
+                          onChange={(event) => {
+                            const next = [...settings.themeBackdropColors!] as [
+                              string,
+                              string,
+                              string,
+                            ];
+                            next[index] = event.currentTarget.value;
+                            updateSettings({ themeBackdropColors: next });
+                          }}
+                        />
+                      ))
+                    : null}
+                  <div className="w-full sm:w-36">
+                    <Select
+                      value={settings.themeBackdropColors ? "custom" : "theme"}
+                      onValueChange={(value) => {
+                        if (value === "theme") updateSettings({ themeBackdropColors: null });
+                        // Start from what is on screen, not an arbitrary palette.
+                        if (value === "custom" && !settings.themeBackdropColors)
+                          updateSettings({ themeBackdropColors: [...themeBackdropColors] });
+                      }}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="w-full min-w-0"
+                        aria-label="Splatter colors"
+                      >
+                        <SelectValue>
+                          {settings.themeBackdropColors ? "Custom" : "Match theme"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        <SelectItem value="theme">Match theme (default)</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                </div>
+              }
+            />
+
+            <SettingsRow
+              {...searchableSetting("theme-backdrop-intensity")}
+              description="How strongly the paint shows through."
+              control={
+                <div className="flex w-full items-center gap-3 sm:w-52">
+                  <output
+                    className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                    htmlFor="theme-backdrop-intensity-input"
+                  >
+                    {settings.themeBackdropIntensity}%
+                  </output>
+                  <input
+                    aria-label="Splatter intensity"
+                    className="settings-slider min-w-0 flex-1"
+                    id="theme-backdrop-intensity-input"
+                    max={MAX_THEME_BACKDROP_INTENSITY}
+                    min={MIN_THEME_BACKDROP_INTENSITY}
+                    onChange={(event) => {
+                      const themeBackdropIntensity = Number(event.currentTarget.value);
+                      if (
+                        Number.isInteger(themeBackdropIntensity) &&
+                        themeBackdropIntensity >= MIN_THEME_BACKDROP_INTENSITY &&
+                        themeBackdropIntensity <= MAX_THEME_BACKDROP_INTENSITY
+                      ) {
+                        updateSettings({ themeBackdropIntensity });
+                      }
+                    }}
+                    step={5}
+                    style={themeBackdropIntensitySliderStyle}
+                    type="range"
+                    value={settings.themeBackdropIntensity}
+                  />
+                </div>
+              }
+            />
+
+            <SettingsRow
+              {...searchableSetting("theme-backdrop-glow")}
+              description="Brighter bloom and a soft halo around every splat."
+              control={
+                <Switch
+                  checked={settings.themeBackdropGlow}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ themeBackdropGlow: Boolean(checked) })
+                  }
+                  aria-label="Neon glow"
+                />
+              }
+            />
+          </>
+        ) : null}
 
         {showEnvironmentIdentification ? (
           <SettingsRow

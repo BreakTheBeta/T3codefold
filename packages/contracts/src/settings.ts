@@ -284,13 +284,28 @@ export const LoadBalancingWeights = Schema.Record(
 
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
-/**
- * Which splatter art the chat canvas carries. `theme` uses the active theme's
- * own (Cyberpunk and Codex ship one) and none on other themes; naming an art
- * applies it to every theme, custom ones included.
- */
-export const ThemeBackdropStyle = Schema.Literals(["theme", "cyberpunk", "codex"]);
-export type ThemeBackdropStyle = typeof ThemeBackdropStyle.Type;
+/** Where the splatter backdrop shows: the themes that ship with it, or every theme. */
+export const ThemeBackdropScope = Schema.Literals(["featured", "all"]);
+export type ThemeBackdropScope = typeof ThemeBackdropScope.Type;
+
+/** Lead, second and rare accent paint colours, overriding the theme-derived ones. */
+export const ThemeBackdropColors = Schema.Tuple([
+  Schema.String.check(Schema.isPattern(/^#[0-9a-f]{6}$/i)),
+  Schema.String.check(Schema.isPattern(/^#[0-9a-f]{6}$/i)),
+  Schema.String.check(Schema.isPattern(/^#[0-9a-f]{6}$/i)),
+]);
+export type ThemeBackdropColors = typeof ThemeBackdropColors.Type;
+
+export const MIN_THEME_BACKDROP_INTENSITY = 25;
+export const MAX_THEME_BACKDROP_INTENSITY = 250;
+/** Percent of the tuned default alpha. */
+export const ThemeBackdropIntensity = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_THEME_BACKDROP_INTENSITY,
+    maximum: MAX_THEME_BACKDROP_INTENSITY,
+  }),
+);
+export type ThemeBackdropIntensity = typeof ThemeBackdropIntensity.Type;
 
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
@@ -372,9 +387,17 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   /** Paint-splatter backdrop behind the conversation, on themes that ship one. */
   themeBackdropEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  themeBackdropStyle: ThemeBackdropStyle.pipe(
-    Schema.withDecodingDefault(Effect.succeed("theme" as const)),
+  themeBackdropScope: ThemeBackdropScope.pipe(
+    Schema.withDecodingDefault(Effect.succeed("featured" as const)),
   ),
+  /** Null follows the active theme's accent colours. */
+  themeBackdropColors: Schema.NullOr(ThemeBackdropColors).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  themeBackdropIntensity: ThemeBackdropIntensity.pipe(
+    Schema.withDecodingDefault(Effect.succeed(100)),
+  ),
+  themeBackdropGlow: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
   ),
@@ -1637,7 +1660,10 @@ export const ClientSettingsPatch = Schema.Struct({
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
   themeBackdropEnabled: Schema.optionalKey(Schema.Boolean),
-  themeBackdropStyle: Schema.optionalKey(ThemeBackdropStyle),
+  themeBackdropScope: Schema.optionalKey(ThemeBackdropScope),
+  themeBackdropColors: Schema.optionalKey(Schema.NullOr(ThemeBackdropColors)),
+  themeBackdropIntensity: Schema.optionalKey(ThemeBackdropIntensity),
+  themeBackdropGlow: Schema.optionalKey(Schema.Boolean),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),

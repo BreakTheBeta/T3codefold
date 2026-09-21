@@ -1,4 +1,4 @@
-import type { ThemeBackdropStyle } from "@t3tools/contracts";
+import type { ThemeBackdropScope } from "@t3tools/contracts";
 import {
   createContext,
   startTransition,
@@ -75,8 +75,13 @@ interface AppearancePreferencesContextValue {
   /** Splatter backdrop on themes that ship one; on unless turned off. */
   readonly themeBackdropEnabled: boolean;
   readonly setThemeBackdropEnabled: (value: boolean) => void;
-  readonly themeBackdropStyle: ThemeBackdropStyle;
-  readonly setThemeBackdropStyle: (value: ThemeBackdropStyle) => void;
+  readonly themeBackdropScope: ThemeBackdropScope;
+  readonly setThemeBackdropScope: (value: ThemeBackdropScope) => void;
+  /** Percent of the tuned default alpha. */
+  readonly themeBackdropIntensity: number;
+  readonly setThemeBackdropIntensity: (value: number) => void;
+  readonly themeBackdropGlow: boolean;
+  readonly setThemeBackdropGlow: (value: boolean) => void;
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
@@ -285,10 +290,24 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     },
     [updatePreferences],
   );
-  const themeBackdropStyle = storedPreferences?.themeBackdropStyle ?? "theme";
-  const setThemeBackdropStyle = useCallback(
-    (value: ThemeBackdropStyle) => {
-      updatePreferences({ themeBackdropStyle: value });
+  const themeBackdropScope = storedPreferences?.themeBackdropScope ?? "featured";
+  const setThemeBackdropScope = useCallback(
+    (value: ThemeBackdropScope) => {
+      updatePreferences({ themeBackdropScope: value });
+    },
+    [updatePreferences],
+  );
+  const themeBackdropIntensity = storedPreferences?.themeBackdropIntensity ?? 100;
+  const setThemeBackdropIntensity = useCallback(
+    (value: number) => {
+      updatePreferences({ themeBackdropIntensity: value });
+    },
+    [updatePreferences],
+  );
+  const themeBackdropGlow = storedPreferences?.themeBackdropGlow ?? false;
+  const setThemeBackdropGlow = useCallback(
+    (value: boolean) => {
+      updatePreferences({ themeBackdropGlow: value });
     },
     [updatePreferences],
   );
@@ -315,8 +334,12 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setCodeWordBreak,
       themeBackdropEnabled,
       setThemeBackdropEnabled,
-      themeBackdropStyle,
-      setThemeBackdropStyle,
+      themeBackdropScope,
+      setThemeBackdropScope,
+      themeBackdropIntensity,
+      setThemeBackdropIntensity,
+      themeBackdropGlow,
+      setThemeBackdropGlow,
     }),
     [
       appearance,
@@ -338,8 +361,12 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setCodeWordBreak,
       themeBackdropEnabled,
       setThemeBackdropEnabled,
-      themeBackdropStyle,
-      setThemeBackdropStyle,
+      themeBackdropScope,
+      setThemeBackdropScope,
+      themeBackdropIntensity,
+      setThemeBackdropIntensity,
+      themeBackdropGlow,
+      setThemeBackdropGlow,
     ],
   );
 

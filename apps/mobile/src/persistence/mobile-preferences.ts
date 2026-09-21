@@ -8,8 +8,9 @@ import * as Semaphore from "effect/Semaphore";
 import type {
   ProviderInstanceId,
   SidebarProjectGroupingMode,
-  ThemeBackdropStyle,
+  ThemeBackdropScope,
 } from "@t3tools/contracts";
+import { MAX_THEME_BACKDROP_INTENSITY, MIN_THEME_BACKDROP_INTENSITY } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
@@ -34,8 +35,10 @@ export interface Preferences {
   readonly codeWordBreak?: boolean;
   /** Device-local mirror of the web `themeBackdropEnabled` client setting. */
   readonly themeBackdropEnabled?: boolean;
-  /** Device-local mirror of the web `themeBackdropStyle` client setting. */
-  readonly themeBackdropStyle?: ThemeBackdropStyle;
+  /** Device-local mirrors of the web splatter backdrop client settings. */
+  readonly themeBackdropScope?: ThemeBackdropScope;
+  readonly themeBackdropIntensity?: number;
+  readonly themeBackdropGlow?: boolean;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
   readonly collapsedProjectGroups?: readonly string[];
   /** What the Return key does in the composer on a hardware keyboard. iOS only. */
@@ -119,7 +122,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     codeFontSize?: number | null;
     codeWordBreak?: boolean;
     themeBackdropEnabled?: boolean;
-    themeBackdropStyle?: ThemeBackdropStyle;
+    themeBackdropScope?: ThemeBackdropScope;
+    themeBackdropIntensity?: number;
+    themeBackdropGlow?: boolean;
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
     collapsedProjectGroups?: readonly string[];
     composerEnterBehavior?: ComposerEnterBehavior;
@@ -178,12 +183,17 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (typeof parsed.codeWordBreak === "boolean") preferences.codeWordBreak = parsed.codeWordBreak;
   if (typeof parsed.themeBackdropEnabled === "boolean")
     preferences.themeBackdropEnabled = parsed.themeBackdropEnabled;
+  if (parsed.themeBackdropScope === "featured" || parsed.themeBackdropScope === "all")
+    preferences.themeBackdropScope = parsed.themeBackdropScope;
   if (
-    parsed.themeBackdropStyle === "theme" ||
-    parsed.themeBackdropStyle === "cyberpunk" ||
-    parsed.themeBackdropStyle === "codex"
+    typeof parsed.themeBackdropIntensity === "number" &&
+    Number.isInteger(parsed.themeBackdropIntensity) &&
+    parsed.themeBackdropIntensity >= MIN_THEME_BACKDROP_INTENSITY &&
+    parsed.themeBackdropIntensity <= MAX_THEME_BACKDROP_INTENSITY
   )
-    preferences.themeBackdropStyle = parsed.themeBackdropStyle;
+    preferences.themeBackdropIntensity = parsed.themeBackdropIntensity;
+  if (typeof parsed.themeBackdropGlow === "boolean")
+    preferences.themeBackdropGlow = parsed.themeBackdropGlow;
   if (Array.isArray(parsed.connectOnboardingOptOutAccounts)) {
     preferences.connectOnboardingOptOutAccounts = parsed.connectOnboardingOptOutAccounts.filter(
       (account): account is string => typeof account === "string",
