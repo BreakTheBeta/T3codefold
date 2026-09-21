@@ -421,7 +421,10 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     effectWorkerProvided,
     eventSinkProvided,
   ).pipe(
-    Layer.provide(workStoreLayer.pipe(Layer.provide(databaseLayer))),
+    // Exposed, not just satisfied: the production layer publishes WorkStore to
+    // everything built on top of it, and MCP toolkits registered against this
+    // replay layer read it the same way.
+    Layer.provideMerge(workStoreLayer.pipe(Layer.provide(databaseLayer))),
     Layer.provide(serverConfigLayer),
     Layer.provide(worktreeRepairDependenciesTestLayer),
     Layer.provide(NodeServices.layer),
