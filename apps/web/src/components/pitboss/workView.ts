@@ -1,14 +1,12 @@
 import {
   pitbossTaskNextAction,
   pitbossTaskNextActionLabel,
-  workNeedsUserInput,
+  workNeedsYou,
 } from "@t3tools/contracts";
 import type { PitbossSnapshot, PitbossTask, PitbossVerificationRecipe } from "@t3tools/contracts";
 
 export const workFilters = ["All", "Needs you", "Working", "Delivered"] as const;
 export type WorkFilter = (typeof workFilters)[number];
-
-export const needsAttention = workNeedsUserInput;
 
 export function nextActionLabel(state: PitbossSnapshot, task: PitbossTask) {
   return pitbossTaskNextActionLabel(pitbossTaskNextAction(state, task));
@@ -25,19 +23,27 @@ export function filterWork<
     | "decisions"
     | "proposedVerificationRecipe"
     | "priority"
+    | "attempts"
   >,
->(tasks: readonly T[], filter: WorkFilter, search: string, projectId: string) {
+>(
+  tasks: readonly T[],
+  filter: WorkFilter,
+  search: string,
+  projectId: string,
+  awaitingApproval?: PitbossSnapshot["awaitingApproval"],
+) {
   const query = search.trim().toLocaleLowerCase();
+  const needsYou = (task: T) => workNeedsYou(task, awaitingApproval);
   return tasks
     .filter(
       (task) =>
         (!projectId || task.projectId === projectId) &&
         (!query || `${task.title} ${task.outcome}`.toLocaleLowerCase().includes(query)) &&
         (filter === "All" ||
-          (filter === "Needs you" && needsAttention(task)) ||
+          (filter === "Needs you" && needsYou(task)) ||
           (filter === "Working" &&
             !["done", "cancelled"].includes(task.status) &&
-            !needsAttention(task)) ||
+            !needsYou(task)) ||
           (filter === "Delivered" && task.status === "done")),
     )
     .toSorted((a, b) => a.priority - b.priority);

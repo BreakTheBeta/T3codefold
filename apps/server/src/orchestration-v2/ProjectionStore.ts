@@ -40,6 +40,7 @@ import {
   OrchestrationV2RuntimeRequestJson as OrchestrationV2RuntimeRequestJsonSchema,
   OrchestrationV2SubagentJson as OrchestrationV2SubagentJsonSchema,
   OrchestrationV2TurnItemJson as OrchestrationV2TurnItemJsonSchema,
+  NonNegativeInt,
   RunId,
   ThreadId,
   TurnItemId,
@@ -165,15 +166,19 @@ const ProjectionCheckpointContext = Schema.Struct({
     })),
   ),
   checkpoints: Schema.Array(
-    OrchestrationV2CheckpointJsonSchema.mapFields(
-      ({ scopeId, runId, appRunOrdinal, status, ref }) => ({
-        scopeId,
-        runId,
-        appRunOrdinal,
-        status,
-        ref,
-      }),
-    ),
+    Schema.Struct({
+      ...OrchestrationV2CheckpointJsonSchema.mapFields(
+        ({ scopeId, runId, appRunOrdinal, status, ref }) => ({
+          scopeId,
+          runId,
+          appRunOrdinal,
+          status,
+          ref,
+        }),
+      ).fields,
+      /** How many files this turn's capture recorded. The summaries themselves stay in SQLite. */
+      fileCount: NonNegativeInt,
+    }),
   ),
 });
 export type ProjectionCheckpointContext = typeof ProjectionCheckpointContext.Type;
@@ -3820,7 +3825,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               sql`
               SELECT scope_id AS "scopeId", run_id AS "runId",
                 app_run_ordinal AS "appRunOrdinal", status,
-                json_extract(payload_json, '$.ref') AS ref
+                json_extract(payload_json, '$.ref') AS ref,
+                -- One integer per turn; the file summaries themselves stay in SQLite.
+                COALESCE(json_array_length(payload_json, '$.files'), 0) AS "fileCount"
               FROM orchestration_v2_projection_checkpoints
               WHERE thread_id = ${threadId}
               ORDER BY scope_id ASC, ordinal_within_scope ASC
@@ -4791,12 +4798,13 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
               cwd,
             })),
             checkpoints: projection.checkpoints.map(
-              ({ scopeId, runId, appRunOrdinal, status, ref }) => ({
+              ({ scopeId, runId, appRunOrdinal, status, ref, files }) => ({
                 scopeId,
                 runId,
                 appRunOrdinal,
                 status,
                 ref,
+                fileCount: files.length,
               }),
             ),
           };

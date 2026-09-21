@@ -1,14 +1,14 @@
 import { GladosBoard } from "./GladosBoard";
-import { isUserWorkMessage } from "@t3tools/contracts";
+import { isUserWorkMessage, workNeedsYou } from "@t3tools/contracts";
 import { WorkInspector } from "./WorkInspector";
 import {
   evidenceKind,
   filterWork,
-  needsAttention,
   nextActionLabel,
   workFilters,
   type WorkFilter,
 } from "./workView";
+import { managedWorkerStateLabel } from "@t3tools/client-runtime/glados-board";
 import { CreateHome } from "./CreateHome";
 import { TaskDecisionCard } from "./TaskDecisionCard";
 import { VerificationCard, VerificationArtifact } from "./VerificationCard";
@@ -89,7 +89,9 @@ export function PitbossPin({
   const reopen = useAtomCommand(serverEnvironment.pitbossCommand, { label: "Open GLaDOS" });
   const [openError, setOpenError] = useState<string | null>(null);
   const role = query.data?.role;
-  const questions = query.data?.tasks.filter(needsAttention).length ?? 0;
+  const questions =
+    query.data?.tasks.filter((task) => workNeedsYou(task, query.data?.awaitingApproval)).length ??
+    0;
   return (
     <>
       <CreateHome environmentId={environmentId} label={label} />
@@ -237,8 +239,15 @@ export function PitbossPanel(props: {
   const next = state.tasks
     .filter((task) => task.status === "queued")
     .toSorted((a, b) => a.priority - b.priority);
-  const visibleTasks = filterWork(state.tasks, filter, search, projectFilter);
-  const attention = state.tasks.filter(needsAttention);
+  const visibleTasks = filterWork(
+    state.tasks,
+    filter,
+    search,
+    projectFilter,
+    state.awaitingApproval,
+  );
+  const needsYou = (task: PitbossTask) => workNeedsYou(task, state.awaitingApproval);
+  const attention = state.tasks.filter(needsYou);
   const openThread = (threadId: ThreadId, environmentId = props.environmentId) =>
     void navigate({
       to: "/$environmentId/$threadId",
@@ -330,17 +339,16 @@ export function PitbossPanel(props: {
       )}
       <div className="grid min-w-0 gap-4">
         {[
-          { label: "Needs you", tasks: visibleTasks.filter(needsAttention) },
+          { label: "Needs you", tasks: visibleTasks.filter(needsYou) },
           {
             label: "With GLaDOS",
             tasks: visibleTasks.filter(
-              (task) =>
-                !needsAttention(task) && ["active", "verifying", "blocked"].includes(task.status),
+              (task) => !needsYou(task) && ["active", "verifying", "blocked"].includes(task.status),
             ),
           },
           {
             label: "Up next",
-            tasks: visibleTasks.filter((task) => !needsAttention(task) && task.status === "queued"),
+            tasks: visibleTasks.filter((task) => !needsYou(task) && task.status === "queued"),
           },
           {
             label: "Delivered",
@@ -972,7 +980,8 @@ export function PitbossPanel(props: {
                         className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-muted/40 p-2 text-xs"
                       >
                         <span>
-                          Attempt {attempt.generation} · {attempt.model.model} · {attempt.state}
+                          Attempt {attempt.generation} · {attempt.model.model} ·{" "}
+                          {managedWorkerStateLabel(selected, attempt, state.awaitingApproval)}
                           {" · "}
                           {attempt.runtimeMode?.replaceAll("-", " ") ??
                             "permissions: legacy saved default"}

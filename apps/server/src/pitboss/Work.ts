@@ -5,6 +5,7 @@ import {
   hasCurrentVerification,
   isRuntimeModeBroaderThan,
   pitbossTaskNextAction,
+  taskAwaitingApproval,
   verificationRecipeForTask,
   ThreadId,
   type EnvironmentId,
@@ -105,6 +106,13 @@ export function managerView(state: PitbossSnapshot): PitbossSnapshot {
       ),
   };
 }
+/**
+ * The saved allowance is spent. assign, rework and revise-result all refuse another attempt, so
+ * the only settlements left for this task are close and cancel.
+ */
+export function attemptsExhausted(state: PitbossSnapshot, task: PitbossTask) {
+  return task.attempts.length >= (state.role?.brief.maxAttempts ?? 1);
+}
 export function readyTasks(state: PitbossSnapshot, peerScope?: string): ReadonlyArray<PitbossTask> {
   if (!state.role || state.role.paused) return [];
   return state.tasks
@@ -116,7 +124,7 @@ export function readyTasks(state: PitbossSnapshot, peerScope?: string): Readonly
         state.role!.brief.projectIds.includes(task.projectId) &&
         !hasUnresolvedWriter(task) &&
         pitbossTaskNextAction(state, task) === "assign" &&
-        task.attempts.length < state.role!.brief.maxAttempts &&
+        !attemptsExhausted(state, task) &&
         !(state.sourceAuthorities ?? []).some(
           (authority) =>
             authority.scope === task.source?.scope &&
@@ -1395,7 +1403,7 @@ export function decide(
         fail("Revise result requires retained work. Assign new work instead.");
       if (task.leadId && !activeLeads(state).some((entry) => entry.id === task.leadId))
         fail("Reactivate this task's project lead or reclaim ownership before revising it.");
-      if (task.attempts.length >= (state.role?.brief.maxAttempts ?? 1))
+      if (attemptsExhausted(state, task))
         fail("Attempt allowance exhausted. Ask the user to change the saved limit.");
       task = {
         ...task,
@@ -1481,6 +1489,10 @@ function workIndex(state: PitbossSnapshot, threadId: ThreadId, leadId?: string) 
         status: task.status,
         nextAction: pitbossTaskNextAction(state, task),
         homeEnvironmentId: task.homeEnvironmentId,
+        // Present only while its worker is parked on a permission prompt only the user can answer.
+        ...(taskAwaitingApproval(task, state.awaitingApproval)
+          ? { awaitingUserApproval: true }
+          : {}),
       })),
     )}`,
     `Actionable inbox: ${JSON.stringify(

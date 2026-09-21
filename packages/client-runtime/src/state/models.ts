@@ -1,4 +1,5 @@
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
+import { isPendingApprovalRequest } from "@t3tools/contracts";
 import type {
   ThreadLinkedPullRequest,
   EnvironmentId,
@@ -229,10 +230,7 @@ export function presentThreadShell(
     latestRun,
     runtime: shellRuntime(thread),
     latestUserMessageAt: nullableIso(thread.latestUserMessageAt),
-    hasPendingApprovals:
-      thread.pendingRuntimeRequest !== null &&
-      thread.pendingRuntimeRequest.kind !== "user_input" &&
-      thread.pendingRuntimeRequest.kind !== "auth_refresh",
+    hasPendingApprovals: isPendingApprovalRequest(thread.pendingRuntimeRequest),
     hasPendingUserInput: thread.pendingRuntimeRequest?.kind === "user_input",
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     pendingBackgroundTasks: thread.pendingBackgroundTasks ?? [],

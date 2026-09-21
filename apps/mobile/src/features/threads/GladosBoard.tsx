@@ -72,12 +72,12 @@ export function GladosBoard(props: {
         </Text>
         <Text>{task.outcome}</Text>
         {!!task.note && <Text className="text-foreground-muted">{task.note}</Text>}
-        {managedWorkerRows(task).length > 0 && (
+        {managedWorkerRows(task, props.state.awaitingApproval).length > 0 && (
           <View className="gap-2">
             <Text accessibilityRole="header" className="font-semibold">
               Managed workers
             </Text>
-            {managedWorkerRows(task).map((worker) => (
+            {managedWorkerRows(task, props.state.awaitingApproval).map((worker) => (
               <Pressable
                 key={worker.attemptId}
                 accessibilityRole="button"
@@ -206,7 +206,7 @@ export function GladosBoard(props: {
                         {item.task.attempts.at(-1)?.model.model ?? "GLaDOS"}
                       </Text>
                     </Pressable>
-                    {managedWorkerRows(item.task)
+                    {managedWorkerRows(item.task, props.state.awaitingApproval)
                       .slice(0, 1)
                       .map((worker) => (
                         <Pressable
