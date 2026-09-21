@@ -1,5 +1,6 @@
 /**
- * Bakes the Cyberpunk theme's backdrop artwork into static SVG files.
+ * Bakes the splatter backdrop artwork for the themes that carry one into
+ * static SVG files.
  *
  * The app never runs this: it renders four flat, gradient-only SVGs that the
  * web CSS and the mobile backdrop component load as-is. Splatter geometry is
@@ -7,8 +8,8 @@
  * grown from a seeded RNG here and committed as the real asset. Change a knob
  * in CLUSTERS or PALETTES, re-run, and commit the regenerated art.
  *
- *   node scripts/generate-cyberpunk-splatter.ts
- *   node scripts/generate-cyberpunk-splatter.ts --check   (CI: fail if stale)
+ *   node scripts/generate-splatter-backdrops.ts
+ *   node scripts/generate-splatter-backdrops.ts --check   (CI: fail if stale)
  */
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -309,21 +310,43 @@ type Palette = {
   haze: number;
 };
 
-const PALETTES: Record<"dark" | "light", Palette> = {
-  // Tracks the dark half's accent (oklch 0.82 0.24 145) and its action cyan.
-  dark: {
-    hues: [oklchToHex(0.88, 0.26, 145), oklchToHex(0.88, 0.16, 195), oklchToHex(0.76, 0.27, 335)],
-    paint: 0.085,
-    glow: 0.07,
-    haze: 0.6,
+type Appearance = "dark" | "light";
+
+const PALETTES: Record<"cyberpunk" | "codex", Record<Appearance, Palette>> = {
+  cyberpunk: {
+    // Tracks the dark half's accent (oklch 0.82 0.24 145) and its action cyan.
+    dark: {
+      hues: [oklchToHex(0.88, 0.26, 145), oklchToHex(0.88, 0.16, 195), oklchToHex(0.76, 0.27, 335)],
+      paint: 0.085,
+      glow: 0.07,
+      haze: 0.6,
+    },
+    // The light half is a pale mint sheet, so the same hues are darkened to read
+    // as pigment on paper rather than washing out into the canvas.
+    light: {
+      hues: [oklchToHex(0.6, 0.2, 148), oklchToHex(0.62, 0.13, 198), oklchToHex(0.54, 0.21, 338)],
+      paint: 0.105,
+      glow: 0.062,
+      haze: 0.55,
+    },
   },
-  // The light half is a pale mint sheet, so the same hues are darkened to read
-  // as pigment on paper rather than washing out into the canvas.
-  light: {
-    hues: [oklchToHex(0.6, 0.2, 148), oklchToHex(0.62, 0.13, 198), oklchToHex(0.54, 0.21, 338)],
-    paint: 0.105,
-    glow: 0.062,
-    haze: 0.55,
+  // Codex's canvases are neutral -- pure white and a chroma-free near-black --
+  // so there is no tinted ground for the paint to sit in and it has to carry
+  // more alpha than Cyberpunk's to read at all. Hues follow the palette's teal
+  // accent and cyan action, with blue-violet as the rare third.
+  codex: {
+    dark: {
+      hues: [oklchToHex(0.84, 0.19, 162), oklchToHex(0.84, 0.14, 212), oklchToHex(0.72, 0.19, 282)],
+      paint: 0.13,
+      glow: 0.1,
+      haze: 0.6,
+    },
+    light: {
+      hues: [oklchToHex(0.56, 0.15, 166), oklchToHex(0.56, 0.13, 220), oklchToHex(0.5, 0.2, 286)],
+      paint: 0.16,
+      glow: 0.08,
+      haze: 0.55,
+    },
   },
 };
 
@@ -421,12 +444,14 @@ function renderGrainTile(): Buffer {
 type Output = { name: string; contents: string | Uint8Array; directories: ReadonlyArray<string> };
 
 const renderAll = (): ReadonlyArray<Output> => [
-  ...(["dark", "light"] as const).flatMap((appearance) =>
-    (["a", "b"] as const).map((cluster) => ({
-      name: `cyberpunk-splatter-${appearance}-${cluster}.svg`,
-      contents: renderCluster(CLUSTERS[cluster], PALETTES[appearance]),
-      directories: OUTPUT_DIRECTORIES,
-    })),
+  ...(["cyberpunk", "codex"] as const).flatMap((theme) =>
+    (["dark", "light"] as const).flatMap((appearance) =>
+      (["a", "b"] as const).map((cluster) => ({
+        name: `${theme}-splatter-${appearance}-${cluster}.svg`,
+        contents: renderCluster(CLUSTERS[cluster], PALETTES[theme][appearance]),
+        directories: OUTPUT_DIRECTORIES,
+      })),
+    ),
   ),
   // Web builds its grain in CSS, so the tile is mobile's alone.
   { name: "canvas-grain.png", contents: renderGrainTile(), directories: [MOBILE_DIRECTORY] },
@@ -464,7 +489,7 @@ const generateSplatter = Effect.gen(function* () {
 
   if (check && stale) {
     yield* Console.error(
-      "Run `node scripts/generate-cyberpunk-splatter.ts` and commit the result.",
+      "Run `node scripts/generate-splatter-backdrops.ts` and commit the result.",
     );
     process.exitCode = 1;
   }

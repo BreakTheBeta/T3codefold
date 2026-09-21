@@ -71,6 +71,9 @@ interface AppearancePreferencesContextValue {
   /** Pass null to clear the override and follow the base font size. */
   readonly setCodeFontSize: (value: number | null) => void;
   readonly setCodeWordBreak: (value: boolean) => void;
+  /** Splatter backdrop on themes that ship one; on unless turned off. */
+  readonly themeBackdropEnabled: boolean;
+  readonly setThemeBackdropEnabled: (value: boolean) => void;
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
@@ -272,6 +275,14 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [updatePreferences],
   );
 
+  const themeBackdropEnabled = storedPreferences?.themeBackdropEnabled ?? true;
+  const setThemeBackdropEnabled = useCallback(
+    (value: boolean) => {
+      updatePreferences({ themeBackdropEnabled: value });
+    },
+    [updatePreferences],
+  );
+
   const value = useMemo(
     (): AppearancePreferencesContextValue => ({
       appearance,
@@ -292,6 +303,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setTerminalFontSize,
       setCodeFontSize,
       setCodeWordBreak,
+      themeBackdropEnabled,
+      setThemeBackdropEnabled,
     }),
     [
       appearance,
@@ -311,6 +324,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setTerminalFontSize,
       setCodeFontSize,
       setCodeWordBreak,
+      themeBackdropEnabled,
+      setThemeBackdropEnabled,
     ],
   );
 
