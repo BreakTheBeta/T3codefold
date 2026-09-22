@@ -640,7 +640,38 @@ it.effect("archives a paused board idempotently and ignores late attempt observa
     expect(archived.tasks).toEqual([]);
     expect(archived.messages).toEqual([]);
     expect(archived.role).toMatchObject({ threadId: election.action.threadId, paused: true });
-    const revision = archived.revision;
+    yield* store.receiveMessage({
+      id: "archive-stale-message",
+      taskId: "archive-task",
+      threadId: attempt.threadId,
+      kind: "progress",
+      text: "Stale result message",
+      createdAt: "2026-09-22T00:00:00Z",
+      acknowledged: false,
+    });
+    yield* store.receiveMessage({
+      id: "archive-late-message",
+      taskId: "archive-task",
+      threadId: attempt.threadId,
+      kind: "result",
+      text: "Late result after archive",
+      createdAt: "2026-09-22T00:01:00Z",
+      acknowledged: false,
+    });
+    expect((yield* store.read()).messages).toEqual([]);
+    yield* store.receiveMessage({
+      id: "archive-fresh-message",
+      taskId: null,
+      threadId: election.action.threadId,
+      kind: "progress",
+      text: "Fresh coordinator message",
+      createdAt: "2026-09-22T00:02:00Z",
+      acknowledged: false,
+    });
+    expect((yield* store.read()).messages.map((message) => message.id)).toEqual([
+      "archive-fresh-message",
+    ]);
+    const revision = (yield* store.read()).revision;
     yield* store.updateAttempt("archive-task", attempt.id, "running", "late callback");
     expect((yield* store.read()).revision).toBe(revision);
     expect(

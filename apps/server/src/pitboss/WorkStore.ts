@@ -412,8 +412,13 @@ export const layer = Layer.effect(
           .withTransaction(
             Effect.gen(function* () {
               const state = yield* readAll();
+              const recorded = yield* sql<{
+                readonly operation_id: string;
+              }>`SELECT operation_id FROM pitboss_events WHERE operation_id = ${message.id}`;
+              if (recorded[0]) return;
               const previous = state.messages.find((entry) => entry.id === message.id);
               if (previous) return;
+              if (message.taskId && state.archivedTaskIds?.includes(message.taskId)) return;
               yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${message.id}, ${message.id}, ${encodeJson({ type: "message", message })}, ${message.createdAt})`;
               yield* persist({
                 ...state,

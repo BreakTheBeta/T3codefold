@@ -815,7 +815,8 @@ export function decide(
   if (action.type === "create" || action.type === "edit") {
     if (!state.role?.brief.projectIds.includes(action.projectId))
       fail("Project is outside the GLaDOS brief.", "forbidden");
-    if (action.type === "create" && existing) fail("Task ID already exists.", "conflict");
+    if (action.type === "create" && (existing || state.archivedTaskIds?.includes(action.taskId)))
+      fail("Task ID already exists.", "conflict");
     if (action.type === "edit" && !existing) fail("Task not found.");
     if (
       action.dependencies.some(
@@ -1912,6 +1913,9 @@ export function finishBoardClear(before: PitbossSnapshot, operationId: string): 
     revision: before.revision + 1,
     boardClear: undefined,
     awaitingApproval: [],
+    archivedTaskIds: [
+      ...new Set([...(before.archivedTaskIds ?? []), ...before.tasks.map((task) => task.id)]),
+    ],
     leads: [],
     tasks: [],
     messages: [],
