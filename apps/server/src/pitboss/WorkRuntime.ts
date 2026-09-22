@@ -728,6 +728,86 @@ export const layer = Layer.effectDiscard(
             }
             const action = yield* decodeAction(effect.payload_json);
             const state = yield* store.read();
+            if (action.type === "clear-board") {
+              if (state.boardClear?.operationId !== effect.operation_id) return;
+              for (const task of state.tasks) {
+                const authority = state.sourceAuthorities?.find(
+                  (entry) => entry.scope === task.source?.scope,
+                );
+                // A mirrored writer belongs to its recorded home. Archiving this projection must
+                // never become an implicit remote cancellation.
+                if (task.homeEnvironmentId && authority?.self !== task.homeEnvironmentId) continue;
+                for (const attempt of task.attempts) {
+                  if (attempt.state !== "stop_requested") continue;
+                  const interrupted = yield* Effect.result(
+                    threads.interruptThread({
+                      projectId: task.projectId,
+                      threadId: attempt.threadId,
+                      commandId: CommandId.make(`${effect.operation_id}:stop:${attempt.id}`),
+                      reason: "GLaDOS archived the work board at the user's direction",
+                    }),
+                  );
+                  if (interrupted._tag === "Failure" && !isMissingThread(interrupted.failure))
+                    return yield* Effect.fail(interrupted.failure);
+                  if (
+                    interrupted._tag === "Success" &&
+                    interrupted.success.type === "interrupt_requested"
+                  ) {
+                    const drained = yield* threads.waitForThread({
+                      projectId: task.projectId,
+                      threadId: attempt.threadId,
+                      runId: interrupted.success.run.id,
+                      timeoutMs: 30_000,
+                    });
+                    if (drained.timedOut)
+                      return yield* new PitbossError({
+                        code: "unavailable",
+                        message: `Worker ${attempt.id} did not stop before the board archive timed out.`,
+                      });
+                  }
+                  yield* store.updateAttempt(
+                    task.id,
+                    attempt.id,
+                    "stopped",
+                    "Board archived; evidence and workspace retained",
+                  );
+                }
+              }
+              for (const lead of state.leads ?? []) {
+                const existing = yield* Effect.result(
+                  threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }),
+                );
+                if (existing._tag === "Failure") {
+                  if (!isMissingThread(existing.failure))
+                    return yield* Effect.fail(existing.failure);
+                  continue;
+                }
+                const run = latestActiveRun(existing.success);
+                if (!run) continue;
+                const interrupted = yield* threads.interruptThread({
+                  projectId: lead.projectId,
+                  threadId: lead.threadId,
+                  runId: run.id,
+                  commandId: CommandId.make(`${effect.operation_id}:stop-lead:${lead.id}`),
+                  reason: "GLaDOS archived the work board at the user's direction",
+                });
+                if (interrupted.type === "interrupt_requested") {
+                  const drained = yield* threads.waitForThread({
+                    projectId: lead.projectId,
+                    threadId: lead.threadId,
+                    runId: interrupted.run.id,
+                    timeoutMs: 30_000,
+                  });
+                  if (drained.timedOut)
+                    return yield* new PitbossError({
+                      code: "unavailable",
+                      message: `Project lead ${lead.id} did not stop before the board archive timed out.`,
+                    });
+                }
+              }
+              yield* store.finishBoardClear(effect.operation_id);
+              return;
+            }
             if (action.type === "send-peer") {
               const message = state.messages.find((entry) => entry.id === effect.operation_id);
               if (!message?.threadId)
@@ -935,6 +1015,12 @@ export const layer = Layer.effectDiscard(
         );
         if (result._tag === "Failure") {
           const detail = `${effect.kind} (${effect.operation_id}): ${String(result.failure)}`;
+          // A board archive must remain retryable until every writer drains. Replaying the same
+          // command republishes a store change, and thread terminal events also wake this drain.
+          if (effect.kind === "clear-board") {
+            yield* store.retryEffect(effect.operation_id, detail);
+            continue;
+          }
           const state = yield* store.read();
           for (const task of state.tasks) {
             const attempt = task.attempts.find((attempt) => attempt.id === effect.operation_id);

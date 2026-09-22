@@ -350,6 +350,14 @@ export const PitbossSnapshot = Schema.Struct({
    */
   awaitingApproval: Schema.optional(Schema.Array(Id)),
   verificationRecipes: Schema.optional(Schema.Array(PitbossVerificationRecipe)),
+  /** A durable board archive is draining writers before its visible projection is removed. */
+  boardClear: Schema.optional(
+    Schema.Struct({
+      operationId: Id,
+      generation: Version,
+      requestedAt: Schema.String,
+    }),
+  ),
   leads: Schema.optional(Schema.Array(PitbossLead)),
   sourceAuthorities: Schema.optional(Schema.Array(PitbossSourceAuthority)),
   revision: Version,
@@ -454,6 +462,8 @@ export const PitbossAction = Schema.Union([
     brief: PitbossBrief,
   }),
   Schema.Struct({ type: Schema.Literal("dismiss") }),
+  /** Archives the visible board while retaining its journal, threads, worktrees and role. */
+  Schema.Struct({ type: Schema.Literal("clear-board") }),
   /** Cancels open local work and gives GLaDOS a fresh home thread; the brief is kept. */
   Schema.Struct({ type: Schema.Literal("reset") }),
   Schema.Struct({ type: Schema.Literal("pause"), paused: Schema.Boolean }),

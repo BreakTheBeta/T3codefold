@@ -561,3 +561,94 @@ it.effect(
       expect((yield* store.effects()).filter((e) => e.kind === "create-lead")).toHaveLength(1);
     }).pipe(Effect.provide(services)),
 );
+
+it.effect("archives a paused board idempotently and ignores late attempt observations", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    let state = yield* store.command(election, { type: "user" });
+    state = yield* store.command(
+      {
+        commandId: CommandId.make("archive-create"),
+        expectedRevision: state.revision,
+        action: {
+          type: "create",
+          taskId: "archive-task",
+          projectId: election.action.projectId,
+          title: "Archive task",
+          outcome: "Clear visible work",
+          criteria: "Board is empty",
+          verifyCommand: "",
+          priority: 1,
+          dependencies: [],
+          workspaceStrategy: { type: "root" },
+        },
+      },
+      { type: "user" },
+    );
+    state = yield* store.command(
+      {
+        commandId: CommandId.make("archive-assign"),
+        expectedRevision: state.revision,
+        action: { type: "assign", taskId: "archive-task" },
+      },
+      { type: "user" },
+    );
+    const attempt = state.tasks[0]!.attempts[0]!;
+    yield* store.updateAttempt(
+      "archive-task",
+      attempt.id,
+      "stopped",
+      "Stopped result retained for audit",
+      "/tmp/archive-task",
+    );
+    yield* store.receiveMessage({
+      id: "archive-stale-message",
+      taskId: "archive-task",
+      threadId: attempt.threadId,
+      kind: "progress",
+      text: "Stale result message",
+      createdAt: "2026-09-22T00:00:00Z",
+      acknowledged: false,
+    });
+    state = yield* store.read();
+    state = yield* store.command(
+      {
+        commandId: CommandId.make("archive-pause"),
+        expectedRevision: state.revision,
+        action: { type: "pause", paused: true },
+      },
+      { type: "user" },
+    );
+    const clear = {
+      commandId: CommandId.make("archive-board"),
+      expectedRevision: state.revision,
+      authorityGeneration: state.role!.generation,
+      action: { type: "clear-board" as const },
+    };
+    const pending = yield* store.command(clear, {
+      type: "agent",
+      threadId: election.action.threadId,
+    });
+    expect(pending.boardClear?.operationId).toBe("archive-board");
+    expect(pending.role).toMatchObject({ threadId: election.action.threadId, paused: true });
+    expect((yield* store.effects()).filter((effect) => effect.kind === "clear-board")).toHaveLength(
+      1,
+    );
+
+    yield* store.finishBoardClear("archive-board");
+    const archived = yield* store.read();
+    expect(archived.tasks).toEqual([]);
+    expect(archived.messages).toEqual([]);
+    expect(archived.role).toMatchObject({ threadId: election.action.threadId, paused: true });
+    const revision = archived.revision;
+    yield* store.updateAttempt("archive-task", attempt.id, "running", "late callback");
+    expect((yield* store.read()).revision).toBe(revision);
+    expect(
+      (yield* store.command(clear, {
+        type: "agent",
+        threadId: election.action.threadId,
+      })).revision,
+    ).toBe(revision);
+    expect(yield* store.rebuild()).toEqual(yield* store.read());
+  }).pipe(Effect.provide(services)),
+);

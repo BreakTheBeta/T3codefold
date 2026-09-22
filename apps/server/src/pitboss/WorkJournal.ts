@@ -12,9 +12,10 @@ import {
   type PitbossSnapshot,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { decide, emptyWork, observeAttempt } from "./Work.ts";
+import { decide, emptyWork, finishBoardClear, observeAttempt } from "./Work.ts";
 
 const Entry = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("board-cleared"), operationId: Schema.String }),
   Schema.Struct({
     type: Schema.Literal("verification"),
     taskId: Schema.String,
@@ -61,7 +62,8 @@ export function replayJournal(entries: ReadonlyArray<string>): PitbossSnapshot {
   let state = emptyWork;
   for (const raw of entries) {
     const entry = decode(raw);
-    if (entry.type === "command")
+    if (entry.type === "board-cleared") state = finishBoardClear(state, entry.operationId);
+    else if (entry.type === "command")
       state = decide(state, entry.input, entry.actor, entry.now, entry.version === undefined);
     else if (entry.type === "verification")
       state = recordVerification(state, entry.taskId, entry.run);

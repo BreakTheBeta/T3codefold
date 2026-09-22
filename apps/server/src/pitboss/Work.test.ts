@@ -9,7 +9,15 @@ import {
   type PitbossBrief,
   type PitbossAction,
 } from "@t3tools/contracts";
-import { decide, emptyWork, observeAttempt, readyTasks, managerView, workContext } from "./Work.ts";
+import {
+  decide,
+  emptyWork,
+  finishBoardClear,
+  observeAttempt,
+  readyTasks,
+  managerView,
+  workContext,
+} from "./Work.ts";
 
 const projectId = ProjectId.make("project");
 const threadId = ThreadId.make("boss");
@@ -71,6 +79,64 @@ describe("pitboss work", () => {
       ),
     ).toThrow(/changed/);
   });
+});
+
+it("keeps the old board visible to an empty-scope coordinator without granting task authority", () => {
+  const f = fixture();
+  f.run({
+    type: "create",
+    taskId: "old-work",
+    projectId,
+    title: "Old work",
+    outcome: "Remain discoverable",
+    criteria: "Visible to GLaDOS",
+    verifyCommand: "",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "root" },
+  });
+  f.run({ type: "brief", brief: { ...brief, projectIds: [] } });
+
+  expect(managerView(f.state).tasks.map((task) => task.id)).toEqual(["old-work"]);
+  expect(() =>
+    f.run(
+      { type: "cancel", taskId: "old-work", note: "Must not gain task authority" },
+      { type: "agent", threadId },
+    ),
+  ).toThrow(/outside the current GLaDOS brief/);
+  expect(readyTasks(f.state)).toEqual([]);
+});
+
+it("lets paused GLaDOS archive the board while fencing unauthorized and late writers", () => {
+  const f = fixture();
+  f.run({
+    type: "create",
+    taskId: "archive-me",
+    projectId,
+    title: "Archive me",
+    outcome: "Clear the board",
+    criteria: "The board is empty",
+    verifyCommand: "",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "root" },
+  });
+  f.run({ type: "assign", taskId: "archive-me" });
+  const attempt = f.state.tasks[0]!.attempts[0]!;
+  f.run({ type: "pause", paused: true });
+  const oldGeneration = f.state.role!.generation;
+
+  expect(() =>
+    f.run({ type: "clear-board" }, { type: "agent", threadId: attempt.threadId }),
+  ).toThrow(/current GLaDOS/);
+  f.run({ type: "clear-board" }, { type: "agent", threadId });
+  expect(f.state.role).toMatchObject({ threadId, paused: true });
+  expect(f.state.role!.generation).toBeGreaterThan(oldGeneration);
+  expect(f.state.tasks[0]!.attempts[0]!.state).toBe("stop_requested");
+  const cleared = finishBoardClear(f.state, f.state.boardClear!.operationId);
+  expect(cleared).toMatchObject({ tasks: [], messages: [], leads: [] });
+  expect(cleared.role).toMatchObject({ threadId, paused: true });
+  expect(observeAttempt(cleared, "archive-me", attempt.id, "running", "late result")).toBe(cleared);
 });
 
 it("keeps worker submission distinct from acceptance and rejects worker self-acceptance", () => {

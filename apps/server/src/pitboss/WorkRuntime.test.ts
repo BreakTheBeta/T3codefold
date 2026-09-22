@@ -393,6 +393,35 @@ const harness = Effect.gen(function* () {
   };
 });
 const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
+it.effect("drains active writers before removing tasks and stale messages from the board", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "active-clear",
+      projectId: a,
+      title: "Active clear",
+      outcome: "Stop safely",
+      criteria: "Writer drains",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    yield* h.command({ type: "assign", taskId: "active-clear" });
+    const worker = (yield* h.store.read()).tasks[0]!.attempts[0]!.threadId;
+    h.projections.set(worker, { ...projection(worker, a), runs: [running(worker)] });
+
+    yield* h.command({ type: "clear-board" });
+    yield* h.drain();
+    const archived = yield* h.store.read();
+    expect(h.interrupted).toContain(worker);
+    expect(archived.tasks).toEqual([]);
+    expect(archived.messages).toEqual([]);
+    expect(archived.role?.threadId).toBe(boss);
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect("settles handled worker attempts once without touching live or unresolved workers", () =>
   Effect.gen(function* () {
     const h = yield* harness;

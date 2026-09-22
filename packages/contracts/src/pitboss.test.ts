@@ -1,13 +1,27 @@
 import { expect, it } from "@effect/vitest";
+import * as Schema from "effect/Schema";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import {
   isUserWorkMessage,
   pitbossMessageHeadline,
   verificationProposalApprovalAction,
   verificationProposalSaveAction,
+  PitbossCommand,
   type PitbossMessage,
   type PitbossTask,
 } from "./pitboss.ts";
+const decodePitbossCommand = Schema.decodeUnknownSync(PitbossCommand);
+
+it("decodes the explicit board archive operation", () => {
+  expect(
+    decodePitbossCommand({
+      commandId: "clear-board",
+      expectedRevision: 12,
+      authorityGeneration: 7,
+      action: { type: "clear-board" },
+    }).action,
+  ).toEqual({ type: "clear-board" });
+});
 
 const recipe = {
   projectId: ProjectId.make("project"),
