@@ -9,7 +9,15 @@ import {
   type PitbossBrief,
   type PitbossAction,
 } from "@t3tools/contracts";
-import { decide, emptyWork, observeAttempt, readyTasks, managerView, workContext } from "./Work.ts";
+import {
+  decide,
+  emptyWork,
+  finishBoardClear,
+  observeAttempt,
+  readyTasks,
+  managerView,
+  workContext,
+} from "./Work.ts";
 
 const projectId = ProjectId.make("project");
 const threadId = ThreadId.make("boss");
@@ -71,6 +79,138 @@ describe("pitboss work", () => {
       ),
     ).toThrow(/changed/);
   });
+});
+
+it("keeps the old board visible to an empty-scope coordinator without granting task authority", () => {
+  const f = fixture();
+  f.run({
+    type: "create",
+    taskId: "old-work",
+    projectId,
+    title: "Old work",
+    outcome: "Remain discoverable",
+    criteria: "Visible to GLaDOS",
+    verifyCommand: "",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "root" },
+  });
+  f.run({
+    type: "create-lead",
+    leadId: "old-lead",
+    projectId,
+    charter: "Retain visible portfolio context",
+    model: brief.workerModel,
+    maxWorkers: 1,
+  });
+  f.run({ type: "brief", brief: { ...brief, projectIds: [] } });
+
+  expect(managerView(f.state).tasks.map((task) => task.id)).toEqual(["old-work"]);
+  expect(managerView(f.state).leads?.map((lead) => lead.id)).toEqual(["old-lead"]);
+  expect(() =>
+    f.run(
+      { type: "cancel", taskId: "old-work", note: "Must not gain task authority" },
+      { type: "agent", threadId },
+    ),
+  ).toThrow(/outside the current GLaDOS brief/);
+  expect(readyTasks(f.state)).toEqual([]);
+});
+
+it("lets paused GLaDOS archive the board while fencing unauthorized and late writers", () => {
+  const f = fixture();
+  f.run({
+    type: "create",
+    taskId: "archive-me",
+    projectId,
+    title: "Archive me",
+    outcome: "Clear the board",
+    criteria: "The board is empty",
+    verifyCommand: "",
+    priority: 1,
+    dependencies: [],
+    workspaceStrategy: { type: "root" },
+  });
+  f.run({ type: "assign", taskId: "archive-me" });
+  const attempt = f.state.tasks[0]!.attempts[0]!;
+  f.run({ type: "pause", paused: true });
+  const oldGeneration = f.state.role!.generation;
+
+  expect(() =>
+    f.run({ type: "clear-board" }, { type: "agent", threadId: attempt.threadId }),
+  ).toThrow(/current GLaDOS/);
+  f.run({ type: "clear-board" }, { type: "agent", threadId });
+  expect(f.state.role).toMatchObject({ threadId, paused: true });
+  expect(f.state.role!.generation).toBeGreaterThan(oldGeneration);
+  expect(f.state.tasks[0]!.attempts[0]!.state).toBe("stop_requested");
+  const cleared = finishBoardClear(f.state, f.state.boardClear!.operationId);
+  expect(cleared).toMatchObject({ tasks: [], messages: [], leads: [] });
+  expect(cleared.role).toMatchObject({ threadId, paused: true });
+  expect(observeAttempt(cleared, "archive-me", attempt.id, "running", "late result")).toBe(cleared);
+});
+
+it("archives only work visible to GLaDOS and preserves work outside its brief", () => {
+  const f = fixture();
+  const hiddenProject = ProjectId.make("hidden-project");
+  f.run({ type: "brief", brief: { ...brief, projectIds: [projectId, hiddenProject] } });
+  for (const [taskId, taskProjectId] of [
+    ["visible-work", projectId],
+    ["hidden-work", hiddenProject],
+  ] as const) {
+    f.run({
+      type: "create",
+      taskId,
+      projectId: taskProjectId,
+      title: taskId,
+      outcome: "Keep authority aligned with visibility",
+      criteria: "Only visible work is archived",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    f.run({
+      type: "request-decision",
+      taskId,
+      question: `Keep ${taskId}?`,
+      options: ["Yes", "No"],
+      recommendation: "Yes",
+    });
+    f.run({
+      type: "create-lead",
+      leadId: `${taskId}-lead`,
+      projectId: taskProjectId,
+      charter: `Manage ${taskId}`,
+      model: brief.workerModel,
+      maxWorkers: 1,
+    });
+  }
+  f.run({ type: "brief", brief });
+
+  expect(managerView(f.state).tasks.map((task) => task.id)).toEqual(["visible-work"]);
+  const hiddenStatus = f.state.tasks.find((task) => task.id === "hidden-work")!.status;
+  f.run({ type: "clear-board" }, { type: "agent", threadId });
+  expect(f.state.boardClear).toMatchObject({ taskIds: ["visible-work"] });
+  expect(f.state.tasks.find((task) => task.id === "visible-work")?.status).toBe("cancelled");
+  expect(f.state.tasks.find((task) => task.id === "hidden-work")?.status).toBe(hiddenStatus);
+  expect(() =>
+    f.run({ type: "report", taskId: "visible-work", kind: "progress", text: "too late" }),
+  ).toThrow(/affected work is already being cleared/);
+  f.run({
+    type: "report",
+    taskId: "hidden-work",
+    kind: "progress",
+    text: "Hidden work continues while the scoped board drains",
+  });
+
+  const cleared = finishBoardClear(f.state, f.state.boardClear!.operationId);
+  expect(cleared.tasks.map((task) => task.id)).toEqual(["hidden-work"]);
+  expect(cleared.leads?.map((lead) => lead.id)).toEqual(["hidden-work-lead"]);
+  expect(cleared.leads?.[0]).toMatchObject({
+    status: "active",
+    parentGeneration: cleared.role?.generation,
+  });
+  expect(cleared.messages.map((message) => message.taskId)).toContain("hidden-work");
+  expect(cleared.messages.map((message) => message.taskId)).not.toContain("visible-work");
 });
 
 it("keeps worker submission distinct from acceptance and rejects worker self-acceptance", () => {

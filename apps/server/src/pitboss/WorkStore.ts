@@ -28,6 +28,7 @@ import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   decide,
+  finishBoardClear,
   remoteTaskAuthority,
   managerView,
   importedCriteria,
@@ -80,6 +81,7 @@ export class WorkStore extends Context.Service<
       actor: WorkActor,
       authority?: WorkCommandAuthority,
     ) => Effect.Effect<PitbossSnapshot, PitbossError>;
+    finishBoardClear: (operationId: string) => Effect.Effect<void, PitbossError>;
     subscribe: () => Stream.Stream<PitbossSnapshot, PitbossError>;
     changes: Stream.Stream<void>;
     effects: () => Effect.Effect<ReadonlyArray<WorkEffect>, PitbossError>;
@@ -271,6 +273,7 @@ export const layer = Layer.effect(
               "cancel",
               "propose-coordination",
               "send-peer",
+              "clear-board",
             ].includes(action.type) ||
             (action.type === "brief" && action.applyCoordinatorPermissions)
           ) {
@@ -288,6 +291,23 @@ export const layer = Layer.effect(
     return WorkStore.of({
       read,
       command,
+      finishBoardClear: (operationId) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const before = yield* readAll();
+              const after = finishBoardClear(before, operationId);
+              if (after === before) return;
+              const now = DateTime.formatIso(yield* DateTime.now);
+              const eventId = `${operationId}:completed`;
+              yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${eventId}, ${eventId}, ${encodeJson({ type: "board-cleared", operationId })}, ${now})`;
+              yield* persist(after);
+            }),
+          )
+          .pipe(
+            Effect.tap(() => PubSub.publish(notifications, undefined)),
+            Effect.mapError(unavailable),
+          ),
       rebuild,
       resolveRemoteReceipt: (operationId, applied, detail) =>
         sql
@@ -392,8 +412,13 @@ export const layer = Layer.effect(
           .withTransaction(
             Effect.gen(function* () {
               const state = yield* readAll();
+              const recorded = yield* sql<{
+                readonly operation_id: string;
+              }>`SELECT operation_id FROM pitboss_events WHERE operation_id = ${message.id}`;
+              if (recorded[0]) return;
               const previous = state.messages.find((entry) => entry.id === message.id);
               if (previous) return;
+              if (message.taskId && state.archivedTaskIds?.includes(message.taskId)) return;
               yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${message.id}, ${message.id}, ${encodeJson({ type: "message", message })}, ${message.createdAt})`;
               yield* persist({
                 ...state,

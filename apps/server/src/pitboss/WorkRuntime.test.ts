@@ -168,6 +168,7 @@ const harness = Effect.gen(function* () {
   let failSettlement = false;
   let forbidHistoryReads = false;
   let deferInterrupt = false;
+  let interruptTimesOut = false;
   const failLaunch = new Set<ThreadId>();
   const command = (action: PitbossAction) =>
     Effect.gen(function* () {
@@ -280,11 +281,23 @@ const harness = Effect.gen(function* () {
       interruptThread: (input) =>
         Effect.sync(() => {
           interrupted.push(input.threadId);
+          if (interruptTimesOut)
+            return {
+              type: "interrupt_requested" as const,
+              run: running(input.threadId),
+              dispatch: { sequence: 1, storedEvents: [] },
+            };
           if (!deferInterrupt) {
             const p = projections.get(input.threadId)!;
             projections.set(input.threadId, { ...p, runs: [] });
           }
           return { type: "no_active_run" as const };
+        }),
+      waitForThread: (input) =>
+        Effect.succeed({
+          threadId: input.threadId,
+          run: running(input.threadId),
+          timedOut: interruptTimesOut,
         }),
       getProjectThread: (input) => {
         if (forbidHistoryReads) return Effect.die("Runtime monitoring loaded full history");
@@ -386,6 +399,12 @@ const harness = Effect.gen(function* () {
     deferInterrupt: () => {
       deferInterrupt = true;
     },
+    timeoutInterrupt: () => {
+      interruptTimesOut = true;
+    },
+    allowInterrupt: () => {
+      interruptTimesOut = false;
+    },
     failLaunch,
     command,
     drain,
@@ -393,6 +412,188 @@ const harness = Effect.gen(function* () {
   };
 });
 const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
+it.effect("drains active writers before removing tasks and stale messages from the board", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "active-clear",
+      projectId: a,
+      title: "Active clear",
+      outcome: "Stop safely",
+      criteria: "Writer drains",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    yield* h.command({ type: "assign", taskId: "active-clear" });
+    const worker = (yield* h.store.read()).tasks[0]!.attempts[0]!.threadId;
+    h.projections.set(worker, { ...projection(worker, a), runs: [running(worker)] });
+
+    yield* h.command({ type: "clear-board" });
+    yield* h.drain();
+    const archived = yield* h.store.read();
+    expect(h.interrupted).toContain(worker);
+    expect(archived.tasks).toEqual([]);
+    expect(archived.messages).toEqual([]);
+    expect(archived.role?.threadId).toBe(boss);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("keeps a timed-out board clear pending and completes it on retry", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "retry-clear",
+      projectId: a,
+      title: "Retry clear",
+      outcome: "Drain before archive",
+      criteria: "The archive retries after timeout",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "root" },
+    });
+    yield* h.command({ type: "assign", taskId: "retry-clear" });
+    const worker = (yield* h.store.read()).tasks[0]!.attempts[0]!.threadId;
+    h.projections.set(worker, { ...projection(worker, a), runs: [running(worker)] });
+    h.timeoutInterrupt();
+
+    yield* h.command({ type: "clear-board" });
+    yield* h.drain();
+    expect((yield* h.store.read()).boardClear).toBeDefined();
+    expect((yield* h.store.effects()).some((effect) => effect.kind === "clear-board")).toBe(true);
+
+    h.allowInterrupt();
+    yield* h.drain();
+    expect((yield* h.store.read()).tasks).toEqual([]);
+    expect((yield* h.store.effects()).some((effect) => effect.kind === "clear-board")).toBe(false);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("does not drain or archive local work outside the coordinator's visible brief", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    for (const [taskId, projectId] of [
+      ["visible-local", a],
+      ["hidden-local", b],
+    ] as const) {
+      yield* h.command({
+        type: "create",
+        taskId,
+        projectId,
+        title: taskId,
+        outcome: "Respect visible authority",
+        criteria: "Only visible writers stop",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "root" },
+      });
+      yield* h.command({ type: "assign", taskId });
+      const task = (yield* h.store.read()).tasks.find((entry) => entry.id === taskId)!;
+      const worker = task.attempts[0]!.threadId;
+      h.projections.set(worker, { ...projection(worker, projectId), runs: [running(worker)] });
+    }
+    const before = yield* h.store.read();
+    yield* h.command({
+      type: "brief",
+      brief: { ...before.role!.brief, projectIds: [a] },
+    });
+    const scoped = yield* h.store.read();
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("scoped-board-clear"),
+        expectedRevision: scoped.revision,
+        authorityGeneration: scoped.role!.generation,
+        action: { type: "clear-board" },
+      },
+      { type: "agent", threadId: boss },
+    );
+
+    yield* h.drain();
+    const hidden = (yield* h.store.read()).tasks;
+    expect(hidden.map((task) => task.id)).toEqual(["hidden-local"]);
+    expect(hidden[0]?.attempts[0]?.state).toBe("running");
+    expect(h.interrupted).toEqual([
+      before.tasks.find((task) => task.id === "visible-local")!.attempts[0]!.threadId,
+    ]);
+  }).pipe(Effect.provide(services)),
+);
+
+it.effect("archives a remote projection without interrupting its home writer", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    const home = EnvironmentId.make("remote-home");
+    const self = EnvironmentId.make("local-coordinator");
+    yield* h.store.importSources(
+      {
+        id: "remote-source",
+        kind: "linear",
+        baseUrl: "https://tracker.invalid",
+        tenantId: "team",
+        remoteProjectId: "project",
+        projectId: a,
+        enabled: true,
+      },
+      [
+        {
+          title: "Remote writer",
+          outcome: "Keep remote ownership",
+          source: {
+            kind: "linear",
+            tenantId: "team",
+            itemId: "remote-writer",
+            scope: "remote-scope",
+            key: "REMOTE-2",
+            url: "https://tracker.invalid/REMOTE-2",
+            status: "Open",
+            priority: "1",
+            observedAt: "2026-09-11T00:00:00.000Z",
+          },
+        },
+      ],
+    );
+    const imported = (yield* h.store.read()).tasks[0]!;
+    yield* h.store.setSourceAuthority({
+      scope: imported.source!.scope!,
+      self,
+      coordinator: self,
+      homeEnvironmentId: home,
+      peerId: "remote-peer",
+      proposalId: "approved-remote-scope",
+    });
+    const remoteThread = ThreadId.make("remote-writer-thread");
+    yield* h.store.mirrorTask(home, {
+      ...imported,
+      revision: imported.revision + 1,
+      status: "active",
+      attempts: [
+        {
+          id: "remote-attempt",
+          threadId: remoteThread,
+          generation: 1,
+          state: "running",
+          model,
+          createdAt: "2026-09-11T00:00:00.000Z",
+          detail: "Running at task home",
+        },
+      ],
+    });
+    h.projections.set(remoteThread, {
+      ...projection(remoteThread, a),
+      runs: [running(remoteThread)],
+    });
+
+    yield* h.command({ type: "clear-board" });
+    yield* h.drain();
+    expect(h.interrupted).not.toContain(remoteThread);
+    expect((yield* h.store.read()).tasks).toEqual([]);
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect("settles handled worker attempts once without touching live or unresolved workers", () =>
   Effect.gen(function* () {
     const h = yield* harness;

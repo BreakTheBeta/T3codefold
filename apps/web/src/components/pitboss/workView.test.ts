@@ -21,6 +21,12 @@ function task(title: string, status: PitbossTask["status"] = "queued", priority 
 }
 
 describe("GLaDOS work discovery", () => {
+  it("shows no stale rows after the server archives the visible board", () => {
+    const before = { tasks: [task("Visible before archive")] };
+    const after = { ...before, tasks: [] };
+    expect(filterWork(before.tasks, "All", "", "")).toEqual(before.tasks);
+    expect(filterWork(after.tasks, "All", "", "")).toEqual([]);
+  });
   it("keeps every outcome reachable, including beyond the tenth item", () => {
     const tasks = Array.from({ length: 24 }, (_, i) => task(`Outcome ${i}`));
     expect(filterWork(tasks, "All", "", "")).toHaveLength(24);

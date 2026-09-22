@@ -60,13 +60,18 @@ function peerInBrief(state: PitbossSnapshot, peerId: string | undefined): boolea
 }
 /** User views retain the portfolio; agent context follows the current brief. */
 export function managerView(state: PitbossSnapshot): PitbossSnapshot {
+  // An empty brief grants no execution scope, but it must not make the existing board disappear
+  // from its elected coordinator. Visibility is needed to explain and archive old work; every
+  // mutating task path below still checks the explicit project list.
+  const portfolioOnly = state.role?.brief.projectIds.length === 0;
   const tasks = state.tasks.filter(
     (task) =>
-      state.role?.brief.projectIds.includes(task.projectId) &&
-      !(state.sourceAuthorities ?? []).some(
-        (authority) =>
-          authority.scope === task.source?.scope && !peerInBrief(state, authority.peerId),
-      ),
+      portfolioOnly ||
+      (state.role?.brief.projectIds.includes(task.projectId) &&
+        !(state.sourceAuthorities ?? []).some(
+          (authority) =>
+            authority.scope === task.source?.scope && !peerInBrief(state, authority.peerId),
+        )),
   );
   const taskIds = new Set(tasks.map((task) => task.id));
   const scopes = new Set(tasks.flatMap((task) => (task.source?.scope ? [task.source.scope] : [])));
@@ -84,8 +89,8 @@ export function managerView(state: PitbossSnapshot): PitbossSnapshot {
     tasks,
     ...(state.leads
       ? {
-          leads: state.leads.filter((entry) =>
-            state.role?.brief.projectIds.includes(entry.projectId),
+          leads: state.leads.filter(
+            (entry) => portfolioOnly || state.role?.brief.projectIds.includes(entry.projectId),
           ),
         }
       : {}),
@@ -93,6 +98,7 @@ export function managerView(state: PitbossSnapshot): PitbossSnapshot {
     messages: state.messages
       .filter(
         (message) =>
+          portfolioOnly ||
           !state.leads?.some(
             (lead) =>
               (lead.id === message.recipientLeadId || lead.threadId === message.threadId) &&
@@ -100,9 +106,11 @@ export function managerView(state: PitbossSnapshot): PitbossSnapshot {
           ),
       )
       .filter((message) =>
-        message.taskId !== null
-          ? taskIds.has(message.taskId)
-          : !message.sourcePeerId || peerIds.has(message.sourcePeerId),
+        portfolioOnly
+          ? true
+          : message.taskId !== null
+            ? taskIds.has(message.taskId)
+            : !message.sourcePeerId || peerIds.has(message.sourcePeerId),
       ),
   };
 }
@@ -242,6 +250,29 @@ export function decide(
     fail("Only the user can elect GLaDOS.", "forbidden");
   if (!["report", "submit", "request-decision"].includes(action.type) && !manager)
     fail("Only the current GLaDOS or user can manage work.", "forbidden");
+  if (state.boardClear) {
+    const referencedTaskIds = "taskId" in action ? [action.taskId] : [];
+    const referencedLeadIds = "leadId" in action && action.leadId !== null ? [action.leadId] : [];
+    const referencedMessageIds = action.type === "acknowledge" ? [action.messageId] : [];
+    const scopedReferences = [
+      ...referencedTaskIds.map((id) => state.boardClear!.taskIds.includes(id)),
+      ...referencedLeadIds.map((id) => state.boardClear!.leadIds.includes(id)),
+      ...referencedMessageIds.map((id) => state.boardClear!.messageIds.includes(id)),
+    ];
+    if (scopedReferences.length === 0 || scopedReferences.some(Boolean))
+      fail(
+        "The affected work is already being cleared. Wait for its active writers to stop.",
+        "conflict",
+      );
+  }
+  if (
+    action.type === "clear-board" &&
+    (!state.role ||
+      actor.type === "peer" ||
+      !!lead ||
+      (actor.type === "agent" && state.role.threadId !== actor.threadId))
+  )
+    fail("Only the elected GLaDOS or user can clear this work board.", "forbidden");
   if (
     action.type === "submit" &&
     actor.type === "agent" &&
@@ -587,6 +618,62 @@ export function decide(
       },
     };
   if (action.type === "dismiss") return { ...next, role: null };
+  if (action.type === "clear-board") {
+    if (!state.role) return fail("Activate GLaDOS first.");
+    const visible = user ? state : managerView(state);
+    const taskIds = visible.tasks.map((task) => task.id);
+    const leadIds = (visible.leads ?? []).map((lead) => lead.id);
+    const messageIds = visible.messages.map((message) => message.id);
+    const taskIdSet = new Set(taskIds);
+    const leadIdSet = new Set(leadIds);
+    const messageIdSet = new Set(messageIds);
+    const attemptIds = new Set(
+      state.tasks
+        .filter((task) => taskIdSet.has(task.id))
+        .flatMap((task) => task.attempts.map((attempt) => attempt.id)),
+    );
+    return {
+      ...next,
+      boardClear: {
+        operationId: command.commandId,
+        generation: next.revision,
+        requestedAt: now,
+        taskIds,
+        leadIds,
+        messageIds,
+      },
+      // Keep the same coordinator and brief. A new authority generation fences callbacks and
+      // commands captured before the archive request.
+      role: { ...state.role, generation: next.revision },
+      tasks: state.tasks.map((task) =>
+        taskIdSet.has(task.id)
+          ? {
+              ...task,
+              status: "cancelled" as const,
+              note: "Archived by GLaDOS at the user's direction",
+              closedAt: now,
+              closedReason: "Archived from the GLaDOS work board",
+              acceptedEvidenceId: null,
+              revision: task.revision + 1,
+              attempts: task.attempts.map((attempt) =>
+                ["pending", "running", "submitted"].includes(attempt.state)
+                  ? { ...attempt, state: "stop_requested" as const }
+                  : attempt,
+              ),
+            }
+          : task,
+      ),
+      leads: state.leads?.map((entry) =>
+        leadIdSet.has(entry.id)
+          ? { ...entry, status: "dormant" as const }
+          : { ...entry, parentGeneration: next.revision },
+      ),
+      messages: state.messages.map((message) =>
+        messageIdSet.has(message.id) ? { ...message, acknowledged: true } : message,
+      ),
+      awaitingApproval: (state.awaitingApproval ?? []).filter((id) => !attemptIds.has(id)),
+    };
+  }
   // Reset clears this environment's work before the home re-elects a fresh thread. The role and
   // brief survive (with a new generation fencing the old coordinator) so a failed re-election
   // can be retried. Mirrored tasks belong to their peer home; sources and peers are configuration.
@@ -766,7 +853,8 @@ export function decide(
   if (action.type === "create" || action.type === "edit") {
     if (!state.role?.brief.projectIds.includes(action.projectId))
       fail("Project is outside the GLaDOS brief.", "forbidden");
-    if (action.type === "create" && existing) fail("Task ID already exists.", "conflict");
+    if (action.type === "create" && (existing || state.archivedTaskIds?.includes(action.taskId)))
+      fail("Task ID already exists.", "conflict");
     if (action.type === "edit" && !existing) fail("Task not found.");
     if (
       action.dependencies.some(
@@ -1676,7 +1764,7 @@ function coordinatorContext(state: PitbossSnapshot, threadId: ThreadId) {
     "- Read the current revision before any mutation. Never claim a task or result exists until the command succeeds.",
     "- A finished turn is not an accepted outcome. Inspect evidence before accepting.",
     "- Acknowledge an inbox item only after handling its obligation.",
-    "- Record the brief, pause, permission, decision and verification changes the user asks for here. Only electing the role still requires the user.",
+    "- Record the brief, pause, permission, decision and verification changes the user asks for here. At the user's direction, clear-board archives visible tasks and messages after writers drain while retaining this role and audit history. Only electing the role still requires the user.",
     "- All delegation goes through work_command, so every piece of work keeps a task identity, evidence and acceptance. delegate_task, create_threads and t3_thread_start are refused for you.",
     "",
     "## Coordination",
@@ -1852,5 +1940,30 @@ export function observeAttempt(
             ),
           },
     ),
+  };
+}
+
+/** Completes one durable archive after the runtime has stopped its writers. */
+export function finishBoardClear(before: PitbossSnapshot, operationId: string): PitbossSnapshot {
+  if (before.boardClear?.operationId !== operationId) return before;
+  const taskIds = new Set(before.boardClear.taskIds);
+  const leadIds = new Set(before.boardClear.leadIds);
+  const messageIds = new Set(before.boardClear.messageIds);
+  const attemptIds = new Set(
+    before.tasks
+      .filter((task) => taskIds.has(task.id))
+      .flatMap((task) => task.attempts.map((attempt) => attempt.id)),
+  );
+  return {
+    ...before,
+    revision: before.revision + 1,
+    boardClear: undefined,
+    awaitingApproval: (before.awaitingApproval ?? []).filter((id) => !attemptIds.has(id)),
+    archivedTaskIds: [
+      ...new Set([...(before.archivedTaskIds ?? []), ...before.boardClear.taskIds]),
+    ],
+    leads: (before.leads ?? []).filter((lead) => !leadIds.has(lead.id)),
+    tasks: before.tasks.filter((task) => !taskIds.has(task.id)),
+    messages: before.messages.filter((message) => !messageIds.has(message.id)),
   };
 }
