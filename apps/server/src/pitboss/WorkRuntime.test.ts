@@ -473,6 +473,56 @@ it.effect("keeps a timed-out board clear pending and completes it on retry", () 
   }).pipe(Effect.provide(services)),
 );
 
+it.effect("does not drain or archive local work outside the coordinator's visible brief", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    for (const [taskId, projectId] of [
+      ["visible-local", a],
+      ["hidden-local", b],
+    ] as const) {
+      yield* h.command({
+        type: "create",
+        taskId,
+        projectId,
+        title: taskId,
+        outcome: "Respect visible authority",
+        criteria: "Only visible writers stop",
+        verifyCommand: "",
+        priority: 1,
+        dependencies: [],
+        workspaceStrategy: { type: "root" },
+      });
+      yield* h.command({ type: "assign", taskId });
+      const task = (yield* h.store.read()).tasks.find((entry) => entry.id === taskId)!;
+      const worker = task.attempts[0]!.threadId;
+      h.projections.set(worker, { ...projection(worker, projectId), runs: [running(worker)] });
+    }
+    const before = yield* h.store.read();
+    yield* h.command({
+      type: "brief",
+      brief: { ...before.role!.brief, projectIds: [a] },
+    });
+    const scoped = yield* h.store.read();
+    yield* h.store.command(
+      {
+        commandId: CommandId.make("scoped-board-clear"),
+        expectedRevision: scoped.revision,
+        authorityGeneration: scoped.role!.generation,
+        action: { type: "clear-board" },
+      },
+      { type: "agent", threadId: boss },
+    );
+
+    yield* h.drain();
+    const hidden = (yield* h.store.read()).tasks;
+    expect(hidden.map((task) => task.id)).toEqual(["hidden-local"]);
+    expect(hidden[0]?.attempts[0]?.state).toBe("running");
+    expect(h.interrupted).toEqual([
+      before.tasks.find((task) => task.id === "visible-local")!.attempts[0]!.threadId,
+    ]);
+  }).pipe(Effect.provide(services)),
+);
+
 it.effect("archives a remote projection without interrupting its home writer", () =>
   Effect.gen(function* () {
     const h = yield* harness;

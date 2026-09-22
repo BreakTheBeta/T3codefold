@@ -356,6 +356,9 @@ export const PitbossSnapshot = Schema.Struct({
       operationId: Id,
       generation: Version,
       requestedAt: Schema.String,
+      taskIds: Schema.Array(Id),
+      leadIds: Schema.Array(Id),
+      messageIds: Schema.Array(Id),
     }),
   ),
   /** Durable task tombstones that fence messages and callbacks arriving after a board archive. */

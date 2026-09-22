@@ -730,7 +730,9 @@ export const layer = Layer.effectDiscard(
             const state = yield* store.read();
             if (action.type === "clear-board") {
               if (state.boardClear?.operationId !== effect.operation_id) return;
-              for (const task of state.tasks) {
+              const taskIds = new Set(state.boardClear.taskIds);
+              const leadIds = new Set(state.boardClear.leadIds);
+              for (const task of state.tasks.filter((task) => taskIds.has(task.id))) {
                 const authority = state.sourceAuthorities?.find(
                   (entry) => entry.scope === task.source?.scope,
                 );
@@ -773,7 +775,7 @@ export const layer = Layer.effectDiscard(
                   );
                 }
               }
-              for (const lead of state.leads ?? []) {
+              for (const lead of (state.leads ?? []).filter((lead) => leadIds.has(lead.id))) {
                 const existing = yield* Effect.result(
                   threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }),
                 );
