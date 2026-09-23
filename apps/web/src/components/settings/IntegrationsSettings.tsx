@@ -303,7 +303,7 @@ function BrowserViewportSetting({ disabled }: { readonly disabled: boolean }) {
             >
               <SelectValue>{viewportSelectLabel(viewport)}</SelectValue>
             </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false} className="min-w-64">
+            <SelectPopup align="end" alignItemWithTrigger={false}>
               <SelectItem value={FILL_VALUE}>Fill panel</SelectItem>
               <SelectItem value={RESPONSIVE_VALUE}>Responsive</SelectItem>
               <SelectGroup>
@@ -1182,7 +1182,7 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
             <PlusIcon />
             Add profile
           </MenuTrigger>
-          <MenuPopup align="end" className="min-w-56">
+          <MenuPopup align="end">
             <MenuItem
               disabled={!settingsHydrated || atProfileLimit}
               onClick={() => createProfile("New profile")}
@@ -1300,7 +1300,7 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
                 >
                   <MoreVertical />
                 </MenuTrigger>
-                <MenuPopup align="end" className="min-w-44">
+                <MenuPopup align="end">
                   <MenuItem
                     disabled={!settingsHydrated || isDefault}
                     onClick={() => {

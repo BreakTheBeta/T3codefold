@@ -327,6 +327,16 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
         if (startRefExists) {
           yield* setupTracker.stageStatus(threadId, "checkout", "running");
+          // Project setting > environment setting; null when neither is set so
+          // the driver reads the freshly created checkout's own t3.json, which
+          // the branch being checked out may declare differently.
+          const submodules = yield* serverSettings.getSettings.pipe(
+            Effect.map(
+              (settings) =>
+                resolveProjectSettings(settings, input.projectId).settings.worktreeSubmodules,
+            ),
+            Effect.orElseSucceed(() => null),
+          );
           const worktree = yield* git
             .createWorktree(
               {
@@ -337,6 +347,7 @@ const make = Effect.gen(function* () {
                 path: null,
               },
               {
+                submodules,
                 progress: {
                   onWorktreeClaimed: (path) =>
                     Effect.sync(() => {

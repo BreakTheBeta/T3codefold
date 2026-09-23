@@ -12,12 +12,18 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
+import type { ProviderInstance } from "../provider/ProviderDriver.ts";
 import { ProviderInstanceRegistry } from "../provider/Services/ProviderInstanceRegistry.ts";
 import {
   ProviderAdapterDriverCreateError,
   type AnyProviderAdapterDriver,
 } from "./ProviderAdapterDriver.ts";
-import { ProviderAdapterV2, type ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
+import {
+  ProviderAdapterOpenSessionError,
+  ProviderAdapterV2,
+  ProviderAdapterV2Error,
+  type ProviderAdapterV2Shape,
+} from "./ProviderAdapter.ts";
 
 export class ProviderAdapterRegistryLookupError extends Schema.TaggedError<ProviderAdapterRegistryLookupError>()(
   "ProviderAdapterRegistryLookupError",
@@ -76,6 +82,61 @@ export const layerFromProviderInstanceRegistry: Layer.Layer<
   ProviderAdapterRegistryV2,
   Effect.gen(function* () {
     const instances = yield* ProviderInstanceRegistry;
+    // Sessions must not start while a sign-in this instance depends on is
+    // changing, and every instance sharing those credentials holds the
+    // startup scope so a credential change interrupts admitted startup.
+    // Stable identity keeps downstream event subscriptions attached once.
+    const guarded = new WeakMap<ProviderInstance, ProviderAdapterV2Shape>();
+    const guard = (instance: ProviderInstance): ProviderAdapterV2Shape => {
+      const auth = instance.auth;
+      if (!auth || (!auth.withAccess && !auth.isChangingCredentials && !auth.credentialBinding)) {
+        return instance.orchestrationAdapter;
+      }
+      const cached = guarded.get(instance);
+      if (cached) return cached;
+      const adapter: ProviderAdapterV2Shape = {
+        ...instance.orchestrationAdapter,
+        openSession: (input) =>
+          Effect.gen(function* () {
+            const binding = auth.credentialBinding;
+            const related = binding
+              ? (yield* instances.listInstances).filter(
+                  (peer) =>
+                    peer.auth?.credentialBinding?.key === binding.key &&
+                    peer.auth.credentialBinding.owner === binding.owner,
+                )
+              : [instance];
+            for (const peer of related) {
+              if (peer.auth?.isChangingCredentials && (yield* peer.auth.isChangingCredentials)) {
+                return yield* new ProviderAdapterOpenSessionError({
+                  driver: instance.driverKind,
+                  providerSessionId: input.providerSessionId,
+                  cause: new Error("Provider sign-in is changing. Try again after it finishes."),
+                });
+              }
+            }
+            let admitted = instance.orchestrationAdapter.openSession(input);
+            for (const peer of related) {
+              if (peer.auth?.withAccess) {
+                admitted = peer.auth.withAccess(admitted).pipe(
+                  Effect.mapError((cause) =>
+                    Schema.is(ProviderAdapterV2Error)(cause)
+                      ? cause
+                      : new ProviderAdapterOpenSessionError({
+                          driver: instance.driverKind,
+                          providerSessionId: input.providerSessionId,
+                          cause,
+                        }),
+                  ),
+                );
+              }
+            }
+            return yield* admitted;
+          }),
+      };
+      guarded.set(instance, adapter);
+      return adapter;
+    };
     return ProviderAdapterRegistryV2.of({
       get: (instanceId) =>
         instances
@@ -84,7 +145,7 @@ export const layerFromProviderInstanceRegistry: Layer.Layer<
             Effect.flatMap((instance) =>
               instance === undefined
                 ? new ProviderAdapterRegistryLookupError({ instanceId })
-                : Effect.succeed(instance.orchestrationAdapter),
+                : Effect.succeed(guard(instance)),
             ),
           ),
       list: () =>
