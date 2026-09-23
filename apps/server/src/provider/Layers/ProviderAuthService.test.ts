@@ -131,6 +131,13 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
     shellError?: boolean;
     stopError?: boolean;
     logoutError?: ProviderSetupError;
+    sharedCredentials?: boolean;
+    sharedBusy?: boolean;
+    sharedBusyEffect?: Effect.Effect<boolean>;
+    responds?: boolean;
+    beforeLogout?: Effect.Effect<void>;
+    beforeStop?: Effect.Effect<void>;
+    onLookup?: Effect.Effect<void>;
   } = {},
 ) {
   const actions: string[] = [];
@@ -160,6 +167,18 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
   });
 
   const auth: ProviderAuthController = {
+    ...(input.sharedCredentials
+      ? { credentialBinding: { owner: "provider" as const, key: "shared" } }
+      : {}),
+    ...(input.responds
+      ? {
+          respond: Effect.fn(function* (ownerSessionId, request) {
+            yield* checkOwner(ownerSessionId, request.flowId, "respond");
+            actions.push(`respond:${request.response.type}`);
+            return state;
+          }),
+        }
+      : {}),
     start: Effect.fn(function* (ownerSessionId, stopSessions) {
       gateClosed = true;
       actions.push("close-gate");
@@ -191,6 +210,7 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
       actions.push("close-gate");
       yield* stopSessions;
       if (input.logoutError) return yield* input.logoutError;
+      yield* input.beforeLogout ?? Effect.void;
       actions.push("native-logout");
       state = idle;
       flowOwner = undefined;
@@ -203,13 +223,34 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
   const instances = [
     makeInstance({ instanceId, enabled: input.enabled ?? true, auth }),
     makeInstance({ instanceId: unsupportedInstanceId, enabled: true }),
+    ...(input.sharedCredentials
+      ? [
+          makeInstance({
+            instanceId: otherInstanceId,
+            enabled: true,
+            auth: {
+              ...auth,
+              isChangingCredentials:
+                input.sharedBusyEffect ?? Effect.succeed(input.sharedBusy ?? false),
+              invalidate: Effect.sync(() => {
+                actions.push("invalidate-shared");
+              }),
+            },
+          }),
+        ]
+      : []),
   ];
   const service = yield* makeProviderAuthService.pipe(
     Effect.provide(
       Layer.mergeAll(
         Layer.mock(ProviderInstanceRegistry)({
           getInstance: (id) =>
-            Effect.succeed(instances.find((instance) => instance.instanceId === id)),
+            Effect.gen(function* () {
+              const found = instances.find((instance) => instance.instanceId === id);
+              yield* input.onLookup ?? Effect.void;
+              return found;
+            }),
+          listInstances: Effect.succeed(instances),
           subscribeChanges: PubSub.subscribe(registryChanges),
         }),
         Layer.mock(ProjectionStoreV2)({
@@ -236,26 +277,40 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
         }),
         Layer.mock(ProviderSessionManagerV2)({
           release: ({ providerSessionId, reason }) =>
-            Effect.suspend(() => {
+            Effect.gen(function* () {
               assert.isTrue(gateClosed);
               actions.push(`stop:${providerSessionId}`);
+              yield* input.beforeStop ?? Effect.void;
               if (input.stopError) {
-                return Effect.fail(
-                  new ProviderSessionReleaseError({
-                    providerSessionId,
-                    reason,
-                    cause: new Error("private process diagnostics"),
-                  }),
-                );
+                return yield* new ProviderSessionReleaseError({
+                  providerSessionId,
+                  reason,
+                  cause: new Error("private process diagnostics"),
+                });
               }
               released.push(providerSessionId);
-              return Effect.void;
             }),
         }),
       ),
     ),
   );
-  return { service, actions, released };
+  return {
+    service,
+    actions,
+    released,
+    auth,
+    addInstance: (instance: ProviderInstance) => instances.push(instance),
+    replaceInstance: (replacement: ProviderInstance) => {
+      const index = instances.findIndex(
+        (instance) => instance.instanceId === replacement.instanceId,
+      );
+      assert.isAtLeast(index, 0);
+      instances[index] = replacement;
+    },
+    replaceAuth: (next: ProviderAuthController) => {
+      instances[0] = makeInstance({ instanceId, enabled: input.enabled ?? true, auth: next });
+    },
+  };
 });
 
 const makeStreamingController = Effect.fn("ProviderAuthService.test.makeStreamingController")(
@@ -339,6 +394,62 @@ const observeAuth = Effect.fn("ProviderAuthService.test.observeAuth")(function* 
 });
 
 describe("ProviderAuthService", () => {
+  it.effect(
+    "stops sessions sharing credentials and invalidates their processes before logout",
+    () =>
+      Effect.gen(function* () {
+        const { service, actions, released } = yield* makeHarness({
+          sharedCredentials: true,
+          threads: [makeThread("active")],
+          sessions: new Map([
+            [
+              ThreadId.make("active"),
+              [
+                makeSession("target"),
+                makeSession("shared", "ready", otherInstanceId),
+                makeSession("unrelated", "ready", unsupportedInstanceId),
+              ],
+            ],
+          ]),
+        });
+        yield* service.logout({ instanceId });
+        assert.deepStrictEqual(released, ["target", "shared"]);
+        assert.isBelow(actions.indexOf("stop:shared"), actions.indexOf("invalidate-shared"));
+        assert.isBelow(actions.indexOf("invalidate-shared"), actions.indexOf("native-logout"));
+      }),
+  );
+  it.effect("rejects overlapping changes to a shared sign-in", () =>
+    Effect.gen(function* () {
+      const { service, actions } = yield* makeHarness({
+        sharedCredentials: true,
+        sharedBusy: true,
+      });
+      for (const task of [service.start({ instanceId }, owner), service.logout({ instanceId })]) {
+        const error = yield* task.pipe(Effect.flip);
+        assert.include(error.detail, "shared sign-in");
+      }
+      assert.deepStrictEqual(actions, []);
+    }),
+  );
+  it.effect("routes typed interactions to the flow owner and rejects unsupported controllers", () =>
+    Effect.gen(function* () {
+      const { service, actions } = yield* makeHarness({ responds: true });
+      yield* service.start({ instanceId }, owner);
+      const request = {
+        instanceId,
+        flowId,
+        interactionId: "consent",
+        response: { type: "browser" as const, action: "accept" as const },
+      };
+      const rejected = yield* service.respond(request, otherOwner).pipe(Effect.flip);
+      assert.strictEqual(rejected.operation, "respond");
+      yield* service.respond(request, owner);
+      assert.strictEqual(actions.at(-1), "respond:browser");
+      const unsupported = yield* makeHarness();
+      const error = yield* unsupported.service.respond(request, owner).pipe(Effect.flip);
+      assert.include(error.detail, "does not accept");
+    }),
+  );
   it.effect("stops routed sessions before sign-in, including for a disabled instance", () =>
     Effect.gen(function* () {
       const { service, actions, released } = yield* makeHarness({
@@ -666,3 +777,168 @@ describe("ProviderAuthService", () => {
     }),
   );
 });
+
+it.effect("queued logout prompts resolve the current controller after provider replacement", () =>
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    const lookup = yield* Deferred.make<void>();
+    let observeLookup = false;
+    const harness = yield* makeHarness({
+      beforeLogout: Deferred.succeed(entered, undefined).pipe(
+        Effect.andThen(Deferred.await(release)),
+      ),
+      onLookup: Effect.suspend(() =>
+        observeLookup ? Deferred.succeed(lookup, undefined).pipe(Effect.asVoid) : Effect.void,
+      ),
+    });
+    const first = yield* harness.service.logout({ instanceId }).pipe(Effect.forkChild);
+    yield* Deferred.await(entered);
+    observeLookup = true;
+    const queued = yield* harness.service
+      .tryHandlePromptCommand({ instanceId, text: "/logout", hasAttachments: false })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(lookup);
+    let replacementLoggedOut = false;
+    harness.replaceAuth({
+      ...harness.auth,
+      logout: (stopSessions) =>
+        stopSessions.pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              replacementLoggedOut = true;
+              return idleAuthState;
+            }),
+          ),
+        ),
+    });
+    yield* Deferred.succeed(release, undefined);
+    yield* Fiber.join(first);
+    assert.isTrue(yield* Fiber.join(queued));
+    assert.isTrue(replacementLoggedOut);
+    assert.strictEqual(harness.actions.filter((action) => action === "native-logout").length, 1);
+  }).pipe(Effect.scoped),
+);
+
+it.effect.each(["start", "logout", "prompt"] as const)(
+  "%s uses the same credential controller for shared exclusion and mutation during replacement",
+  (action) =>
+    Effect.gen(function* () {
+      const checked = yield* Deferred.make<void>();
+      const continueCheck = yield* Deferred.make<void>();
+      const replacementPeerId = ProviderInstanceId.make("replacement-shared-peer");
+      const harness = yield* makeHarness({
+        sharedCredentials: true,
+        sharedBusyEffect: Deferred.succeed(checked, undefined).pipe(
+          Effect.andThen(Deferred.await(continueCheck)),
+          Effect.as(false),
+        ),
+        threads: [makeThread("shared-thread")],
+        sessions: new Map([
+          [
+            ThreadId.make("shared-thread"),
+            [
+              makeSession("old-shared", "ready", otherInstanceId),
+              makeSession("replacement-shared", "ready", replacementPeerId),
+            ],
+          ],
+        ]),
+      });
+      harness.addInstance(
+        makeInstance({
+          instanceId: replacementPeerId,
+          enabled: true,
+          auth: {
+            ...harness.auth,
+            credentialBinding: { owner: "provider", key: "replacement-binding" },
+            isChangingCredentials: Effect.succeed(true),
+            invalidate: Effect.die(
+              "The unrelated replacement credential binding must stay intact.",
+            ),
+          },
+        }),
+      );
+      const operation =
+        action === "start"
+          ? harness.service.start({ instanceId }, owner)
+          : action === "logout"
+            ? harness.service.logout({ instanceId })
+            : harness.service.tryHandlePromptCommand({
+                instanceId,
+                text: "/logout",
+                hasAttachments: false,
+              });
+      const running = yield* operation.pipe(Effect.forkChild);
+      yield* Deferred.await(checked);
+      let replacementMutations = 0;
+      harness.replaceAuth({
+        ...harness.auth,
+        credentialBinding: { owner: "provider", key: "replacement-binding" },
+        start: () =>
+          Effect.sync(() => {
+            replacementMutations++;
+            return waitingAuthState;
+          }),
+        logout: () =>
+          Effect.sync(() => {
+            replacementMutations++;
+            return idleAuthState;
+          }),
+      });
+      yield* Deferred.succeed(continueCheck, undefined);
+      yield* Fiber.join(running);
+      assert.equal(replacementMutations, 0);
+      assert.include(harness.actions, action === "start" ? "start-sign-in" : "native-logout");
+      assert.include(harness.released, "old-shared");
+      assert.notInclude(harness.released, "replacement-shared");
+      const blocked = yield* Effect.flip(harness.service.logout({ instanceId }));
+      assert.include(blocked.detail, "shared sign-in");
+      assert.equal(replacementMutations, 0);
+    }).pipe(Effect.scoped),
+);
+
+it.effect.each([
+  { owner: "provider" as const, key: "different-binding" },
+  { owner: "t3" as const, key: "shared" },
+])(
+  "does not invalidate a peer that switches credential binding during session draining %#",
+  (binding) =>
+    Effect.gen(function* () {
+      const draining = yield* Deferred.make<void>();
+      const continueDrain = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        sharedCredentials: true,
+        threads: [makeThread("shared-thread")],
+        sessions: new Map([
+          [
+            ThreadId.make("shared-thread"),
+            [makeSession("shared-draining", "ready", otherInstanceId)],
+          ],
+        ]),
+        beforeStop: Deferred.succeed(draining, undefined).pipe(
+          Effect.andThen(Deferred.await(continueDrain)),
+        ),
+      });
+      const logout = yield* harness.service.logout({ instanceId }).pipe(Effect.forkChild);
+      yield* Deferred.await(draining);
+      let replacementInvalidated = false;
+      harness.replaceInstance(
+        makeInstance({
+          instanceId: otherInstanceId,
+          enabled: true,
+          auth: {
+            ...harness.auth,
+            credentialBinding: binding,
+            invalidate: Effect.sync(() => {
+              replacementInvalidated = true;
+            }),
+          },
+        }),
+      );
+      yield* Deferred.succeed(continueDrain, undefined);
+      yield* Fiber.join(logout);
+      assert.isFalse(replacementInvalidated);
+      assert.include(harness.released, "shared-draining");
+      assert.include(harness.actions, "native-logout");
+    }).pipe(Effect.scoped),
+);

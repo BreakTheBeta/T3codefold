@@ -12,6 +12,10 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as MobileDatabase from "../persistence/mobile-database";
+import {
+  attachProjectFaviconDatabase,
+  projectFaviconDatabaseCache,
+} from "../lib/projectFaviconDatabaseCache";
 
 const SERVER_CONFIG_CACHE_SCHEMA_VERSION = 1;
 const VCS_REFS_CACHE_SCHEMA_VERSION = 1;
@@ -111,7 +115,7 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         decode: decodeStoredShellSnapshot,
         select: (stored) =>
           stored.environmentId === environmentId ? Option.some(stored.snapshot) : Option.none(),
-      }),
+      }).pipe(Effect.tap(() => Effect.promise(() => projectFaviconDatabaseCache.hydrate()))),
     ),
     saveShell: Effect.fn("MobileEnvironmentCache.saveShell")(function* (environmentId, snapshot) {
       const payload = yield* encodeStoredShellSnapshot({
@@ -222,9 +226,10 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         .pipe(Effect.mapError(mapDatabaseError("clear-vcs-refs"))),
     ),
     clear: Effect.fn("MobileEnvironmentCache.clear")((environmentId) =>
-      database
-        .clearEnvironmentCache(environmentId)
-        .pipe(Effect.mapError(mapDatabaseError("clear-environment"))),
+      Effect.promise(() => projectFaviconDatabaseCache.clearEnvironment(environmentId)).pipe(
+        Effect.andThen(database.clearEnvironmentCache(environmentId)),
+        Effect.mapError(mapDatabaseError("clear-environment")),
+      ),
     ),
   });
 });

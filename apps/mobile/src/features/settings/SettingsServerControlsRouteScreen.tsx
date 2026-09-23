@@ -6,6 +6,7 @@ import {
   type ServerSettings,
   type ServerSettingsPatch,
   type ThreadEnvMode,
+  type WorktreeSubmodules,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
   type ProjectScopedServerSettingKey,
 } from "@t3tools/contracts";
@@ -45,7 +46,7 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
 
 /** Project-scoped keys each group edits; drives "clear project overrides". */
 export const SERVER_GROUP_PROJECT_KEYS = {
-  newThreads: ["defaultThreadEnvMode", "defaultRuntimeMode"],
+  newThreads: ["defaultThreadEnvMode", "worktreeSubmodules", "defaultRuntimeMode"],
   streaming: ["responseStreamingMode"],
   browser: ["enableAgentBrowserAccess"],
   sourceControl: ["defaultAutoPull", "newWorktreesStartFromOrigin"],
@@ -59,11 +60,37 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
   maintenance: SERVER_GROUP_PROJECT_KEYS.maintenance,
 };
 
-const WORKSPACE_CHOICES: ReadonlyArray<{
-  readonly mode: ThreadEnvMode;
+const SUBMODULE_CHOICES: ReadonlyArray<{
+  readonly mode: WorktreeSubmodules | null;
   readonly label: string;
   readonly description: string;
 }> = [
+  // Only offered at environment scope; a project falls back through "Use defaults".
+  {
+    mode: null,
+    label: "Inherit",
+    description: "Use the repository's t3.json, or initialize recursively.",
+  },
+  { mode: "recursive", label: "Recursive", description: "Initialize nested submodules too." },
+  {
+    mode: "top-level",
+    label: "Top level only",
+    description: "Skip submodules declared inside other submodules.",
+  },
+  { mode: "none", label: "Skip", description: "Leave submodules empty for a setup script." },
+];
+
+const WORKSPACE_CHOICES: ReadonlyArray<{
+  readonly mode: ThreadEnvMode | null;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  // Only offered at environment scope; a project falls back through "Use defaults".
+  {
+    mode: null,
+    label: "Inherit",
+    description: "Use the repository's t3.json, or the current checkout.",
+  },
   {
     mode: "local",
     label: "Current checkout",
@@ -137,6 +164,10 @@ export function useScopedServerSettings(projectKeys: readonly ProjectScopedServe
     const value = reference.settings[key];
     return displayTargets.every((entry) => entry.settings[key] === value) ? value : null;
   };
+  // `uniform` folds a real null into "mixed"; nullable keys need the distinction.
+  const isMixed = (key: keyof ServerSettings) =>
+    reference === null ||
+    displayTargets.some((entry) => entry.settings[key] !== reference.settings[key]);
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
     label: "environment settings update",
     reportFailure: true,
@@ -192,6 +223,7 @@ export function useScopedServerSettings(projectKeys: readonly ProjectScopedServe
     supportsContinuation,
     pending: pendingWrites > 0,
     uniform,
+    isMixed,
     write,
     clearProjectOverrides,
     disabledFor,
@@ -228,6 +260,13 @@ function mixedTrailing(scope: ScopedServerSettings, key: keyof ServerSettings) {
   ) : null;
 }
 
+/** Same label, for keys whose null is a real value ("inherit") rather than "mixed". */
+function nullableMixedTrailing(scope: ScopedServerSettings, key: keyof ServerSettings) {
+  return !scope.pending && scope.isMixed(key) ? (
+    <MixedValuesLabel projectSelected={scope.projectSelected} />
+  ) : null;
+}
+
 export function NewThreadsServerSettings(props: { readonly scope: ScopedServerSettings }) {
   const { scope } = props;
   if (!scope.ready) return null;
@@ -235,19 +274,45 @@ export function NewThreadsServerSettings(props: { readonly scope: ScopedServerSe
     <>
       <SettingsSection
         title="Default workspace"
-        trailing={mixedTrailing(scope, "defaultThreadEnvMode")}
+        trailing={nullableMixedTrailing(scope, "defaultThreadEnvMode")}
       >
-        {WORKSPACE_CHOICES.map((choice, index) => (
-          <SettingsChoiceRow
-            key={choice.mode}
-            label={choice.label}
-            description={choice.description}
-            selected={scope.uniform("defaultThreadEnvMode") === choice.mode}
-            separated={index > 0}
-            disabled={scope.disabledFor("defaultThreadEnvMode")}
-            onPress={() => scope.write({ defaultThreadEnvMode: choice.mode })}
-          />
-        ))}
+        {WORKSPACE_CHOICES.filter((choice) => choice.mode !== null || !scope.projectSelected).map(
+          (choice, index) => (
+            <SettingsChoiceRow
+              key={choice.mode ?? "inherit"}
+              label={choice.label}
+              description={choice.description}
+              selected={
+                !scope.isMixed("defaultThreadEnvMode") &&
+                scope.uniform("defaultThreadEnvMode") === choice.mode
+              }
+              separated={index > 0}
+              disabled={scope.disabledFor("defaultThreadEnvMode")}
+              onPress={() => scope.write({ defaultThreadEnvMode: choice.mode })}
+            />
+          ),
+        )}
+      </SettingsSection>
+      <SettingsSection
+        title="Worktree submodules"
+        trailing={nullableMixedTrailing(scope, "worktreeSubmodules")}
+      >
+        {SUBMODULE_CHOICES.filter((choice) => choice.mode !== null || !scope.projectSelected).map(
+          (choice, index) => (
+            <SettingsChoiceRow
+              key={choice.mode ?? "inherit"}
+              label={choice.label}
+              description={choice.description}
+              selected={
+                !scope.isMixed("worktreeSubmodules") &&
+                scope.uniform("worktreeSubmodules") === choice.mode
+              }
+              separated={index > 0}
+              disabled={scope.disabledFor("worktreeSubmodules")}
+              onPress={() => scope.write({ worktreeSubmodules: choice.mode })}
+            />
+          ),
+        )}
       </SettingsSection>
       <SettingsSection
         title="Default permissions"
