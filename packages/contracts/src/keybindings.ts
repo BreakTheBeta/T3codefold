@@ -60,6 +60,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "voice.mute",
   "voice.outputMute",
   "sidebar.toggle",
+  "navigation.back",
+  "navigation.forward",
   "terminal.toggle",
   "terminal.split",
   "terminal.splitVertical",

@@ -84,11 +84,11 @@ import {
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   startNewThreadForProject,
+  toolGroupConsumesUpwardNavigation,
   shouldShowBranchMismatchBanner,
   shouldShowComposerContextStrip,
   shouldShowPlanFollowUpPrompt,
   shouldWriteThreadErrorToCurrentServerThread,
-  toolGroupConsumesUpwardNavigation,
   waitForRevertedMessage,
   prepareRevertedMessageAttachments,
 } from "./ChatView.logic";

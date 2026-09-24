@@ -85,14 +85,10 @@ import { dropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { basenameOfPath } from "~/pierre-icons";
-import {
-  COMPOSER_INLINE_CHIP_DECORATOR_CLASS_NAME,
-  COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
-  COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
-  COMPOSER_INLINE_SKILL_CHIP_CLASS_NAME,
-  SKILL_CHIP_ICON_SVG,
-} from "./composerInlineChip";
-import { FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
+import { COMPOSER_INLINE_CHIP_DECORATOR_CLASS_NAME } from "./composerInlineChip";
+import { FileTagChipContent } from "./chat/FileTagChip";
+import { ContextChip } from "./ContextChip";
+import { SkillChipIcon } from "./chat/SkillInlineText";
 import { getTimelinePageScrollKey } from "./chat/pageScrollController";
 import {
   $createComposerContextReferenceNode,
@@ -168,23 +164,23 @@ function ComposerMentionDecorator(props: { path: string }) {
   const actions = use(ComposerContextActionsContext);
   const theme = resolvedThemeFromDocument();
   const chip = (
-    <button
-      type="button"
+    <ContextChip
+      kind="mention"
+      render={<button type="button" />}
       onClick={() => actions.openMention(props.path)}
       aria-label={`Preview ${props.path}`}
-      className={`${FILE_TAG_CHIP_CLASS_NAME} cursor-pointer focus-visible:outline-2`}
       contentEditable={false}
       spellCheck={false}
       data-composer-mention-chip="true"
     >
       <FileTagChipContent path={props.path} label={basenameOfPath(props.path)} theme={theme} />
-    </button>
+    </ContextChip>
   );
 
   return (
     <Tooltip>
       <TooltipTrigger render={chip} />
-      <TooltipPopup side="top" className="max-w-120 whitespace-normal leading-tight wrap-anywhere">
+      <TooltipPopup side="top" className="max-w-120 whitespace-normal wrap-anywhere">
         {props.path}
       </TooltipPopup>
     </Tooltip>
@@ -294,17 +290,9 @@ function ComposerSkillDecorator(props: {
   return (
     <ContextChipPopover
       accessibleLabel={`Skill ${props.skillLabel}`}
-      triggerClassName={COMPOSER_INLINE_SKILL_CHIP_CLASS_NAME}
-      chip={
-        <>
-          <span
-            aria-hidden="true"
-            className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
-            dangerouslySetInnerHTML={{ __html: SKILL_CHIP_ICON_SVG }}
-          />
-          <span className={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}>{props.skillLabel}</span>
-        </>
-      }
+      kind="skill"
+      icon={<SkillChipIcon />}
+      label={props.skillLabel}
     >
       <div className="space-y-3 p-2 text-sm">
         <p className="font-medium">{props.skillLabel}</p>

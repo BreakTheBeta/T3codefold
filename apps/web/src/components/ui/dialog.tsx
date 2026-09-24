@@ -62,25 +62,23 @@ function DialogPopup({
   showCloseButton = true,
   keepMounted,
   bottomStickOnMobile = true,
-  backdropClassName,
-  viewportClassName,
   variant = "default",
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
   keepMounted?: boolean;
   bottomStickOnMobile?: boolean;
-  backdropClassName?: string;
-  viewportClassName?: string;
   variant?: "default" | "media";
 }) {
   return (
     <DialogPortal keepMounted={keepMounted}>
-      <DialogBackdrop className={backdropClassName} variant={variant} />
+      {/* Media can open from another overlay, so its backdrop must share the elevated layer. */}
+      <DialogBackdrop className={variant === "media" ? "z-[60]" : undefined} variant={variant} />
       <DialogViewport
         className={cn(
           bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12",
-          viewportClassName,
+          variant === "media" &&
+            "z-[60] grid-rows-1 place-items-center px-4 py-6 [-webkit-app-region:no-drag]",
         )}
       >
         <DialogPrimitive.Popup

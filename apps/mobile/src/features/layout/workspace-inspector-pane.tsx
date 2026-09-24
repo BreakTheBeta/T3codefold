@@ -9,6 +9,7 @@ import Animated, {
 
 import { type WorkspacePaneLayout } from "../../lib/layout";
 import { constrainFoldablePaneWidth } from "../../lib/foldable-pane-layout";
+import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspacePaneDivider } from "./workspace-pane-divider";
 
@@ -24,6 +25,7 @@ import { WorkspacePaneDivider } from "./workspace-pane-divider";
  * module stays import-cycle-free with AdaptiveWorkspaceLayout.
  */
 export function WorkspaceInspectorPane(props: {
+  readonly pathname: string;
   readonly renderedInspectorWidth: SharedValue<number>;
   /**
    * When false the pane animates closed but keeps its content mounted for the
@@ -140,10 +142,23 @@ export function WorkspaceInspectorPane(props: {
           style={inspectorStyle}
         >
           <Animated.View className="flex-1" style={inspectorContentStyle}>
-            {props.renderInspector?.()}
+            <RenderErrorBoundary
+              resetKeys={[props.pathname]}
+              renderFallback={(fallback) => (
+                <RenderFailureView {...fallback} title="The inspector couldn't be displayed" />
+              )}
+            >
+              <InspectorRenderer render={props.renderInspector} />
+            </RenderErrorBoundary>
           </Animated.View>
         </Animated.View>
       ) : null}
     </>
   );
+}
+
+// The render callback must run inside the boundary's child, not while its
+// parent constructs the boundary element.
+function InspectorRenderer(props: { readonly render?: () => ReactNode }) {
+  return <>{props.render?.()}</>;
 }

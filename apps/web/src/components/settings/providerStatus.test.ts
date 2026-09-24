@@ -1,7 +1,7 @@
 import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { getProviderSummary } from "./providerStatus";
+import { getProviderSummary, getProviderVersionAdvisoryPresentation } from "./providerStatus";
 
 const provider: ServerProvider = {
   instanceId: ProviderInstanceId.make("codex"),

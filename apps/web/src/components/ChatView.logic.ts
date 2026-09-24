@@ -268,7 +268,6 @@ export function toolGroupConsumesUpwardNavigation(target: EventTarget | null): b
   const group = elementTarget?.closest<HTMLElement>("[data-tool-group-scroll]");
   if (!group) return false;
 
-  // A nested result or the group itself can consume an upward scroll.
   for (let element = elementTarget; element; element = element.parentElement) {
     if (element.scrollTop > 0) {
       const overflowY = getComputedStyle(element).overflowY;

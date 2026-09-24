@@ -60,7 +60,8 @@ import {
   resolveThreadPullRequestBadge,
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
-import { Button } from "./ui/button";
+import { Button, InlineButton } from "./ui/button";
+import { ComposerControl } from "./chat/ComposerControl";
 import { ComboboxItem, ComboboxTrigger } from "./ui/combobox";
 import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -610,7 +611,6 @@ export function BranchToolbarBranchSelector({
           key={itemValue}
           index={index}
           value={itemValue}
-          className="pe-2"
           onClick={() => selectPickerItem(itemValue)}
         >
           <div className="flex min-w-0 items-center gap-2 py-1">
@@ -632,7 +632,6 @@ export function BranchToolbarBranchSelector({
           key={itemValue}
           index={index}
           value={itemValue}
-          className="pe-1.5"
           onClick={() => selectPickerItem(itemValue)}
         >
           <span className="truncate">Create new ref &quot;{newRefName}&quot;</span>
@@ -701,7 +700,7 @@ export function BranchToolbarBranchSelector({
       >
         {displayMode !== "panel" ? (
           <ThreadPullRequestBadgeControl
-            variant="ghost"
+            render={<InlineButton />}
             badge={prBadge}
             pullRequests={serverThread?.pullRequests ?? []}
             number={prNumber}
@@ -718,9 +717,15 @@ export function BranchToolbarBranchSelector({
           onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
         >
           <ComboboxTrigger
-            render={<Button variant="ghost" size={displayMode === "panel" ? "sm" : "xs"} />}
+            render={
+              displayMode === "panel" ? (
+                <Button variant="ghost" size="sm" />
+              ) : (
+                <ComposerControl size="xs" />
+              )
+            }
             className={cn(
-              "min-w-0 max-w-full font-normal text-muted-foreground/70 text-xs! hover:text-foreground/80 active:scale-100",
+              "min-w-0 max-w-full active:scale-100",
               displayMode === "panel" && THREAD_DETAILS_PANEL_SELECT_ROW_CLASS,
             )}
             disabled={isInitialBranchesLoadPending || isBranchActionPending}

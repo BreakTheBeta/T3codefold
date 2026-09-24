@@ -32,6 +32,7 @@ import { ProjectService } from "../project/ProjectService.ts";
 import {
   make,
   makeAgentAwarenessPublishWorker,
+  resolveAgentAwarenessRelayActiveThreadIds,
   shouldPublishAgentAwarenessEvent,
 } from "./AgentAwarenessRelay.ts";
 
@@ -71,7 +72,11 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     latestRunId: null,
     latestRunRequestedAt: null,
     latestRunStartedAt: null,
-    latestRunCompletedAt: null,
+    latestRunCompletedAt:
+      overrides.latestRunCompletedAt ??
+      (overrides.status === "completed" || overrides.status === "failed"
+        ? DateTime.makeUnsafe(NOW)
+        : null),
     latestUserMessageAt: null,
     createdAt: DateTime.makeUnsafe(NOW),
     updatedAt: DateTime.makeUnsafe(NOW),
@@ -84,6 +89,31 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     ...overrides,
   };
 }
+
+it("only republishes terminal awareness completed after this server started", () => {
+  const startedAt = DateTime.toEpochMillis(DateTime.makeUnsafe(NOW));
+  const running = shell({ id: ThreadId.make("running") });
+  const oldCompleted = shell({
+    id: ThreadId.make("old-completed"),
+    status: "completed",
+    latestRunCompletedAt: DateTime.makeUnsafe("2026-09-04T11:59:59.000Z"),
+  });
+  const newCompleted = shell({
+    id: ThreadId.make("new-completed"),
+    status: "completed",
+    latestRunCompletedAt: DateTime.makeUnsafe("2026-09-04T12:00:01.000Z"),
+  });
+
+  assert.deepStrictEqual(
+    resolveAgentAwarenessRelayActiveThreadIds({
+      environmentId: EnvironmentId.make("environment"),
+      startedAt,
+      projects: [{ id: PROJECT_ID, title: "Project" }],
+      threads: [oldCompleted, running, newCompleted],
+    }),
+    [running.id, newCompleted.id],
+  );
+});
 
 const PublishPayload = Schema.Struct({ state: Schema.NullOr(RelayAgentActivityState) });
 const decodePublishPayload = Schema.decodeUnknownSync(Schema.fromJsonString(PublishPayload));

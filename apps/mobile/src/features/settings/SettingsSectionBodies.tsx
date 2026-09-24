@@ -25,11 +25,7 @@ import {
   SourceControlServerSettings,
   useScopedServerSettings,
 } from "./SettingsServerControlsRouteScreen";
-import {
-  AutoSettleSettingsRows,
-  LegacyThreadListSection,
-  PlanModeSection,
-} from "./SettingsThreadsRouteScreen";
+import { AutoSettleSettingsRows, PlanModeSection } from "./SettingsThreadsRouteScreen";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 
 /**
@@ -128,7 +124,6 @@ function ThreadsSettingsBody() {
       <SettingsSection title="Archive">
         <SettingsRow icon="archivebox" label="Archived threads" target="SettingsArchive" />
       </SettingsSection>
-      <LegacyThreadListSection />
     </>
   );
 }

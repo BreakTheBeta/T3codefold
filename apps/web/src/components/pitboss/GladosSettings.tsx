@@ -156,7 +156,6 @@ function WorkerModelPicker({
         instanceEntries={catalog.entries}
         modelOptionsByInstance={catalog.modelOptions}
         disabled={disabled}
-        triggerVariant="outline"
         triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
         triggerAriaLabel={label}
         onInstanceModelChange={(instanceId, model) => {
@@ -175,7 +174,6 @@ function WorkerModelPicker({
           modelOptions={value.options}
           allowPromptInjectedEffort={false}
           planModeEnabled={catalog.planModeEnabled}
-          triggerVariant="outline"
           triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
           onModelOptionsChange={(options) => {
             const { options: _previous, ...rest } = value;

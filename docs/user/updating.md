@@ -83,6 +83,14 @@ the server host once to enable future Fold updates.
 
 ## Mobile updates
 
+To update an environment from your phone, open **Settings → Environments** and
+select it. **Check for updates** finds the latest release on that environment's
+current release channel. Keep the app open while the environment updates and
+reconnects.
+
+If your environment uses a fork or prerelease channel, configure that channel
+there before refreshing to find newer versions.
+
 Install Fold APK releases from [the fork’s releases](https://github.com/BreakTheBeta/T3codefold/releases). The mobile app can also
 download updates in the background and apply them when you next leave the app.
 It saves drafts and queued messages before restarting. If you keep the app open

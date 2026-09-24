@@ -17,9 +17,9 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
+import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentMachineKind } from "@t3tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
-import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Alert, Pressable, useWindowDimensions, View } from "react-native";
@@ -55,6 +55,10 @@ import { QueuedMessageIcon } from "./queued-message-icon";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 import type { ThreadMoveDestination } from "./threadOrder";
 
+function threadTimeLabel(thread: EnvironmentThreadShell): string {
+  return relativeTime(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);
+}
+
 /**
  * Thread List v2 renders one flat native list: rich edge-to-edge rows for
  * active work and a receded settled tail, all with native swipe and
@@ -73,10 +77,6 @@ const STATUS_LABEL_BY_STATUS: Partial<
   working: { label: "Working", className: "text-adaptive-sky-600-400" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
-
-function threadTimeLabel(thread: EnvironmentThreadShell): string {
-  return relativeTime(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);
-}
 
 // Menus keep lifecycle and title regeneration together. Archive keeps its
 // own surface (thread screen / settings) rather than crowding v2 rows.
@@ -459,8 +459,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   /** Preformatted against the parent minute tick so this memoized row's
       countdown keeps moving. */
   readonly snoozeWakeLabelText?: string;
-  /** Parent minute tick passed as a prop so this memoized row refreshes its
-      native snooze menu while mounted. */
+  /** Preformatted against the parent clock (row order timestamp: settle stamp
+      on settled rows, latest activity otherwise). Blank while a status label
+      or the wake countdown owns that slot. Precomputed per row — not via the
+      list's extraData — so the minute tick re-renders only rows whose
+      displayed text moved. */
+  readonly timeLabel: string;
+  /** Parent minute tick carried on the row's list item, present only when the
+      row's menu offers snooze presets, so those menus refresh while mounted
+      without invalidating every other row. */
   readonly snoozePresetMinute: string;
   readonly project: EnvironmentProject | null;
   readonly projectTitle?: string;
@@ -587,6 +594,19 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
   const handleSettle = useCallback(() => onSettleThread(thread), [onSettleThread, thread]);
   const [customSnoozeOpen, setCustomSnoozeOpen] = useState(false);
+  // A recycled cell reassigns this mounted row to a different thread without
+  // remounting it, and the render closure stops running while list equality
+  // says the item is unchanged — so any row-local UI state must be dismissed
+  // when the identity under it changes. Without this, a custom snooze sheet
+  // opened for one thread survives the thread's removal/reorder and its
+  // submit snoozes whichever thread the cell was reassigned to. (ThreadSwipeable
+  // enforces the same contract on the swipe layer with its resetKey.)
+  const rowIdentity = `${thread.environmentId}:${thread.id}`;
+  const [boundIdentity, setBoundIdentity] = useState(rowIdentity);
+  if (boundIdentity !== rowIdentity) {
+    setBoundIdentity(rowIdentity);
+    setCustomSnoozeOpen(false);
+  }
   const handleSnooze = useCallback(
     (snoozedUntil: string) => onSnoozeThread(thread, snoozedUntil),
     [onSnoozeThread, thread],
@@ -781,6 +801,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       handleUnsnooze,
       setCustomSnoozeOpen,
       snoozePresets,
+      setCustomSnoozeOpen,
     ],
   );
   const primaryAction = useMemo(() => {
