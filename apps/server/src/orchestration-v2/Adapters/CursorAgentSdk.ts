@@ -1,11 +1,10 @@
-import {
-  Agent,
-  type AgentMessage,
-  type AgentOptions,
-  type InteractionUpdate,
-  type RunResult,
-  type SDKUserMessage,
-  type SendOptions,
+import type {
+  AgentMessage,
+  AgentOptions,
+  InteractionUpdate,
+  RunResult,
+  SDKUserMessage,
+  SendOptions,
 } from "@cursor/sdk";
 import {
   type OrchestrationV2ProviderSession,
@@ -19,6 +18,7 @@ import * as Schema from "effect/Schema";
 
 import type { EventNdjsonLogger } from "../../provider/Layers/EventNdjsonLogger.ts";
 import { ProviderEventLoggers } from "../../provider/Layers/ProviderEventLoggers.ts";
+import { Agent } from "../../provider/cursorSdk.ts";
 
 export const CURSOR_AGENT_SDK_PROTOCOL = "cursor-agent-sdk.local" as const;
 export const CURSOR_PROVIDER = ProviderDriverKind.make("cursor");
