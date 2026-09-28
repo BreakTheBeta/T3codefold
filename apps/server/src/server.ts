@@ -484,6 +484,7 @@ const ThreadPullRequestWorkerLive = Layer.effectDiscard(
 
 const PullRequestSyncServiceLive = PullRequestSyncReactor.layer.pipe(
   Layer.provide(PullRequestServiceLive),
+  Layer.provide(ProjectionStoreV2.layer),
 );
 
 const PullRequestSyncWorkerLive = Layer.effectDiscard(
