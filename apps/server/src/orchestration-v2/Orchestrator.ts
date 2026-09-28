@@ -286,6 +286,7 @@ function commandThreadId(command: OrchestrationV2Command): ThreadId {
     case "thread.delete":
     case "thread.settle":
     case "thread.auto-settle":
+    case "thread.auto-settle.set":
     case "thread.unsettle":
     case "thread.snooze":
     case "thread.unsnooze":
@@ -1994,6 +1995,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.archive"
           | "thread.unarchive"
           | "thread.settle"
+          | "thread.auto-settle.set"
           | "thread.unsettle"
           | "thread.snooze"
           | "thread.unsnooze"
@@ -2333,6 +2335,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: alreadySettled ? thread.updatedAt : now,
           };
         }
+        case "thread.auto-settle.set": {
+          const currentlyDisabledAt = thread.autoSettleDisabledAt ?? null;
+          const autoSettleDisabledAt = command.enabled ? null : (currentlyDisabledAt ?? now);
+          return {
+            ...thread,
+            autoSettleDisabledAt,
+            updatedAt: autoSettleDisabledAt === currentlyDisabledAt ? thread.updatedAt : now,
+          };
+        }
         case "thread.unsettle": {
           const alreadyPinnedActive = thread.settledOverride === "active";
           return {
@@ -2658,6 +2669,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.unarchived" as const;
         case "thread.settle":
           return "thread.settled" as const;
+        case "thread.auto-settle.set":
+          return "thread.auto-settle-updated" as const;
         case "thread.unsettle":
           return "thread.unsettled" as const;
         case "thread.snooze":
@@ -8437,6 +8450,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           );
         if (
           thread.settledOverride !== null ||
+          thread.autoSettleDisabledAt != null ||
           DateTime.toEpochMillis(thread.updatedAt) > DateTime.toEpochMillis(command.snapshotAt)
         ) {
           return yield* new OrchestratorDispatchError({
@@ -8473,6 +8487,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.archive":
       case "thread.unarchive":
       case "thread.settle":
+      case "thread.auto-settle.set":
       case "thread.unsettle":
       case "thread.snooze":
       case "thread.unsnooze":

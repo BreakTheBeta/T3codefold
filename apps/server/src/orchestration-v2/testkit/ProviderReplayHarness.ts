@@ -65,6 +65,7 @@ import {
 } from "./OrchestratorScenario.ts";
 import { makeProviderReplayGate, type ProviderReplayGate } from "./ProviderReplayGate.testkit.ts";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
+import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 
 export function makeReplayServerConfig(
   scenario: string,
@@ -115,6 +116,7 @@ export function makeReplayServerConfig(
       otlpTracesExport: DEFAULT_SIGNAL_EXPORT,
       otlpMetricsExport: DEFAULT_SIGNAL_EXPORT,
       otlpLogsExport: DEFAULT_SIGNAL_EXPORT,
+      otelEnvironment: OtelEnvironment.none,
       otlpServiceName: "t3-server",
       mode: "web",
       port: 0,

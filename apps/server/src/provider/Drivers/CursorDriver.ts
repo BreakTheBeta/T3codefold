@@ -27,7 +27,7 @@ import { ProviderDriverError } from "../Errors.ts";
 import {
   buildInitialCursorProviderSnapshot,
   checkCursorProviderStatus,
-} from "../Layers/CursorProvider.ts";
+} from "../Layers/CursorSdkProvider.ts";
 import { CursorSdkCatalogLive } from "../Layers/CursorSdkCatalog.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {

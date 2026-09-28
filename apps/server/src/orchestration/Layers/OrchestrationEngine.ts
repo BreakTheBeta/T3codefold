@@ -1,9 +1,9 @@
-import type { ProjectId } from "@t3tools/contracts";
+import type { ApplicationStoredEvent, ProjectId, ThreadId } from "@t3tools/contracts";
 import type {
   OrchestrationClientOrigin,
   OrchestrationEvent,
   OrchestrationReadModel,
-  ProjectOrchestrationCommand,
+  OrchestrationCommand,
 } from "@t3tools/contracts/legacy-orchestration";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -54,18 +54,30 @@ const isOrchestrationCommandPreviouslyRejectedError = Schema.is(
 const isOrchestrationCommandIdConflictError = Schema.is(OrchestrationCommandIdConflictError);
 
 interface CommandEnvelope {
-  command: ProjectOrchestrationCommand;
+  command: OrchestrationCommand;
   origin: OrchestrationClientOrigin | undefined;
   result: Deferred.Deferred<{ sequence: number }, OrchestrationDispatchError>;
   startedAtMs: number;
 }
 
-function commandToAggregateRef(command: ProjectOrchestrationCommand): {
-  readonly aggregateKind: "project";
-  readonly aggregateId: ProjectId;
+function commandToAggregateRef(command: OrchestrationCommand): {
+  readonly aggregateKind: "project" | "thread";
+  readonly aggregateId: ProjectId | ThreadId;
 } {
-  return { aggregateKind: "project", aggregateId: command.projectId };
+  switch (command.type) {
+    case "project.create":
+    case "project.meta.update":
+    case "project.delete":
+      return { aggregateKind: "project", aggregateId: command.projectId };
+    default:
+      return { aggregateKind: "thread", aggregateId: command.threadId };
+  }
 }
+
+const isApplicationProjectEvent = (
+  event: OrchestrationEvent,
+): event is Extract<ApplicationStoredEvent, { readonly aggregateKind: "project" }> =>
+  event.aggregateKind === "project";
 
 const makeOrchestrationEngine = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -112,14 +124,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
       commandReadModel = yield* projectEventsOntoReadModel(commandReadModel, persistedEvents);
 
-      yield* eventStore.publishCommitted(
-        persistedEvents.filter(
-          (event) =>
-            event.type === "project.created" ||
-            event.type === "project.meta-updated" ||
-            event.type === "project.deleted",
-        ),
-      );
+      yield* eventStore.publishCommitted(persistedEvents.filter(isApplicationProjectEvent));
 
       for (const persistedEvent of persistedEvents) {
         yield* PubSub.publish(eventPubSub, persistedEvent);
@@ -246,12 +251,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           yield* cleanup;
         }
         yield* eventStore.publishCommitted(
-          committedCommand.committedEvents.filter(
-            (event) =>
-              event.type === "project.created" ||
-              event.type === "project.meta-updated" ||
-              event.type === "project.deleted",
-          ),
+          committedCommand.committedEvents.filter(isApplicationProjectEvent),
         );
         for (const [index, event] of committedCommand.committedEvents.entries()) {
           yield* PubSub.publish(eventPubSub, event);
@@ -331,7 +331,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   status: "rejected",
                   error: error.message,
                 })
-                .pipe(Effect.catch(() => Effect.void));
+                .pipe(Effect.ignore);
             }
           }
 

@@ -106,6 +106,7 @@ function threadDetailToShell(
     settledOverride: thread.settledOverride,
     settledAt: thread.settledAt,
     unsettledAt: thread.unsettledAt,
+    autoSettleDisabledAt: thread.autoSettleDisabledAt,
     pinnedAt: thread.pinnedAt,
     pinOrderKey: thread.pinOrderKey,
     activeOrderKey: thread.activeOrderKey,

@@ -502,7 +502,7 @@ function approvalDecisionToLegacyReviewDecision(
     case "acceptAlways":
       return "approved_for_session";
     case "decline":
-      return "denied";
+      return { denied: { rejection: "User declined the command." } };
     case "cancel":
       return "abort";
   }
@@ -896,6 +896,38 @@ const readCodexThreadHistoryMode = Effect.fn("CodexAdapterV2.readThreadHistoryMo
   return metadata.thread.historyMode;
 });
 
+const decodeLegacyRollbackResponse = Schema.decodeUnknownEffect(CodexSchema.V2ThreadReadResponse);
+
+const rollbackNativeCodexThread = Effect.fn("CodexAdapterV2.rollbackNativeThread")(function* (
+  client: CodexClient.CodexAppServerClient["Service"],
+  threadId: string,
+  numTurns: number,
+) {
+  if ((yield* readCodexThreadHistoryMode(client.raw, threadId)) !== "paginated") {
+    const response = yield* client.raw.request("thread/rollback", { threadId, numTurns });
+    return yield* decodeLegacyRollbackResponse(response).pipe(
+      Effect.mapError((error) =>
+        CodexErrors.CodexAppServerRequestError.invalidPayload(
+          "thread/rollback",
+          "decode-payload",
+          error,
+        ),
+      ),
+    );
+  }
+
+  const snapshot = yield* readCodexThread(client, threadId);
+  const retainedCount = Math.max(0, snapshot.turns.length - numTurns);
+  const firstRemoved = snapshot.turns[retainedCount];
+  if (firstRemoved === undefined) {
+    return yield* client.request("thread/read", { threadId, includeTurns: true });
+  }
+  return yield* client.request("thread/revert", {
+    threadId,
+    beforeTurnId: firstRemoved.id,
+  });
+});
+
 export const resolveCodexRollbackTurnCount = Effect.fn("CodexAdapterV2.resolveRollbackTurnCount")(
   function* (input: ProviderAdapterV2RollbackThreadInput) {
     const providerTurns = input.providerThreadTurns;
@@ -1101,11 +1133,7 @@ export function codexThreadRuntimeParams(input: {
   readonly threadId: ThreadId | null;
   readonly modelSelection?: { readonly model: string };
   readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
-}): {
-  readonly cwd?: string;
-  readonly model?: string;
-  readonly config?: Readonly<Record<string, unknown>>;
-} {
+}) {
   const mcpSession =
     input.threadId === null ? undefined : McpProviderSession.readMcpProviderSession(input.threadId);
   return {
@@ -5785,21 +5813,8 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                   runtimeRequests: [],
                 };
               }
-              // thread/rollback only exists for legacy-history threads; Codex
-              // rejects it on paginated threads and this adapter has no
-              // paginated rollback path yet, so surface that honestly.
-              const historyMode = yield* ensureInitialized.pipe(
-                Effect.andThen(readCodexThreadHistoryMode(client.raw, threadId)),
-              );
-              if (historyMode === "paginated") {
-                return yield* new ProviderAdapterRollbackThreadError({
-                  driver: CODEX_PROVIDER,
-                  providerThreadId: threadInput.providerThread.id,
-                  cause: `Cannot roll back Codex thread ${threadId}: the thread uses paginated history, which rejects thread/rollback, and this adapter does not implement paginated conversation rollback.`,
-                });
-              }
               const response = yield* ensureInitialized.pipe(
-                Effect.andThen(client.request("thread/rollback", { threadId, numTurns })),
+                Effect.andThen(rollbackNativeCodexThread(client, threadId, numTurns)),
               );
               turnTokenUsageByThread.delete(threadId);
               return {
@@ -5862,26 +5877,13 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               );
               let forkedThread = response.thread;
               if (boundary.rollbackTurnCount > 0) {
-                // Reached only when the selected source turn has no native
-                // turn reference, so the fork had to be taken at head and then
-                // trimmed. thread/rollback is legacy-history only; on a
-                // paginated fork the boundary cannot be honored at all.
-                const historyMode = yield* ensureInitialized.pipe(
-                  Effect.andThen(readCodexThreadHistoryMode(client.raw, response.thread.id)),
-                );
-                if (historyMode === "paginated") {
-                  return yield* new ProviderAdapterForkThreadError({
-                    driver: CODEX_PROVIDER,
-                    providerThreadId: threadInput.sourceProviderThread.id,
-                    cause: `Cannot fork Codex thread ${threadId} at provider turn ${threadInput.providerTurnId}: the source turn has no native Codex turn reference, and the forked thread uses paginated history which rejects thread/rollback.`,
-                  });
-                }
                 forkedThread = (yield* ensureInitialized.pipe(
                   Effect.andThen(
-                    client.request("thread/rollback", {
-                      threadId: response.thread.id,
-                      numTurns: boundary.rollbackTurnCount,
-                    }),
+                    rollbackNativeCodexThread(
+                      client,
+                      response.thread.id,
+                      boundary.rollbackTurnCount,
+                    ),
                   ),
                   Effect.mapError(
                     (cause) =>

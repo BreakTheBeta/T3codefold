@@ -4017,6 +4017,9 @@ export default function Sidebar() {
         const supportsSettlement =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement ===
           true;
+        const supportsAutoSettleOptOut =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities
+            .threadAutoSettleOptOut === true;
         const supportsSnooze =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
         const supportsPinning =
@@ -4050,12 +4053,14 @@ export default function Sidebar() {
                 : null,
               isPinned,
               isSettled,
+              autoSettleEnabled: thread.autoSettleDisabledAt == null,
               isSnoozed,
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
               isRunning: thread.runtime?.status === "running" && thread.runtime.activeRunId != null,
               supports: {
                 settlement: supportsSettlement,
+                autoSettleOptOut: supportsAutoSettleOptOut,
                 snooze: supportsSnooze,
                 pinning: supportsPinning,
                 titleRegeneration: supportsTitleRegeneration,

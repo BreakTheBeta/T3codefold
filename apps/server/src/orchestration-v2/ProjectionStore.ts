@@ -138,6 +138,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "updatedAt"
   | "archivedAt"
   | "settledOverride"
+  | "autoSettleDisabledAt"
   | "pinnedAt"
   | "snoozedUntil"
   | "snoozedAt"
@@ -486,6 +487,7 @@ export function applyToProjection(
     case "thread.unarchived":
     case "thread.deleted":
     case "thread.settled":
+    case "thread.auto-settle-updated":
     case "thread.unsettled":
     case "thread.snoozed":
     case "thread.unsnoozed":
@@ -1215,6 +1217,7 @@ export function threadShellFromProjection(
     archivedAt: projection.thread.archivedAt,
     settledOverride: projection.thread.settledOverride,
     settledAt: projection.thread.settledAt,
+    autoSettleDisabledAt: projection.thread.autoSettleDisabledAt ?? null,
     unsettledAt: projection.thread.unsettledAt ?? null,
     snoozedUntil: projection.thread.snoozedUntil ?? null,
     snoozedAt: projection.thread.snoozedAt ?? null,
@@ -1433,6 +1436,7 @@ function shellFromState(input: {
     archivedAt: input.state.thread.archivedAt,
     settledOverride: input.state.thread.settledOverride,
     settledAt: input.state.thread.settledAt,
+    autoSettleDisabledAt: input.state.thread.autoSettleDisabledAt ?? null,
     unsettledAt: input.state.thread.unsettledAt ?? null,
     snoozedUntil: input.state.thread.snoozedUntil ?? null,
     snoozedAt: input.state.thread.snoozedAt ?? null,

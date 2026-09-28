@@ -41,10 +41,8 @@ import {
 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
-import {
-  CODEX_RESET_CREDIT_TIMEOUT,
-  CodexResetCreditCoordinator,
-} from "../Layers/codexResetCredit.ts";
+import { CODEX_RESET_CREDIT_TIMEOUT } from "../Layers/codexResetCredit.ts";
+import { ResetCreditCoordinator } from "../Layers/resetCreditCoordinator.ts";
 import {
   checkCodexProviderStatus,
   makePendingCodexProvider,
@@ -110,7 +108,7 @@ export type CodexDriverEnv =
   | CodexAdapterV2DriverEnv
   | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
-  | CodexResetCreditCoordinator
+  | ResetCreditCoordinator
   | Crypto.Crypto
   | FileSystem.FileSystem
   | HttpClient.HttpClient
@@ -131,7 +129,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const resetCreditCoordinator = yield* CodexResetCreditCoordinator;
+      const resetCreditCoordinator = yield* ResetCreditCoordinator;
       const fileSystem = yield* FileSystem.FileSystem;
       const pathService = yield* Path.Path;
       const httpClient = yield* HttpClient.HttpClient;

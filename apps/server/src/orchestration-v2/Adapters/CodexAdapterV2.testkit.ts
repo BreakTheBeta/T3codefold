@@ -17,6 +17,7 @@ import { makeDriverLayer as makeProviderAdapterRegistryDriverLayer } from "../Pr
 import type { OrchestratorV2ProviderReplayHarness } from "../testkit/ProviderReplayHarness.ts";
 import type { ProviderReplayGate } from "../testkit/ProviderReplayGate.testkit.ts";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
+import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
   CODEX_DEFAULT_INSTANCE_ID,
   CODEX_DRIVER_KIND,
@@ -105,6 +106,7 @@ export function makeReplayServerConfig(
       otlpTracesExport: DEFAULT_SIGNAL_EXPORT,
       otlpMetricsExport: DEFAULT_SIGNAL_EXPORT,
       otlpLogsExport: DEFAULT_SIGNAL_EXPORT,
+      otelEnvironment: OtelEnvironment.none,
       otlpServiceName: "t3-server",
       mode: "web",
       port: 0,

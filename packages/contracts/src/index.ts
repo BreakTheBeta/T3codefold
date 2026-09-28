@@ -32,13 +32,113 @@ export * from "./vcs.ts";
 export * from "./sourceControl.ts";
 export * from "./projectClone.ts";
 export * from "./pullRequest.ts";
-export * from "./orchestration.ts";
+export {
+  ORCHESTRATION_WS_METHODS,
+  CorrelationId,
+  ProjectFaviconPath,
+  OrchestrationProject,
+  OrchestrationMessageRole,
+  OrchestrationMessage,
+  OrchestrationProposedPlanId,
+  OrchestrationProposedPlan,
+  OrchestrationSessionStatus,
+  OrchestrationSession,
+  OrchestrationCheckpointFile,
+  OrchestrationCheckpointStatus,
+  OrchestrationCheckpointSummary,
+  OrchestrationThreadActivityTone,
+  OrchestrationThreadActivity,
+  OrchestrationLatestTurn,
+  ThreadTitleState,
+  ThreadTitleRegeneration,
+  ThreadLinkedPullRequest,
+  ThreadPullRequestLinkSource,
+  ThreadPullRequestSnapshot,
+  ThreadPullRequestStackLayer,
+  ThreadPullRequestStack,
+  ThreadPullRequestKey,
+  ThreadPullRequestLink,
+  OrchestrationThread,
+  OrchestrationReadModel,
+  OrchestrationThreadShell,
+  OrchestrationShellSnapshot,
+  OrchestrationShellStreamEvent,
+  OrchestrationShellStreamItem,
+  OrchestrationSubscribeShellInput,
+  OrchestrationSubscribeThreadInput,
+  OrchestrationThreadDetailWindow,
+  OrchestrationThreadDetailPage,
+  OrchestrationThreadDetailSnapshot,
+  ProjectCreateCommand,
+  ProjectOrchestrationCommand,
+  ThreadTurnStartCommand,
+  ClientOrchestrationCommand,
+  OrchestrationCommand,
+  OrchestrationEventType,
+  OrchestrationAggregateKind,
+  OrchestrationActorKind,
+  ProjectCreatedPayload,
+  ProjectMetaUpdatedPayload,
+  ProjectDeletedPayload,
+  ThreadCreatedPayload,
+  ThreadDeletedPayload,
+  ThreadArchivedPayload,
+  ThreadUnarchivedPayload,
+  ThreadSettledPayload,
+  ThreadUnsettledPayload,
+  ThreadSnoozedPayload,
+  ThreadUnsnoozedPayload,
+  ThreadPinnedPayload,
+  ThreadUnpinnedPayload,
+  ThreadPinReorderedPayload,
+  ThreadAutoSettleSetPayload,
+  ThreadMetaUpdatedPayload,
+  ThreadPullRequestLinkedPayload,
+  ThreadPullRequestUnlinkedPayload,
+  ThreadPullRequestSyncedPayload,
+  ThreadRuntimeModeSetPayload,
+  ThreadInteractionModeSetPayload,
+  ThreadMessageSentPayload,
+  ThreadTurnStartRequestedPayload,
+  ThreadTurnInterruptRequestedPayload,
+  ThreadApprovalResponseRequestedPayload,
+  ThreadCheckpointRevertRequestedPayload,
+  ThreadRevertedPayload,
+  ThreadSessionStopRequestedPayload,
+  ThreadSessionSetPayload,
+  ThreadProposedPlanUpsertedPayload,
+  ThreadTurnDiffCompletedPayload,
+  ThreadActivityAppendedPayload,
+  OrchestrationEventMetadata,
+  OrchestrationEvent,
+  OrchestrationThreadStreamItem,
+  OrchestrationCommandReceiptStatus,
+  ProviderSessionRuntimeStatus,
+  ProjectionPendingApprovalStatus,
+  ProjectionPendingApprovalDecision,
+  DispatchResult,
+  OrchestrationThreadSearchSource,
+  OrchestrationSearchThreadsInput,
+  OrchestrationThreadSearchMatch,
+  OrchestrationSearchThreadsResult,
+  OrchestrationGetWorkflowScriptInput,
+  OrchestrationGetWorkflowScriptResult,
+  OrchestrationRpcSchemas,
+  OrchestrationGetSnapshotError,
+  OrchestrationDispatchCommandError,
+  OrchestrationSearchThreadsError,
+} from "./orchestration.ts";
+export type {
+  OrchestrationLatestTurnState,
+  ThreadTurnStartBootstrap,
+  DispatchableClientOrchestrationCommand,
+  InternalOrchestrationCommand,
+} from "./orchestration.ts";
 export * from "./orchestrationProject.ts";
 export * from "./orchestrationV2.ts";
 export * from "./applicationEvent.ts";
 export * from "./orchestratorMcp.ts";
 export * from "./threadMetadataMcp.ts";
-export * from "./orchestration.ts";
 export * from "./t3ProjectFile.ts";
 export * from "./editor.ts";
 export * from "./project.ts";
@@ -59,8 +159,6 @@ export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 
 export * from "./fleet.ts";
-
-export { UserInputAttachmentAnswerPayload } from "./orchestration.ts";
 
 export * from "./pitboss.ts";
 

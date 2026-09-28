@@ -1,7 +1,6 @@
 import { siblingPullRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import {
   CommandId,
-  type OrchestrationV2ThreadShell,
   type PullRequestSummary,
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
@@ -28,14 +27,15 @@ import * as Stream from "effect/Stream";
 
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import { forkParked } from "../serverActivation.ts";
-import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import * as OrchestrationEngine from "./Services/OrchestrationEngine.ts";
+import * as ProjectionSnapshotQuery from "./Services/ProjectionSnapshotQuery.ts";
 
 const SLOW_SYNC_INTERVAL_MS = 15 * 60 * 1_000;
 
 type SnapshotFields = Omit<ThreadPullRequestSnapshot, "syncedAt">;
 
 interface LinkEntry {
-  readonly thread: OrchestrationV2ThreadShell;
+  readonly thread: ProjectionSnapshotQuery.ProjectionThreadPullRequests;
   readonly link: ThreadPullRequestLink;
 }
 
@@ -103,15 +103,15 @@ function stacksEqual(
   );
 }
 
-function isUnsettled(thread: OrchestrationV2ThreadShell): boolean {
+function isUnsettled(thread: ProjectionSnapshotQuery.ProjectionThreadPullRequests): boolean {
   return thread.settledOverride !== "settled" && thread.settledAt === null;
 }
 
 /**
  * Keeps every thread ↔ pull request link's host snapshot current. One sweep a minute reads
- * the shell snapshot, groups visible links by pull request so the host is asked once per PR
- * no matter how many threads share it, and writes back only what changed. Native stacks the
- * host reports are auto-linked to the thread as `source: "stack"`.
+ * only the active threads that have links, groups visible links by pull request so the host
+ * is asked once per PR no matter how many threads share it, and writes back only what
+ * changed. Native stacks the host reports are auto-linked to the thread as `source: "stack"`.
  */
 export class PullRequestSyncReactor extends Context.Service<
   PullRequestSyncReactor,
@@ -125,7 +125,8 @@ export class PullRequestSyncReactor extends Context.Service<
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
-  const engine = yield* OrchestratorV2;
+  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
 
@@ -151,15 +152,14 @@ export const make = Effect.gen(function* () {
       Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.logWarning(message, fields);
 
   const sweep = Effect.fn("PullRequestSyncReactor.sweep")(function* (requestedKey?: string) {
-    const snapshot = yield* engine.getShellSnapshot();
+    const threads = yield* snapshots.listThreadsWithPullRequests();
     const now = yield* DateTime.now;
     const nowMs = DateTime.toEpochMillis(now);
     const nowIso = DateTime.formatIso(now);
 
     const groups = new Map<string, Array<LinkEntry>>();
-    for (const thread of snapshot.threads) {
-      if (thread.archivedAt !== null) continue;
-      for (const link of visibleThreadPullRequests(thread.pullRequests ?? [])) {
+    for (const thread of threads) {
+      for (const link of visibleThreadPullRequests(thread.pullRequests)) {
         const key = threadPullRequestKeyOf(link);
         const entries = groups.get(key) ?? [];
         entries.push({ thread, link });
@@ -198,9 +198,7 @@ export const make = Effect.gen(function* () {
         if (linkedThisSweep.has(dedupeKey)) continue;
         // Tombstones count as present: a dismissed layer is never re-added.
         if (
-          (thread.pullRequests ?? []).some((existing) =>
-            threadPullRequestKeysEqual(existing, layerKey),
-          )
+          thread.pullRequests.some((existing) => threadPullRequestKeysEqual(existing, layerKey))
         ) {
           continue;
         }
@@ -259,12 +257,12 @@ export const make = Effect.gen(function* () {
             Effect.map((stack) => ({
               stack: stack === null ? null : ({ kind: "native", ...stack } as const),
             })),
-            Effect.catchCause((cause) =>
-              Cause.hasInterruptsOnly(cause)
-                ? Effect.failCause(cause)
-                : Effect.logWarning("pull request stack lookup failed", {
-                    key,
-                  }).pipe(Effect.as(null)),
+            Effect.catchCauseIf(
+              (cause) => !Cause.hasInterruptsOnly(cause),
+              () =>
+                Effect.logWarning("pull request stack lookup failed", {
+                  key,
+                }).pipe(Effect.as(null)),
             ),
           )
         : null;
@@ -316,19 +314,11 @@ export const make = Effect.gen(function* () {
   const start: PullRequestSyncReactor["Service"]["start"] = Effect.fn(
     "PullRequestSyncReactor.start",
   )(function* () {
-    const events = engine.streamDomainEvents;
+    const events = yield* engine.subscribeDomainEvents;
     yield* forkParked(
       Stream.runForEach(events, (event) =>
-        event.type === "thread.pull-request-synced"
-          ? Effect.forEach(
-              visibleThreadPullRequests(event.payload.pullRequests ?? []).filter(
-                (link) => link.snapshot === null,
-              ),
-              requestSync,
-              { discard: true },
-            )
-          : Effect.void,
-      ).pipe(Effect.catchCause(logSkipped("pull request sync event stream failed", {}))),
+        event.type === "thread.pull-request-linked" ? requestSync(event.payload.link) : Effect.void,
+      ),
     );
     yield* forkParked(
       Effect.gen(function* () {

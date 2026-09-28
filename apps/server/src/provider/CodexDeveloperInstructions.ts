@@ -1,4 +1,5 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
+import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
 import {
@@ -189,12 +190,32 @@ ${T3_CODE_ORCHESTRATION_INSTRUCTIONS}
 
 export interface CodexRuntimeInfo {
   readonly model: string;
+  readonly modelName?: string | undefined;
   readonly reasoningEffort: string;
+}
+
+/**
+ * Runtime and tool context for Codex's `turn/start.additionalContext` field.
+ * Legacy orchestration uses this independently from the collaboration-mode
+ * prompt, while the V2 driver continues to use the combined prompt below.
+ */
+export function buildCodexAdditionalContext(
+  runtime: CodexRuntimeInfo,
+  toolsAvailable: boolean | T3CodeToolAvailability = true,
+): Record<string, V2TurnStartParams__AdditionalContextEntry> {
+  const tools = browserToolInstructions(toolsAvailable).trim();
+  return {
+    t3_code_runtime: {
+      kind: "application",
+      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
+    },
+    ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
+  };
 }
 
 export function buildCodexDeveloperInstructions(
   interactionMode: ProviderInteractionMode,
-  runtime: CodexRuntimeInfo,
+  runtime?: CodexRuntimeInfo,
   /**
    * Whether the `t3-code` MCP server is attached to this turn. Callers derive
    * it from the session's actual MCP configuration rather than re-reading the
@@ -206,7 +227,7 @@ export function buildCodexDeveloperInstructions(
     interactionMode === "plan"
       ? codexPlanModeDeveloperInstructions(browserToolsAvailable)
       : codexDefaultModeDeveloperInstructions(browserToolsAvailable);
-  return `${base}
-
-${buildRuntimeInstructions({ harness: "Codex", ...runtime })}`;
+  return runtime
+    ? `${base}\n\n${buildRuntimeInstructions({ harness: "Codex", ...runtime })}`
+    : base;
 }

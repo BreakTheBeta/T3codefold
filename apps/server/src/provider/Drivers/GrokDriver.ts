@@ -22,7 +22,7 @@ import {
   checkGrokProviderStatus,
   enrichGrokSnapshot,
 } from "../Layers/GrokProvider.ts";
-import { readGrokUsageLimits } from "../Layers/grokUsageLimits.ts";
+import { readGrokAccount } from "../Layers/grokUsageLimits.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -111,8 +111,8 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv> = {
       const checkProvider = checkGrokProviderStatus(effectiveConfig, processEnv, cwd).pipe(
         Effect.flatMap((snapshot) =>
           effectiveConfig.enabled && snapshot.installed && snapshot.auth.status === "authenticated"
-            ? readGrokUsageLimits(processEnv).pipe(
-                Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),
+            ? readGrokAccount(processEnv).pipe(
+                Effect.map(({ usageLimits }) => ({ ...snapshot, usageLimits })),
               )
             : Effect.succeed(snapshot),
         ),

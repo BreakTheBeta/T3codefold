@@ -20,8 +20,16 @@ export function toSortableTimestamp(iso: string | undefined): number | null {
 
 export type SettledThreadTimestampInput = Pick<
   EnvironmentThreadShell,
-  "settledAt" | "latestUserMessageAt" | "latestRun" | "updatedAt"
->;
+  "settledAt" | "latestUserMessageAt" | "updatedAt"
+> & {
+  readonly latestRun?: EnvironmentThreadShell["latestRun"];
+  /** Legacy orchestration's equivalent summary. */
+  readonly latestTurn?: {
+    readonly requestedAt?: string | null;
+    readonly startedAt?: string | null;
+    readonly completedAt?: string | null;
+  } | null;
+};
 
 /** The timestamp a settled row sorts and labels by on every client: settledAt
     when stamped, otherwise the latest message or turn stamp, then updatedAt. */
@@ -37,6 +45,9 @@ export function resolveSettledThreadTimestamp(thread: SettledThreadTimestampInpu
     thread.latestRun?.requestedAt,
     thread.latestRun?.startedAt,
     thread.latestRun?.completedAt,
+    thread.latestTurn?.requestedAt,
+    thread.latestTurn?.startedAt,
+    thread.latestTurn?.completedAt,
   ]) {
     const parsed = toSortableTimestamp(candidate ?? undefined);
     if (candidate != null && parsed !== null && parsed > latestMs) {
@@ -46,6 +57,24 @@ export function resolveSettledThreadTimestamp(thread: SettledThreadTimestampInpu
   }
   if (latest !== null) return latest;
   return toSortableTimestamp(thread.updatedAt) === null ? null : thread.updatedAt;
+}
+
+/** Settled rows are history, so they order by when the work ENDED, newest
+    first, with an id tiebreak. Each key resolves once per sort, not once
+    per comparison. Shared by web and mobile so both render the same order. */
+export function sortSettledThreads<T extends SettledThreadTimestampInput & { readonly id: string }>(
+  threads: readonly T[],
+): T[] {
+  return threads
+    .map((thread) => {
+      const timestamp = resolveSettledThreadTimestamp(thread);
+      return { thread, timestampMs: timestamp === null ? 0 : Date.parse(timestamp) };
+    })
+    .sort(
+      (left, right) =>
+        right.timestampMs - left.timestampMs || left.thread.id.localeCompare(right.thread.id),
+    )
+    .map(({ thread }) => thread);
 }
 
 function getFirstSortableTimestamp(...values: Array<string | null | undefined>): number | null {

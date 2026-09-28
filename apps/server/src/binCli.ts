@@ -26,6 +26,7 @@ import { sshHelperCommand } from "./cli/sshHelper.ts";
 import { serviceCommand } from "./cli/service.ts";
 import { servicePreflightCommand } from "./cli/servicePreflight.ts";
 import { themeCommand } from "./cli/theme.ts";
+import { traceCommand } from "./cli/trace.ts";
 import { triageCommand } from "./cli/triage.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
@@ -78,6 +79,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
 
       servicePreflightCommand,
       themeCommand,
+      traceCommand,
       triageCommand,
       cloudEnabled ? connectCommand : connectUnavailableCommand,
     ]),

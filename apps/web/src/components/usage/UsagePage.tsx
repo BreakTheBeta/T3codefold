@@ -249,7 +249,7 @@ export function UsagePage() {
             showUsageStatus={!showingLimits}
             isPartial={isPartial}
             duplicateSources={merged.duplicateSources}
-            staleEnvironments={merged.staleEnvironments}
+            staleEnvironments={[]}
           />
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>

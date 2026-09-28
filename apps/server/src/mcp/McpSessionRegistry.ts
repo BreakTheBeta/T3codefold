@@ -240,7 +240,7 @@ export const issueActiveMcpCredential = (
     ? activeMcpSessionRegistry
         .revokeThread(request.threadId)
         .pipe(Effect.andThen(activeMcpSessionRegistry.issue(request)))
-    : Effect.sync((): McpIssuedCredential | undefined => undefined);
+    : Effect.undefined;
 
 /**
  * Refreshes the liveness of a thread's MCP credential. Called on every provider
@@ -249,10 +249,10 @@ export const issueActiveMcpCredential = (
 export const touchActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.touch(threadId) : Effect.void;
 
-const revokeActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
+export const revokeActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.revokeThread(threadId) : Effect.void;
 
-const revokeAllActiveMcpCredentials = (): Effect.Effect<void> =>
+export const revokeAllActiveMcpCredentials = (): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.revokeAll : Effect.void;
 
 /** Exposed for tests. */

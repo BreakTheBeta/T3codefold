@@ -140,7 +140,7 @@ export function isValidGrokReasoningEffortToken(value: string): boolean {
   return GROK_REASONING_EFFORT_TOKEN.test(value);
 }
 
-function normalizeGrokReasoningEffort(value: string | undefined): string | undefined {
+export function normalizeGrokReasoningEffort(value: string | undefined): string | undefined {
   const effort = value?.trim();
   return effort && isValidGrokReasoningEffortToken(effort) ? effort : undefined;
 }

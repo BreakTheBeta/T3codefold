@@ -1,9 +1,4 @@
 import {
-  ThreadPullRequestLinkedPayload as ContractsThreadPullRequestLinkedPayloadSchema,
-  ThreadPullRequestUnlinkedPayload as ContractsThreadPullRequestUnlinkedPayloadSchema,
-  ThreadPullRequestSyncedPayload as ContractsThreadPullRequestSyncedPayloadSchema,
-} from "@t3tools/contracts";
-import {
   ProjectCreatedPayload as ContractsProjectCreatedPayloadSchema,
   ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
   ProjectDeletedPayload as ContractsProjectDeletedPayloadSchema,
@@ -21,6 +16,10 @@ import {
   ThreadPinnedPayload as ContractsThreadPinnedPayloadSchema,
   ThreadUnpinnedPayload as ContractsThreadUnpinnedPayloadSchema,
   ThreadPinReorderedPayload as ContractsThreadPinReorderedPayloadSchema,
+  ThreadAutoSettleSetPayload as ContractsThreadAutoSettleSetPayloadSchema,
+  ThreadPullRequestLinkedPayload as ContractsThreadPullRequestLinkedPayloadSchema,
+  ThreadPullRequestUnlinkedPayload as ContractsThreadPullRequestUnlinkedPayloadSchema,
+  ThreadPullRequestSyncedPayload as ContractsThreadPullRequestSyncedPayloadSchema,
   ThreadMessageSentPayload as ContractsThreadMessageSentPayloadSchema,
   ThreadProposedPlanUpsertedPayload as ContractsThreadProposedPlanUpsertedPayloadSchema,
   ThreadSessionSetPayload as ContractsThreadSessionSetPayloadSchema,
@@ -32,7 +31,7 @@ import {
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
   ThreadCheckpointRevertRequestedPayload as ContractsThreadCheckpointRevertRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
-} from "@t3tools/contracts/legacy-orchestration";
+} from "@t3tools/contracts";
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
 export const ProjectCreatedPayload = ContractsProjectCreatedPayloadSchema;
@@ -53,6 +52,10 @@ export const ThreadUnsnoozedPayload = ContractsThreadUnsnoozedPayloadSchema;
 export const ThreadPinnedPayload = ContractsThreadPinnedPayloadSchema;
 export const ThreadUnpinnedPayload = ContractsThreadUnpinnedPayloadSchema;
 export const ThreadPinReorderedPayload = ContractsThreadPinReorderedPayloadSchema;
+export const ThreadAutoSettleSetPayload = ContractsThreadAutoSettleSetPayloadSchema;
+export const ThreadPullRequestLinkedPayload = ContractsThreadPullRequestLinkedPayloadSchema;
+export const ThreadPullRequestUnlinkedPayload = ContractsThreadPullRequestUnlinkedPayloadSchema;
+export const ThreadPullRequestSyncedPayload = ContractsThreadPullRequestSyncedPayloadSchema;
 
 export const MessageSentPayloadSchema = ContractsThreadMessageSentPayloadSchema;
 export const ThreadProposedPlanUpsertedPayload = ContractsThreadProposedPlanUpsertedPayloadSchema;
@@ -69,6 +72,3 @@ export const ThreadApprovalResponseRequestedPayload =
 export const ThreadCheckpointRevertRequestedPayload =
   ContractsThreadCheckpointRevertRequestedPayloadSchema;
 export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;
-export const ThreadPullRequestLinkedPayload = ContractsThreadPullRequestLinkedPayloadSchema;
-export const ThreadPullRequestUnlinkedPayload = ContractsThreadPullRequestUnlinkedPayloadSchema;
-export const ThreadPullRequestSyncedPayload = ContractsThreadPullRequestSyncedPayloadSchema;

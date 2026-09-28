@@ -253,7 +253,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           defaultModelSelection: null,
           faviconPath: null,
           projectIcon: null,
-          scripts: command.scripts ?? [],
+          scripts: [],
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -484,13 +484,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      if (command.type === "thread.auto-settle" && thread.settledOverride !== null) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `thread ${command.threadId} changed before automatic settlement`,
-          }),
-        );
+      if (
+        command.type === "thread.auto-settle" &&
+        (thread.settledOverride !== null || thread.autoSettleDisabledAt != null)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `thread ${command.threadId} changed before automatic settlement`,
+        });
       }
       // The server owns settle eligibility. A stale command must not settle
       // a thread whose session is coming alive or working.
@@ -642,36 +643,30 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // structurally just a string): NaN fails every comparison, and an
       // unparseable snoozedUntil must never persist.
       if (!(Date.parse(command.snoozedUntil) > Date.parse(occurredAt))) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `thread ${command.threadId} snooze wake time ${command.snoozedUntil} is not in the future`,
-          }),
-        );
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `thread ${command.threadId} snooze wake time ${command.snoozedUntil} is not in the future`,
+        });
       }
       // Blocked-on-you work must not be snoozed away: a pending approval or
       // user-input request is the agent waiting on the user, and hiding it
       // defeats the request. (A running session IS snoozable — snooze only
       // affects visibility, never the agent.)
       if (openRequests(thread).size > 0) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `thread ${command.threadId} has a pending approval or user-input request and cannot be snoozed`,
-          }),
-        );
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `thread ${command.threadId} has a pending approval or user-input request and cannot be snoozed`,
+        });
       }
       // A queued turn start — a user message no turn has adopted yet — is
       // invisible pending work: no session, no pending flags. Snoozing in
       // that window would hide a just-requested turn exactly the way settle
       // would.
       if (hasQueuedTurnStartForThread(thread, occurredAt)) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `thread ${command.threadId} has a queued turn start and cannot be snoozed`,
-          }),
-        );
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `thread ${command.threadId} has a queued turn start and cannot be snoozed`,
+        });
       }
       // Re-snoozing an already-snoozed thread to the SAME wake time is a
       // duplicate (double-click, raced clients): re-emit with the original
@@ -823,6 +818,72 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.pin.reorder": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // Only pinned threads have a slot in the arranged order. Rejecting
+      // (rather than silently pinning) keeps a raced reorder-after-unpin
+      // from resurrecting a pin the user just cleared.
+      if (thread.pinnedAt == null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `thread ${command.threadId} is not pinned and cannot be reordered`,
+        });
+      }
+      // Idempotent by re-emission (see thread.settle): a duplicate drop on
+      // the same slot keeps the existing updatedAt so it projects as a no-op.
+      const keyUnchanged = thread.pinOrderKey === command.orderKey;
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.pin-reordered",
+        payload: {
+          threadId: command.threadId,
+          orderKey: command.orderKey,
+          updatedAt: keyUnchanged ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
+    case "thread.auto-settle.set": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // Idempotent by re-emission (see thread.unpin): setting the current
+      // state again keeps the existing timestamps so duplicates do not churn
+      // ordering. The flag is independent of the settled lifecycle: it only
+      // gates the automatic paths, so it never blocks a manual settle.
+      const currentlyDisabledAt = thread.autoSettleDisabledAt ?? null;
+      const unchanged = command.enabled
+        ? currentlyDisabledAt === null
+        : currentlyDisabledAt !== null;
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.auto-settle-set",
+        payload: {
+          threadId: command.threadId,
+          autoSettleDisabledAt: command.enabled ? null : (currentlyDisabledAt ?? occurredAt),
+          updatedAt: unchanged ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
     case "thread.active.reorder": {
       const thread = yield* requireThreadNotArchived({
         readModel,
@@ -859,43 +920,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.pin.reorder": {
-      const thread = yield* requireThreadNotArchived({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      // Only pinned threads have a slot in the arranged order. Rejecting
-      // (rather than silently pinning) keeps a raced reorder-after-unpin
-      // from resurrecting a pin the user just cleared.
-      if (thread.pinnedAt == null) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `thread ${command.threadId} is not pinned and cannot be reordered`,
-          }),
-        );
-      }
-      // Idempotent by re-emission (see thread.settle): a duplicate drop on
-      // the same slot keeps the existing updatedAt so it projects as a no-op.
-      const keyUnchanged = thread.pinOrderKey === command.orderKey;
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.pin-reordered",
-        payload: {
-          threadId: command.threadId,
-          orderKey: command.orderKey,
-          updatedAt: keyUnchanged ? thread.updatedAt : occurredAt,
-        },
-      };
-    }
-
     case "thread.meta.update": {
       const thread = yield* requireThread({
         readModel,
@@ -919,12 +943,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (command.linkedPullRequest != null) {
         const { linkedPullRequest: linked, ...metadata } = command;
         const project = readModel.projects.find((project) => project.id === thread.projectId);
-        let host = project?.repositoryIdentity?.canonicalKey.split("/")[0] ?? "unknown";
-        try {
-          host = new URL(linked.url).hostname;
-        } catch {
-          // Historical clients can send links without a parseable URL.
-        }
+        // Historical clients can send links without a parseable URL.
+        const host = URL.canParse(linked.url)
+          ? new URL(linked.url).hostname
+          : (project?.repositoryIdentity?.canonicalKey.split("/")[0] ?? "unknown");
         const hasMetadata = Object.entries(metadata).some(
           ([key, value]) => !["type", "commandId", "threadId"].includes(key) && value !== undefined,
         );
@@ -1217,6 +1239,77 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           branchPullRequest: command.branchPullRequest,
           ...(command.linkedPullRequest !== undefined
             ? { linkedPullRequest: command.linkedPullRequest }
+            : {}),
+          updatedAt: thread.updatedAt,
+        },
+      };
+    }
+
+    case "thread.title.generate.complete": {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      const current =
+        thread.deletedAt === null &&
+        thread.titleState?.source !== "manual" &&
+        thread.title === command.expectedTitle &&
+        (thread.titleState?.version ?? null) === command.expectedVersion &&
+        thread.titleRegeneration == null;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: yield* nowIso,
+          commandId: command.commandId,
+        })),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          ...(current
+            ? {
+                title: command.title,
+                titleState: {
+                  source: "generated" as const,
+                  version: command.commandId,
+                  needsRefinement: command.needsRefinement,
+                },
+              }
+            : {}),
+          updatedAt: thread.updatedAt,
+        },
+      };
+    }
+
+    case "thread.title.refine": {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      const current =
+        thread.deletedAt === null &&
+        thread.latestTurn?.state === "completed" &&
+        thread.session?.status === "ready" &&
+        thread.titleState?.source === "generated" &&
+        thread.titleState.version === command.expectedVersion &&
+        thread.titleState.needsRefinement &&
+        thread.titleRegeneration == null;
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          ...(current
+            ? {
+                titleState: {
+                  source: "generated" as const,
+                  version: command.commandId,
+                  needsRefinement: false,
+                },
+                regenerateTitle: true as const,
+                previousTitle: thread.title,
+                titleRegeneration: { requestId: command.commandId, startedAt: occurredAt },
+              }
             : {}),
           updatedAt: thread.updatedAt,
         },
@@ -1520,51 +1613,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.user-input.dismiss": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const request = userInputActivity;
-      if (request === undefined || request.kind !== "user-input.requested") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "This question has already been answered.",
-        });
-      }
-      // Only async questions can be dropped silently. A native callback
-      // question leaves the provider blocked until it gets a reply, so it
-      // still needs an answer or an interrupted turn.
-      if (!Predicate.isObject(request.payload) || request.payload.responseMode !== "message") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "This question needs an answer. Answer it or stop the turn.",
-        });
-      }
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.activity-appended",
-        payload: {
-          threadId: command.threadId,
-          activity: {
-            id: EventId.make(`async-dismiss:${command.requestId}`),
-            kind: "user-input.resolved",
-            summary: "User input dismissed",
-            tone: "info",
-            turnId: request.turnId,
-            createdAt: command.createdAt,
-            payload: { requestId: command.requestId, responseMode: "message" },
-          },
-        },
-      };
-    }
-
     case "thread.user-input.respond": {
       const thread = yield* requireThread({
         readModel,
@@ -1724,6 +1772,51 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [...(Array.isArray(historyEvent) ? historyEvent : [historyEvent]), responseEvent];
     }
 
+    case "thread.user-input.dismiss": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const request = userInputActivity;
+      if (request === undefined || request.kind !== "user-input.requested") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "This question has already been answered.",
+        });
+      }
+      // Only async questions can be dropped silently. A native callback
+      // question leaves the provider blocked until it gets a reply, so it
+      // still needs an answer or an interrupted turn.
+      if (!Predicate.isObject(request.payload) || request.payload.responseMode !== "message") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "This question needs an answer. Answer it or stop the turn.",
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.activity-appended",
+        payload: {
+          threadId: command.threadId,
+          activity: {
+            id: EventId.make(`async-dismiss:${command.requestId}`),
+            kind: "user-input.resolved",
+            summary: "User input dismissed",
+            tone: "info",
+            turnId: request.turnId,
+            createdAt: command.createdAt,
+            payload: { requestId: command.requestId, responseMode: "message" },
+          },
+        },
+      };
+    }
+
     case "thread.conversation.revert":
     case "thread.checkpoint.revert": {
       yield* requireThread({
@@ -1767,12 +1860,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           sessionComingAlive ||
           hasQueuedTurnStartForThread(thread, command.createdAt)
         ) {
-          return yield* Effect.fail(
-            new OrchestrationCommandInvariantError({
-              commandType: command.type,
-              detail: `thread ${command.threadId} was re-engaged after settle; skipping session stop`,
-            }),
-          );
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} was re-engaged after settle; skipping session stop`,
+          });
         }
       }
       return {
@@ -2121,77 +2212,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       return [unsettledEvent, activityAppendedEvent];
-    }
-
-    case "thread.title.generate.complete": {
-      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
-      const current =
-        thread.deletedAt === null &&
-        thread.titleState?.source !== "manual" &&
-        thread.title === command.expectedTitle &&
-        (thread.titleState?.version ?? null) === command.expectedVersion &&
-        thread.titleRegeneration == null;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: yield* nowIso,
-          commandId: command.commandId,
-        })),
-        type: "thread.meta-updated",
-        payload: {
-          threadId: command.threadId,
-          ...(current
-            ? {
-                title: command.title,
-                titleState: {
-                  source: "generated" as const,
-                  version: command.commandId,
-                  needsRefinement: command.needsRefinement,
-                },
-              }
-            : {}),
-          updatedAt: thread.updatedAt,
-        },
-      };
-    }
-
-    case "thread.title.refine": {
-      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
-      const current =
-        thread.deletedAt === null &&
-        thread.latestTurn?.state === "completed" &&
-        thread.session?.status === "ready" &&
-        thread.titleState?.source === "generated" &&
-        thread.titleState.version === command.expectedVersion &&
-        thread.titleState.needsRefinement &&
-        thread.titleRegeneration == null;
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.meta-updated",
-        payload: {
-          threadId: command.threadId,
-          ...(current
-            ? {
-                titleState: {
-                  source: "generated" as const,
-                  version: command.commandId,
-                  needsRefinement: false,
-                },
-                regenerateTitle: true as const,
-                previousTitle: thread.title,
-                titleRegeneration: { requestId: command.commandId, startedAt: occurredAt },
-              }
-            : {}),
-          updatedAt: thread.updatedAt,
-        },
-      };
     }
 
     default: {

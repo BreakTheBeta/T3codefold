@@ -145,7 +145,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   const workspaceLabel = forceNewWorktree
     ? resolveEnvModeLabel("worktree")
     : envModeLocked
-      ? resolveLockedWorkspaceLabel(activeWorktreePath)
+      ? resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode)
       : effectiveEnvMode === "worktree"
         ? resolveEnvModeLabel("worktree")
         : resolveCurrentWorkspaceLabel(activeWorktreePath);

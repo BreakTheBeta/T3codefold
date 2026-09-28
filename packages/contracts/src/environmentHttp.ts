@@ -533,7 +533,7 @@ const EnvironmentOrchestrationThreadSnapshotQuery = {
   beforeCursor: Schema.optional(TrimmedNonEmptyString),
 };
 
-class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
+export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
   .add(
     HttpApiEndpoint.get("shellSnapshot", "/api/orchestration/shell", {
       headers: OrchestrationProtocolHeaders,

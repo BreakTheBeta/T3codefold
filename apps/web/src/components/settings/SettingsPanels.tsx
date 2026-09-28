@@ -33,6 +33,7 @@ import {
 import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
+  type ChatWidth,
   type DiffLayout,
   type EnvironmentIdentificationMode,
   MAX_APPEARANCE_CONTRAST,
@@ -233,6 +234,12 @@ const TIMESTAMP_FORMAT_LABELS = {
   "24-hour": "24-hour",
 } as const;
 
+const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
+  comfortable: "Comfortable",
+  wide: "Wide",
+  full: "Full",
+};
+
 const DIFF_LAYOUT_LABELS: Record<DiffLayout, string> = {
   stacked: "Stacked",
   split: "Split",
@@ -300,7 +307,7 @@ function AboutVersionTitle() {
   return (
     <span className="inline-flex items-baseline gap-2">
       <span>Version</span>
-      <code className="text-[11px] font-medium text-muted-foreground">{APP_VERSION}</code>
+      <code className="text-2xs font-medium text-muted-foreground">{APP_VERSION}</code>
     </span>
   );
 }
@@ -569,6 +576,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
         ? ["Diff colors"]
         : []),
+      ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -687,6 +695,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.browserAutoShowFloatingPreview,
       settings.appearanceContrast,
       settings.diffColorScheme,
+      settings.chatWidth,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -810,6 +819,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     updateSettings({
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
+      chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
@@ -1715,8 +1725,8 @@ export function AppearanceSettingsPanel() {
                         : "flex shrink-0 gap-1"
                     }
                   >
-                    <span className="size-2 rounded-full bg-[var(--diff-deletion)]" />
-                    <span className="size-2 rounded-full bg-[var(--diff-addition)]" />
+                    <span className="size-2 rounded-full bg-diff-deletion" />
+                    <span className="size-2 rounded-full bg-diff-addition" />
                   </span>
                   <SelectValue>
                     {settings.diffColorScheme === "blue-orange" ? "Blue & orange" : "Red & green"}
@@ -2508,7 +2518,7 @@ function LegacyFeaturesSection({ children }: { children: ReactNode }) {
     <section id="legacy-features" ref={targetRef} tabIndex={-1} className="space-y-2.5">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger className="group flex min-h-8 w-full items-center gap-2 px-3 sm:px-4">
-          <h2 className="text-sm font-normal tracking-[-0.005em] text-foreground/70 transition-colors group-hover:text-foreground">
+          <h2 className="text-sm font-normal text-foreground/70 transition-colors group-hover:text-foreground">
             Legacy features
           </h2>
           <ChevronRightIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-panel-open:rotate-90" />

@@ -370,6 +370,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   settledAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /** When present, automatic settlement is disabled for this thread. */
+  autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   unsettledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -1262,6 +1264,7 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.unarchived",
       "thread.deleted",
       "thread.settled",
+      "thread.auto-settle-updated",
       "thread.unsettled",
       "thread.snoozed",
       "thread.unsnoozed",
@@ -1493,6 +1496,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   archivedAt: Schema.NullOr(Schema.DateTimeUtc),
   settledOverride: Schema.NullOr(Schema.Literals(["settled", "active"])),
   settledAt: Schema.NullOr(Schema.DateTimeUtc),
+  /** Omitted by servers that predate per-thread automatic-settlement controls. */
+  autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   unsettledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -1589,6 +1594,7 @@ export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((
   settledAt: Schema.NullOr(Schema.DateTimeUtcFromString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   unsettledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
@@ -2052,6 +2058,7 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.unarchived",
       "thread.deleted",
       "thread.settled",
+      "thread.auto-settle-updated",
       "thread.unsettled",
       "thread.snoozed",
       "thread.unsnoozed",
@@ -2256,6 +2263,12 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     snapshotAt: Schema.DateTimeUtc,
     settledAt: Schema.optional(Schema.DateTimeUtc),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.auto-settle.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    enabled: Schema.Boolean,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.unsettle"),

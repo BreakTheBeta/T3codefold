@@ -12,8 +12,8 @@
  */
 import type {
   OrchestrationClientOrigin,
+  OrchestrationCommand,
   OrchestrationEvent,
-  ProjectOrchestrationCommand,
 } from "@t3tools/contracts/legacy-orchestration";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -54,7 +54,7 @@ export interface OrchestrationEngineShape {
    * command receipts.
    */
   readonly dispatch: (
-    command: ProjectOrchestrationCommand,
+    command: OrchestrationCommand,
     options?: { readonly origin?: OrchestrationClientOrigin },
   ) => Effect.Effect<{ sequence: number }, OrchestrationDispatchError, never>;
 
