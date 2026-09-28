@@ -583,6 +583,13 @@ export const OrchestrationV2Subagent = Schema.Struct({
 });
 export type OrchestrationV2Subagent = typeof OrchestrationV2Subagent.Type;
 
+/** Idle work is resumable, but does not keep a turn or its subscription alive. */
+export function isOrchestrationV2WorkActive(
+  status: OrchestrationV2ExecutionNode["status"],
+): boolean {
+  return status === "pending" || status === "running" || status === "waiting";
+}
+
 export const OrchestrationV2CheckpointScope = Schema.Struct({
   id: CheckpointScopeId,
   threadId: ThreadId,
@@ -677,6 +684,19 @@ export const OrchestrationV2ProviderThread = Schema.Struct({
 });
 export type OrchestrationV2ProviderThread = typeof OrchestrationV2ProviderThread.Type;
 
+export const OrchestrationV2HistoricalMessage = Schema.Struct({
+  role: Schema.Literals(["user", "assistant"]),
+  text: Schema.String,
+  runStatus: Schema.optional(Schema.String),
+  threadId: ThreadId,
+  runId: Schema.NullOr(RunId),
+  itemId: TurnItemId,
+  providerThreadId: Schema.NullOr(ProviderThreadId),
+  status: Schema.String,
+  kind: Schema.String,
+});
+export type OrchestrationV2HistoricalMessage = typeof OrchestrationV2HistoricalMessage.Type;
+
 export const OrchestrationV2ContextHandoff = Schema.Struct({
   id: ContextHandoffId,
   transferId: Schema.optional(Schema.NullOr(ContextTransferId)),
@@ -698,6 +718,22 @@ export const OrchestrationV2ContextHandoff = Schema.Struct({
   status: Schema.Literals(["pending", "ready", "failed", "superseded"]),
   summaryMessageId: Schema.NullOr(MessageId),
   summaryText: Schema.String,
+  history: Schema.optional(
+    Schema.Struct({
+      messages: Schema.Array(OrchestrationV2HistoricalMessage),
+      coverage: Schema.String,
+      omittedItems: NonNegativeInt,
+      omittedItemIds: Schema.optional(Schema.Array(TurnItemId)),
+    }),
+  ),
+  delivery: Schema.optional(
+    Schema.Struct({
+      nativeThreadId: Schema.String,
+      status: Schema.Literals(["pending", "injected", "inline"]),
+      itemIds: Schema.Array(TurnItemId),
+      omittedItemIds: Schema.optional(Schema.Array(TurnItemId)),
+    }),
+  ),
   detailInTurnItem: Schema.optional(Schema.Literal(true)),
   createdByProviderInstanceId: Schema.NullOr(ProviderInstanceId),
   createdAt: Schema.DateTimeUtc,
@@ -929,6 +965,7 @@ export const OrchestrationV2FileChangeDetail = Schema.Struct({
 export type OrchestrationV2FileChangeDetail = typeof OrchestrationV2FileChangeDetail.Type;
 
 export const OrchestrationV2ProviderFailureClass = Schema.Literals([
+  "usage_limit",
   "provider_error",
   "transport_error",
   "permission_error",
@@ -952,6 +989,7 @@ export const OrchestrationV2ProviderFailure = Schema.Struct({
   message: OrchestrationV2ProviderFailureMessage,
   code: Schema.NullOr(OrchestrationV2ProviderFailureCode),
   retryable: Schema.NullOr(Schema.Boolean),
+  resetAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 export type OrchestrationV2ProviderFailure = typeof OrchestrationV2ProviderFailure.Type;
 

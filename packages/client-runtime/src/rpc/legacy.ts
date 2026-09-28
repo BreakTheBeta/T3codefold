@@ -154,9 +154,6 @@ export const makeLegacyWsRpcClient = Effect.gen(function* () {
         case "provider-session.detach":
           translated = { ...command, type: "thread.session.stop", createdAt };
           break;
-        case "runtime-request.dismiss":
-          translated = { ...command, type: "thread.user-input.dismiss", createdAt };
-          break;
         case "runtime-request.respond":
           translated = {
             ...command,

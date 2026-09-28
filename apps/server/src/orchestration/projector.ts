@@ -8,11 +8,11 @@ import type {
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import {
+  isImportedAgentSessionMessageId,
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
-  isImportedAgentSessionMessageId,
   WORKTREE_SETUP_ACTIVITY_KIND,
 } from "@t3tools/contracts";
 import {
@@ -516,9 +516,9 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             settledOverride: "settled",
-            activeOrderKey: null,
             settledAt: payload.settledAt,
             unsettledAt: null,
+            activeOrderKey: null,
             updatedAt: payload.updatedAt,
           }),
         })),

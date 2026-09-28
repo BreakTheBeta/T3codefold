@@ -1,4 +1,5 @@
 import type {
+  OrchestrationV2ContextHandoff,
   OrchestrationV2DomainEvent,
   OrchestrationV2ThreadProjection,
   OrchestrationV2TurnItem,
@@ -23,6 +24,13 @@ function truncateDetail(value: string | undefined): string | undefined {
     .toString("utf8")
     .replace(/\uFFFD$/u, "");
   return `${prefix}\n… output truncated for transport`;
+}
+
+export function projectContextHandoffForWire(
+  handoff: OrchestrationV2ContextHandoff,
+): OrchestrationV2ContextHandoff {
+  const { history: _history, delivery: _delivery, ...projected } = handoff;
+  return { ...projected, summaryText: "" };
 }
 
 function summarizeDynamicValue(value: unknown): unknown {
@@ -118,6 +126,7 @@ export function projectThreadProjectionForWire(
   };
   return {
     ...projection,
+    contextHandoffs: projection.contextHandoffs.map(projectContextHandoffForWire),
     turnItems: projection.turnItems.map(project),
     visibleTurnItems: projection.visibleTurnItems.map((row) => ({
       ...row,
@@ -131,5 +140,7 @@ export function projectDomainEventForWire(
 ): OrchestrationV2DomainEvent {
   return event.type === "turn-item.updated"
     ? { ...event, payload: projectTurnItemForWire(event.payload) }
-    : event;
+    : event.type === "context-handoff.updated"
+      ? { ...event, payload: projectContextHandoffForWire(event.payload) }
+      : event;
 }

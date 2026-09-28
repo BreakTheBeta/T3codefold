@@ -180,14 +180,14 @@ describe("environment shell synchronization", () => {
         retryNow: Effect.void,
       } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
       const cache = Persistence.EnvironmentCacheStore.of({
-        loadShell: () => Effect.succeedNone,
+        loadShell: () => Effect.succeed(Option.none()),
         saveShell: () => Effect.void,
-        loadThread: () => Effect.succeedNone,
+        loadThread: () => Effect.succeed(Option.none()),
         saveThread: () => Effect.void,
         removeThread: () => Effect.void,
-        loadServerConfig: () => Effect.succeedNone,
+        loadServerConfig: () => Effect.succeed(Option.none()),
         saveServerConfig: () => Effect.void,
-        loadVcsRefs: () => Effect.succeedNone,
+        loadVcsRefs: () => Effect.succeed(Option.none()),
         saveVcsRefs: () => Effect.void,
         removeVcsRefs: () => Effect.void,
         clearVcsRefs: () => Effect.void,
@@ -198,7 +198,7 @@ describe("environment shell synchronization", () => {
         Effect.provideService(Persistence.EnvironmentCacheStore, cache),
         Effect.provideService(
           ShellSnapshotLoader,
-          ShellSnapshotLoader.of({ load: () => Effect.succeedNone }),
+          ShellSnapshotLoader.of({ load: () => Effect.succeed(Option.none()) }),
         ),
       );
       yield* SubscriptionRef.set(supervisorState, {

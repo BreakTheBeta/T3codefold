@@ -32,6 +32,12 @@ interface GrokAcpRuntimeInput extends Omit<
   readonly runtimeMode?: RuntimeMode;
 }
 
+export const GROK_SUPPORTED_RUNTIME_MODES = [
+  "approval-required",
+  "auto",
+  "full-access",
+] as const satisfies ReadonlyArray<RuntimeMode>;
+
 export function grokAcpSpawnArgs(runtimeMode?: RuntimeMode): ReadonlyArray<string> {
   switch (runtimeMode) {
     case "approval-required":
