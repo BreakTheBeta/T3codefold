@@ -14,6 +14,7 @@ const {
   setDesktopNameMock,
   mkdirSyncMock,
   writeFileSyncMock,
+  copyFileSyncMock,
 } = vi.hoisted(() => ({
   appendSwitchMock: vi.fn(),
   getSwitchValueMock: vi.fn(),
@@ -23,12 +24,15 @@ const {
   setDesktopNameMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
   writeFileSyncMock: vi.fn(),
+  copyFileSyncMock: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
   app: {
     setDesktopName: setDesktopNameMock,
     getVersion: () => "0.0.37",
+    isPackaged: true,
+    getAppPath: () => "/tmp/.mount_T3/resources/app.asar",
     commandLine: {
       appendSwitch: appendSwitchMock,
       getSwitchValue: getSwitchValueMock,
@@ -47,6 +51,7 @@ vi.mock("node:fs", () => ({
   readFileSync: () => "{}",
   mkdirSync: mkdirSyncMock,
   writeFileSync: writeFileSyncMock,
+  copyFileSync: copyFileSyncMock,
 }));
 
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
@@ -61,6 +66,7 @@ describe("DesktopPreReadyPlatform", () => {
     setDesktopNameMock.mockReset();
     mkdirSyncMock.mockReset();
     writeFileSyncMock.mockReset();
+    copyFileSyncMock.mockReset();
   });
 
   it.effect("disables the macOS accent chooser so held Vim motions repeat", () =>
@@ -105,6 +111,10 @@ describe("DesktopPreReadyPlatform", () => {
         getSwitchValueMock.mockReturnValue("");
         let desktopName = "t3code.desktop";
         let desktopEntry = previousEntry;
+        let iconInstalled = false;
+        copyFileSyncMock.mockImplementation((_source: string, destination: string) => {
+          iconInstalled = destination === "/xdg/icons/com.t3tools.T3Code.desktop.png";
+        });
         setDesktopNameMock.mockImplementation((name: string) => {
           desktopName = name;
         });
@@ -114,7 +124,11 @@ describe("DesktopPreReadyPlatform", () => {
 
         return Effect.scoped(
           Effect.gen(function* () {
-            const portalIdentity = Promise.resolve().then(() => ({ desktopName, desktopEntry }));
+            const portalIdentity = Promise.resolve().then(() => ({
+              desktopName,
+              desktopEntry,
+              iconInstalled,
+            }));
             yield* Layer.build(
               DesktopPreReadyPlatform.layer.pipe(
                 Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
@@ -125,6 +139,11 @@ describe("DesktopPreReadyPlatform", () => {
             assert.include(identity.desktopEntry ?? "", 'Exec="/Applications/current.AppImage" %U');
             assert.include(identity.desktopEntry ?? "", "Name=T3 Code (Alpha)");
             assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/t3code;");
+            assert.include(
+              identity.desktopEntry ?? "",
+              "Icon=/xdg/icons/com.t3tools.T3Code.desktop.png",
+            );
+            assert.isTrue(identity.iconInstalled);
           }),
         ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
       },
@@ -141,6 +160,20 @@ describe("DesktopPreReadyPlatform", () => {
       Effect.provideService(HostProcessPlatform, "linux"),
       Effect.asVoid,
     );
+  });
+
+  it.effect("still prepares the portal entry when the bundled icon cannot be copied", () => {
+    getSwitchValueMock.mockReturnValue("");
+    copyFileSyncMock.mockImplementation(() => {
+      throw new Error("missing bundled icon");
+    });
+    return Effect.gen(function* () {
+      yield* DesktopPreReadyPlatform.make;
+      const contents = writeFileSyncMock.mock.calls[0]?.[1];
+      assert.include(contents, "MimeType=x-scheme-handler/t3code;");
+      assert.include(contents, "Icon=");
+      assert.equal(setDesktopNameMock.mock.calls.length, 1);
+    }).pipe(Effect.provideService(HostProcessPlatform, "linux"));
   });
 
   it.effect(
