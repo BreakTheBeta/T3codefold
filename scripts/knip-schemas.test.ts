@@ -2,6 +2,7 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeModule from "node:module";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeProcess from "node:process";
 import { expect, it } from "vite-plus/test";
@@ -11,8 +12,14 @@ const cli = NodePath.join(NodePath.dirname(require.resolve("knip")), "cli.js");
 const preprocessor = NodePath.join(import.meta.dirname, "knip-schemas.ts");
 
 it("allows types and schemas through the real Knip CLI without hiding runtime or file findings", () => {
-  // Keeping the disposable project here gives it the same Effect installation as the scripts.
-  const cwd = NodeFS.mkdtempSync(NodePath.join(import.meta.dirname, ".knip-test-"));
+  // Outside the package, so the test leaves no files behind for task caching to trip on; the
+  // linked node_modules gives it the same Effect installation as the scripts.
+  const cwd = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "knip-test-"));
+  NodeFS.symlinkSync(
+    NodePath.join(import.meta.dirname, "node_modules"),
+    NodePath.join(cwd, "node_modules"),
+    "dir",
+  );
   const write = (file: string, content: string) =>
     NodeFS.writeFileSync(NodePath.join(cwd, file), content);
   const run = (filtered: boolean) =>
