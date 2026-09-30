@@ -21,11 +21,12 @@ const LOCAL = EnvironmentId.make("local");
 const REMOTE = EnvironmentId.make("remote");
 
 type Status = "running" | "starting" | "idle";
+// The keep-alive follows `activeRunId`; only a thread with a run in flight has one.
 function shell(id: string, status: Status | null) {
-  return { id: ThreadId.make(id), status: status ?? "idle" } satisfies Pick<
-    OrchestrationV2ThreadShell,
-    "id" | "status"
-  >;
+  return {
+    id: ThreadId.make(id),
+    activeRunId: status === "running" || status === "starting" ? RunId.make(`run-${id}`) : null,
+  } satisfies Pick<OrchestrationV2ThreadShell, "id" | "activeRunId">;
 }
 function detail(id: string, status: Status, overrides: Partial<EnvironmentThreadState> = {}) {
   const projection = makeThreadProjectionFixture();

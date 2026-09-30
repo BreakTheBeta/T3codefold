@@ -106,16 +106,33 @@ vp lint <files>
 vp run --filter <package> typecheck
 ```
 
-Use `vp run lint:mobile` for native mobile changes. CI owns the full suite; see
-[ci.yml](../../.github/workflows/ci.yml) for its current jobs.
-The [manual Windows lane](../../.github/workflows/windows-tests.yml) is available for focused
-Windows investigation while that suite is not a required gate.
+Use `vp run lint:mobile` for native mobile changes.
+
+### Pre-push gate
+
+The fork runs no CI; its test workflows are disabled in GitHub. Instead
+[pre-push.ts](../../scripts/pre-push.ts) runs on every `git push` for the workspaces the pushed
+commits change and the workspaces that depend on them: format on the changed files, lint on the
+changed lines, typecheck, and tests. Unchanged packages replay their last passing result from the
+`vp run --cache` task cache in `node_modules/.vite/task-cache`, so it stays fast after the first
+run in a checkout. The cache is per checkout; a new worktree warms its own.
+
+- Server tests are not gated yet: the suite takes over half an hour and still has failures
+  from before the gate. Run `vp test run <files>` for what you touch.
+- Lint blocks only errors on lines the push adds, because many files still carry older
+  errors.
+- Typecheck covers the workspaces listed in `TYPECHECK_GATED`; add a workspace there once it
+  typechecks cleanly.
+- Checks run against the working tree, so push the checked-out branch.
+- A test that writes files inside its own package can't be cached; keep test scratch files in
+  the OS temp directory.
+- `git push --no-verify` bypasses the gate for one push.
 
 ### Unused code
 
 `vp run knip:check` checks unused files and dependencies across the repo, then
 unused runtime exports in `apps/server`, `apps/desktop`, `apps/web`, and every internal package under
-`packages/`. CI enforces both checks.
+`packages/`. The pre-push gate does not run it yet; knip still has findings on `main`.
 Exported types and Effect schemas are allowed without consumers. The schema preprocessor
 recognizes schema types, including aliases and schema classes; functions that create or decode
 schemas remain checked. Canonical Effect service construction APIs stay exported with an explicit
@@ -124,7 +141,7 @@ Named exports in web UI component modules are kept as complete component sets. K
 unused exports in `apps/web/src/components/ui/*.tsx`, while still reporting an entire unused file.
 Use `vp run knip --workspace apps/web` to audit one workspace, including exports,
 or `vp run knip:production --workspace apps/web` to find code kept alive only by tests.
-The full export audit still has findings and is not a repo-wide CI gate. Extend the
+The full export audit still has findings. Extend the
 export check's workspace selectors as more workspaces become clean. Review callers before
 deleting code; production mode can also report development scripts and test fixtures.
 Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](../../knip.jsonc).
