@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  EnvironmentId,
   MessageId,
   type OrchestrationV2ThreadProjection,
   ProjectId,
@@ -11,7 +12,10 @@ import {
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as CodexResetCredit from "../provider/Layers/codexResetCredit.ts";
+import * as ResetCreditCoordinator from "../provider/Layers/resetCreditCoordinator.ts";
+import { CodexInstallation } from "../provider/CodexInstallation.ts";
+import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
+import { ServerEnvironmentIdentity } from "../environment/ServerEnvironment.ts";
 import { FetchHttpClient } from "effect/unstable/http";
 import { describe } from "vite-plus/test";
 
@@ -73,6 +77,13 @@ const providerInstanceRegistryLayer = ProviderInstanceRegistryHydrationLive.pipe
       OpenCodeRuntimeLive.pipe(Layer.provide(PlatformTestLayer)),
       Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers),
       ModelManifest.layerTest,
+      Layer.mock(CodexInstallation)({ managedDirectory: "unused-managed-installation" }),
+      Layer.mock(ServerSecretStore)({}),
+      Layer.succeed(ServerEnvironmentIdentity, {
+        getEnvironmentId: Effect.succeed(
+          EnvironmentId.make("00000000-0000-4000-8000-000000000001"),
+        ),
+      }),
       AntigravityInstallation.layer.pipe(
         Layer.provide(serverConfigLayer.pipe(Layer.provide(PlatformTestLayer))),
         Layer.provide(FetchHttpClient.layer),
@@ -90,7 +101,7 @@ const liveLayer = OrchestrationV2LayerLive.pipe(
   Layer.provide(serverConfigLayer),
   Layer.provide(serverSettingsLayer),
   Layer.provide(providerInstanceRegistryLayer),
-  Layer.provide(CodexResetCredit.layer),
+  Layer.provide(ResetCreditCoordinator.layer),
   Layer.provide(backgroundPolicyLayer),
   Layer.provide(PlatformTestLayer),
 );
