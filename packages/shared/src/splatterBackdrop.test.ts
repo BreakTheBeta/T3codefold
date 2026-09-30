@@ -195,8 +195,35 @@ describe("splatterLayout", () => {
 });
 
 describe("renderSplatterPreview", () => {
+  it("lays clusters and merges out inside the frame, the field across the canvas", () => {
+    const frame = { x: 275, y: 0, width: 450, height: 1000 };
+    const preview = renderSplatterPreview(options, 1000, 1000, {
+      frame,
+      merges: [{ key: "a#1", color: "#ff0000" }],
+    });
+    const { a } = splatterLayout(frame.width, frame.height, true);
+    // The field covers the canvas; merges cover the frame.
+    expect(preview).toContain(
+      '<svg x="0" y="0" width="1000" height="1000" viewBox="0 0 1600 1000"',
+    );
+    expect(preview).toContain(
+      '<svg x="275" y="0" width="450" height="1000" viewBox="0 0 600 1200"',
+    );
+    expect(preview).toContain(`<svg x="${frame.x + a.x}" y="0" width="${a.size}"`);
+  });
+
   it("keeps ids unique across the layers it composes", () => {
-    const preview = renderSplatterPreview({ ...options, glow: true }, 320, 200);
+    const preview = renderSplatterPreview({ ...options, glow: true }, 320, 200, {
+      compact: true,
+      merges: [
+        { key: "a#1", color: "#ff0000" },
+        { key: "b#2", color: "#00ff00" },
+      ],
+      grain: { href: "data:image/png;base64,AAAA", size: 128, opacity: 0.12 },
+    });
+    expect(preview).toContain('fill="url(#mg1)"');
+    // Grain paints last, over every other layer.
+    expect(preview).toMatch(/<rect [^>]*fill="url\(#grain\)" opacity="0\.12"\/><\/svg>$/);
     const ids = [...preview.matchAll(/ id="([^"]+)"/g)].map((match) => match[1]);
     expect(new Set(ids).size).toBe(ids.length);
     for (const [, ref] of preview.matchAll(/(?:href="#|url\(#)([^")]+)/g)) {

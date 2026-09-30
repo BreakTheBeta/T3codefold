@@ -8,6 +8,7 @@ import { memo, useMemo, useState } from "react";
 import { FlatList, Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../../../components/AppText";
+import { useBakedSvg } from "../../../../lib/bakedSvg";
 import { cn } from "../../../../lib/cn";
 
 /** Patterns added each time the strip is scrolled to its end. */
@@ -20,9 +21,6 @@ const [THUMB_WIDTH, THUMB_HEIGHT] = [84, 168];
 const PREVIEW_INTENSITY_BOOST = 4;
 
 type PreviewOptions = Omit<SplatterRenderOptions, "seed">;
-
-/** Same encoding ThreadCanvasBackdrop uses; see the note there on base64. */
-const svgUri = (svg: string) => `data:image/svg+xml;base64,${btoa(svg)}`;
 
 /**
  * A horizontally scrolling strip of pattern thumbnails in the current paint.
@@ -80,24 +78,21 @@ const PatternThumbnail = memo(function PatternThumbnail(props: {
 }) {
   const { seed, options } = props;
   const [lead, second, third] = options.colors;
-  const source = useMemo(
-    () => ({
-      uri: svgUri(
-        renderSplatterPreview(
-          {
-            colors: [lead, second, third],
-            appearance: options.appearance,
-            intensity: options.intensity * PREVIEW_INTENSITY_BOOST,
-            glow: options.glow,
-            amount: options.amount,
-            seed,
-          },
-          SCENE_WIDTH,
-          SCENE_HEIGHT,
-          true,
-        ),
+  const svg = useMemo(
+    () =>
+      renderSplatterPreview(
+        {
+          colors: [lead, second, third],
+          appearance: options.appearance,
+          intensity: options.intensity * PREVIEW_INTENSITY_BOOST,
+          glow: options.glow,
+          amount: options.amount,
+          seed,
+        },
+        SCENE_WIDTH,
+        SCENE_HEIGHT,
+        { compact: true },
       ),
-    }),
     [
       seed,
       lead,
@@ -109,6 +104,8 @@ const PatternThumbnail = memo(function PatternThumbnail(props: {
       options.amount,
     ],
   );
+  // The scene and the thumbnail share an aspect, so it bakes at thumbnail size.
+  const uri = useBakedSvg(svg, THUMB_WIDTH, THUMB_HEIGHT);
 
   return (
     <Pressable
@@ -123,7 +120,9 @@ const PatternThumbnail = memo(function PatternThumbnail(props: {
       )}
       style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}
     >
-      <Image source={source} style={{ flex: 1 }} contentFit="cover" />
+      {uri === null ? null : (
+        <Image source={{ uri }} cachePolicy="memory" style={{ flex: 1 }} contentFit="cover" />
+      )}
       <View className="absolute bottom-1 left-1 rounded bg-screen/80 px-1">
         <Text className="text-[10px] text-foreground-muted">
           {seed === 0 ? "Original" : `#${seed}`}
