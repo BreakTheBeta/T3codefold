@@ -21,6 +21,7 @@ import {
 import { cn } from "../../lib/utils";
 import { normalizeProviderAccentColor } from "../../providerInstances";
 import { Button } from "../ui/button";
+import { ChatGptConnectionButton } from "./ChatGptConnectionButton";
 import { ACPRegistryIcon, Gemini, GithubCopilotIcon, PiAgentIcon, type Icon } from "../Icons";
 import {
   Dialog,
@@ -52,6 +53,7 @@ import {
 import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps";
 import { AcpRegistrySearchStep } from "./AcpRegistrySearchStep";
 import { resolveOfficialAcpRegistryIconUrl } from "./AcpRegistryIcon";
+import { AddManagedCodexAccountDialog } from "./CodexSetupSection";
 
 /**
  * Normalize a user-provided label into a slug suffix for the instance id.
@@ -130,6 +132,7 @@ export function AddProviderInstanceDialog({
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
 
   const [wizardStep, setWizardStep] = useState(0);
+  const [addingChatGptAccount, setAddingChatGptAccount] = useState(false);
   const [driver, setDriver] = useState<ProviderDriverKind>(DEFAULT_DRIVER_KIND);
   const [identityByDriver, setIdentityByDriver] = useState<Record<string, ProviderIdentityDraft>>(
     {},
@@ -256,7 +259,10 @@ export function AddProviderInstanceDialog({
     setHasAttemptedSubmit(true);
     if (instanceIdError !== null || (isAcpRegistry && acpSelectionError !== null)) return;
 
-    const config = configByDriver[driver] ?? {};
+    const config =
+      driver === "codex"
+        ? { ...configByDriver[driver], setupMode: "existing" }
+        : (configByDriver[driver] ?? {});
     const hasConfig = Object.keys(config).length > 0;
     const normalizedAccentColor = normalizeProviderAccentColor(accentColor);
 
@@ -307,17 +313,21 @@ export function AddProviderInstanceDialog({
     onOpenChange(false);
   };
 
+  if (addingChatGptAccount) {
+    return (
+      <AddManagedCodexAccountDialog
+        environmentId={environmentId}
+        onClose={() => onOpenChange(false)}
+      />
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <WizardPopup>
+      <WizardPopup size="wide">
         <WizardHeader
           title="Add provider instance"
-          description={
-            <>
-              Configure an additional provider instance on {environmentLabel}. For example, add a
-              second Codex install pointed at a different workspace.
-            </>
-          }
+          description={<>Add an account or configure a provider on {environmentLabel}.</>}
         >
           {isAcpRegistry ? (
             <AddProviderInstanceWizardSteps
@@ -562,7 +572,7 @@ export function AddProviderInstanceDialog({
 
         <WizardFooter>
           <Button
-            variant="outline"
+            variant={wizardStep === 0 ? "ghost-muted" : "outline"}
             size="sm"
             disabled={isSaving}
             onClick={() => {
@@ -575,10 +585,17 @@ export function AddProviderInstanceDialog({
           >
             {wizardStep === 0 ? "Cancel" : "Back"}
           </Button>
-          {isAcpRegistry &&
-          wizardStep === 1 &&
-          !isManualAcpConfiguration &&
-          !selectedAcp ? null : wizardStep <
+          {wizardStep === 0 && driver === "codex" ? (
+            <>
+              <Button variant="outline" size="sm" onClick={() => navigateToStep(1)}>
+                Configure manually
+              </Button>
+              <ChatGptConnectionButton size="sm" onClick={() => setAddingChatGptAccount(true)} />
+            </>
+          ) : isAcpRegistry &&
+            wizardStep === 1 &&
+            !isManualAcpConfiguration &&
+            !selectedAcp ? null : wizardStep <
             (isAcpRegistry ? ACP_REGISTRY_WIZARD_STEPS : ADD_PROVIDER_WIZARD_STEPS).length - 1 ? (
             <Button size="sm" onClick={() => navigateToStep(wizardStep + 1)}>
               Next

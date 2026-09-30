@@ -288,6 +288,26 @@ function normalizeLegacyInboundFrame(value: unknown): unknown {
     normalized.sessionId = normalized.id;
   }
   if (
+    typeof normalized.id === "string" &&
+    normalized.projectId === undefined &&
+    "modelProvider" in normalized &&
+    "status" in normalized
+  ) {
+    normalized.projectId = null;
+  }
+  if (
+    normalized.method === "item/tool/requestUserInput" &&
+    typeof normalized.params === "object" &&
+    normalized.params !== null
+  ) {
+    const params = { ...(normalized.params as Record<string, unknown>) };
+    // Before `isBlocking`, a request without an auto-resolution deadline blocked the turn.
+    if (params.isBlocking === undefined) {
+      params.isBlocking = params.autoResolutionMs === undefined || params.autoResolutionMs === null;
+    }
+    normalized.params = params;
+  }
+  if (
     (normalized.method === "item/started" || normalized.method === "item/completed") &&
     typeof normalized.params === "object" &&
     normalized.params !== null

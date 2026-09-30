@@ -771,6 +771,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "environment-defaults",
   },
   {
+    id: "bitbucket-credentials",
+    title: "Bitbucket credentials",
+    to: "/settings/git",
+    searchTerms: ["bitbucket atlassian access token api token email credentials sign in"],
+    environmentOnly: true,
+    scope: "environment-defaults",
+  },
+  {
     id: "source-control-writing-style",
     title: "Source control writing style",
     to: "/settings/git",

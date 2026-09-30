@@ -1,6 +1,3 @@
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
 import { assert, describe, it } from "@effect/vitest";
 import { DESKTOP_UPDATE_RESTART_MARKER_FILE } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -65,14 +62,10 @@ describe("DesktopUpdates", () => {
 
   it.effect("replaces an upstream feed and keeps both release channels on Fold", () =>
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const resourcesPath = yield* fs.makeTempDirectoryScoped({ prefix: "fold-update-feed-" });
-      yield* fs.writeFileString(
-        path.join(resourcesPath, "app-update.yml"),
-        "provider: github\nowner: pingdotgg\nrepo: t3code\n",
-      );
-      const harness = makeHarness({ resourcesPath, env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" } });
+      const harness = makeHarness({
+        appUpdateYml: "provider: github\nowner: pingdotgg\nrepo: t3code\n",
+        env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" },
+      });
       yield* Effect.gen(function* () {
         const updates = yield* DesktopUpdates.DesktopUpdates;
         yield* updates.configure;
@@ -91,7 +84,7 @@ describe("DesktopUpdates", () => {
           },
         ]);
       }).pipe(Effect.provide(harness.layer));
-    }).pipe(Effect.provide(NodeServices.layer)),
+    }),
   );
 
   it.effect("configures the updater and runs startup checks on the test clock", () => {

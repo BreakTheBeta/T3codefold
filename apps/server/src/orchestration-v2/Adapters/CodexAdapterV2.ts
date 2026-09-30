@@ -23,7 +23,12 @@ import {
   codexUsageLimitMessage,
   type CodexRateLimitSnapshot,
 } from "../../provider/Layers/codexUsageLimits.ts";
-import { CodexSettings, defaultInstanceIdForDriver, ProviderDriverKind } from "@t3tools/contracts";
+import {
+  CodexSettings,
+  defaultInstanceIdForDriver,
+  ProviderDriverKind,
+  type ProviderSetupError,
+} from "@t3tools/contracts";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -55,6 +60,9 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
+import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
+import type { CodexEffectiveRuntime } from "../../provider/CodexManagedRuntime.ts";
+import { makeManagedCodexClient } from "./CodexManagedClient.ts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexSchema from "effect-codex-app-server/schema";
 import * as Context from "effect/Context";
@@ -657,6 +665,8 @@ export function buildCodexTurnStartParams(input: {
   readonly hasT3Mcp?: boolean;
   readonly browserToolsAvailable?: boolean;
   readonly deviceToolsAvailable?: boolean;
+  /** ChatGPT-managed sessions have no service tiers. */
+  readonly serviceTierSupported?: boolean;
 }) {
   return Effect.gen(function* () {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
@@ -674,7 +684,10 @@ export function buildCodexTurnStartParams(input: {
     );
     const effort =
       selectedEffort === undefined ? undefined : yield* decodeTurnReasoningEffort(selectedEffort);
-    const serviceTier = getCodexServiceTierOptionValue(input.modelSelection);
+    const serviceTier =
+      input.serviceTierSupported === false
+        ? undefined
+        : getCodexServiceTierOptionValue(input.modelSelection);
     const developerInstructions =
       input.hasT3Mcp !== true
         ? undefined
@@ -1369,7 +1382,7 @@ export type CodexAdapterV2DriverEnv =
 
 export const createCodexAdapterV2 = (
   { instanceId, environment, enabled, config }: ProviderAdapterDriverCreateInput<CodexSettings>,
-  hooks: Pick<CodexAdapterV2Options, "onUsageLimits"> = {},
+  hooks: Pick<CodexAdapterV2Options, "onUsageLimits" | "managed"> = {},
 ) =>
   Effect.gen(function* () {
     const clientFactory = yield* CodexAppServerClientFactory;
@@ -1451,6 +1464,14 @@ export interface CodexAdapterV2Options {
   readonly environment: NodeJS.ProcessEnv;
   readonly clientFactory: CodexAppServerClientFactoryShape;
   readonly onUsageLimits?: ServerProviderShape["applyUsageLimits"];
+  /**
+   * Set for ChatGPT-managed instances: each Codex process launches from the resolved runtime,
+   * and ChatGPT sharing failures are reported with their managed message.
+   */
+  readonly managed?: {
+    readonly resolve: Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>;
+    readonly onConnectionRevoked: Effect.Effect<void>;
+  };
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocatorV2Shape;
   readonly serverConfig: ServerConfig["Service"];
@@ -1475,14 +1496,36 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
     planSelectionTransition: () => Effect.succeed(turnScopedSelectionTransition()),
     openSession: (input) =>
       Effect.gen(function* () {
-        const client = yield* clientFactory.open({
-          instanceId: adapterOptions.instanceId,
-          threadId: input.threadId,
-          providerSessionId: input.providerSessionId,
-          runtimePolicy: input.runtimePolicy,
-          settings: adapterOptions.settings,
-          environment: adapterOptions.environment,
-        });
+        const openClient = (settings: CodexSettings, environment: NodeJS.ProcessEnv) =>
+          clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            threadId: input.threadId,
+            providerSessionId: input.providerSessionId,
+            runtimePolicy: input.runtimePolicy,
+            settings,
+            environment,
+          });
+        const managed = adapterOptions.managed;
+        const client = managed
+          ? yield* makeManagedCodexClient({
+              resolve: managed.resolve,
+              open: (runtime) => openClient(runtime.config, runtime.environment),
+              onOpenError: (cause) =>
+                new ProviderAdapterOpenSessionError({
+                  driver: CODEX_PROVIDER,
+                  providerSessionId: input.providerSessionId,
+                  cause,
+                }),
+            })
+          : yield* openClient(adapterOptions.settings, adapterOptions.environment);
+        const classifyManagedError = (value: unknown) =>
+          managed === undefined
+            ? Effect.succeed(undefined)
+            : Effect.gen(function* () {
+                const failure = classifyCodexManagedError(value);
+                if (failure?.revoke) yield* managed.onConnectionRevoked;
+                return failure;
+              });
         const initialized = yield* Ref.make(false);
         const ensureInitialized = Effect.gen(function* () {
           const alreadyInitialized = yield* Ref.get(initialized);
@@ -3671,13 +3714,15 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               maxAttempts: progress?.maxAttempts ?? previous?.retry.maxAttempts ?? null,
               retryDelayMs: null,
             };
-            const code = codexErrorInfoCode(payload.error.codexErrorInfo);
+            const managedError = yield* classifyManagedError(payload.error);
+            const code = managedError?.code ?? codexErrorInfoCode(payload.error.codexErrorInfo);
             const additionalDetails = payload.error.additionalDetails?.trim();
             const failure = makeProviderFailure({
               message:
-                additionalDetails === undefined || additionalDetails.length === 0
+                managedError?.message ??
+                (additionalDetails === undefined || additionalDetails.length === 0
                   ? payload.error.message
-                  : additionalDetails,
+                  : additionalDetails),
               code,
               class:
                 code?.startsWith("http") === true || code?.startsWith("responseStream") === true
@@ -4609,6 +4654,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             readonly context: ActiveCodexTurnContext;
             readonly status: OrchestrationV2ProviderTurn["status"];
             readonly failureMessage?: string;
+            readonly failureCode?: string;
             readonly providerRetry?: ActiveCodexProviderRetry;
           }): Effect.fn.Return<CodexRootTerminalEvent> {
             const terminalStatus = providerTurnStatusToTerminal(input.status);
@@ -4629,6 +4675,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                     ? input.providerRetry.failure
                     : makeProviderFailure({
                         message: input.failureMessage,
+                        code: input.failureCode,
                         class: "provider_error",
                       }),
                 ...(input.providerRetry === undefined
@@ -4659,6 +4706,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             readonly nativeTurnId: string;
             readonly status: OrchestrationV2ProviderTurn["status"];
             readonly failureMessage?: string;
+            readonly failureCode?: string;
             readonly providerRetry?: ActiveCodexProviderRetry;
           }) {
             const event = yield* makeRootTerminalEvent(input);
@@ -4707,6 +4755,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           readonly status: OrchestrationV2ProviderTurn["status"];
           readonly completedAt: DateTime.Utc;
           readonly failureMessage?: string;
+          readonly failureCode?: string;
         }) =>
           turnTerminalizationPermit.withPermits(1)(
             Effect.gen(function* () {
@@ -4952,12 +5001,19 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               (yield* Ref.get(interruptingNativeTurns)).has(payload.turn.id)
                 ? "interrupted"
                 : nativeStatus;
+            const managedError =
+              payload.turn.error === null || payload.turn.error === undefined
+                ? undefined
+                : yield* classifyManagedError(payload.turn.error);
             yield* finalizeCodexTurn({
               context,
               nativeTurnId: payload.turn.id,
               status,
               completedAt: codexTimestamp(payload.turn.completedAt),
-              ...(payload.turn.error?.message === undefined
+              ...(managedError === undefined
+                ? {}
+                : { failureMessage: managedError.message, failureCode: managedError.code }),
+              ...(managedError !== undefined || payload.turn.error?.message === undefined
                 ? {}
                 : {
                     failureMessage:
@@ -5169,6 +5225,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 hasT3Mcp: mcpSession !== undefined,
                 browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
                 deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
+                serviceTierSupported: adapterOptions.managed === undefined,
               });
               yield* Ref.update(pendingRootTurns, (current) => {
                 const updated = new Map(current);

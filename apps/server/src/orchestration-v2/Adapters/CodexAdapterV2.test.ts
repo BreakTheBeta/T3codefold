@@ -35,6 +35,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { CHATGPT_USAGE_LIMIT_MESSAGE } from "@t3tools/shared/usageLimits";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as CodexClient from "effect-codex-app-server/client";
 import * as CodexReplay from "effect-codex-app-server/replay";
@@ -73,6 +74,7 @@ import {
   codexFileChangeApprovalPrompt,
   codexProviderTurnTokenUsage,
   codexThreadRuntimeParams,
+  type CodexAdapterV2Options,
   type CodexAppServerClientFactoryShape,
   makeCodexAdapterV2,
   makeCodexAppServerProtocolLogger,
@@ -1411,6 +1413,7 @@ function codexReplayPreamble(input: {
             id: input.nativeThreadId,
             sessionId: input.nativeThreadId,
             forkedFromId: null,
+            projectId: null,
             preview: "",
             ephemeral: false,
             modelProvider: "openai",
@@ -1509,6 +1512,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     transcript: CodexReplay.CodexAppServerReplayTranscript,
     onEvent: (event: ProviderAdapterV2Event) => Effect.Effect<unknown> = () => Effect.void,
     onRequest: (method: string) => Effect.Effect<void> = () => Effect.void,
+    managed?: CodexAdapterV2Options["managed"],
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1532,6 +1536,13 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                   (client) =>
                     ({
                       ...client,
+                      raw: {
+                        ...client.raw,
+                        request: (method, params) =>
+                          onRequest(method).pipe(
+                            Effect.andThen(client.raw.request(method, params)),
+                          ),
+                      },
                       request: (method, params) =>
                         onRequest(method).pipe(Effect.andThen(client.request(method, params))),
                     }) satisfies CodexClient.CodexAppServerClient["Service"],
@@ -1555,6 +1566,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               continuationRequests.push(request);
             }),
         },
+        ...(managed === undefined ? {} : { managed }),
       });
       const threadId = ThreadId.make(`thread-${transcript.scenario}`);
       const runtime = yield* adapter.openSession({
@@ -1785,6 +1797,68 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       assert.lengthOf(harness.terminalEvents(), 1);
       assert.isFalse(interruptSent, "A terminal native turn must not receive turn/interrupt");
       assert.isFalse(yield* harness.hasPendingBackgroundWork);
+    }).pipe(Effect.scoped, Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
+  );
+
+  it.effect("reports ChatGPT sharing failures with the managed message and code", () =>
+    Effect.gen(function* () {
+      const nativeThreadId = "managed-thread";
+      const nativeTurnId = "managed-turn";
+      const prompt = "Keep going.";
+      const transcript = makeCodexReplayTranscript({
+        scenario: "managed-chatgpt-usage-limit",
+        entries: [
+          ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }),
+          {
+            type: "emit_inbound",
+            label: "turn/failed",
+            frame: {
+              method: "turn/completed",
+              params: {
+                threadId: nativeThreadId,
+                turn: {
+                  ...makeCodexReplayTurn({ id: nativeTurnId, status: "failed" }),
+                  error: {
+                    message:
+                      'unexpected status 429: {"code":"subscription_sharing_usage_limit_exceeded"}',
+                    codexErrorInfo: null,
+                    additionalDetails: null,
+                  },
+                },
+              },
+            },
+          },
+        ],
+      });
+      let revoked = 0;
+      const harness = yield* makeCodexReplayHarness(
+        transcript,
+        () => Effect.void,
+        () => Effect.void,
+        {
+          resolve: Effect.succeed({
+            config: DEFAULT_CODEX_SETTINGS,
+            environment: {},
+            revision: "token",
+          }),
+          onConnectionRevoked: Effect.sync(() => revoked++),
+        },
+      );
+      yield* harness.runtime.startTurn(
+        makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("managed-attempt"),
+          text: prompt,
+        }),
+      );
+      yield* harness.firstTerminal;
+      const terminal = harness.terminalEvents()[0];
+      assert.equal(terminal?.status, "failed");
+      assert.equal(terminal?.failure?.message, CHATGPT_USAGE_LIMIT_MESSAGE);
+      assert.equal(terminal?.failure?.code, "subscription_sharing_usage_limit_exceeded");
+      assert.equal(revoked, 0, "A usage limit keeps the ChatGPT connection");
     }).pipe(Effect.scoped, Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
   );
 
@@ -5720,6 +5794,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       id: input.nativeThreadId,
       sessionId: input.nativeThreadId,
       forkedFromId: input.forkedFromId,
+      projectId: null,
       preview: "",
       ephemeral: false,
       modelProvider: "openai",
@@ -5960,7 +6035,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.equal(forkedProviderThread.nativeThreadRef?.nativeId, forkThreadId);
         assert.notEqual(forkedProviderThread.id, harness.providerThread.id);
         assert.equal(forkedProviderThread.forkedFrom?.providerTurnId, firstTurn.id);
-        assert.deepEqual(outbound.slice(-2), ["thread/fork", "thread/rollback"]);
+        assert.deepEqual(outbound.slice(-3), ["thread/fork", "thread/read", "thread/rollback"]);
       }).pipe(Effect.scoped, Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
   );
 
