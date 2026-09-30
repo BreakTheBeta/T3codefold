@@ -5,16 +5,17 @@ import {
   nextMergeDayStart,
 } from "@t3tools/shared/mergeSplatters";
 import {
-  renderMergeSplatters,
-  renderSplatterCluster,
-  renderSplatterField,
-  splatterLayout,
+  renderSplatterPreview,
+  type MergeSplat,
+  type SplatterGrain,
   type SplatterRenderOptions,
 } from "@t3tools/shared/splatterBackdrop";
 import { Image } from "expo-image";
 import { memo, useEffect, useMemo, useState } from "react";
-import { AppState, Image as RNImage, useWindowDimensions } from "react-native";
+import { AppState, useWindowDimensions } from "react-native";
 
+import { useBakedSvg } from "../../lib/bakedSvg";
+import { CANVAS_GRAIN_PNG_BASE64, CANVAS_GRAIN_TILE } from "../../lib/canvasGrain";
 import { themeSplatterColors } from "../../lib/splatterColors";
 import { useMergedPullRequests } from "../../state/entities";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -24,32 +25,34 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
  * theme's colours by the same renderer the web app uses
  * (packages/shared/src/splatterBackdrop.ts).
  *
- * Handed to expo-image as a base64 SVG data URI rather than drawn through
- * react-native-svg: each cluster is around 600 vector nodes, and
- * react-native-svg would keep every one as a native shape it re-walks on
- * layout, while the platform SVG decoder rasterizes once and caches the
- * bitmap. The grain tile on top goes through React Native's own Image, the
- * only one of the two that can repeat a texture natively.
+ * The field, today's merges, both corner clusters and the grain compose into
+ * one SVG, baked to a PNG once (lib/bakedSvg.ts): painted as vectors, its
+ * thousands of paths re-rasterized on every frame the feed scrolled, and the
+ * grain was another full-screen layer blended over it.
  *
- * Geometry is the compact branch of splatterLayout(), which the web rule in
- * apps/web/src/index.css mirrors: the field covering the canvas, two corner
- * clusters over it, the lower one lifted clear of the composer, then grain
- * over everything.
+ * The bake is a square at least BAKE_SIDE across, and each window shows its
+ * centre with `cover`, so folding, unfolding and rotating reuse one bitmap
+ * instead of re-baking. Clusters and merges lay out in the phone-shaped column
+ * a phone sees, with the compact branch of splatterLayout(), which the web
+ * rule in apps/web/src/index.css mirrors; the field fills the rest of the
+ * square for wider screens.
  */
 const FEATURED_THEME_IDS: ReadonlySet<string> = new Set(["cyberpunk", "codex"]);
 
-const GRAIN = require("../../../assets/themes/canvas-grain.png");
+const GRAIN_HREF = `data:image/png;base64,${CANVAS_GRAIN_PNG_BASE64}`;
 
 /** Matches the per-appearance grain alpha the web canvas uses. */
-const GRAIN_OPACITY = { dark: 0.12, light: 0.07 } as const;
+const GRAIN: Record<"dark" | "light", SplatterGrain> = {
+  dark: { href: GRAIN_HREF, size: CANVAS_GRAIN_TILE, opacity: 0.12 },
+  light: { href: GRAIN_HREF, size: CANVAS_GRAIN_TILE, opacity: 0.07 },
+};
 
-/**
- * Base64, never percent-encoding: expo-image's Android loader base64-decodes
- * everything after the comma whatever the URI declares, so a percent-encoded
- * SVG decodes to garbage and renders nothing. The markup is ASCII, which
- * btoa requires.
- */
-const svgUri = (svg: string) => `data:image/svg+xml;base64,${btoa(svg)}`;
+const NO_MERGES: ReadonlyArray<MergeSplat> = [];
+
+/** Points; covers a tall phone (~1000 pt) and an unfolded foldable (~930x775 pt). */
+const BAKE_SIDE = 1000;
+/** Width over height of the column a portrait phone shows of the square. */
+const PHONE_ASPECT = 0.45;
 
 export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
   const {
@@ -89,56 +92,54 @@ export const ThreadCanvasBackdrop = memo(function ThreadCanvasBackdrop() {
     themeBackdropSeed,
     themeBackdropColors,
   ]);
-  const sources = useMemo(
-    () =>
-      options && {
-        a: { uri: svgUri(renderSplatterCluster("a", options)) },
-        b: { uri: svgUri(renderSplatterCluster("b", options)) },
-        field: { uri: svgUri(renderSplatterField(options)) },
-      },
-    [options],
+
+  if (!options) return null;
+
+  return themeBackdropDynamic ? (
+    <MergeSplatterCanvas options={options} width={width} height={height} />
+  ) : (
+    <SplatterCanvas options={options} width={width} height={height} merges={NO_MERGES} />
   );
+});
 
-  if (!options || !sources) return null;
-  const layout = splatterLayout(width, height, true);
+type CanvasProps = {
+  readonly options: SplatterRenderOptions;
+  readonly width: number;
+  readonly height: number;
+};
 
+const SplatterCanvas = memo(function SplatterCanvas({
+  options,
+  width,
+  height,
+  merges,
+}: CanvasProps & { readonly merges: ReadonlyArray<MergeSplat> }) {
+  // Tablets outgrow BAKE_SIDE; squaring their longest edge keeps rotation free.
+  const side = Math.max(BAKE_SIDE, Math.ceil(Math.max(width, height)));
+  const svg = useMemo(
+    () =>
+      renderSplatterPreview(options, side, side, {
+        frame: {
+          x: (side * (1 - PHONE_ASPECT)) / 2,
+          y: 0,
+          width: side * PHONE_ASPECT,
+          height: side,
+        },
+        compact: true,
+        merges,
+        grain: GRAIN[options.appearance],
+      }),
+    [options, side, merges],
+  );
+  const uri = useBakedSvg(svg, side, side);
+  if (uri === null) return null;
   return (
-    <>
-      <Image
-        source={sources.field}
-        style={{ position: "absolute", top: 0, left: 0, width, height }}
-        contentFit="cover"
-      />
-      {themeBackdropDynamic ? (
-        <MergeSplatters options={options} width={width} height={height} />
-      ) : null}
-      {(["b", "a"] as const).map((cluster) => (
-        <Image
-          key={cluster}
-          source={sources[cluster]}
-          style={{
-            position: "absolute",
-            left: layout[cluster].x,
-            top: layout[cluster].y,
-            width: layout[cluster].size,
-            height: layout[cluster].size,
-          }}
-          contentFit="contain"
-        />
-      ))}
-      <RNImage
-        source={GRAIN}
-        resizeMode="repeat"
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width,
-          height,
-          opacity: GRAIN_OPACITY[appearance],
-        }}
-      />
-    </>
+    <Image
+      source={{ uri }}
+      cachePolicy="memory"
+      contentFit="cover"
+      style={{ position: "absolute", top: 0, left: 0, width, height }}
+    />
   );
 });
 
@@ -171,37 +172,13 @@ function useMergeDayStart(): number {
 }
 
 /** Dynamic mode: a splat per PR merged since 6am, in its project's colour. */
-const MergeSplatters = memo(function MergeSplatters({
-  options,
-  width,
-  height,
-}: {
-  readonly options: SplatterRenderOptions;
-  readonly width: number;
-  readonly height: number;
-}) {
+const MergeSplatterCanvas = memo(function MergeSplatterCanvas(props: CanvasProps) {
   const allMerges = useMergedPullRequests();
   const since = useMergeDayStart();
-  const merges = useMemo(() => mergesSince(allMerges, since), [allMerges, since]);
-
-  const source = useMemo(
-    () =>
-      merges.length === 0
-        ? null
-        : {
-            uri: svgUri(
-              renderMergeSplatters(mergeSplats(merges, options.appearance), options, true),
-            ),
-          },
-    [merges, options],
+  const appearance = props.options.appearance;
+  const merges = useMemo(
+    () => mergeSplats(mergesSince(allMerges, since), appearance),
+    [allMerges, since, appearance],
   );
-
-  if (!source) return null;
-  return (
-    <Image
-      source={source}
-      style={{ position: "absolute", top: 0, left: 0, width, height }}
-      contentFit="cover"
-    />
-  );
+  return <SplatterCanvas {...props} merges={merges} />;
 });

@@ -810,6 +810,24 @@ export function renderMergeSplatters(
   options: SplatterRenderOptions,
   compact = false,
 ): string {
+  const { defs, body } = mergeLayers(splats, options, compact);
+  const [width, height] = mergeFrame(compact);
+  return svgDocument(
+    width,
+    height,
+    `<defs>${defs}</defs>${body}`,
+    ` preserveAspectRatio="xMidYMid slice"`,
+  );
+}
+
+const mergeFrame = (compact: boolean): readonly [number, number] =>
+  compact ? [COMPACT_MERGE_WIDTH, COMPACT_MERGE_HEIGHT] : [FIELD_WIDTH, FIELD_HEIGHT];
+
+function mergeLayers(
+  splats: ReadonlyArray<MergeSplat>,
+  options: SplatterRenderOptions,
+  compact: boolean,
+): Layers {
   const { bloom } = alphas(options);
   let defs = "";
   let glows = "";
@@ -826,12 +844,7 @@ export function renderMergeSplatters(
     glows += `<circle cx="${round(x)}" cy="${round(y)}" r="${round(radius * 4.6)}" fill="url(#${gradient})"/>`;
     body += paintLayers(id, splat.color, haze, options);
   });
-  return svgDocument(
-    compact ? COMPACT_MERGE_WIDTH : FIELD_WIDTH,
-    compact ? COMPACT_MERGE_HEIGHT : FIELD_HEIGHT,
-    `<defs>${defs}</defs>${glows}${body}`,
-    ` preserveAspectRatio="xMidYMid slice"`,
-  );
+  return { defs, body: glows + body };
 }
 
 export type SplatterFrame = { readonly x: number; readonly y: number; readonly size: number };
@@ -863,30 +876,80 @@ export function splatterLayout(
   return { a: { x: width - a, y: 0, size: a }, b: { x: 0, y: height - b, size: b } };
 }
 
+/** A rectangle on a composed canvas, in its own units. */
+export type SplatterRegion = {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+};
+
+/** A texture tiled over the whole composed backdrop, such as film grain. */
+export type SplatterGrain = {
+  /** Image URI for one tile, usually a data URI. */
+  readonly href: string;
+  /** Tile edge in canvas units. */
+  readonly size: number;
+  readonly opacity: number;
+};
+
 /**
- * The whole backdrop composed into one image the size of a canvas, for
- * previewing a pattern without painting it onto the app.
+ * The whole backdrop composed into one image the size of a canvas: field,
+ * then today's merges, then the clusters, then grain. Previews use it, and
+ * mobile bakes it to a bitmap once rather than painting its layers separately.
+ *
+ * `frame` is the region the clusters and merges lay out in, the whole canvas
+ * unless given. Mobile bakes a canvas larger than a phone and lays them out in
+ * the phone-shaped column it shows, so the field alone fills the rest.
  */
 export function renderSplatterPreview(
   options: SplatterRenderOptions,
   width: number,
   height: number,
-  compact?: boolean,
+  {
+    frame = { x: 0, y: 0, width, height },
+    compact = frame.width <= 640,
+    merges = [],
+    grain,
+  }: {
+    readonly frame?: SplatterRegion;
+    readonly compact?: boolean;
+    readonly merges?: ReadonlyArray<MergeSplat>;
+    readonly grain?: SplatterGrain;
+  } = {},
 ): string {
-  const layout = splatterLayout(width, height, compact);
+  const layout = splatterLayout(frame.width, frame.height, compact);
   const field = fieldLayers(options, "f");
+  const merge = mergeLayers(merges, options, compact);
   const a = clusterLayers("a", options, "a");
   const b = clusterLayers("b", options, "b");
-  const frame = ({ x, y, size }: SplatterFrame, body: string) =>
-    `<svg x="${round(x)}" y="${round(y)}" width="${round(size)}" height="${round(size)}" ` +
-    `viewBox="0 0 ${SIZE} ${SIZE}">${body}</svg>`;
+  const cover = (
+    region: SplatterRegion,
+    [viewWidth, viewHeight]: readonly [number, number],
+    body: string,
+  ) =>
+    `<svg x="${round(region.x)}" y="${round(region.y)}" width="${round(region.width)}" ` +
+    `height="${round(region.height)}" viewBox="0 0 ${viewWidth} ${viewHeight}" ` +
+    `preserveAspectRatio="xMidYMid slice">${body}</svg>`;
+  // Clusters spill past their boxes rather than clip: their haze and glow run
+  // beyond them, and a canvas wider than the frame would show the cut.
+  const cluster = ({ x, y, size }: SplatterFrame, body: string) =>
+    `<svg x="${round(frame.x + x)}" y="${round(frame.y + y)}" width="${round(size)}" ` +
+    `height="${round(size)}" viewBox="0 0 ${SIZE} ${SIZE}" overflow="visible">${body}</svg>`;
+  const grainDefs = grain
+    ? `<pattern id="grain" patternUnits="userSpaceOnUse" width="${grain.size}" height="${grain.size}">` +
+      `<image width="${grain.size}" height="${grain.size}" xlink:href="${grain.href}"/></pattern>`
+    : "";
   return svgDocument(
     width,
     height,
-    `<defs>${field.defs}${a.defs}${b.defs}</defs>` +
-      `<svg width="${width}" height="${height}" viewBox="0 0 ${FIELD_WIDTH} ${FIELD_HEIGHT}" ` +
-      `preserveAspectRatio="xMidYMid slice">${field.body}</svg>` +
-      frame(layout.b, b.body) +
-      frame(layout.a, a.body),
+    `<defs>${field.defs}${merge.defs}${a.defs}${b.defs}${grainDefs}</defs>` +
+      cover({ x: 0, y: 0, width, height }, [FIELD_WIDTH, FIELD_HEIGHT], field.body) +
+      (merges.length > 0 ? cover(frame, mergeFrame(compact), merge.body) : "") +
+      cluster(layout.b, b.body) +
+      cluster(layout.a, a.body) +
+      (grain
+        ? `<rect width="${width}" height="${height}" fill="url(#grain)" opacity="${alpha(grain.opacity)}"/>`
+        : ""),
   );
 }
