@@ -123,3 +123,6 @@ export const BROWSER_VIEWPORT_CHANNEL = "desktop:browser-viewport";
 export const BROWSER_STREAM_CHANNEL = "desktop:browser-stream";
 
 export const BROWSER_CURSOR_CHANNEL = "desktop:browser-cursor";
+
+export const RECEIVE_PROVIDER_AUTH_CALLBACK_CHANNEL = "desktop:receive-provider-auth-callback";
+export const CANCEL_PROVIDER_AUTH_CALLBACK_CHANNEL = "desktop:cancel-provider-auth-callback";

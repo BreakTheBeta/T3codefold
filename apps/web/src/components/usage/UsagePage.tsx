@@ -1,4 +1,6 @@
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { ChatGptUsageButton } from "../settings/ChatGptUsageButton";
+import { usesChatGptSharing } from "@t3tools/shared/usageLimits";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -404,6 +406,17 @@ export function UsagePage() {
                             : `${formatCount(merged.sessions)} sessions · API estimate`}
                       </span>
                     </div>
+
+                    {[...presentations].some(
+                      ([id, presentation]) =>
+                        (selectedEnvironmentIds === null || selectedEnvironmentIds.has(id)) &&
+                        presentation.serverConfig?.providers.some(usesChatGptSharing),
+                    ) ? (
+                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <span>ChatGPT shared usage</span>
+                        <ChatGptUsageButton size="xs" />
+                      </div>
+                    ) : null}
 
                     {activeProviders.map((provider) => {
                       const totals = merged.providers.find((entry) => entry.provider === provider);
