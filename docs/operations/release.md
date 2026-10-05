@@ -1,5 +1,42 @@
 # Release Checklist
 
+## Fold releases
+
+Use **Fold server release** or **Fold desktop release** in this fork's GitHub Actions.
+The upstream npm release workflow is disabled on forks. Fold is distributed from
+`BreakTheBeta/T3codefold`, not the npm `t3` package.
+
+The server workflow builds self-contained CLI archives on macOS arm64, Linux
+arm64/x64, and Windows arm64/x64, using upstream's build and packaging scripts.
+It publishes them with `SHA256SUMS` under `fold-server-v<version>`. The
+npm-compatible `t3-<version>.tgz` remains available for older launchers, and the
+selected `fold-server-latest` or `fold-server-nightly` feed retains its `t3.tgz`.
+Never reuse a version for a different commit. Versions published before executable
+archives were introduced must be installed using their npm-compatible tarball.
+
+The desktop workflow publishes the matching server first, then builds Windows,
+macOS universal, and Linux x64 artifacts. It attaches installers to the selected
+`fold-preview-v<version>` release and publishes platform update metadata and assets
+to `fold-desktop-latest` or `fold-desktop-nightly`. Keep the platform-specific YAML
+files with their referenced installers and blockmaps. These feeds are separate
+from Android releases. macOS distribution still requires the maintainer's signing
+and notarization setup for trusted installation and automatic updates. Without those
+credentials, the workflow publishes a manual Mac download and leaves the automatic
+Mac feed unchanged.
+
+Fold 0.4.0 is the first release on upstream's orchestrator v2. Its server upgrades
+an earlier Fold database in place on first start (see
+[thread migration](../user/thread-migration.md#upgrading-from-an-earlier-fold-build)),
+so smoke-test it against a copy of real pre-0.4.0 data, and keep later versions on
+0.4.0 or above. Mobile moves to 1.4.0 (versionCode 21) on Expo SDK 58; that first
+build changes the native runtime and must ship as an APK, not an OTA update.
+
+Android APKs and the mobile OTA branch continue to use this fork's existing release
+process. OTA updates must match the installed native runtime fingerprint.
+
+The remaining upstream release procedures below describe the upstream workflow;
+use the Fold workflows above for this repository.
+
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
 This document covers the unified release workflow for stable and nightly desktop releases.
@@ -297,31 +334,14 @@ One-time Vercel dashboard setup:
 
 ## Server self-update release invariant
 
-Connected servers update to the client's exact version, not to an npm dist-tag. Every released
-desktop or hosted client version must therefore have a matching `t3@<version>` package available on
-npm before users can receive that client.
+Every desktop or hosted client release needs matching exact Fold CLI archives and a compatibility tarball
+before users receive that client. The Fold desktop workflow enforces this order.
+For manual releases, run the server workflow first.
 
-The workflow enforces this ordering:
-
-1. `publish_cli` publishes the exact release version to npm, on every channel.
-2. `release` depends on `publish_cli` before exposing desktop artifacts in GitHub Releases.
-3. `deploy_web` depends on `release` before moving the hosted channel to the new client.
-   `build_web` builds that client earlier with `vercel deploy --prod --skip-domain`, which
-   leaves the custom domains alone but moves the project's own `*.vercel.app` production
-   hostname. That hostname is behind Vercel SSO, so users only get the client through the
-   custom domains.
-
-Preserve these dependencies when changing the release graph. Publishing a client first would leave
-the **Update server** action targeting a package version that does not exist yet.
-
-For a release smoke test, confirm `npm view t3@<version> version` returns the expected version, then
-connect the new client to a server on the previous version and verify that the update action
-reconnects to the matching server. When the release adds database migrations, verify that the
-remote update applies them and reconnects. A failed trial must restore the database snapshot and
-restart the previous server. If the installed launcher does not support the target protocol,
-verify that the update stops before restart and run `npx t3@<version> service update` once on the
-server machine. Also test the manual or desktop-managed guidance when those environments are
-available.
+Smoke-test the extracted executable's version, web server, and native terminal support, then check
+an isolated service update from the previous version. Verify reconnect and rollback
+when a trial fails. A server that does not advertise Fold's update source must use
+the manual Fold install command; invoking its old updater could install upstream T3.
 
 ## Desktop auto-update notes
 

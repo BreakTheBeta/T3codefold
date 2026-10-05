@@ -6,7 +6,7 @@ repositories, create pull requests, and review changes.
 ## Connect an account
 
 Install Git and configure authentication on the machine running your T3 Code server. For a remote
-environment, do this on the remote machine. After signing in, open **Settings → Git & worktrees**
+environment, do this on the remote machine. After signing in, open **Settings → Source Control**
 and choose **Rescan**.
 
 ### GitHub
@@ -104,7 +104,7 @@ make your first commit before pushing.
 Use a thread's Git actions to commit, push, and create a pull request. T3 Code can generate commit
 messages, review titles, and descriptions from your changes.
 
-Choose the writing style and model in **Settings → Git & worktrees**. **Repository conventions**
+Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
 uses the project's instructions and recent commit subjects.
 
 ## Review and merge

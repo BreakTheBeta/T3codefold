@@ -26,8 +26,8 @@ present.
 
 ## Upgrading from an earlier Fold build
 
-Earlier Fold builds stored their V2 database under migration numbers that upstream T3 Code now
-uses for other changes. On the first start of a current build, the server upgrades `statev2.sqlite`
+Fold builds before 0.4.0 stored their V2 database under migration numbers that upstream T3 Code
+now uses for other changes. On the first start of 0.4.0 or later, the server upgrades `statev2.sqlite`
 in place before it opens it: threads, projects, GLaDOS work, pairings, and settings carry over with
 the same IDs. In-flight background work and queued GLaDOS actions from the old build are cancelled
 rather than replayed; start them again if you still need them.

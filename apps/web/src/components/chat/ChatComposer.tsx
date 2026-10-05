@@ -198,7 +198,11 @@ import {
   shouldUseRestingComposerLayout,
 } from "../composerFooterLayout";
 import { measureRestingComposerControls } from "./restingComposerControlsMeasurement";
-import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
+import {
+  type ComposerPromptEditorHandle,
+  type ComposerVimModeDisplay,
+  ComposerPromptEditor,
+} from "../ComposerPromptEditor";
 import {
   type CodexRealtimeVoiceController,
   supportsCodexRealtimeVoiceVersion,
@@ -983,6 +987,10 @@ function useComposerRestingTransition(
   }, [clearTransitionStyles]);
 
   return elementRef;
+}
+
+function formatComposerVimDisplay(display: ComposerVimModeDisplay): string {
+  return display.pending ? `${display.mode} ${display.pending}` : display.mode;
 }
 
 function composerCommandMenuPositionsEqual(
@@ -1790,6 +1798,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     editingQueuedAttachments,
     onRemoveEditingQueuedAttachment,
   } = props;
+  // The Vim indicator is written through a ref so mode changes never re-render
+  // the composer. The editor reads the callback once at mount, so it stays stable.
+  const composerVimDisplayRef = useRef<ComposerVimModeDisplay>({ mode: "NORMAL", pending: "" });
+  const composerVimModeIndicatorRef = useRef<HTMLSpanElement | null>(null);
+  const updateComposerVimDisplay = useCallback((display: ComposerVimModeDisplay) => {
+    composerVimDisplayRef.current = display;
+    const indicator = composerVimModeIndicatorRef.current;
+    if (indicator) indicator.textContent = formatComposerVimDisplay(display);
+  }, []);
+  const setComposerVimModeIndicator = useCallback((indicator: HTMLSpanElement | null) => {
+    composerVimModeIndicatorRef.current = indicator;
+    if (indicator) indicator.textContent = formatComposerVimDisplay(composerVimDisplayRef.current);
+  }, []);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   // Opening a running thread resyncs for a few frames. Show the sync row, and
@@ -7356,6 +7377,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 ) : null}
                 <ComposerContextActionsContext value={composerContextActions}>
                   <ComposerPromptEditor
+                    vimModeEnabled={settings.vimModeEnabled}
+                    onVimModeDisplayChange={updateComposerVimDisplay}
                     ariaLabel="Message"
                     suggestionListId={composerSuggestionListId}
                     activeSuggestionId={
@@ -7514,6 +7537,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {settings.vimModeEnabled ? (
+                    <span
+                      ref={setComposerVimModeIndicator}
+                      aria-live="polite"
+                      className="pointer-events-none rounded bg-primary/15 px-1.5 py-0.5 font-mono text-3xs font-semibold text-primary"
+                      data-testid="composer-vim-mode"
+                    />
+                  ) : null}
                   {showComposerAttachAction ? (
                     <>
                       <input

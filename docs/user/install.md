@@ -5,24 +5,29 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 
 ## Requirements
 
+Fold's self-contained CLI archives and desktop app include their server runtime.
+The npm-compatible tarball requires Node.js 24. SSH and WSL use the matching
+self-contained CLI archive; provider CLIs may have their own Node.js requirements.
+
 You need an installed, authenticated provider before starting a thread. You can
 launch T3 Code and configure providers afterwards.
 
 ## Command line
 
 ```bash
-curl -fsSL https://t3.codes/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/BreakTheBeta/T3codefold/main/scripts/install.sh | sh
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-irm https://t3.codes/install.ps1 | iex
+irm https://raw.githubusercontent.com/BreakTheBeta/T3codefold/main/scripts/install.ps1 | iex
 ```
 
-This puts `t3` in `~/.local/bin`. If your shell reports `command not found`
-afterwards, that directory is not on your `PATH` yet; the installer prints the
-line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
+This installs Fold 0.4.0 or later and puts `t3` in `~/.local/bin`. Upstream's
+`t3.codes` installer and the npm `t3` package install regular T3 Code instead.
+If your shell reports `command not found` afterwards, that directory is not on
+your `PATH` yet; the installer prints the line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
 `T3CODE_VERSION` to pin an exact version.
 
 | Task                                             | Command                                                   |
@@ -41,8 +46,11 @@ If `t3` or `t3 start` reports an already running server, connect to that server
 instead. Stop it before starting a replacement, or use a different `--base-dir`
 for an independent server.
 
-To try T3 Code once without installing it, run `npx t3@latest` instead (needs
-Node.js for `npx`).
+To try Fold once without installing it, run this instead (needs Node.js 24 for `npx`):
+
+```bash
+npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
+```
 
 ### Intel Macs
 
@@ -51,7 +59,7 @@ run a server there, build it from source with Node.js 24 and `vp`
 ([Install vp](https://github.com/pingdotgg/t3code#install-vp)):
 
 ```bash
-git clone https://github.com/pingdotgg/t3code
+git clone https://github.com/BreakTheBeta/T3codefold t3code
 cd t3code && vp i && vp run build:desktop
 node apps/server/dist/bin.mjs
 ```
@@ -61,20 +69,9 @@ update it with `git pull` and a rebuild.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
-or use a package manager:
-
-| Platform           | Install                            |
-| ------------------ | ---------------------------------- |
-| Windows            | `winget install T3Tools.T3Code`    |
-| macOS              | `brew install --cask t3-code`      |
-| Debian, Ubuntu     | `sudo apt install ./T3-Code-*.deb` |
-| Arch Linux         | `yay -S t3code-bin`                |
-| Arch Linux nightly | `yay -S t3code-nightly-bin`        |
-
-The `.deb` updates itself like the other desktop builds. It asks for your
-password to install each update. If your desktop has no password prompt, the
-update fails. Download the new `.deb` and install it the same way.
+Download a release from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases),
+using the asset for your operating system. Upstream package-manager entries
+(winget, Homebrew, AUR) install regular T3 Code.
 
 ### Windows Subsystem for Linux
 
