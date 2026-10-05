@@ -14,12 +14,15 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
 
 import { ClaudeOrchestratorReplayHarness } from "../Adapters/ClaudeAdapterV2.testkit.ts";
 import { CodexOrchestratorReplayHarness } from "../Adapters/CodexAdapterV2.testkit.ts";
-import { IdAllocatorV2, layer as idAllocatorLayer } from "../IdAllocator.ts";
+import * as IdAllocator from "../IdAllocator.ts";
 import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
 import {
+  CODEX_MODEL_SELECTION,
   THREAD_MERGE_BACK_FORK_PROMPT,
   THREAD_MERGE_BACK_HANDOFF_PROMPT,
   THREAD_MERGE_BACK_RECALL,
@@ -40,10 +43,61 @@ import {
   materializeReplayTranscriptWorkspace,
 } from "./ReplayTranscriptNdjson.ts";
 
-const CODEX_MODEL_SELECTION = {
-  instanceId: ProviderInstanceId.make("codex"),
-  model: "gpt-5.4",
-} as const;
+// These recorded 0.137 rollouts predate injection. Preserve their native fork
+// and turn exchanges, and assert the new history delivery at the adapter boundary.
+// Exact thread/inject_items frames are covered by CodexAdapterV2.test.ts.
+const CodexHistoryReplayHarness: typeof CodexOrchestratorReplayHarness = {
+  ...CodexOrchestratorReplayHarness,
+  makeProviderAdapterRegistryLayer: (transcript, options) =>
+    Layer.effect(
+      ProviderAdapterRegistry.ProviderAdapterRegistryV2,
+      Effect.gen(function* () {
+        const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+        return {
+          ...registry,
+          get: (id) =>
+            registry.get(id).pipe(
+              Effect.map((adapter) => ({
+                ...adapter,
+                openSession: (input) =>
+                  adapter.openSession(input).pipe(
+                    Effect.map((session) => ({
+                      ...session,
+                      injectHistory: (history) =>
+                        Effect.sync(() => {
+                          const userTexts = history.messages
+                            .filter((message) => message.role === "user")
+                            .map((message) => message.text);
+                          assert.lengthOf(userTexts, 1);
+                          assert.include(
+                            [
+                              THREAD_MERGE_BACK_FORK_PROMPT,
+                              THREAD_MERGE_BACK_SIBLINGS_FIRST_FORK_PROMPT,
+                              THREAD_MERGE_BACK_SIBLINGS_SECOND_FORK_PROMPT,
+                            ],
+                            userTexts[0],
+                          );
+                          assert.isTrue(
+                            history.messages.some(
+                              (message) =>
+                                message.role === "assistant" && message.text.includes("stored"),
+                            ),
+                          );
+                          return true;
+                        }),
+                    })),
+                  ),
+              })),
+            ),
+        };
+      }),
+    ).pipe(
+      Layer.provide(
+        CodexOrchestratorReplayHarness.makeProviderAdapterRegistryLayer(transcript, options),
+      ),
+    ),
+};
+
 const CLAUDE_MODEL_SELECTION = {
   instanceId: ProviderInstanceId.make("claudeAgent"),
   model: "claude-sonnet-4-6",
@@ -63,7 +117,8 @@ interface ProviderVariant {
 const PROVIDERS: ReadonlyArray<ProviderVariant> = [
   {
     driver: ProviderDriverKind.make("codex"),
-    modelSelection: CODEX_MODEL_SELECTION,
+    // Recorded on gpt-6-sol: gpt-6-luna tends to recall an acknowledgement instead of the markers.
+    modelSelection: { ...CODEX_MODEL_SELECTION, model: "gpt-6-sol" },
   },
   {
     driver: ProviderDriverKind.make("claudeAgent"),
@@ -202,12 +257,13 @@ function makeCreateCommand(input: {
 }
 
 describe("orchestration V2 merge-back provider replay", () => {
-  for (const variant of PROVIDERS) {
-    it.effect(`merges one fork delta back into the original ${variant.driver} thread`, () =>
+  it.effect.each(PROVIDERS)(
+    "merges one fork delta back into the original $driver thread",
+    (variant) =>
       Effect.gen(function* () {
         const rawTranscript = yield* readTranscript("thread_merge_back_continue", variant.driver);
         const materialized = yield* Effect.gen(function* () {
-          const ids = yield* IdAllocatorV2;
+          const ids = yield* IdAllocator.IdAllocatorV2;
           const projectId = yield* ids.allocate.project({
             fixtureName: `thread-merge-back-${variant.driver}`,
           });
@@ -308,7 +364,7 @@ describe("orchestration V2 merge-back provider replay", () => {
             },
           ] satisfies ReadonlyArray<OrchestrationV2Command>;
           return { commands, sourceThreadId, forkThreadId, forkRunId };
-        }).pipe(Effect.provide(idAllocatorLayer), provideDeterministicTestRuntime);
+        }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
         const summary = forkDeltaSummary({
           sourceThreadId: materialized.forkThreadId,
           targetThreadId: materialized.sourceThreadId,
@@ -317,7 +373,10 @@ describe("orchestration V2 merge-back provider replay", () => {
         });
         const generatedProviderMessage = providerMessage(summary, MERGE_BACK_USER_TEXT);
         const parameterizedTranscript = parameterizeHandoffs(rawTranscript, [
-          [THREAD_MERGE_BACK_HANDOFF_PROMPT, generatedProviderMessage],
+          [
+            THREAD_MERGE_BACK_HANDOFF_PROMPT,
+            variant.driver === "codex" ? MERGE_BACK_USER_TEXT : generatedProviderMessage,
+          ],
         ]);
         const cwd = yield* Effect.acquireRelease(
           Effect.promise(() => makeCheckpointWorkspace(`merge-back-${variant.driver}`)),
@@ -356,7 +415,7 @@ describe("orchestration V2 merge-back provider replay", () => {
                     materializeReplayTranscriptWorkspace(parameterizedTranscript, cwd),
                   ),
                 },
-                CodexOrchestratorReplayHarness,
+                CodexHistoryReplayHarness,
               ).pipe(provideDeterministicTestRuntime)
             : yield* runOrchestratorV2ProviderReplayScenario(
                 {
@@ -394,13 +453,15 @@ describe("orchestration V2 merge-back provider replay", () => {
         assert.notInclude(visibleConversationText(source), "Context handoff (");
         assert.include(visibleConversationText(fork), "merge fork stored");
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-    );
+  );
 
-    it.effect(`merges two sibling fork deltas into the original ${variant.driver} thread`, () =>
+  it.effect.each(PROVIDERS)(
+    "merges two sibling fork deltas into the original $driver thread",
+    (variant) =>
       Effect.gen(function* () {
         const rawTranscript = yield* readTranscript("thread_merge_back_siblings", variant.driver);
         const materialized = yield* Effect.gen(function* () {
-          const ids = yield* IdAllocatorV2;
+          const ids = yield* IdAllocator.IdAllocatorV2;
           const fixtureName = `thread-merge-back-siblings-${variant.driver}`;
           const projectId = yield* ids.allocate.project({ fixtureName });
           const sourceThreadId = yield* ids.allocate.thread({
@@ -539,7 +600,7 @@ describe("orchestration V2 merge-back provider replay", () => {
             firstForkRunId,
             secondForkRunId,
           };
-        }).pipe(Effect.provide(idAllocatorLayer), provideDeterministicTestRuntime);
+        }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
         const firstSummary = forkDeltaSummary({
           sourceThreadId: materialized.firstForkThreadId,
           targetThreadId: materialized.sourceThreadId,
@@ -555,11 +616,15 @@ describe("orchestration V2 merge-back provider replay", () => {
         const transcript = parameterizeHandoffs(rawTranscript, [
           [
             THREAD_MERGE_BACK_SIBLINGS_FIRST_HANDOFF_PROMPT,
-            providerMessage(firstSummary, FIRST_SIBLING_MERGE_USER_TEXT),
+            variant.driver === "codex"
+              ? FIRST_SIBLING_MERGE_USER_TEXT
+              : providerMessage(firstSummary, FIRST_SIBLING_MERGE_USER_TEXT),
           ],
           [
             THREAD_MERGE_BACK_SIBLINGS_SECOND_HANDOFF_PROMPT,
-            providerMessage(secondSummary, SECOND_SIBLING_MERGE_USER_TEXT),
+            variant.driver === "codex"
+              ? SECOND_SIBLING_MERGE_USER_TEXT
+              : providerMessage(secondSummary, SECOND_SIBLING_MERGE_USER_TEXT),
           ],
         ]);
         const cwd = yield* Effect.acquireRelease(
@@ -610,7 +675,7 @@ describe("orchestration V2 merge-back provider replay", () => {
                     materializeReplayTranscriptWorkspace(transcript, cwd),
                   ),
                 },
-                CodexOrchestratorReplayHarness,
+                CodexHistoryReplayHarness,
               ).pipe(provideDeterministicTestRuntime)
             : yield* runOrchestratorV2ProviderReplayScenario(
                 {
@@ -663,6 +728,5 @@ describe("orchestration V2 merge-back provider replay", () => {
         assert.include(visibleConversationText(secondFork), "second merge sibling stored");
         assert.notInclude(visibleConversationText(secondFork), "first merge sibling stored");
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-    );
-  }
+  );
 });

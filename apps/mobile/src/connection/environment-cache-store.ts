@@ -1,9 +1,8 @@
 import {
-  ConnectionPersistenceError,
-  EnvironmentCacheStore,
   ORCHESTRATION_CACHE_SCHEMA_VERSION,
   StoredOrchestrationShellSnapshot,
   StoredOrchestrationThreadSnapshot,
+  Persistence,
 } from "@t3tools/client-runtime/platform";
 import { type EnvironmentId, ServerConfig, VcsListRefsResult } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -12,6 +11,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as MobileDatabase from "../persistence/mobile-database";
+import { encodeStoredShellSnapshot } from "./shell-cache-encoding";
 import {
   attachProjectFaviconDatabase,
   projectFaviconDatabaseCache,
@@ -35,9 +35,6 @@ const StoredVcsRefs = Schema.Struct({
 const decodeStoredShellSnapshot = Schema.decodeUnknownEffect(
   Schema.fromJsonString(StoredOrchestrationShellSnapshot),
 );
-const encodeStoredShellSnapshot = Schema.encodeEffect(
-  Schema.fromJsonString(StoredOrchestrationShellSnapshot),
-);
 const decodeStoredThreadSnapshot = Schema.decodeUnknownEffect(
   Schema.fromJsonString(StoredOrchestrationThreadSnapshot),
 );
@@ -51,10 +48,10 @@ const encodeStoredServerConfig = Schema.encodeEffect(Schema.fromJsonString(Store
 const decodeStoredVcsRefs = Schema.decodeUnknownEffect(Schema.fromJsonString(StoredVcsRefs));
 const encodeStoredVcsRefs = Schema.encodeEffect(Schema.fromJsonString(StoredVcsRefs));
 
-type CacheOperation = ConnectionPersistenceError["operation"];
+type CacheOperation = Persistence.ConnectionPersistenceError["operation"];
 
 function persistenceError(operation: CacheOperation, cause: unknown) {
-  return new ConnectionPersistenceError({
+  return new Persistence.ConnectionPersistenceError({
     operation,
     message: `Could not ${operation.replaceAll("-", " ")}: ${String(cause)}`,
   });
@@ -72,7 +69,7 @@ function loadDecodedCache<A, B>(input: {
   readonly operation: CacheOperation;
   readonly decode: (raw: string) => Effect.Effect<A, unknown>;
   readonly select: (value: A) => Option.Option<B>;
-}): Effect.Effect<Option.Option<B>, ConnectionPersistenceError> {
+}): Effect.Effect<Option.Option<B>, Persistence.ConnectionPersistenceError> {
   return input.database.loadCache(input.environmentId, input.kind, input.cacheKey).pipe(
     Effect.mapError(mapDatabaseError(input.operation)),
     Effect.flatMap(
@@ -104,7 +101,8 @@ function loadDecodedCache<A, B>(input: {
 
 export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
   const database = yield* MobileDatabase.MobileDatabase;
-  return EnvironmentCacheStore.of({
+  attachProjectFaviconDatabase(database);
+  return Persistence.EnvironmentCacheStore.of({
     loadShell: Effect.fn("MobileEnvironmentCache.loadShell")((environmentId) =>
       loadDecodedCache({
         database,
@@ -234,4 +232,4 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
   });
 });
 
-export const layer = Layer.effect(EnvironmentCacheStore, make());
+export const layer = Layer.effect(Persistence.EnvironmentCacheStore, make());

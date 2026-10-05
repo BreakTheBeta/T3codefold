@@ -1,3 +1,4 @@
+import type { OrchestrationV2HistoricalMessage } from "@t3tools/contracts";
 import {
   ChatAttachment,
   CheckpointId,
@@ -60,6 +61,7 @@ export const ProviderAdapterV2TurnMessage = Schema.Struct({
   createdBy: OrchestrationV2ConversationMessage.fields.createdBy,
   creationSource: OrchestrationV2ConversationMessage.fields.creationSource,
   scheduledTaskId: OrchestrationV2ConversationMessage.fields.scheduledTaskId,
+  senderThreadId: OrchestrationV2ConversationMessage.fields.senderThreadId,
 });
 export type ProviderAdapterV2TurnMessage = typeof ProviderAdapterV2TurnMessage.Type;
 
@@ -343,6 +345,7 @@ export class ProviderAdapterProtocolError extends Schema.TaggedError<ProviderAda
   {
     driver: ProviderDriverKind,
     detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
     payload: Schema.optional(Schema.Unknown),
   },
 ) {
@@ -395,6 +398,8 @@ export interface ProviderAdapterV2TurnInput {
   readonly threadId: ThreadId;
   readonly runId: RunId;
   readonly runOrdinal: number;
+  /** Whether the current native session has an accepted turn; omitted when unknown. */
+  readonly nativeThreadHasTurns?: boolean;
   readonly providerTurnOrdinal: number;
   readonly restartContinuationOfRunId?: RunId;
   readonly attemptId: RunAttemptId;
@@ -473,6 +478,11 @@ export interface ProviderAdapterV2EventSubscription {
   readonly close: Effect.Effect<void>;
 }
 
+export interface ProviderAdapterV2HistoricalContext {
+  readonly messages: ReadonlyArray<OrchestrationV2HistoricalMessage>;
+  readonly context: string;
+}
+
 export interface ProviderAdapterV2SessionRuntime {
   readonly instanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
@@ -500,6 +510,19 @@ export interface ProviderAdapterV2SessionRuntime {
   readonly hasPendingBackgroundWorkForThread?: (
     providerThread: OrchestrationV2ProviderThread,
   ) => Effect.Effect<boolean>;
+  /**
+   * Capacity for the requested model/options, independent of native thread usage.
+   * `cwd` is the thread's working directory, for providers whose project config
+   * can change a model's limits.
+   */
+  readonly getModelContextWindow?: (
+    modelSelection: ModelSelection,
+    cwd?: string | null,
+  ) => number | undefined;
+  /** Whether an option-only change preserves measured native usage and capacity.
+   * Compaction thresholds are still discarded. Unknown transitions invalidate usage.
+   */
+  readonly canReuseContextUsage?: (previous: ModelSelection, next: ModelSelection) => boolean;
   readonly ensureThread: (
     input: ProviderAdapterV2EnsureThreadInput,
   ) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
@@ -509,6 +532,12 @@ export interface ProviderAdapterV2SessionRuntime {
     readonly modelSelection?: ModelSelection;
     readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
   }) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
+  /** False means the native protocol explicitly does not support history injection. */
+  readonly injectHistory?: (
+    input: ProviderAdapterV2HistoricalContext & {
+      readonly providerThread: OrchestrationV2ProviderThread;
+    },
+  ) => Effect.Effect<boolean, ProviderAdapterV2Error>;
   readonly startTurn: (
     input: ProviderAdapterV2TurnInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;
@@ -521,6 +550,14 @@ export interface ProviderAdapterV2SessionRuntime {
   readonly interruptTurn: (
     input: ProviderAdapterV2InterruptInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;
+  /**
+   * Lets a runtime shared by several app threads unload one provider thread's
+   * native state (and its MCP servers) when that app thread detaches, while
+   * the runtime keeps serving the others. A later resume reloads it.
+   */
+  readonly unloadThread?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+  }) => Effect.Effect<void, ProviderAdapterV2Error>;
   readonly respondToRuntimeRequest: (
     input: ProviderAdapterV2RuntimeRequestResponseInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;
@@ -531,31 +568,6 @@ export interface ProviderAdapterV2SessionRuntime {
    * Providers that accept product feedback for a thread (#7949, Codex → OpenAI)
    * expose it here; absent means the driver has no feedback channel.
    */
-  readonly listRealtimeVoices?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-  }) => Effect.Effect<
-    import("@t3tools/contracts").ProviderRealtimeVoiceListResult,
-    ProviderAdapterV2Error
-  >;
-  readonly appendRealtimeVoiceContext?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-    readonly callId: string;
-    readonly text: string;
-  }) => Effect.Effect<void, ProviderAdapterV2Error>;
-  readonly realtimeVoiceEvents?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-  }) => Stream.Stream<
-    import("@t3tools/contracts").ProviderRealtimeVoiceEvent,
-    ProviderAdapterV2Error
-  >;
-  readonly startRealtimeVoice?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-    readonly sdp: string;
-    readonly options?: import("@t3tools/contracts").RealtimeVoiceOptions;
-  }) => Effect.Effect<{ readonly sdp: string }, ProviderAdapterV2Error>;
-  readonly stopRealtimeVoice?: (input: {
-    readonly providerThread: OrchestrationV2ProviderThread;
-  }) => Effect.Effect<void, ProviderAdapterV2Error>;
   readonly uploadFeedback?: (input: {
     readonly providerThread: OrchestrationV2ProviderThread;
     readonly reason?: string;

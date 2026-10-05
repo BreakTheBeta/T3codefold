@@ -1,11 +1,8 @@
-import { subscribe, type EnvironmentRpcInput } from "../rpc/client.ts";
-import * as Stream from "effect/Stream";
-import { reduceVoiceFeed, emptyVoiceFeed } from "../realtime-voice/feed.ts";
 import type { ThreadId } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import {
   WS_METHODS,
   type EnvironmentId,
@@ -13,19 +10,18 @@ import {
 } from "@t3tools/contracts";
 
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
-import { canSnooze } from "./threadSettled.ts";
 import * as DateTime from "effect/DateTime";
 
 import {
   createAtomCommandScheduler,
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
-  createEnvironmentSubscriptionAtomFamily,
 } from "./runtime.ts";
 import {
   type ThreadCommandInput,
   type ArchiveThreadInput,
   type CancelQueuedRunInput,
+  type RetryWorkspacePreparationInput,
   type CreateThreadInput,
   type DeleteThreadInput,
   type EditQueuedRunInput,
@@ -53,6 +49,7 @@ import {
   type UnarchiveThreadInput,
   type UnlinkThreadPullRequestInput,
   type UnpinThreadInput,
+  type WatchThreadPullRequestInput,
   type UnsettleThreadInput,
   type UnsnoozeThreadInput,
   type UpdateThreadMetadataInput,
@@ -69,6 +66,7 @@ import {
   promoteQueuedRun,
   reorderQueuedRun,
   resumeThreadQueue,
+  retryWorkspacePreparation,
   linkThreadPullRequest,
   respondToThreadApproval,
   respondToThreadUserInput,
@@ -91,13 +89,11 @@ import {
   unsnoozeThread,
   updateThreadMetadata,
   visitThread,
+  watchThreadPullRequest,
 } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
-import { EnvironmentSupervisor } from "../connection/supervisor.ts";
-import {
-  ThreadHistoryController,
-  type ThreadHistoryLoadEarlierResult,
-} from "./threadHistoryController.ts";
+import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import * as ThreadHistoryController from "./threadHistoryController.ts";
 
 export type LoadEarlierThreadHistoryInput = {
   readonly threadId: ThreadId;
@@ -110,12 +106,12 @@ export type {
   DeleteThreadInput,
   EditQueuedRunInput,
   InterruptThreadTurnInput,
-  LinkThreadPullRequestInput,
   MarkThreadUnreadInput,
   ForkThreadFromRunInput,
   MergeThreadBackInput,
   PromoteQueuedRunInput,
   ReorderQueuedRunInput,
+  LinkThreadPullRequestInput,
   RespondToThreadApprovalInput,
   RespondToThreadUserInputInput,
   DismissThreadUserInputInput,
@@ -138,6 +134,7 @@ export type {
   UnsnoozeThreadInput,
   UpdateThreadMetadataInput,
   VisitThreadInput,
+  WatchThreadPullRequestInput,
 } from "../operations/commands.ts";
 
 export function createThreadEnvironmentAtoms<R, E>(
@@ -259,6 +256,12 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    watchPullRequest: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:watch-pull-request",
+      execute: (input: WatchThreadPullRequestInput) => watchThreadPullRequest(input),
+      scheduler,
+      concurrency,
+    }),
     setRuntimeMode: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-runtime-mode",
       execute: (input: SetThreadRuntimeModeInput) => setThreadRuntimeMode(input),
@@ -356,6 +359,12 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    retryWorkspacePreparation: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:retry-workspace-preparation",
+      execute: (input: RetryWorkspacePreparationInput) => retryWorkspacePreparation(input),
+      scheduler,
+      concurrency,
+    }),
     editQueuedRun: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:edit-queued-run",
       execute: (input: EditQueuedRunInput) => editQueuedRun(input),
@@ -366,10 +375,14 @@ export function createThreadEnvironmentAtoms<R, E>(
       label: "environment-data:commands:thread:load-earlier-history",
       execute: (input: LoadEarlierThreadHistoryInput) =>
         Effect.gen(function* () {
-          const supervisor = yield* EnvironmentSupervisor;
-          const controller = yield* Effect.serviceOption(ThreadHistoryController);
+          const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+          const controller = yield* Effect.serviceOption(
+            ThreadHistoryController.ThreadHistoryController,
+          );
           if (Option.isNone(controller)) {
-            return { _tag: "noop" } satisfies ThreadHistoryLoadEarlierResult;
+            return {
+              _tag: "noop",
+            } satisfies ThreadHistoryController.ThreadHistoryLoadEarlierResult;
           }
           return yield* controller.value.loadEarlier(
             supervisor.target.environmentId,
@@ -388,36 +401,6 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
-    realtimeVoiceEvents: createEnvironmentSubscriptionAtomFamily(runtime, {
-      label: "voice:events",
-      idleTtlMs: 0,
-      subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.providerRealtimeVoiceEvents>) =>
-        subscribe(WS_METHODS.providerRealtimeVoiceEvents, input).pipe(
-          Stream.scan(emptyVoiceFeed, reduceVoiceFeed),
-          Stream.groupedWithin(32, "100 millis"),
-          Stream.map((feeds) => feeds[feeds.length - 1] ?? emptyVoiceFeed),
-        ),
-    }),
-    listRealtimeVoices: createEnvironmentRpcCommand(runtime, {
-      label: "voice:list",
-      tag: WS_METHODS.providerRealtimeVoiceList,
-    }),
-    appendRealtimeVoiceContext: createEnvironmentRpcCommand(runtime, {
-      label: "voice:context",
-      tag: WS_METHODS.providerRealtimeVoiceContext,
-    }),
-    startRealtimeVoice: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:commands:thread:start-realtime-voice",
-      tag: WS_METHODS.providerRealtimeVoiceStart,
-      scheduler,
-      concurrency: { mode: "parallel" },
-    }),
-    stopRealtimeVoice: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:commands:thread:stop-realtime-voice",
-      tag: WS_METHODS.providerRealtimeVoiceStop,
-      scheduler,
-      concurrency: { mode: "parallel" },
-    }),
   };
   const optimistic = createOptimisticThreadLifecycle(snapshotAtom);
   return {
@@ -426,11 +409,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     settle: optimistic.wrap(commands.settle, (thread, _input, now, accepted) =>
       !accepted &&
       (thread.pendingRuntimeRequest !== null ||
-        thread.status === "preparing" ||
-        thread.status === "queued" ||
-        thread.status === "starting" ||
-        thread.status === "running" ||
-        thread.status === "waiting")
+        ["preparing", "queued", "starting", "running", "waiting"].includes(thread.status))
         ? thread
         : {
             ...thread,
@@ -454,9 +433,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     snooze: optimistic.wrap(commands.snooze, (thread, input, now, accepted) =>
       (!accepted &&
         (thread.pendingRuntimeRequest !== null ||
-          thread.status === "preparing" ||
-          thread.status === "queued" ||
-          thread.status === "waiting")) ||
+          ["preparing", "queued", "starting"].includes(thread.status))) ||
       !(Date.parse(input.snoozedUntil) > DateTime.toEpochMillis(now))
         ? thread
         : {
@@ -474,6 +451,10 @@ export function createThreadEnvironmentAtoms<R, E>(
       ...thread,
       snoozedUntil: null,
       snoozedAt: null,
+    })),
+    setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
+      ...thread,
+      autoSettleDisabledAt: input.enabled ? null : (thread.autoSettleDisabledAt ?? now),
     })),
     pin: optimistic.wrap(commands.pin, (thread, input, now) => ({
       ...thread,
@@ -497,10 +478,6 @@ export function createThreadEnvironmentAtoms<R, E>(
     reorderPin: optimistic.wrap(commands.reorderPin, (thread, input) => ({
       ...thread,
       pinOrderKey: input.orderKey,
-    })),
-    setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
-      ...thread,
-      autoSettleDisabledAt: input.enabled ? null : (thread.autoSettleDisabledAt ?? now),
     })),
     reorderActive: optimistic.wrap(commands.reorderActive, (thread, input) => ({
       ...thread,

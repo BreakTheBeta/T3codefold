@@ -1,3 +1,4 @@
+import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { useAtomValue } from "@effect/atom-react";
 import { type ScopedThreadRef } from "@t3tools/contracts";
 import {
@@ -120,22 +121,14 @@ import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import {
   THREAD_DETAILS_PANEL_CHEVRON_CLASS,
   THREAD_DETAILS_PANEL_ICON_CLASS,
-  THREAD_DETAILS_PANEL_ROW_POPUP_CLASS,
-  THREAD_DETAILS_PANEL_ROW_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
-  THREAD_DETAILS_PANEL_SPLIT_PRIMARY_CLASS,
-  THREAD_DETAILS_PANEL_SPLIT_SECONDARY_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./chat/threadDetailsPanelStyles";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { useOpenLink } from "~/browser/useOpenLink";
 
 interface GitActionsControlProps {
-  /**
-   * "toolbar" is the standalone split button, "menu" renders as items inside a parent menu for
-   * narrow headers, and "panel" is the thread details panel's full-width row.
-   */
-  presentation?: "toolbar" | "menu" | "panel";
+  presentation?: "toolbar" | "menu";
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
@@ -144,6 +137,8 @@ interface GitActionsControlProps {
    * place it against, in which case it still opens in the browser.
    */
   onOpenPullRequest?: ((number: number) => void) | undefined;
+  displayMode?: "toolbar" | "panel";
+  compact?: boolean;
   onOpenChanges?: () => void;
 }
 
@@ -375,8 +370,8 @@ function GitQuickActionIcon({
   className = "size-3.5",
 }: {
   quickAction: GitQuickAction;
-  SourceControlIcon: ReturnType<typeof getSourceControlPresentation>["Icon"];
   className?: string;
+  SourceControlIcon: ReturnType<typeof getSourceControlPresentation>["Icon"];
 }) {
   if (quickAction.kind === "open_publish") return <CloudUploadIcon className={className} />;
   if (quickAction.kind === "run_pull") return <CloudDownloadIcon className={className} />;
@@ -450,15 +445,12 @@ function GitActionProgressButtonContent({
       )}
       role="status"
     >
-      <Spinner
-        aria-hidden="true"
-        className="row-start-1 -mx-0.5 size-4 shrink-0 text-muted-foreground"
-      />
+      <Spinner aria-hidden="true" className="row-start-1 -mx-0.5 shrink-0" />
       <p className="row-start-1 min-w-0 truncate text-left">{progress.status}</p>
       {!isPanel ? (
         <GitActionElapsedTime
           startedAtMs={progress.startedAtMs}
-          className="row-start-1 text-[11px] font-normal tabular-nums text-muted-foreground"
+          className="row-start-1 text-2xs font-normal tabular-nums text-muted-foreground"
         />
       ) : null}
       <div
@@ -472,7 +464,7 @@ function GitActionProgressButtonContent({
           <Tooltip>
             <TooltipTrigger
               render={
-                <p className="truncate pt-0.5 text-left text-[11px] font-normal text-muted-foreground" />
+                <p className="truncate pt-0.5 text-left text-2xs font-normal text-muted-foreground" />
               }
             >
               {progress.output}
@@ -508,7 +500,7 @@ function GitActionSuccessButtonContent({ success }: { success: InlineGitActionSu
           <Tooltip>
             <TooltipTrigger
               render={
-                <p className="truncate pt-0.5 text-left text-[11px] font-normal text-muted-foreground" />
+                <p className="truncate pt-0.5 text-left text-2xs font-normal text-muted-foreground" />
               }
             >
               {success.description}
@@ -709,7 +701,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
 
   const openSourceControlSettings = useCallback(() => {
     handleOpenChange(false);
-    void navigate({ to: "/settings/git" });
+    void navigate({ to: "/settings/source-control" });
   }, [handleOpenChange, navigate]);
 
   return (
@@ -1065,9 +1057,11 @@ export default function GitActionsControl({
   gitCwd,
   activeThreadRef,
   draftId,
+  displayMode = "toolbar",
+  compact = false,
   onOpenChanges,
 }: GitActionsControlProps) {
-  const isPanel = presentation === "panel";
+  const isPanel = displayMode === "panel";
   const ActionGroup = isPanel ? "div" : Group;
   const panelAnchorRef = useRef<HTMLDivElement | null>(null);
   const updateThreadMetadata = useAtomCommand(
@@ -1094,7 +1088,6 @@ export default function GitActionsControl({
         ? store.getDraftThreadByRef(activeThreadRef)
         : null,
   );
-
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
@@ -1199,6 +1192,8 @@ export default function GitActionsControl({
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
   const gitStatusForActions = gitStatus;
+  // Matches the diff panel's Changes view. Older servers only report uncommitted totals.
+  const changesTotals = gitStatusForActions?.branchChanges ?? gitStatusForActions?.workingTree;
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
@@ -1355,6 +1350,7 @@ export default function GitActionsControl({
         // A pull request the action opens is linked to the thread it ran beside. Drafts
         // have no server thread yet, so there is nothing to link to.
         ...(activeServerThread ? { threadId: activeServerThread.id } : {}),
+        ...(activeDraftThread ? { projectId: activeDraftThread.projectId } : {}),
       });
 
       if (result._tag === "Failure") {
@@ -1776,10 +1772,11 @@ export default function GitActionsControl({
           </>
         )
       ) : !isRepo ? (
-        <Button
+        <ThreadDetailsControl
           size="xs"
           variant={isPanel ? "ghost" : "outline"}
-          className={isPanel ? THREAD_DETAILS_PANEL_ROW_CLASS : undefined}
+          part="row"
+          panel={isPanel}
           disabled={initAction.isPending}
           onClick={initializeGit}
         >
@@ -1787,8 +1784,8 @@ export default function GitActionsControl({
           <span className="ml-0.5">
             {initAction.isPending ? "Initializing..." : "Initialize Git"}
           </span>
-        </Button>
-      ) : (
+        </ThreadDetailsControl>
+      ) : compact && !gitActionProgress && !visibleInlineSuccess ? null : (
         <ActionGroup
           role="group"
           aria-label="Git actions"
@@ -1800,51 +1797,35 @@ export default function GitActionsControl({
           )}
         >
           {gitActionProgress ? (
-            <Button
+            <ThreadDetailsControl
               aria-label={
                 gitActionProgress.output
                   ? `${gitActionProgress.status} ${gitActionProgress.output}`
                   : gitActionProgress.status
               }
-              className={cn(
-                // Vertical padding subtracts the button's 1px border (same idiom
-                // as the size variants' px) so the h-auto single-line height
-                // lands exactly on the fixed height of the static button.
-                isPanel
-                  ? THREAD_DETAILS_PANEL_SPLIT_PRIMARY_CLASS
-                  : "h-auto min-h-7 max-w-72 py-[calc(--spacing(1)-1px)] sm:h-auto sm:min-h-6",
-                isPanel &&
-                  "h-auto min-h-9 py-[calc(--spacing(1)-1px)] disabled:opacity-100 sm:h-auto sm:min-h-9",
-              )}
+              part="primary"
+              panel={isPanel}
+              multiline
+              className={isPanel ? undefined : "max-w-72"}
               disabled
               size="xs"
               variant={isPanel ? "ghost" : "outline"}
             >
               <GitActionProgressButtonContent isPanel={isPanel} progress={gitActionProgress} />
-            </Button>
+            </ThreadDetailsControl>
           ) : isPanel && visibleInlineSuccess ? (
-            <Button
-              className={cn(
-                THREAD_DETAILS_PANEL_SPLIT_PRIMARY_CLASS,
-                "h-auto min-h-9 py-[calc(--spacing(1)-1px)] disabled:opacity-100 sm:h-auto sm:min-h-9",
-              )}
-              disabled
-              size="xs"
-              variant="ghost"
-            >
+            <ThreadDetailsControl part="primary" multiline disabled size="xs" variant="ghost">
               <GitActionSuccessButtonContent success={visibleInlineSuccess} />
-            </Button>
+            </ThreadDetailsControl>
           ) : quickActionDisabledReason ? (
             <Popover>
               <PopoverTrigger
                 openOnHover
                 render={
-                  <Button
+                  <ThreadDetailsControl
                     aria-disabled="true"
-                    className={cn(
-                      "cursor-not-allowed rounded-e-none border-e-0 opacity-64 before:rounded-e-none",
-                      isPanel && THREAD_DETAILS_PANEL_SPLIT_PRIMARY_CLASS,
-                    )}
+                    part="primary"
+                    panel={isPanel}
                     size="xs"
                     variant={isPanel ? "ghost" : "outline"}
                   />
@@ -1858,7 +1839,7 @@ export default function GitActionsControl({
                 <span
                   className={cn(
                     "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                    isPanel && "not-sr-only ml-0.5 truncate",
+                    isPanel && "not-sr-only ml-0 truncate",
                   )}
                 >
                   {quickAction.label}
@@ -1869,10 +1850,11 @@ export default function GitActionsControl({
               </PopoverPopup>
             </Popover>
           ) : (
-            <Button
+            <ThreadDetailsControl
               variant={isPanel ? "ghost" : "outline"}
               size="xs"
-              className={isPanel ? THREAD_DETAILS_PANEL_SPLIT_PRIMARY_CLASS : undefined}
+              part="primary"
+              panel={isPanel}
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
@@ -1884,12 +1866,12 @@ export default function GitActionsControl({
               <span
                 className={cn(
                   "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                  isPanel && "not-sr-only ml-0.5 truncate",
+                  isPanel && "not-sr-only ml-0 truncate",
                 )}
               >
                 {quickAction.label}
               </span>
-            </Button>
+            </ThreadDetailsControl>
           )}
           {isPanel && gitActionProgress ? (
             // The menu is disabled while an action runs, so its chevron slot
@@ -1898,7 +1880,7 @@ export default function GitActionsControl({
             // the output row expands below.
             <GitActionElapsedTime
               startedAtMs={gitActionProgress.startedAtMs}
-              className="flex h-9 shrink-0 items-center self-start pe-2.5 text-[11px] font-normal tabular-nums text-muted-foreground"
+              className="flex h-8 shrink-0 items-center self-start pe-2.5 text-2xs font-normal tabular-nums text-muted-foreground"
             />
           ) : (
             <>
@@ -1916,11 +1898,12 @@ export default function GitActionsControl({
               >
                 <MenuTrigger
                   render={
-                    <Button
+                    <ThreadDetailsControl
                       aria-label="Git action options"
                       size={isPanel ? "sm" : "icon-xs"}
                       variant={isPanel ? "ghost" : "outline"}
-                      className={cn(isPanel && THREAD_DETAILS_PANEL_SPLIT_SECONDARY_CLASS)}
+                      part="secondary"
+                      panel={isPanel}
                     />
                   }
                   disabled={isGitActionRunning}
@@ -1932,9 +1915,8 @@ export default function GitActionsControl({
                 </MenuTrigger>
                 <MenuPopup
                   align="end"
-                  {...(isPanel
-                    ? { anchor: panelAnchorRef, className: THREAD_DETAILS_PANEL_ROW_POPUP_CLASS }
-                    : {})}
+                  {...(isPanel ? { anchor: panelAnchorRef } : {})}
+                  className={isPanel ? "w-(--anchor-width)" : "w-full"}
                 >
                   {gitItems}
                 </MenuPopup>
@@ -1945,25 +1927,21 @@ export default function GitActionsControl({
       )}
 
       {isPanel && isRepo ? (
-        <Button
+        <ThreadDetailsControl
           type="button"
           variant="ghost"
           size="sm"
-          className={THREAD_DETAILS_PANEL_ROW_CLASS}
+          part="row"
           disabled={!onOpenChanges}
           onClick={onOpenChanges}
         >
           <FileDiffIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
           <span className="flex-1 text-left">Changes</span>
-          <span className="flex items-center gap-1 font-mono text-[11px] tabular-nums">
-            <span className="text-success">
-              +{gitStatusForActions?.workingTree.insertions ?? 0}
-            </span>
-            <span className="text-destructive">
-              -{gitStatusForActions?.workingTree.deletions ?? 0}
-            </span>
+          <span className="flex items-center gap-1 font-mono text-2xs tabular-nums">
+            <span className="text-success">+{changesTotals?.insertions ?? 0}</span>
+            <span className="text-destructive">-{changesTotals?.deletions ?? 0}</span>
           </span>
-        </Button>
+        </ThreadDetailsControl>
       ) : null}
 
       <Dialog

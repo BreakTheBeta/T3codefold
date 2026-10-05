@@ -9,23 +9,34 @@ import { ConnectionBlockedError } from "./model.ts";
 export function orchestrationProtocolCompatibilityError(
   descriptor: ExecutionEnvironmentDescriptor,
 ): ConnectionBlockedError | null {
-  if (
-    descriptor.orchestrationProtocolVersion === undefined ||
-    descriptor.orchestrationProtocolVersion === 1 ||
-    descriptor.orchestrationProtocolVersion === ORCHESTRATION_PROTOCOL_VERSION
-  ) {
+  // Servers shipped before negotiation use the original wire protocol.
+  const serverProtocolVersion = descriptor.orchestrationProtocolVersion ?? 1;
+  if (serverProtocolVersion === ORCHESTRATION_PROTOCOL_VERSION) {
     return null;
   }
-  const hostProtocol = descriptor.orchestrationProtocolVersion;
-  const detail = `Update T3 Code on ${descriptor.label} and this client before reconnecting. The host uses orchestration protocol ${hostProtocol}, while this client requires ${ORCHESTRATION_PROTOCOL_VERSION}.`;
-  return new ConnectionBlockedError({ reason: "unsupported", detail });
+  return serverProtocolVersion > ORCHESTRATION_PROTOCOL_VERSION
+    ? new ConnectionBlockedError({
+        reason: "unsupported",
+        detail: `This client is not supported by this server. Update your app or use a compatible release to connect to ${descriptor.label}.`,
+      })
+    : new ConnectionBlockedError({
+        reason: "unsupported",
+        detail: `This client requires a newer server. Update T3 Code on ${descriptor.label} to connect.`,
+        ...(canSelfUpdate(descriptor) ? { serverUpdateRequired: true } : {}),
+      });
 }
 
-export function appendOrchestrationProtocol(
-  socketUrl: string,
-  version = ORCHESTRATION_PROTOCOL_VERSION,
-): string {
+/** Whether this client can drive the host's update remotely. */
+function canSelfUpdate(descriptor: ExecutionEnvironmentDescriptor): boolean {
+  const { serverSelfUpdate, desktopAppUpdate } = descriptor.capabilities;
+  return (
+    serverSelfUpdate !== undefined &&
+    (serverSelfUpdate !== "desktop-managed" || desktopAppUpdate === true)
+  );
+}
+
+export function appendOrchestrationProtocol(socketUrl: string): string {
   const url = new URL(socketUrl);
-  url.searchParams.set(ORCHESTRATION_PROTOCOL_QUERY_PARAM, String(version));
+  url.searchParams.set(ORCHESTRATION_PROTOCOL_QUERY_PARAM, String(ORCHESTRATION_PROTOCOL_VERSION));
   return url.toString();
 }

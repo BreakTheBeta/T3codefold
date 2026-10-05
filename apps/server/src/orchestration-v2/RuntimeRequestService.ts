@@ -1,7 +1,3 @@
-import { ServerConfig } from "../config.ts";
-import * as FileSystem from "effect/FileSystem";
-import { appendUserInputAttachmentPaths } from "../provider/userInputAttachments.ts";
-import type { UserInputAttachments } from "@t3tools/contracts";
 import {
   ProviderApprovalDecision,
   ProviderSessionId,
@@ -15,8 +11,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { ProjectionStoreV2 } from "./ProjectionStore.ts";
-import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 
 export class RuntimeRequestResponseExecutionError extends Schema.TaggedError<RuntimeRequestResponseExecutionError>()(
   "RuntimeRequestResponseExecutionError",
@@ -59,7 +55,6 @@ export interface RuntimeRequestServiceV2Shape {
     readonly requestId: RuntimeRequestId;
     readonly decision?: ProviderApprovalDecision;
     readonly answers?: ProviderUserInputAnswers;
-    readonly attachmentsByQuestionId?: UserInputAttachments;
   }) => Effect.Effect<void, RuntimeRequestResponseExecutionError>;
 }
 
@@ -71,14 +66,12 @@ export class RuntimeRequestServiceV2 extends Context.Service<
 export const layer: Layer.Layer<
   RuntimeRequestServiceV2,
   never,
-  ProjectionStoreV2 | ProviderSessionManagerV2 | ServerConfig | FileSystem.FileSystem
+  ProjectionStore.ProjectionStoreV2 | ProviderSessionManager.ProviderSessionManagerV2
 > = Layer.effect(
   RuntimeRequestServiceV2,
   Effect.gen(function* () {
-    const config = yield* ServerConfig;
-    const fs = yield* FileSystem.FileSystem;
-    const projections = yield* ProjectionStoreV2;
-    const sessions = yield* ProviderSessionManagerV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const sessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
 
     return RuntimeRequestServiceV2.of({
       respond: (input) =>
@@ -122,18 +115,10 @@ export const layer: Layer.Layer<
               requestId: input.requestId,
             });
           }
-          const answers =
-            input.attachmentsByQuestionId === undefined
-              ? input.answers
-              : yield* appendUserInputAttachmentPaths({
-                  answers: input.answers ?? {},
-                  attachmentsByQuestionId: input.attachmentsByQuestionId,
-                  attachmentsDir: config.attachmentsDir,
-                }).pipe(Effect.provideService(FileSystem.FileSystem, fs));
           yield* session.value.respondToRuntimeRequest({
             requestId: input.requestId,
             ...(input.decision === undefined ? {} : { decision: input.decision }),
-            ...(answers === undefined ? {} : { answers }),
+            ...(input.answers === undefined ? {} : { answers: input.answers }),
           });
         }).pipe(
           Effect.mapError((cause) =>

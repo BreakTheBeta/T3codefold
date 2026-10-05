@@ -13,12 +13,11 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
-import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
-import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { OrchestratorV2Error } from "./Orchestrator.ts";
-import { ThreadManagementService } from "./ThreadManagementService.ts";
+import * as ProjectStore from "./ProjectStore.ts";
+import * as ThreadManagementService from "./ThreadManagementService.ts";
 
 import { formatThreadTitleContext } from "../textGeneration/ThreadTitleContext.ts";
 export { formatThreadTitleContext } from "../textGeneration/ThreadTitleContext.ts";
@@ -34,14 +33,14 @@ export class ThreadTitleRegenerationService extends Context.Service<
         | { readonly type: "regenerate" };
     }) => Effect.Effect<
       void,
-      OrchestratorV2Error | ProjectionRepositoryError | ServerSettingsError
+      OrchestratorV2Error | ProjectStore.ProjectStoreV2Error | ServerSettingsError
     >;
   }
 >()("t3/orchestration-v2/ThreadTitleRegenerationService") {}
 
 const make = Effect.gen(function* () {
-  const threads = yield* ThreadManagementService;
-  const projects = yield* ProjectionProjectRepository;
+  const threads = yield* ThreadManagementService.ThreadManagementService;
+  const projects = yield* ProjectStore.ProjectStoreV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const textGeneration = yield* TextGeneration.TextGeneration;
 
@@ -49,7 +48,6 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly requestId: CommandId;
     readonly title?: string;
-    readonly needsRefinement?: boolean;
   }) =>
     threads
       .dispatch({
@@ -57,7 +55,6 @@ const make = Effect.gen(function* () {
         commandId: CommandId.make(`${input.requestId}:title-complete`),
         threadId: input.threadId,
         requestId: input.requestId,
-        needsRefinement: input.needsRefinement ?? false,
         ...(input.title === undefined ? {} : { title: input.title }),
       })
       .pipe(Effect.asVoid);
@@ -67,17 +64,19 @@ const make = Effect.gen(function* () {
   )(function* (input) {
     const outcome:
       | { readonly type: "stale" }
-      | {
-          readonly type: "complete";
-          readonly title?: string;
-          readonly needsRefinement?: boolean;
-        } = yield* Effect.gen(function* () {
-      const projection = yield* threads.getThreadProjection(input.threadId);
+      | { readonly type: "complete"; readonly title?: string } = yield* Effect.gen(function* () {
+      const projection = yield* threads.getThreadRecords(
+        input.threadId,
+        ["messages"],
+        input.kind.type === "initial"
+          ? { messageIds: [input.kind.messageId] }
+          : { messageRoles: ["user", "assistant"] },
+      );
       if (projection.thread.titleRegeneration?.requestId !== input.requestId) {
         return { type: "stale" as const };
       }
 
-      const project = yield* projects.getById({ projectId: projection.thread.projectId });
+      const project = yield* projects.get(projection.thread.projectId);
       if (Option.isNone(project)) {
         return { type: "complete" as const };
       }
@@ -119,11 +118,7 @@ const make = Effect.gen(function* () {
       return generatedTitle === "New thread" ||
         (input.kind.type === "regenerate" && generatedTitle === projection.thread.title.trim())
         ? { type: "complete" as const }
-        : {
-            type: "complete" as const,
-            title: result.title,
-            needsRefinement: input.kind.type === "initial" && result.needsRefinement === true,
-          };
+        : { type: "complete" as const, title: result.title };
     }).pipe(
       Effect.retry({
         times: input.kind.type === "initial" ? 2 : 0,
@@ -145,7 +140,6 @@ const make = Effect.gen(function* () {
     }
     yield* complete({
       ...input,
-      needsRefinement: outcome.needsRefinement ?? false,
       ...(outcome.title === undefined ? {} : { title: outcome.title }),
     });
   });

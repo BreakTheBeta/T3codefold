@@ -1,11 +1,11 @@
 import * as Option from "effect/Option";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { shouldShowComposerContextStrip as shouldShowBranchComposerContextStrip } from "./BranchToolbar.logic";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type AssetCreateUrlInput,
   type AssetCreateUrlResult,
   type ChatFileAttachment,
+  type CommandId,
   type EnvironmentId,
   isProviderDriverKind,
   ProjectId,
@@ -52,16 +52,12 @@ import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadShells, environmentThreadDetails } from "../state/threads";
 import { waitForAtomValue } from "../state/waitForAtomValue";
-import {
-  filterTerminalContextsWithText,
-  stripInlineTerminalContextPlaceholders,
-  type TerminalContextDraft,
-} from "../lib/terminalContext";
+import { filterTerminalContextsWithText, type TerminalContextDraft } from "../lib/terminalContext";
 import { stripInlineContextReferences } from "~/lib/composerContextReferences";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import { collapseExpandedComposerCursor, type ComposerSubmissionIntent } from "../composer-logic";
 import type { ReviewCommentContext } from "../reviewCommentContext";
-import type { TimelineEntry } from "../session-logic";
+import { derivePhase, type TimelineEntry } from "../session-logic";
 import type { PreviewMiniPlayerSource } from "../previewMiniPlayerStore";
 import type { DesktopPreviewOverlay } from "../previewStateStore";
 import type { RightPanelSurface } from "../rightPanelStore";
@@ -187,7 +183,7 @@ export function shouldOpenProactiveTurnDiff(input: {
 export function resolveProactiveTurnDiffAction(input: {
   checkpoint: Pick<TurnDiffSummary, "status" | "files"> | undefined;
   isGitRepo: boolean | undefined;
-  activeSurfaceKind?: RightPanelSurface["kind"] | null;
+  activeSurfaceKind: RightPanelSurface["kind"] | null;
 }): "defer" | "ignore" | "open" {
   if (input.activeSurfaceKind === "pull-request") return "ignore";
   if (input.checkpoint === undefined || input.checkpoint.status === "missing") return "defer";
@@ -263,28 +259,13 @@ export function shouldReleaseTimelineAnchorForToolActivity(input: {
   });
 }
 
-export function toolGroupConsumesUpwardNavigation(target: EventTarget | null): boolean {
-  const elementTarget = target instanceof Element ? target : null;
-  const group = elementTarget?.closest<HTMLElement>("[data-tool-group-scroll]");
-  if (!group) return false;
-
-  for (let element = elementTarget; element; element = element.parentElement) {
-    if (element.scrollTop > 0) {
-      const overflowY = getComputedStyle(element).overflowY;
-      if (overflowY === "auto" || overflowY === "scroll") return true;
-    }
-    if (element === group) break;
-  }
-  return false;
-}
-
 export {
   findRecordedWorktreeSetup,
   resolveVisibleWorktreeSetup,
 } from "@t3tools/client-runtime/worktree-setup";
 
 /** Keep setup visible across local dispatch, durable preparation, and the live stream. */
-function resolveWorktreeSetupProgress(input: {
+export function resolveWorktreeSetupProgress(input: {
   threadId: ThreadId;
   localPreparing: boolean;
   runStatus: NonNullable<Thread["latestRun"]>["status"] | undefined;
@@ -690,22 +671,6 @@ export function getAntigravitySendBlockReason(
   return null;
 }
 
-export function buildRunningThreadTurnInterruptInput(
-  thread: Pick<Thread, "id" | "runtime"> | null | undefined,
-  phase: SessionPhase,
-): { threadId: ThreadId; runId?: RunId } | null {
-  if (
-    phase !== "running" ||
-    !thread?.runtime ||
-    !["running", "waiting", "starting", "preparing"].includes(thread.runtime.status)
-  )
-    return null;
-  return {
-    threadId: thread.id,
-    ...(thread.runtime.activeRunId ? { runId: thread.runtime.activeRunId } : {}),
-  };
-}
-
 export function reconcileMountedTerminalThreadIds(input: {
   currentThreadIds: ReadonlyArray<string>;
   openThreadIds: ReadonlyArray<string>;
@@ -869,22 +834,6 @@ export function resolveSendEnvMode(input: {
   return input.isGitRepo ? input.requestedEnvMode : "local";
 }
 
-/** Compatibility wrapper for callers that do not host the resting controls. */
-export function shouldShowComposerContextStrip(input: {
-  isDraftHeroState: boolean;
-  isGitRepo: boolean;
-  hasActiveProject: boolean;
-  persistInActiveThreads: boolean;
-  showEnvironmentIndicator?: boolean;
-  hostsRestingComposerControls?: boolean;
-}): boolean {
-  return shouldShowBranchComposerContextStrip({
-    ...input,
-    showEnvironmentIndicator: input.showEnvironmentIndicator ?? false,
-    hostsRestingComposerControls: input.hostsRestingComposerControls ?? false,
-  });
-}
-
 export function resolveBackgroundDraftWorkspaceOptions(input: {
   envMode: DraftThreadEnvMode;
   branch: string | null;
@@ -935,9 +884,7 @@ export function deriveComposerSendState(options: {
   expiredTerminalContextCount: number;
   hasSendableContent: boolean;
 } {
-  const trimmedPrompt = stripInlineTerminalContextPlaceholders(
-    stripInlineContextReferences(options.prompt),
-  ).trim();
+  const trimmedPrompt = stripInlineContextReferences(options.prompt).trim();
   const sendableTerminalContexts = filterTerminalContextsWithText(options.terminalContexts);
   const expiredTerminalContextCount =
     options.terminalContexts.length - sendableTerminalContexts.length;
@@ -1169,10 +1116,16 @@ export async function waitForStartedServerThread(
   });
 }
 
+/**
+ * Runs `revert` (the rollback command `requestId`) and resolves once the
+ * message's run is rolled back. Rejects with the server's reason as soon as
+ * the thread records that this rollback failed.
+ */
 export async function waitForRevertedMessage(
   threadRef: ScopedThreadRef,
   messageId: MessageId,
   turnCount: number,
+  requestId: CommandId,
   revert: () => Promise<void>,
   timeoutMs = 120_000,
 ): Promise<void> {
@@ -1199,6 +1152,11 @@ export async function waitForRevertedMessage(
     const inspect = () => {
       const thread = readProjection();
       if (!thread) return;
+      const failure = thread.thread.rollbackFailure;
+      if (failure?.requestId === requestId) {
+        finish(new Error(failure.message));
+        return;
+      }
       if (
         accepted &&
         thread.runs.some(
@@ -1290,7 +1248,10 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
     return true;
   }
-  if (input.phase === "connecting") {
+  // The thread shell can report a preparing or starting run before the detail
+  // projection behind `phase` loads, so either source still connecting holds
+  // the send.
+  if (input.phase === "connecting" || derivePhase(input.runtime ?? null) === "connecting") {
     return false;
   }
 
@@ -1335,7 +1296,7 @@ export function hasServerAcknowledgedLocalDispatch(input: {
 // away. The exceptions are places where focus is deliberate: another text field, a terminal in
 // the drawer or the right panel, or an open dialog or popup. A focused button outside those is
 // not one of them, so it yields to the composer.
-function shouldRefocusComposerOnWindowFocus(
+export function shouldRefocusComposerOnWindowFocus(
   activeElement:
     | (Pick<Element, "tagName" | "closest" | "getAttribute"> & { isContentEditable?: boolean })
     | null,

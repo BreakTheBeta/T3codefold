@@ -105,6 +105,7 @@ const SnapShotAccessibilityWire = Schema.Union([
     root: SnapShotAccessibilityNode,
   }),
 ]);
+
 export const SnapShotAccessibility = SnapShotAccessibilityWire.check(
   Schema.makeFilter((accessibility: typeof SnapShotAccessibilityWire.Type) => {
     if (accessibility.format === "flat-text") return undefined;
@@ -257,11 +258,3 @@ export class PersistChatAttachmentsError extends Schema.TaggedError<PersistChatA
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}
-
-export const UserInputAttachments = Schema.Record(
-  Schema.String,
-  Schema.Array(Schema.Union([ChatImageAttachment, ChatFileAttachment])).pipe(
-    Schema.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS)),
-  ),
-);
-export type UserInputAttachments = typeof UserInputAttachments.Type;

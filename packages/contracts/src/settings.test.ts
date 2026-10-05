@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
+import type { ProjectId } from "./baseSchemas.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
@@ -25,9 +26,7 @@ describe("ServerSettings response streaming", () => {
     expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");
   });
 
-  // `token` is still a mode the settings UI offers, behind its own confirmation dialog, so it
-  // round-trips like the other two rather than being rejected or rewritten on read.
-  it.each(["turn", "paragraph", "token"])(
+  it.each(["turn", "paragraph"])(
     "round-trips %s as an environment setting and project override",
     (responseStreamingMode) => {
       const input = {
@@ -39,10 +38,10 @@ describe("ServerSettings response streaming", () => {
     },
   );
 
-  it("rejects an unknown mode in settings snapshots and writes", () => {
+  it.each(["token", "unsupported"])("rejects %s in settings snapshots and writes", (mode) => {
     for (const input of [
-      { responseStreamingMode: "unsupported" },
-      { projectSettingsOverrides: { project: { responseStreamingMode: "unsupported" } } },
+      { responseStreamingMode: mode },
+      { projectSettingsOverrides: { project: { responseStreamingMode: mode } } },
     ]) {
       expect(() => decodeServerSettings(input)).toThrow();
       expect(() => decodeServerSettingsPatch(input)).toThrow();
@@ -372,101 +371,6 @@ describe("ClientSettings composer context strip", () => {
   });
 });
 
-describe("ClientSettings notifications", () => {
-  it("requires opt-in when existing settings omit notification preferences", () => {
-    expect(decodeClientSettings({}).notificationMode).toBe("off");
-    expect(decodeClientSettings({}).inAppNotificationsEnabled).toBe(false);
-    expect(decodeClientSettingsPatch({})).not.toHaveProperty("inAppNotificationsEnabled");
-    expect(decodeClientSettingsPatch({})).not.toHaveProperty("notificationMode");
-  });
-
-  it.each([true, false])(
-    "round-trips in-app notifications set to %s",
-    (inAppNotificationsEnabled) => {
-      const settings = decodeClientSettings({ inAppNotificationsEnabled });
-      expect(encodeClientSettings(settings).inAppNotificationsEnabled).toBe(
-        inAppNotificationsEnabled,
-      );
-      expect(
-        decodeClientSettingsPatch({ inAppNotificationsEnabled }).inAppNotificationsEnabled,
-      ).toBe(inAppNotificationsEnabled);
-    },
-  );
-
-  it.each(["true", 1, null])(
-    "rejects an invalid in-app notification preference %s",
-    (inAppNotificationsEnabled) => {
-      expect(() => decodeClientSettings({ inAppNotificationsEnabled })).toThrow();
-      expect(() => decodeClientSettingsPatch({ inAppNotificationsEnabled })).toThrow();
-    },
-  );
-
-  it.each(["off", "notifications", "sound", "notifications-and-sound"])(
-    "round-trips the %s mode",
-    (notificationMode) => {
-      const settings = decodeClientSettings({ notificationMode });
-      expect(encodeClientSettings(settings).notificationMode).toBe(notificationMode);
-      expect(decodeClientSettingsPatch({ notificationMode }).notificationMode).toBe(
-        notificationMode,
-      );
-    },
-  );
-
-  it.each(["always", true, null])(
-    "rejects unsupported notification mode %s",
-    (notificationMode) => {
-      expect(() => decodeClientSettings({ notificationMode })).toThrow();
-      expect(() => decodeClientSettingsPatch({ notificationMode })).toThrow();
-    },
-  );
-});
-
-describe("ClientSettings default diff file state", () => {
-  it("keeps files collapsed when existing settings omit the preference", () => {
-    expect(decodeClientSettings({}).diffFilesCollapsed).toBe(true);
-  });
-
-  it.each([true, false])("preserves a saved collapsed preference of %s", (diffFilesCollapsed) => {
-    const settings = decodeClientSettings({ diffFilesCollapsed });
-    expect(encodeClientSettings(settings).diffFilesCollapsed).toBe(diffFilesCollapsed);
-    expect(decodeClientSettingsPatch({ diffFilesCollapsed }).diffFilesCollapsed).toBe(
-      diffFilesCollapsed,
-    );
-  });
-});
-
-describe("ClientSettings diff colors", () => {
-  it("keeps red and green for existing settings without a saved palette", () => {
-    expect(decodeClientSettings({}).diffColorScheme).toBe("red-green");
-  });
-
-  it.each(["red-green", "blue-orange"])("round-trips the %s palette", (diffColorScheme) => {
-    const settings = decodeClientSettings({ diffColorScheme });
-    expect(encodeClientSettings(settings).diffColorScheme).toBe(diffColorScheme);
-    expect(decodeClientSettingsPatch({ diffColorScheme }).diffColorScheme).toBe(diffColorScheme);
-  });
-
-  it("rejects unsupported palettes", () => {
-    expect(() => decodeClientSettings({ diffColorScheme: "purple-yellow" })).toThrow();
-    expect(() => decodeClientSettingsPatch({ diffColorScheme: "purple-yellow" })).toThrow();
-  });
-});
-
-describe("ClientSettings load balancing", () => {
-  it("requires opt-in when settings are new or omit load balancing", () => {
-    expect(decodeClientSettings({}).loadBalancingEnabled).toBe(false);
-    expect(decodeClientSettings({ loadBalancingWeights: {} }).loadBalancingEnabled).toBe(false);
-  });
-
-  it.each([true, false])("preserves a saved choice of %s", (loadBalancingEnabled) => {
-    const settings = decodeClientSettings({ loadBalancingEnabled });
-    expect(encodeClientSettings(settings).loadBalancingEnabled).toBe(loadBalancingEnabled);
-    expect(decodeClientSettingsPatch({ loadBalancingEnabled }).loadBalancingEnabled).toBe(
-      loadBalancingEnabled,
-    );
-  });
-});
-
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);
@@ -577,17 +481,6 @@ describe("ClientSettings proactive panels", () => {
   });
 });
 
-describe("ClientSettings Vim keyboard mode", () => {
-  it("is opt-in and accepts client-local updates", () => {
-    expect(decodeClientSettings({}).vimModeEnabled).toBe(false);
-    expect(decodeClientSettings({}).vimThreadPreviewEnabled).toBe(false);
-    expect(
-      decodeClientSettingsPatch({ vimThreadPreviewEnabled: true }).vimThreadPreviewEnabled,
-    ).toBe(true);
-    expect(decodeClientSettingsPatch({ vimModeEnabled: true }).vimModeEnabled).toBe(true);
-  });
-});
-
 describe("ClientSettings quit confirmation", () => {
   it("defaults to hold", () => {
     expect(decodeClientSettings({}).confirmQuit).toBe("hold");
@@ -653,30 +546,6 @@ describe("ClientSettings recording input overlays", () => {
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);
-    expect(decodeClientSettings({}).themeBackdropEnabled).toBe(true);
-    const backdrop = decodeClientSettings({});
-    expect(backdrop.themeBackdropScope).toBe("featured");
-    expect(backdrop.themeBackdropColors).toBeNull();
-    expect(backdrop.themeBackdropIntensity).toBe(100);
-    expect(backdrop.themeBackdropAmount).toBe(100);
-    expect(decodeClientSettings({ themeBackdropAmount: 0 }).themeBackdropAmount).toBe(0);
-    expect(() => decodeClientSettings({ themeBackdropAmount: 201 })).toThrow();
-    expect(backdrop.themeBackdropGlow).toBe(false);
-    expect(backdrop.themeBackdropDynamic).toBe(false);
-    expect(backdrop.themeBackdropSeed).toBe(0);
-    expect(decodeClientSettings({ themeBackdropSeed: 4242 }).themeBackdropSeed).toBe(4242);
-    expect(() => decodeClientSettings({ themeBackdropSeed: -1 })).toThrow();
-    expect(() => decodeClientSettings({ themeBackdropSeed: 1.5 })).toThrow();
-    expect(
-      decodeClientSettings({ themeBackdropColors: ["#39ff88", "#29D9FF", "#ff3dcb"] })
-        .themeBackdropColors,
-    ).toEqual(["#39ff88", "#29D9FF", "#ff3dcb"]);
-    expect(() =>
-      decodeClientSettings({ themeBackdropColors: ["red", "#000000", "#000000"] }),
-    ).toThrow();
-    expect(() => decodeClientSettings({ themeBackdropColors: ["#000000"] })).toThrow();
-    expect(() => decodeClientSettings({ themeBackdropIntensity: 10 })).toThrow();
-    expect(() => decodeClientSettings({ themeBackdropScope: "some" })).toThrow();
   });
 
   it.each([39, 101, 72.5])("rejects an invalid glass opacity: %s", (value) => {
@@ -1213,4 +1082,41 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
     decodeDeviceHostSettings({ deviceHosts: [{ ...host, target: "-oProxyCommand=bad" }] }),
   ).toThrow();
   expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, port: 0 }] })).toThrow();
+});
+
+describe("branch naming settings", () => {
+  it("defaults existing settings to the t3code static prefix", () => {
+    expect(decodeServerSettings({})).toMatchObject({
+      branchNamingMode: "static",
+      branchNamePrefix: "t3code",
+      branchNameInstructions: "",
+    });
+  });
+  it.each(["static", "semantic", "custom"])(
+    "round-trips %s and project overrides",
+    (branchNamingMode) => {
+      const naming = {
+        branchNamingMode,
+        branchNamePrefix: "team/",
+        branchNameInstructions: "Include the issue ID.",
+      };
+      const input = { ...naming, projectSettingsOverrides: { project: naming } };
+      expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+      expect(decodeServerSettingsPatch(input)).toEqual(input);
+    },
+  );
+});
+
+describe("ServerSettings.removeAgentCreditsOnMerge", () => {
+  it("keeps agent credits by default and accepts opt-in patches", () => {
+    expect(decodeServerSettings({}).removeAgentCreditsOnMerge).toBe(false);
+    expect(
+      decodeServerSettingsPatch({ removeAgentCreditsOnMerge: true }).removeAgentCreditsOnMerge,
+    ).toBe(true);
+    expect(
+      decodeServerSettings({
+        projectSettingsOverrides: { project: { removeAgentCreditsOnMerge: true } },
+      }).projectSettingsOverrides["project" as ProjectId]?.removeAgentCreditsOnMerge,
+    ).toBe(true);
+  });
 });

@@ -20,18 +20,12 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
-import {
-  ProjectionStoreReadError,
-  ProjectionStoreV2,
-} from "../../orchestration-v2/ProjectionStore.ts";
-import {
-  ProviderSessionManagerV2,
-  ProviderSessionReleaseError,
-} from "../../orchestration-v2/ProviderSessionManager.ts";
+import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
+import * as ProviderSessionManager from "../../orchestration-v2/ProviderSessionManager.ts";
 import { AcpProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/AcpAdapterV2.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
 import type { ProviderAuthController } from "../Services/ProviderAuthService.ts";
-import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
+import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import { makeProviderAuthService } from "./ProviderAuthService.ts";
 
 const instanceId = ProviderInstanceId.make("antigravity-personal");
@@ -123,6 +117,13 @@ function makeSession(
   };
 }
 
+function sessionThreads(list: ReadonlyArray<OrchestrationV2ProviderSession>) {
+  return {
+    threads: list.map((session) => makeThread(session.id)),
+    sessions: new Map(list.map((session) => [ThreadId.make(session.id), [session]])),
+  };
+}
+
 const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* (
   input: {
     enabled?: boolean;
@@ -137,7 +138,9 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
     responds?: boolean;
     beforeLogout?: Effect.Effect<void>;
     beforeStop?: Effect.Effect<void>;
+    beforeListSessions?: Effect.Effect<void>;
     onLookup?: Effect.Effect<void>;
+    onListThreads?: (instances: ProviderInstance[]) => void;
   } = {},
 ) {
   const actions: string[] = [];
@@ -243,7 +246,7 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
   const service = yield* makeProviderAuthService.pipe(
     Effect.provide(
       Layer.mergeAll(
-        Layer.mock(ProviderInstanceRegistry)({
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
           getInstance: (id) =>
             Effect.gen(function* () {
               const found = instances.find((instance) => instance.instanceId === id);
@@ -253,21 +256,23 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
           listInstances: Effect.succeed(instances),
           subscribeChanges: PubSub.subscribe(registryChanges),
         }),
-        Layer.mock(ProjectionStoreV2)({
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({
           getRecoveryThreadIds: () =>
-            Effect.suspend(() => {
+            Effect.gen(function* () {
               assert.isTrue(gateClosed);
               actions.push("list-threads");
-              return input.shellError
+              input.onListThreads?.(instances);
+              yield* input.beforeListSessions ?? Effect.void;
+              return yield* input.shellError
                 ? Effect.fail(
-                    new ProjectionStoreReadError({
+                    new ProjectionStore.ProjectionStoreReadError({
                       threadId: ThreadId.make("shell"),
                       cause: new Error("private database diagnostics"),
                     }),
                   )
                 : Effect.succeed(threads.map((thread) => thread.id));
             }),
-          getThreadProjection: (threadId) =>
+          getThreadRecords: (threadId) =>
             Effect.sync(() => {
               actions.push(`sessions:${threadId}`);
               return {
@@ -275,20 +280,27 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
               } as never;
             }),
         }),
-        Layer.mock(ProviderSessionManagerV2)({
+        Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
           release: ({ providerSessionId, reason }) =>
             Effect.gen(function* () {
               assert.isTrue(gateClosed);
               actions.push(`stop:${providerSessionId}`);
               yield* input.beforeStop ?? Effect.void;
               if (input.stopError) {
-                return yield* new ProviderSessionReleaseError({
-                  providerSessionId,
-                  reason,
-                  cause: new Error("private process diagnostics"),
-                });
+                return yield* Effect.fail(
+                  new ProviderSessionManager.ProviderSessionReleaseError({
+                    providerSessionId,
+                    reason,
+                    cause: new Error("private process diagnostics"),
+                  }),
+                );
               }
               released.push(providerSessionId);
+              for (const [threadId, list] of sessions) {
+                const remaining = list.filter((session) => session.id !== providerSessionId);
+                if (remaining.length === 0) sessions.delete(threadId);
+                else sessions.set(threadId, remaining);
+              }
             }),
         }),
       ),
@@ -298,6 +310,7 @@ const makeHarness = Effect.fn("ProviderAuthService.test.makeHarness")(function* 
     service,
     actions,
     released,
+    sessions,
     auth,
     addInstance: (instance: ProviderInstance) => instances.push(instance),
     replaceInstance: (replacement: ProviderInstance) => {
@@ -349,7 +362,7 @@ const makeSubscriptionHarness = Effect.fn("ProviderAuthService.test.makeSubscrip
     const service = yield* makeProviderAuthService.pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.mock(ProviderInstanceRegistry)({
+          Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
             subscribeChanges: Effect.gen(function* () {
               const subscription = yield* PubSub.subscribe(changes);
               subscribed = true;
@@ -367,8 +380,8 @@ const makeSubscriptionHarness = Effect.fn("ProviderAuthService.test.makeSubscrip
                 return instance;
               }),
           }),
-          Layer.mock(ProjectionStoreV2)({}),
-          Layer.mock(ProviderSessionManagerV2)({}),
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+          Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({}),
         ),
       ),
     );
@@ -398,22 +411,16 @@ describe("ProviderAuthService", () => {
     "stops sessions sharing credentials and invalidates their processes before logout",
     () =>
       Effect.gen(function* () {
-        const { service, actions, released } = yield* makeHarness({
+        const { service, actions, sessions } = yield* makeHarness({
           sharedCredentials: true,
-          threads: [makeThread("active")],
-          sessions: new Map([
-            [
-              ThreadId.make("active"),
-              [
-                makeSession("target"),
-                makeSession("shared", "ready", otherInstanceId),
-                makeSession("unrelated", "ready", unsupportedInstanceId),
-              ],
-            ],
+          ...sessionThreads([
+            makeSession("target"),
+            makeSession("shared", "ready", otherInstanceId),
+            makeSession("unrelated", "ready", unsupportedInstanceId),
           ]),
         });
         yield* service.logout({ instanceId });
-        assert.deepStrictEqual(released, ["target", "shared"]);
+        assert.deepStrictEqual([...sessions.keys()], [ThreadId.make("unrelated")]);
         assert.isBelow(actions.indexOf("stop:shared"), actions.indexOf("invalidate-shared"));
         assert.isBelow(actions.indexOf("invalidate-shared"), actions.indexOf("native-logout"));
       }),
@@ -833,15 +840,9 @@ it.effect.each(["start", "logout", "prompt"] as const)(
           Effect.andThen(Deferred.await(continueCheck)),
           Effect.as(false),
         ),
-        threads: [makeThread("shared-thread")],
-        sessions: new Map([
-          [
-            ThreadId.make("shared-thread"),
-            [
-              makeSession("old-shared", "ready", otherInstanceId),
-              makeSession("replacement-shared", "ready", replacementPeerId),
-            ],
-          ],
+        ...sessionThreads([
+          makeSession("old-shared", "ready", otherInstanceId),
+          makeSession("replacement-shared", "ready", replacementPeerId),
         ]),
       });
       harness.addInstance(
@@ -889,8 +890,8 @@ it.effect.each(["start", "logout", "prompt"] as const)(
       yield* Fiber.join(running);
       assert.equal(replacementMutations, 0);
       assert.include(harness.actions, action === "start" ? "start-sign-in" : "native-logout");
-      assert.include(harness.released, "old-shared");
-      assert.notInclude(harness.released, "replacement-shared");
+      assert.isFalse(harness.sessions.has(ThreadId.make("old-shared")));
+      assert.isTrue(harness.sessions.has(ThreadId.make("replacement-shared")));
       const blocked = yield* Effect.flip(harness.service.logout({ instanceId }));
       assert.include(blocked.detail, "shared sign-in");
       assert.equal(replacementMutations, 0);
@@ -908,13 +909,7 @@ it.effect.each([
       const continueDrain = yield* Deferred.make<void>();
       const harness = yield* makeHarness({
         sharedCredentials: true,
-        threads: [makeThread("shared-thread")],
-        sessions: new Map([
-          [
-            ThreadId.make("shared-thread"),
-            [makeSession("shared-draining", "ready", otherInstanceId)],
-          ],
-        ]),
+        ...sessionThreads([makeSession("shared-draining", "ready", otherInstanceId)]),
         beforeStop: Deferred.succeed(draining, undefined).pipe(
           Effect.andThen(Deferred.await(continueDrain)),
         ),
@@ -938,7 +933,48 @@ it.effect.each([
       yield* Deferred.succeed(continueDrain, undefined);
       yield* Fiber.join(logout);
       assert.isFalse(replacementInvalidated);
-      assert.include(harness.released, "shared-draining");
+      assert.isFalse(harness.sessions.has(ThreadId.make("shared-draining")));
+      assert.include(harness.actions, "native-logout");
+    }).pipe(Effect.scoped),
+);
+
+it.effect.each(["selection", "drain"] as const)(
+  "preserves replacement peer sessions when credentials change during session %s",
+  (phase) =>
+    Effect.gen(function* () {
+      const entered = yield* Deferred.make<void>();
+      const proceed = yield* Deferred.make<void>();
+      const block = Deferred.succeed(entered, undefined).pipe(
+        Effect.andThen(Deferred.await(proceed)),
+      );
+      const harness = yield* makeHarness({
+        sharedCredentials: true,
+        ...sessionThreads([
+          makeSession("target-draining"),
+          makeSession("peer-replacement", "ready", otherInstanceId),
+          makeSession("peer-persisted", "running", otherInstanceId),
+        ]),
+        ...(phase === "selection" ? { beforeListSessions: block } : { beforeStop: block }),
+      });
+      const logout = yield* harness.service.logout({ instanceId }).pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      harness.replaceInstance(
+        makeInstance({
+          instanceId: otherInstanceId,
+          enabled: true,
+          auth: {
+            ...harness.auth,
+            credentialBinding: { owner: "provider", key: "replacement-credentials" },
+            invalidate: Effect.die("The replacement peer's credentials must not be invalidated."),
+          },
+        }),
+      );
+      yield* Deferred.succeed(proceed, undefined);
+      yield* Fiber.join(logout);
+      assert.isTrue(harness.sessions.has(ThreadId.make("peer-replacement")));
+      assert.notInclude(harness.actions, "stop:peer-replacement");
+      assert.notInclude(harness.actions, "stop:peer-persisted");
+      assert.isFalse(harness.sessions.has(ThreadId.make("target-draining")));
       assert.include(harness.actions, "native-logout");
     }).pipe(Effect.scoped),
 );

@@ -14,13 +14,28 @@ function asTrimmedString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-/** CUA's `title` describes the action shown in the activity log. */
-export function computerUseToolTitle(
+/** A Claude `Skill` call: the skill it loads and the arguments it passes, if any. */
+export function claudeSkillInvocation(
+  toolName: string | null | undefined,
+  input: unknown,
+): { readonly name: string; readonly args: string | undefined } | undefined {
+  if (toolName !== "Skill") return undefined;
+  const record = asRecord(input);
+  const name = asTrimmedString(record?.skill);
+  return name === undefined ? undefined : { name, args: asTrimmedString(record?.args) };
+}
+
+/**
+ * Activity log heading a dynamic tool derives from its input: CUA's `title`,
+ * or the skill a Claude `Skill` call loads.
+ */
+export function dynamicToolTitle(
   toolName: string | null | undefined,
   input: unknown,
 ): string | undefined {
-  if (toolName !== "cua_repl.js") return undefined;
-  return asTrimmedString(asRecord(input)?.title);
+  if (toolName === "cua_repl.js") return asTrimmedString(asRecord(input)?.title);
+  const skill = claudeSkillInvocation(toolName, input);
+  return skill === undefined ? undefined : `Skill: ${skill.name}`;
 }
 
 function recordHasKeys(
@@ -287,37 +302,6 @@ const SEARCH_TARGET_KEYS = [
   "cwd",
   "root",
 ] as const;
-
-export function projectQuestionToolInput(data: Record<string, unknown>, title: unknown) {
-  const item = asRecord(data.item);
-  const toolName = data.toolName ?? data.tool ?? item?.tool ?? title;
-  if (typeof toolName !== "string") return {};
-  const name = toolName
-    .split(/__|[./]/)
-    .at(-1)
-    ?.replace(/[_\s]/g, "")
-    .toLowerCase();
-  if (!name || !/^(askuserquestion|requestuserinput(?:async)?|askquestion|question)$/.test(name))
-    return {};
-  const input = asRecord(
-    data.input ?? data.rawInput ?? asRecord(data.state)?.input ?? item?.arguments,
-  );
-  const questions = input?.questions ?? asRecord(input?.params)?.questions;
-  if (!Array.isArray(questions)) return {};
-  return {
-    toolName,
-    input: {
-      questions: questions.map((value) => {
-        const question = asRecord(value);
-        return {
-          question: asTrimmedString(
-            question?.question ?? question?.question_text ?? question?.prompt ?? question?.title,
-          ),
-        };
-      }),
-    },
-  };
-}
 
 function firstInputString(
   record: Record<string, unknown> | undefined,

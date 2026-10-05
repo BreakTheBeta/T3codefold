@@ -5,21 +5,18 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import * as Semaphore from "effect/Semaphore";
 
-import { ProviderSessionManagerV2 } from "../../orchestration-v2/ProviderSessionManager.ts";
-import { ProjectionStoreV2 } from "../../orchestration-v2/ProjectionStore.ts";
-import {
-  ProviderAuthService,
-  type ProviderAuthController,
-} from "../Services/ProviderAuthService.ts";
-import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
+import * as ProviderSessionManager from "../../orchestration-v2/ProviderSessionManager.ts";
+import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
+import * as ProviderAuthService from "../Services/ProviderAuthService.ts";
+import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 
 export const makeProviderAuthService = Effect.gen(function* () {
-  const registry = yield* ProviderInstanceRegistry;
-  const projections = yield* ProjectionStoreV2;
-  const providerSessions = yield* ProviderSessionManagerV2;
+  const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
   const credentialChanges = yield* Semaphore.make(1);
 
   const getController = Effect.fn("ProviderAuthService.getController")(function* (
@@ -39,36 +36,27 @@ export const makeProviderAuthService = Effect.gen(function* () {
     return instance.auth;
   });
 
-  /** Every instance that signs in with the same credentials as `instanceId`. */
-  const resolveAffectedInstanceIds = Effect.fnUntraced(function* (
-    instanceId: ProviderInstanceId,
-    binding: ProviderAuthController["credentialBinding"],
-  ) {
-    if (binding === undefined) return new Set([instanceId]);
-    const instances = yield* registry.listInstances;
-    return new Set([
-      instanceId,
-      ...instances
-        .filter(
-          (instance) =>
-            instance.auth?.credentialBinding?.key === binding.key &&
-            instance.auth.credentialBinding.owner === binding.owner,
-        )
-        .map((instance) => instance.instanceId),
-    ]);
-  });
-
   // Native sessions may still belong to the previous provider after the
   // selected model changes. Read session bindings, not the selected model,
-  // when invalidating credentials for sign-in or sign-out. A shared sign-in
-  // takes every instance bound to the same credentials down with it.
+  // when invalidating credentials for sign-in or sign-out.
   const stopSessions = Effect.fn("ProviderAuthService.stopSessions")(function* (
     instanceId: ProviderInstanceId,
-    binding: ProviderAuthController["credentialBinding"],
+    binding: ProviderAuthService.ProviderAuthController["credentialBinding"],
   ) {
     const failure = (detail: string) =>
       new ProviderSetupError({ instanceId, operation: "stopSessions", detail });
-    const affectedIds = yield* resolveAffectedInstanceIds(instanceId, binding);
+    const affectedIds = new Set([
+      instanceId,
+      ...(binding === undefined
+        ? []
+        : (yield* registry.listInstances)
+            .filter(
+              (instance) =>
+                instance.auth?.credentialBinding?.key === binding.key &&
+                instance.auth.credentialBinding.owner === binding.owner,
+            )
+            .map((instance) => instance.instanceId)),
+    ]);
     const threadIds = yield* projections
       .getRecoveryThreadIds("runtime")
       .pipe(
@@ -78,7 +66,7 @@ export const makeProviderAuthService = Effect.gen(function* () {
     yield* Effect.forEach(
       threadIds,
       (threadId) =>
-        projections.getThreadProjection(threadId).pipe(
+        projections.getThreadRecords(threadId, ["providerSessions"]).pipe(
           Effect.flatMap((projection) =>
             Effect.forEach(
               projection.providerSessions.filter(
@@ -89,13 +77,24 @@ export const makeProviderAuthService = Effect.gen(function* () {
                   !released.has(session.id),
               ),
               (session) =>
-                providerSessions
-                  .release({
-                    providerSessionId: session.id,
-                    reason: "manual_shutdown",
-                    detail: "Provider sign-in changed.",
-                  })
-                  .pipe(Effect.tap(() => Effect.sync(() => released.add(session.id)))),
+                Effect.gen(function* () {
+                  if (session.providerInstanceId !== instanceId) {
+                    const current = yield* registry.getInstance(session.providerInstanceId);
+                    if (
+                      !binding ||
+                      current?.auth?.credentialBinding?.key !== binding.key ||
+                      current.auth.credentialBinding.owner !== binding.owner
+                    )
+                      return;
+                  }
+                  yield* providerSessions
+                    .release({
+                      providerSessionId: session.id,
+                      reason: "manual_shutdown",
+                      detail: "Provider sign-in changed.",
+                    })
+                    .pipe(Effect.tap(() => Effect.sync(() => released.add(session.id))));
+                }),
               { discard: true },
             ),
           ),
@@ -106,10 +105,6 @@ export const makeProviderAuthService = Effect.gen(function* () {
       { discard: true },
     );
     if (binding) {
-      // The other instances keep their own cached credential state; drop it so
-      // they re-read what this sign-in or sign-out just changed. Re-read the
-      // registry: draining takes time, and a peer that moved to different
-      // credentials meanwhile no longer shares this sign-in.
       yield* Effect.forEach(
         (yield* registry.listInstances).filter(
           (instance) =>
@@ -124,11 +119,10 @@ export const makeProviderAuthService = Effect.gen(function* () {
     }
   });
 
-  /** One credential change at a time across the instances that share it. */
   const checkSharedBinding = Effect.fnUntraced(function* (
     instanceId: ProviderInstanceId,
     operation: "start" | "logout",
-    auth: ProviderAuthController,
+    auth: ProviderAuthService.ProviderAuthController,
   ) {
     const binding = auth.credentialBinding;
     if (!binding) return;
@@ -151,7 +145,7 @@ export const makeProviderAuthService = Effect.gen(function* () {
     }
   });
 
-  return ProviderAuthService.of({
+  return ProviderAuthService.ProviderAuthService.of({
     reconnectProfile: Effect.fnUntraced(function* (input) {
       const auth = yield* getController(input.instanceId, "export");
       if (!auth.reconnectProfile)
@@ -256,4 +250,7 @@ export const makeProviderAuthService = Effect.gen(function* () {
   });
 });
 
-export const ProviderAuthServiceLive = Layer.effect(ProviderAuthService, makeProviderAuthService);
+export const ProviderAuthServiceLive = Layer.effect(
+  ProviderAuthService.ProviderAuthService,
+  makeProviderAuthService,
+);

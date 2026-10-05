@@ -62,6 +62,7 @@ import {
   isProviderUpdateActive,
   type ProviderSettingsUpdateCandidate,
 } from "../ProviderUpdateLaunchNotification.logic";
+import { ProviderUpdatesAction } from "../ProviderUpdatesAction";
 import { Button } from "../ui/button";
 import {
   Empty,
@@ -102,6 +103,7 @@ import {
 import {
   PolicyTooltip,
   SettingResetButton,
+  SettingsPageContainer,
   SettingsRow,
   SettingsSection,
   useRelativeTimeTick,
@@ -279,13 +281,14 @@ interface ProviderSettingsTarget {
   readonly environmentIds?: readonly EnvironmentId[];
 }
 
-/** Provider list for one environment; the Agents page supplies the `@container/providers` container. */
-export function ProviderSettings(target: ProviderSettingsTarget) {
+export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
   return (
-    <ProviderSettingsPanelContent
-      key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
-      {...target}
-    />
+    <SettingsPageContainer width="wide" className="@container/providers gap-8">
+      <ProviderSettingsPanelContent
+        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
+        {...target}
+      />
+    </SettingsPageContainer>
   );
 }
 
@@ -919,6 +922,7 @@ export function EnvironmentProviderSettings({
     }
 
     if (row.driver !== ProviderDriverKind.make("acpRegistry")) return;
+    if (providerConfigString(row.instance.config, "source") === "local") return;
     const agentId = providerConfigString(row.instance.config, "agentId");
     if (agentId === null) return;
 
@@ -1161,7 +1165,7 @@ export function EnvironmentProviderSettings({
           })
         }
         onInstallRecommended={
-          mode === "editor" &&
+          !readOnly &&
           liveProvider?.compatibilityAdvisory?.message &&
           liveProvider.compatibilityAdvisory.recommendedVersion &&
           liveProvider.versionAdvisory?.canInstallVersion
@@ -1174,13 +1178,13 @@ export function EnvironmentProviderSettings({
             : undefined
         }
         onRunUpdate={
-          mode === "editor" && showInlineUpdateButton && updateCandidate
+          !readOnly && showInlineUpdateButton && updateCandidate
             ? () => {
                 if (canRunInlineUpdate) void runProviderUpdate(updateCandidate);
               }
             : undefined
         }
-        isUpdating={mode === "editor" ? isInstanceUpdateRunning : undefined}
+        isUpdating={isInstanceUpdateRunning}
       />
     );
   };
@@ -1192,6 +1196,7 @@ export function EnvironmentProviderSettings({
         variant="plain"
         headerAction={
           <div className="flex min-w-0 items-center gap-2">
+            <ProviderUpdatesAction />
             {readOnly ? (
               <span className="min-w-0 truncate text-xs text-muted-foreground">
                 <ProviderLastChecked lastCheckedAt={lastCheckedAt} />

@@ -30,17 +30,6 @@ export function usesChatGptSharing(provider: ServerProvider | null | undefined):
   return provider?.auth.status === "authenticated" && provider.auth.subscriptionSharing === true;
 }
 
-/**
- * The message a ChatGPT-managed Codex turn fails with when shared usage runs out. Orchestration
- * keeps only the failure message as the thread error, so clients match on it exactly.
- */
-export const CHATGPT_USAGE_LIMIT_MESSAGE =
-  "Your ChatGPT usage limit was reached. Check ChatGPT Usage settings for your available allowance.";
-
-export function isChatGptUsageLimitError(error: string | null | undefined): boolean {
-  return error === CHATGPT_USAGE_LIMIT_MESSAGE;
-}
-
 export const CURSOR_USAGE_WINDOWS = [
   {
     id: "totalPercentUsed",

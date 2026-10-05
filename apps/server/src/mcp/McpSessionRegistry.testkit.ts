@@ -2,11 +2,11 @@ import { EnvironmentId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { McpSessionRegistry } from "./McpSessionRegistry.ts";
+import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 
 export const layer = Layer.succeed(
-  McpSessionRegistry,
-  McpSessionRegistry.of({
+  McpSessionRegistry.McpSessionRegistry,
+  McpSessionRegistry.McpSessionRegistry.of({
     issue: ({ threadId, providerInstanceId }) =>
       Effect.succeed({
         config: {
@@ -16,7 +16,6 @@ export const layer = Layer.succeed(
           providerInstanceId,
           endpoint: "http://127.0.0.1/mcp",
           authorizationHeader: `Bearer mcp-test:${threadId}`,
-          capabilities: new Set(["preview", "orchestration", "worktree", "pull-requests"]),
           browserToolsAvailable: true,
         },
       }),

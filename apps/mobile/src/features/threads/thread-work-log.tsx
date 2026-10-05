@@ -1,7 +1,5 @@
 import { SubagentStatusDot } from "./SubagentStatusDot";
-import { useAtomValue } from "@effect/atom-react";
-import { serverEnvironment } from "../../state/server";
-import { ProviderIcon } from "../../components/ProviderIcon";
+import { ThreadSubagentGroup } from "./thread-subagent-group";
 import {
   WorkLogLabel,
   WorkLogBlock,
@@ -20,11 +18,7 @@ import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
 import { MaskedView } from "@expo/ui/community/masked-view";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
-import { useIsFocused, useNavigation } from "@react-navigation/native";
-import {
-  formatSubagentDisplayTitle,
-  subagentGroupSummary,
-} from "@t3tools/client-runtime/state/subagent-display";
+import { StackActions, useIsFocused, useNavigation } from "@react-navigation/native";
 import {
   memo,
   useCallback,
@@ -47,7 +41,17 @@ import {
   View,
 } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import type { EnvironmentId, ToolActivityIcon } from "@t3tools/contracts";
+import {
+  ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
+  type EnvironmentId,
+  type RunId,
+  type ThreadId,
+  type ToolActivityIcon,
+} from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { environmentThreadDetails, threadEnvironment } from "../../state/threads";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
 
 import { AppText as Text } from "../../components/AppText";
@@ -56,9 +60,16 @@ import { cn } from "../../lib/cn";
 import { THREAD_WORK_ROW_MIN_HEIGHT, type deriveThreadWorkLogSizing } from "../../lib/layout";
 import {
   type AgentSpawnSummary,
+  formatItemFullDetail,
   type ThreadFeedActivity,
   workEntryRowLabel,
 } from "../../lib/threadActivity";
+import {
+  toolCallLines,
+  turnItemOutputImages,
+  turnItemOutputText,
+} from "@t3tools/client-runtime/work-log/item-detail";
+import { useTurnItemDetail } from "../../state/queries";
 import {
   resolveThreadWorkGroupInitialScroll,
   shouldFollowThreadWorkGroupAppend,
@@ -66,11 +77,15 @@ import {
 } from "./thread-feed-live-follow";
 import {
   resolveWorkEntryToolPresentation,
+  toolGroupAction,
   type ToolGroupSummaryKind,
   workEntryViewedImagePath,
 } from "@t3tools/client-runtime/work-log/presentation";
 import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/scroll-anchor";
+import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
 import type { MarkdownImageRenderer } from "../../native/SelectableMarkdownText";
+import type { FilePreviewSource } from "../../components/FilePreviewModal";
+import { ThreadMarkdownImage } from "./ThreadMarkdownImage";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -376,6 +391,8 @@ function workRowSymbolName(icon: ThreadFeedActivity["icon"]): AppSymbolName {
       return { ios: "eye", android: "visibility" };
     case "globe":
       return { ios: "globe", android: "public" };
+    case "search":
+      return "magnifyingglass";
     case "hammer":
       return { ios: "hammer", android: "construction" };
     case "lock":
@@ -451,6 +468,7 @@ interface ThreadWorkLogProps {
   readonly onToggleRow: (rowId: string, anchorKey: string) => void;
   readonly renderImage: MarkdownImageRenderer;
   readonly renderReasoning: (text: string) => ReactNode;
+  readonly onPressPreview: (source: FilePreviewSource) => void;
 }
 
 export function ThreadWorkLog(props: ThreadWorkLogProps) {
@@ -468,6 +486,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         onToggleRow={props.onToggleRow}
         renderImage={props.renderImage}
         renderReasoning={props.renderReasoning}
+        onPressPreview={props.onPressPreview}
         themeAppearance={props.themeAppearance}
       />
     ),
@@ -481,6 +500,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
       props.onToggleRow,
       props.renderImage,
       props.renderReasoning,
+      props.onPressPreview,
       props.themeAppearance,
     ],
   );
@@ -521,92 +541,6 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
       ) : (
         <WorkLogRows>{props.activities.map(renderRow)}</WorkLogRows>
       )}
-    </WorkLogBlock>
-  );
-}
-
-function ThreadSubagentGroup(props: ThreadWorkLogProps) {
-  const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
-  const navigation = useNavigation();
-  const members = props.activities.flatMap(({ projectedItem }) =>
-    projectedItem.item.type === "subagent" ? [projectedItem.item] : [],
-  );
-  const summary = subagentGroupSummary(members);
-  const expanded = props.expandedRows[props.anchorKey] ?? false;
-  return (
-    <WorkLogBlock continues={props.continuesWorkLog}>
-      <WorkLogPressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        accessibilityLabel={summary.label}
-        onPress={() => props.onToggleRow(props.anchorKey, props.anchorKey)}
-        rowSizing={props.rowSizing}
-      >
-        <WorkLogIconSlot>
-          <SymbolView
-            name={workRowSymbolName("agent")}
-            size={14}
-            tintColor={props.iconSubtleColor}
-          />
-        </WorkLogIconSlot>
-        <WorkLogLabel tone={summary.failed ? "danger" : "default"}>{summary.label}</WorkLogLabel>
-        <ThreadDisclosureChevron
-          expanded={expanded}
-          collapsedDirection="down"
-          size={11}
-          tintColor={props.iconSubtleColor}
-        />
-      </WorkLogPressable>
-      {expanded ? (
-        <WorkLogRows>
-          {members.map((item) => {
-            const title = formatSubagentDisplayTitle(item.title ?? "Subagent");
-            const threadId = item.childThreadId;
-            return (
-              <WorkLogPressable
-                key={item.id}
-                accessibilityRole={threadId === null ? undefined : "button"}
-                accessibilityLabel={threadId === null ? title : `Open ${title}`}
-                accessibilityHint={item.status.replaceAll("_", " ")}
-                disabled={threadId === null}
-                onPress={() => {
-                  if (threadId !== null)
-                    navigation.navigate("Thread", {
-                      environmentId: String(props.environmentId),
-                      threadId: String(threadId),
-                    });
-                }}
-                rowSizing={props.rowSizing}
-              >
-                <WorkLogIconSlot>
-                  <ProviderIcon
-                    provider={item.driver}
-                    iconUrl={
-                      config?.providers.find(
-                        (provider) => provider.instanceId === item.providerInstanceId,
-                      )?.iconUrl
-                    }
-                    size={14}
-                  />
-                  <SubagentStatusDot
-                    placement="provider"
-                    tone={
-                      item.status === "failed"
-                        ? "failed"
-                        : item.status === "completed"
-                          ? "completed"
-                          : item.status === "cancelled" || item.status === "interrupted"
-                            ? "stopped"
-                            : "working"
-                    }
-                  />
-                </WorkLogIconSlot>
-                <WorkLogLabel>{title}</WorkLogLabel>
-              </WorkLogPressable>
-            );
-          })}
-        </WorkLogRows>
-      ) : null}
     </WorkLogBlock>
   );
 }
@@ -859,6 +793,44 @@ function workLogRowKey(row: ThreadFeedActivity): string {
   return row.id;
 }
 
+/** Shown while the thread's run still ends in this failed preparation. */
+function WorkspacePreparationRetryButton(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly runId: RunId;
+}) {
+  const retryable = useAtomValue(
+    environmentThreadDetails.threadAtom(scopeThreadRef(props.environmentId, props.threadId)),
+    (thread) => {
+      const run = thread?.projection.runs.find((candidate) => candidate.id === props.runId);
+      return run?.status === "failed" && run.workspacePreparation !== undefined;
+    },
+  );
+  const retry = useAtomCommand(threadEnvironment.retryWorkspacePreparation, "retry setup");
+  const [busy, setBusy] = useState(false);
+  if (!retryable) return null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Retry workspace preparation"
+      disabled={busy}
+      onPress={() => {
+        setBusy(true);
+        void Haptics.selectionAsync();
+        void retry({
+          environmentId: props.environmentId,
+          input: { threadId: props.threadId, runId: props.runId },
+        }).finally(() => setBusy(false));
+      }}
+      className="ml-7 mt-2 min-h-11 flex-row items-center gap-1.5 self-start rounded-full border border-border px-4"
+      style={{ opacity: busy ? 0.5 : 1 }}
+    >
+      <SymbolView name="arrow.clockwise" size={13} tintColorClassName="accent-icon" />
+      <Text className="font-t3-medium text-sm text-foreground">Retry</Text>
+    </Pressable>
+  );
+}
+
 const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   props: Omit<
     ThreadWorkLogProps,
@@ -876,9 +848,132 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   },
 ) {
   const { row, expanded } = props;
-  const canExpand = row.canExpand;
+  const navigation = useNavigation();
+  const fetchedDetail = useTurnItemDetail(
+    expanded && row.fetchesDetail
+      ? { environmentId: props.environmentId, row: row.projectedItem }
+      : null,
+  );
+  const failureItem = row.projectedItem.item;
+  if (failureItem.type === "error" && failureItem.status === "failed") {
+    const warning = failureItem.failure.class === "usage_limit";
+    const timestamp = new Date(row.createdAt);
+    const resetAt = failureItem.failure.resetAt;
+    const resetTime = resetAt
+      ? new Date(resetAt).toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : null;
+    const label = warning
+      ? `Usage limit reached.${resetTime ? ` Retry after ${resetTime}.` : ""}`
+      : row.summary;
+    return (
+      <WorkLogPressable
+        accessibilityLabel={warning ? label : `${row.summary}: ${failureItem.failure.message}`}
+        accessibilityHint="Long press to copy."
+        onLongPress={() => props.onCopyRow(row.id, row.getCopyText())}
+      >
+        <View className="flex-1 py-1">
+          <View className="flex-row items-center gap-1.5">
+            <WorkLogIconSlot>
+              <WorkLogIcon
+                icon="exclamationmark.circle"
+                color={props.iconSubtleColor}
+                colorClassName={warning ? "accent-warning-foreground" : "accent-danger-foreground"}
+              />
+            </WorkLogIconSlot>
+            <Text
+              className={
+                warning
+                  ? "min-w-0 flex-1 font-t3-medium text-sm text-warning-foreground"
+                  : "min-w-0 flex-1 font-t3-medium text-sm text-adaptive-rose-600-400"
+              }
+            >
+              {label}
+            </Text>
+            {props.copied ? (
+              <Text className="pr-1 font-t3-medium text-3xs text-adaptive-emerald-600-400">
+                Copied
+              </Text>
+            ) : null}
+            <Text
+              accessibilityLabel={timestamp.toLocaleString()}
+              className="shrink-0 text-xs text-foreground-subtle"
+            >
+              {timestamp.toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </Text>
+          </View>
+          {!warning ? (
+            <Text selectable className="ml-7 text-sm text-foreground">
+              {failureItem.failure.message}
+            </Text>
+          ) : null}
+          {failureItem.failure.code === ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE &&
+          failureItem.runId !== null ? (
+            <WorkspacePreparationRetryButton
+              environmentId={props.environmentId}
+              threadId={failureItem.threadId}
+              runId={failureItem.runId}
+            />
+          ) : null}
+        </View>
+      </WorkLogPressable>
+    );
+  }
+  // A subagent's notification opens its thread, like the subagent's own row.
+  const notifiedSubagentThreadId =
+    row.projectedItem.item.type === "notification"
+      ? notificationChildThreadId(row.projectedItem.item.source)
+      : undefined;
+  const canExpand = row.canExpand && notifiedSubagentThreadId === undefined;
   const reasoning = row.projectedItem.item.type === "reasoning" ? row.projectedItem.item : null;
-  const fullDetail = expanded && !reasoning ? row.getFullDetail() : null;
+  const fetchedItem = fetchedDetail.data?.item ?? null;
+  // Reads keep their path list; the fetched file contents show as output.
+  const isRead = toolGroupAction(row.workEntry) === "read";
+  // Tool calls show the call in the foreground and the result muted below it.
+  const shownItem = fetchedItem ?? row.projectedItem.item;
+  const call =
+    expanded && !isRead && shownItem.type === "command_execution"
+      ? toolCallLines({ command: shownItem.input })
+      : expanded && !isRead && shownItem.type === "dynamic_tool"
+        ? toolCallLines({ args: shownItem.input })
+        : expanded && shownItem.type === "file_search"
+          ? toolCallLines({ args: { pattern: shownItem.pattern } })
+          : expanded && shownItem.type === "web_search"
+            ? toolCallLines({ args: { query: shownItem.patterns?.join(", ") } })
+            : null;
+  const failedExitCode =
+    call && shownItem.type === "command_execution" && shownItem.exitCode
+      ? shownItem.exitCode
+      : null;
+  const fullDetail =
+    expanded && !reasoning && !call
+      ? fetchedItem && !isRead
+        ? formatItemFullDetail(row.projectedItem, fetchedItem)
+        : row.getFullDetail()
+      : null;
+  const outputImages = expanded && fetchedItem ? turnItemOutputImages(fetchedItem) : [];
+  const fetchedOutput = !expanded
+    ? null
+    : shownItem.type === "file_search" || shownItem.type === "web_search"
+      ? turnItemOutputText(shownItem)
+      : fetchedItem
+        ? (turnItemOutputText(fetchedItem) ?? (outputImages.length > 0 ? null : "No output."))
+        : fetchedDetail.error
+          ? `Couldn't load output: ${fetchedDetail.error}`
+          : row.fetchesDetail
+            ? fetchedDetail.data
+              ? "Output is no longer available."
+              : "Loading output…"
+            : null;
   const viewedImagePath = workEntryViewedImagePath(row.workEntry);
   const toolPresentation = resolveWorkEntryToolPresentation(row.workEntry);
   const previewText = workEntryRowLabel(row.workEntry);
@@ -888,7 +983,12 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   const accessiblePreview = [previewText, answerPreview].filter(Boolean).join(": ");
   const displayText = workEntryRowLabel(row.workEntry, expanded);
   const isSystemNotice = row.projectedItem.item.type === "system_notice";
-  const iconIsDestructive = !isSystemNotice && (row.icon === "alert" || row.icon === "warning");
+  const isUsageLimit =
+    row.projectedItem.item.type === "error" &&
+    row.projectedItem.item.failure.class === "usage_limit" &&
+    row.projectedItem.item.status !== "completed";
+  const iconIsDestructive =
+    !isSystemNotice && !isUsageLimit && (row.icon === "alert" || row.icon === "warning");
   const failed = row.status === "failure";
   const toolIcon = row.workEntry.toolIcon ?? row.workEntry.toolSource?.icon;
   const icon = reasoning ? "brain" : (toolPresentation?.icon ?? workRowSymbolName(row.icon));
@@ -900,15 +1000,30 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
       {...(isFreshRow(row.createdAt) ? { entering: FadeIn.duration(200) } : {})}
     >
       <WorkLogPressable
-        accessibilityRole={canExpand ? "button" : undefined}
+        accessibilityRole={
+          notifiedSubagentThreadId !== undefined ? "link" : canExpand ? "button" : undefined
+        }
         accessibilityLabel={failed ? `${accessiblePreview}, tool call failed` : accessiblePreview}
         accessibilityHint={
-          canExpand
-            ? `Double tap to ${expanded ? "hide" : "show"} full details. Long press to copy.`
-            : "Long press to copy."
+          notifiedSubagentThreadId !== undefined
+            ? "Opens this agent's thread. Long press to copy."
+            : canExpand
+              ? `Double tap to ${expanded ? "hide" : "show"} full details. Long press to copy.`
+              : "Long press to copy."
         }
         accessibilityState={canExpand ? { expanded } : undefined}
         onPress={() => {
+          if (notifiedSubagentThreadId !== undefined) {
+            // Push, not navigate: navigate reuses this Thread route, so back
+            // would skip the parent thread and land on Home (matches #15068).
+            navigation.dispatch(
+              StackActions.push("Thread", {
+                environmentId: String(props.environmentId),
+                threadId: String(notifiedSubagentThreadId),
+              }),
+            );
+            return;
+          }
           if (canExpand) {
             void Haptics.selectionAsync();
             props.onToggleRow(row.id, props.anchorKey);
@@ -942,16 +1057,20 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                   icon={icon}
                   color={props.iconSubtleColor}
                   colorClassName={
-                    iconIsDestructive
-                      ? "accent-adaptive-rose-600-400"
-                      : failed
-                        ? "accent-danger-foreground/40"
-                        : undefined
+                    isUsageLimit
+                      ? "accent-warning-foreground"
+                      : iconIsDestructive
+                        ? "accent-adaptive-rose-600-400"
+                        : failed
+                          ? "accent-danger-foreground/40"
+                          : undefined
                   }
                 />
               )}
             </WorkLogIconSlot>
-            <WorkLogLabel tone={iconIsDestructive ? "danger" : "default"}>
+            <WorkLogLabel
+              tone={isUsageLimit ? "warning" : iconIsDestructive ? "danger" : "default"}
+            >
               {isSystemNotice ? row.summary : displayText}
               {answerPreview ? (
                 <Text
@@ -960,7 +1079,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                     row.workEntry.questionAnswer &&
                     hasQuestionAnswer(row.workEntry.questionAnswer)
                       ? "text-foreground"
-                      : "text-foreground-muted"
+                      : "text-foreground-subtle"
                   }
                 >{`  ${answerPreview}`}</Text>
               ) : null}
@@ -1001,12 +1120,19 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
         </View>
       </WorkLogPressable>
 
-      {expanded && (reasoning || fullDetail || viewedImagePath || row.workEntry.questionAnswer) ? (
+      {expanded &&
+      (reasoning ||
+        fullDetail ||
+        call ||
+        fetchedOutput ||
+        viewedImagePath ||
+        outputImages.length > 0 ||
+        row.workEntry.questionAnswer) ? (
         <Animated.View
           entering={WORK_LOG_DETAIL_ENTER_TRANSITION}
           exiting={WORK_LOG_DETAIL_EXIT_TRANSITION}
           layout={WORK_LOG_LAYOUT_TRANSITION}
-          className={reasoning ? "ml-7 py-1" : "ml-7 border-l border-border pb-1 pl-3 pt-0.5"}
+          className={reasoning ? "ml-7 py-1" : "pb-1 pt-0.5"}
         >
           {row.workEntry.questionAnswer ? (
             <QuestionAnswerHistory
@@ -1019,6 +1145,16 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
               {props.renderImage({ href: viewedImagePath, alt: null, title: null })}
             </View>
           ) : null}
+          {outputImages.map((resource) => (
+            <View key={resource.index} className="pb-1.5">
+              <ThreadMarkdownImage
+                environmentId={props.environmentId}
+                resource={resource}
+                alt={null}
+                onPressPreview={props.onPressPreview}
+              />
+            </View>
+          ))}
           <ScrollView
             nestedScrollEnabled
             directionalLockEnabled
@@ -1028,11 +1164,43 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
           >
             {reasoning ? (
               props.renderReasoning(reasoning.text)
-            ) : (
+            ) : call ? (
+              [
+                call.command,
+                ...(call.args ?? []).map(([key, value]) => `${key} ${value}`),
+                call.argsText,
+              ]
+                .filter((line): line is string => Boolean(line))
+                .map((line, index) => (
+                  <Text
+                    key={`${index}:${line}`}
+                    selectable
+                    className="font-mono text-2xs leading-normal text-foreground"
+                  >
+                    {line}
+                  </Text>
+                ))
+            ) : fullDetail ? (
               <Text selectable className="font-mono text-2xs leading-normal text-foreground-muted">
                 {fullDetail}
               </Text>
-            )}
+            ) : null}
+            {fetchedOutput ? (
+              <Text
+                selectable
+                className={cn(
+                  "font-mono text-2xs leading-normal text-foreground-muted",
+                  (!call || call.command || call.args || call.argsText) && "mt-1.5",
+                )}
+              >
+                {fetchedOutput}
+              </Text>
+            ) : null}
+            {failedExitCode !== null ? (
+              <Text className="mt-1.5 font-mono text-2xs leading-normal text-danger-foreground">
+                exit {failedExitCode}
+              </Text>
+            ) : null}
           </ScrollView>
         </Animated.View>
       ) : null}
@@ -1336,7 +1504,7 @@ function ToolActivityImage(props: {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   return (
-    <View className="h-4 w-4 items-center justify-center overflow-hidden rounded-[3px] bg-card">
+    <View className="h-4 w-4 items-center justify-center overflow-hidden rounded-[3px] bg-background">
       {!loaded || failed ? <WorkLogIcon icon={props.fallback} color={props.color} /> : null}
       {!failed ? (
         <View
@@ -1365,6 +1533,8 @@ function toolGroupSummarySymbolName(kind: ToolGroupSummaryKind): AppSymbolName {
     case "link-pr":
     case "unlink-pr":
     case "list-prs":
+    case "watch-pr":
+    case "unwatch-pr":
       return "arrow.triangle.pull";
     case "read":
       return { ios: "eye", android: "visibility" };

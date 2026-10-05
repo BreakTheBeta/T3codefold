@@ -166,10 +166,10 @@ export function applyOrchestrationV2ProjectionEvent(
     case "thread.unarchived":
     case "thread.deleted":
     case "thread.settled":
-    case "thread.auto-settle-updated":
     case "thread.unsettled":
     case "thread.snoozed":
     case "thread.unsnoozed":
+    case "thread.auto-settle-set":
     case "thread.pinned":
     case "thread.unpinned":
     case "thread.pin-reordered":
@@ -184,13 +184,24 @@ export function applyOrchestrationV2ProjectionEvent(
     // Visited tracking is read state, not activity: skip the updatedAt bump.
     case "thread.visited":
     case "thread.marked-unread":
-    case "thread.pull-request-synced":
       return { ...projection, thread: event.payload };
     case "run.created":
     case "run.updated": {
       const next = { ...base, runs: upsertEntity(base.runs, event.payload) };
       return { ...next, visibleTurnItems: activeVisibleTurnItems(next) };
     }
+    case "run.background-work-cancelled":
+      return {
+        ...base,
+        runs: base.runs.map((run) =>
+          run.id === event.payload.runId
+            ? {
+                ...run,
+                restartCancelledBackgroundWork: event.payload.restartCancelledBackgroundWork,
+              }
+            : run,
+        ),
+      };
     case "run-attempt.created":
     case "run-attempt.updated": {
       const next = { ...base, attempts: upsertEntity(base.attempts, event.payload) };
@@ -263,13 +274,6 @@ export function applyOrchestrationV2ProjectionEvent(
     case "checkpoint-scope.created":
       return { ...base, checkpointScopes: upsertEntity(base.checkpointScopes, event.payload) };
     case "checkpoint.captured":
-      if (
-        event.payload.status === "missing" &&
-        base.checkpoints.some(
-          (checkpoint) => checkpoint.id === event.payload.id && checkpoint.status === "ready",
-        )
-      )
-        return base;
       return { ...base, checkpoints: upsertEntity(base.checkpoints, event.payload) };
     case "checkpoint.rollback-requested":
       return base;

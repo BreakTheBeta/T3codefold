@@ -3,10 +3,11 @@ export type WizardNavigation =
   | { readonly kind: "blocked"; readonly step: number; readonly error: string };
 
 const IDENTITY_STEP = 1;
-const ACP_REGISTRY_IDENTITY_STEP = 2;
+const ACP_REGISTRY_IDENTITY_STEP = 1;
 
-export const ADD_PROVIDER_WIZARD_STEPS = ["Driver", "Identity", "Config"] as const;
-export const ACP_REGISTRY_WIZARD_STEPS = ["Driver", "Find ACP", "Identity"] as const;
+export const ADD_PROVIDER_WIZARD_STEPS = ["Provider", "Identity", "Config"] as const;
+export const ACP_REGISTRY_WIZARD_STEPS = ["Provider", "Identity", "Sign in"] as const;
+export const LOCAL_ACP_WIZARD_STEPS = ["Provider", "Identity"] as const;
 
 export interface ProviderIdentityDraft {
   readonly label: string;
@@ -65,7 +66,8 @@ export function isConfiguredAcpRegistryAgent(
     ) {
       return false;
     }
-    return (instance.config as Record<string, unknown>).agentId === agentId;
+    const config = instance.config as Record<string, unknown>;
+    return config.source !== "local" && config.agentId === agentId;
   });
 }
 
@@ -127,6 +129,6 @@ export function resolveAcpRegistryWizardNavigation(
   return resolveWizardNavigation(currentStep, requestedStep, ACP_REGISTRY_WIZARD_STEPS.length, {
     instanceIdError: validation.instanceIdError,
     identityStep: ACP_REGISTRY_IDENTITY_STEP,
-    prerequisite: { step: 1, error: validation.selectionError },
+    prerequisite: { step: 0, error: validation.selectionError },
   });
 }

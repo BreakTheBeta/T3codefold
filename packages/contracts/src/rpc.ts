@@ -1,22 +1,4 @@
-import { PitbossPeerCommand, PitbossPeerList } from "./pitbossPeer.ts";
-import {
-  PitbossSourceRequest,
-  PitbossSourcesResult,
-  PitbossCommand,
-  PitbossError,
-  PitbossReadInput,
-  PitbossSnapshot,
-} from "./pitboss.ts";
-import {
-  FleetConnectInput,
-  FleetInvocation,
-  FleetResponse,
-  FleetExecuteInput,
-  FleetInvokeInput,
-  FleetEnvironmentList,
-} from "./fleet.ts";
-import { OrchestratorMcpFailure } from "./orchestratorMcp.ts";
-import { OrchestrationDispatchCommandError } from "./orchestration.ts";
+import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import {
   ChatGptReconnectProfileInput,
   ChatGptReconnectProfile,
@@ -25,8 +7,9 @@ import {
   ChatGptHandoffState,
 } from "./providerSetup.ts";
 import * as Schema from "effect/Schema";
-import * as Rpc from "effect/unstable/rpc/Rpc";
-import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import * as Rpc from "effect/rpc/Rpc";
+import * as RpcGroup from "effect/rpc/RpcGroup";
+import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   CodexAuthCallbackInput,
@@ -153,15 +136,8 @@ import {
   OrchestrationSearchThreadsError,
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
-} from "./orchestration.ts";
+} from "./threadSearch.ts";
 import {
-  ProviderRealtimeVoiceError,
-  ProviderRealtimeVoiceStartInput,
-  ProviderRealtimeVoiceStartResult,
-  ProviderRealtimeVoiceStopInput,
-  ProviderRealtimeVoiceContextInput,
-  ProviderRealtimeVoiceListResult,
-  ProviderRealtimeVoiceEvent,
   ProviderUploadFeedbackError,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
@@ -173,8 +149,8 @@ import {
   PullRequestCommentInput,
   PullRequestCommentUpdateInput,
   PullRequestDetail,
-  PullRequestChecks,
   PullRequestPreview,
+  PullRequestChecks,
   PullRequestDiffFileContentsInput,
   PullRequestDiffFileContentsResult,
   PullRequestFilesViewedResult,
@@ -220,6 +196,9 @@ import {
   OrchestrationV2ThreadLaunchError,
 } from "./orchestrationV2.ts";
 import {
+  ProjectCreateNewInput,
+  ProjectCreateNewResult,
+  ProjectEnsureScratchResult,
   ProjectListEntriesError,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
@@ -368,6 +347,8 @@ export const WS_METHODS = {
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsMutate: "projects.mutate",
+  projectsEnsureScratch: "projects.ensureScratch",
+  projectsCreateNew: "projects.createNew",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -398,11 +379,6 @@ export const WS_METHODS = {
   providerInstallCancel: "provider.install.cancel",
   providerInstallSubscribe: "provider.install.subscribe",
   providerInstallRemove: "provider.install.remove",
-  providerRealtimeVoiceStart: "provider.realtimeVoice.start",
-  providerRealtimeVoiceStop: "provider.realtimeVoice.stop",
-  providerRealtimeVoiceList: "provider.realtimeVoice.list",
-  providerRealtimeVoiceContext: "provider.realtimeVoice.context",
-  providerRealtimeVoiceEvents: "provider.realtimeVoice.events",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -440,11 +416,6 @@ export const WS_METHODS = {
   previewClose: "preview.close",
   previewList: "preview.list",
   previewReportStatus: "preview.reportStatus",
-  fleetConnect: "fleet.connect",
-  fleetRespond: "fleet.respond",
-  fleetExecute: "fleet.execute",
-  fleetInvoke: "fleet.invoke",
-  fleetEnvironments: "fleet.environments",
   previewAutomationConnect: "previewAutomation.connect",
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
@@ -497,13 +468,6 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   // Scheduled tasks
-  pitbossPeers: "pitboss.peers",
-  pitbossPeerCommand: "pitboss.peerCommand",
-  pitbossSources: "pitboss.sources",
-  pitbossSourceCommand: "pitboss.sourceCommand",
-  pitbossRead: "pitboss.read",
-  pitbossSubscribe: "pitboss.subscribe",
-  pitbossCommand: "pitboss.command",
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -524,8 +488,8 @@ export const WS_METHODS = {
   pullRequestsStack: "pullRequests.stack",
   pullRequestsLinkedThreads: "pullRequests.linkedThreads",
   pullRequestsDetail: "pullRequests.detail",
-  pullRequestsChecks: "pullRequests.checks",
   pullRequestsPreview: "pullRequests.preview",
+  pullRequestsChecks: "pullRequests.checks",
   pullRequestsActivity: "pullRequests.activity",
   pullRequestsThreadComments: "pullRequests.threadComments",
   pullRequestsDiffFileContents: "pullRequests.diffFileContents",
@@ -605,6 +569,9 @@ const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, 
      */
     instanceId: Schema.optional(ProviderInstanceId),
     cwd: Schema.optional(TrimmedNonEmptyString),
+    /** With `instanceId` and `cwd`: rescan the workspace's skills and slash
+     * commands even when a snapshot for that cwd already exists. */
+    fresh: Schema.optional(Schema.Boolean),
     /** Explicit user request: bypass T3-owned caches and rediscover models.
      * Background status refreshes must not open agent sessions. */
     refreshModels: Schema.optional(Schema.Boolean),
@@ -973,15 +940,15 @@ const WsPullRequestsDetailRpc = Rpc.make(WS_METHODS.pullRequestsDetail, {
   error: PullRequestRpcError,
 });
 
-const WsPullRequestsChecksRpc = Rpc.make(WS_METHODS.pullRequestsChecks, {
-  payload: PullRequestRef,
-  success: Schema.NullOr(PullRequestChecks),
-  error: PullRequestRpcError,
-});
-
 const WsPullRequestsPreviewRpc = Rpc.make(WS_METHODS.pullRequestsPreview, {
   payload: PullRequestRef,
   success: PullRequestPreview,
+  error: PullRequestRpcError,
+});
+
+const WsPullRequestsChecksRpc = Rpc.make(WS_METHODS.pullRequestsChecks, {
+  payload: PullRequestRef,
+  success: Schema.NullOr(PullRequestChecks),
   error: PullRequestRpcError,
 });
 
@@ -1125,7 +1092,6 @@ const WsProjectCloneStartRpc = Rpc.make(WS_METHODS.projectCloneStart, {
   success: ProjectCloneStartResult,
   error: Schema.Union([
     SourceControlRepositoryError,
-    ProjectMutationError,
     OrchestrationDispatchCommandError,
     EnvironmentAuthorizationError,
   ]),
@@ -1192,6 +1158,20 @@ const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   error: Schema.Union([ProjectMutationError, EnvironmentAuthorizationError]),
 });
 
+// Finds or creates the Scratch project rooted at ServerConfig.scratchWorkspaceRoot.
+const WsProjectsEnsureScratchRpc = Rpc.make(WS_METHODS.projectsEnsureScratch, {
+  payload: Schema.Struct({}),
+  success: ProjectEnsureScratchResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+// Makes a folder under ServerConfig.newProjectsRoot with a first commit, then the project.
+const WsProjectsCreateNewRpc = Rpc.make(WS_METHODS.projectsCreateNew, {
+  payload: ProjectCreateNewInput,
+  success: ProjectCreateNewResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -1247,33 +1227,6 @@ const WsProviderUploadFeedbackRpc = Rpc.make(WS_METHODS.providerUploadFeedback, 
   payload: ProviderUploadFeedbackInput,
   success: ProviderUploadFeedbackResult,
   error: Schema.Union([ProviderUploadFeedbackError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderRealtimeVoiceStartRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceStart, {
-  payload: ProviderRealtimeVoiceStartInput,
-  success: ProviderRealtimeVoiceStartResult,
-  error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderRealtimeVoiceStopRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceStop, {
-  payload: ProviderRealtimeVoiceStopInput,
-  error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderRealtimeVoiceListRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceList, {
-  payload: ProviderRealtimeVoiceStopInput,
-  success: ProviderRealtimeVoiceListResult,
-  error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
-});
-const WsProviderRealtimeVoiceContextRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceContext, {
-  payload: ProviderRealtimeVoiceContextInput,
-  error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
-});
-const WsProviderRealtimeVoiceEventsRpc = Rpc.make(WS_METHODS.providerRealtimeVoiceEvents, {
-  payload: ProviderRealtimeVoiceStopInput,
-  success: ProviderRealtimeVoiceEvent,
-  stream: true,
-  error: Schema.Union([ProviderRealtimeVoiceError, EnvironmentAuthorizationError]),
 });
 
 const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
@@ -1456,32 +1409,6 @@ const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus, {
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
 });
 
-const WsFleetConnectRpc = Rpc.make(WS_METHODS.fleetConnect, {
-  payload: FleetConnectInput,
-  success: FleetInvocation,
-  error: Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]),
-  stream: true,
-});
-const WsFleetRespondRpc = Rpc.make(WS_METHODS.fleetRespond, {
-  payload: FleetResponse,
-  error: Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]),
-});
-const WsFleetExecuteRpc = Rpc.make(WS_METHODS.fleetExecute, {
-  payload: FleetExecuteInput,
-  success: Schema.Unknown,
-  error: Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]),
-});
-const WsFleetInvokeRpc = Rpc.make(WS_METHODS.fleetInvoke, {
-  payload: FleetInvokeInput,
-  success: Schema.Unknown,
-  error: Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]),
-});
-const WsFleetEnvironmentsRpc = Rpc.make(WS_METHODS.fleetEnvironments, {
-  payload: Schema.Struct({}),
-  success: FleetEnvironmentList,
-  error: EnvironmentAuthorizationError,
-});
-
 const WsPreviewAutomationConnectRpc = Rpc.make(WS_METHODS.previewAutomationConnect, {
   payload: PreviewAutomationHost,
   success: PreviewAutomationStreamEvent,
@@ -1622,6 +1549,12 @@ const WsOrchestrationV2GetWorkflowScriptRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2GetTurnItemRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.getTurnItem, {
+  payload: OrchestrationV2RpcSchemas.getTurnItem.input,
+  success: OrchestrationV2RpcSchemas.getTurnItem.output,
+  error: Schema.Union([OrchestrationV2GetThreadProjectionError, EnvironmentAuthorizationError]),
+});
+
 const WsOrchestrationV2LaunchThreadRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.launchThread, {
   payload: OrchestrationV2RpcSchemas.launchThread.input,
   success: OrchestrationV2RpcSchemas.launchThread.output,
@@ -1684,8 +1617,6 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
      * client would send it to the provider as an ordinary prompt.
      */
     usageLimitsCommand: Schema.optional(Schema.Boolean),
-    /** This client understands voice shortcut commands in server config. */
-    realtimeVoiceControls: Schema.optional(Schema.Boolean),
   }),
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
@@ -1697,43 +1628,6 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   success: ServerLifecycleStreamEvent,
   error: EnvironmentAuthorizationError,
   stream: true,
-});
-
-const WsPitbossPeersRpc = Rpc.make(WS_METHODS.pitbossPeers, {
-  payload: PitbossReadInput,
-  success: PitbossPeerList,
-  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
-});
-const WsPitbossPeerCommandRpc = Rpc.make(WS_METHODS.pitbossPeerCommand, {
-  payload: PitbossPeerCommand,
-  success: PitbossPeerList,
-  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
-});
-const WsPitbossSourcesRpc = Rpc.make(WS_METHODS.pitbossSources, {
-  payload: PitbossReadInput,
-  success: PitbossSourcesResult,
-  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
-});
-const WsPitbossSourceCommandRpc = Rpc.make(WS_METHODS.pitbossSourceCommand, {
-  payload: PitbossSourceRequest,
-  success: PitbossSourcesResult,
-  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
-});
-const WsPitbossReadRpc = Rpc.make(WS_METHODS.pitbossRead, {
-  payload: PitbossReadInput,
-  success: PitbossSnapshot,
-  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
-});
-const WsPitbossSubscribeRpc = Rpc.make(WS_METHODS.pitbossSubscribe, {
-  payload: PitbossReadInput,
-  success: PitbossSnapshot,
-  stream: true,
-  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
-});
-const WsPitbossCommandRpc = Rpc.make(WS_METHODS.pitbossCommand, {
-  payload: PitbossCommand,
-  success: PitbossSnapshot,
-  error: Schema.Union([PitbossError, EnvironmentAuthorizationError]),
 });
 
 const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
@@ -1795,6 +1689,16 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
   stream: true,
 });
 
+/**
+ * Checks the connection's scopes against the scope each RPC declares, before
+ * the handler runs. Every RPC in `WsRpcGroup` carries it, so a handler cannot
+ * be added without authorization.
+ */
+export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthorization>()(
+  "t3/contracts/RpcScopeAuthorization",
+  { error: EnvironmentAuthorizationError },
+) {}
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
@@ -1843,13 +1747,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
-  WsPitbossPeersRpc,
-  WsPitbossPeerCommandRpc,
-  WsPitbossSourcesRpc,
-  WsPitbossSourceCommandRpc,
-  WsPitbossReadRpc,
-  WsPitbossSubscribeRpc,
-  WsPitbossCommandRpc,
   WsScheduledTasksListRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,
@@ -1869,8 +1766,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsPullRequestsStackRpc,
   WsPullRequestsLinkedThreadsRpc,
   WsPullRequestsDetailRpc,
-  WsPullRequestsChecksRpc,
   WsPullRequestsPreviewRpc,
+  WsPullRequestsChecksRpc,
   WsPullRequestsActivityRpc,
   WsPullRequestsThreadCommentsRpc,
   WsPullRequestsDiffFileContentsRpc,
@@ -1901,6 +1798,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
+  WsProjectsEnsureScratchRpc,
+  WsProjectsCreateNewRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
@@ -1912,11 +1811,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,
   WsProviderUploadFeedbackRpc,
-  WsProviderRealtimeVoiceStartRpc,
-  WsProviderRealtimeVoiceStopRpc,
-  WsProviderRealtimeVoiceListRpc,
-  WsProviderRealtimeVoiceContextRpc,
-  WsProviderRealtimeVoiceEventsRpc,
   WsSubscribeVcsStatusRpc,
   WsSubscribeWorktreeSetupRpc,
   WsWorktreeSetupCancelRpc,
@@ -1949,11 +1843,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewCloseRpc,
   WsPreviewListRpc,
   WsPreviewReportStatusRpc,
-  WsFleetConnectRpc,
-  WsFleetRespondRpc,
-  WsFleetExecuteRpc,
-  WsFleetInvokeRpc,
-  WsFleetEnvironmentsRpc,
   WsPreviewAutomationConnectRpc,
   WsPreviewAutomationRespondRpc,
   WsPreviewAutomationFocusHostRpc,
@@ -1975,6 +1864,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeResourceTelemetryRpc,
   WsOrchestrationV2DispatchCommandRpc,
   WsOrchestrationV2GetWorkflowScriptRpc,
+  WsOrchestrationV2GetTurnItemRpc,
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,
   WsOrchestrationV2SearchThreadsRpc,
@@ -1984,4 +1874,4 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
-);
+).middleware(RpcScopeAuthorization);

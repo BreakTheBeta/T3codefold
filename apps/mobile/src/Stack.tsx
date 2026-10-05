@@ -42,11 +42,6 @@ import {
 import { ReviewCommentComposerSheet } from "./features/review/ReviewCommentComposerSheet";
 import { ReviewSheet } from "./features/review/ReviewSheet";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
-import { PullRequestCommentSheet } from "./features/pull-requests/PullRequestCommentSheet";
-import { PullRequestFilesRouteScreen } from "./features/pull-requests/PullRequestFilesRouteScreen";
-import { PullRequestReviewSheet } from "./features/pull-requests/PullRequestReviewSheet";
-import { PullRequestRouteScreen } from "./features/pull-requests/PullRequestRouteScreen";
-import { PullRequestsRouteScreen } from "./features/pull-requests/PullRequestsRouteScreen";
 import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteScreen";
 import { GitBranchesSheet } from "./features/threads/git/GitBranchesSheet";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
@@ -60,6 +55,7 @@ import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewR
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
+import { AddProjectNewRoute } from "./features/projects/AddProjectNewRoute";
 import { AddProjectRepositoryRoute } from "./features/projects/AddProjectRepositoryRoute";
 import { AddProjectSourceRoute } from "./features/projects/AddProjectSourceRoute";
 import { NewTaskDraftRouteScreen } from "./features/threads/NewTaskDraftRouteScreen";
@@ -77,6 +73,7 @@ import { NewTaskRouteScreen } from "./features/threads/NewTaskRouteScreen";
 import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppearanceRouteScreen";
 import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsClientStorageRouteScreen";
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
+import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -110,11 +107,6 @@ import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
 import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRouteScreen";
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
-import {
-  SettingsSectionRouteScreen,
-  settingsSectionRouteTitle,
-} from "./features/settings/SettingsSectionRouteScreen";
-import { GladosSettingsRouteScreen } from "./features/threads/GladosSettingsScreen";
 import { SettingsThreadsRouteScreen } from "./features/settings/SettingsThreadsRouteScreen";
 import { SettingsEnvironmentFilterProvider } from "./features/settings/settings-environment-filter";
 import { ShowcaseCaptureCoordinator } from "./features/showcase/ShowcaseCaptureCoordinator";
@@ -187,16 +179,6 @@ const SHEET_GLASS_HEADER_OPTIONS: AppScreenOptions = {
   unstable_navigationItemStyle: undefined,
 };
 
-// Keyboard-driven composers: Android cannot host them in a formSheet (same as review comments).
-const PULL_REQUEST_SHEET_OPTIONS: AppScreenOptions = {
-  headerShown: false,
-  ...(Platform.OS === "android"
-    ? { presentation: "fullScreenModal" as const }
-    : FORM_SHEET_PRESENTATION_OPTIONS),
-  sheetAllowedDetents: Platform.OS === "android" ? undefined : [0.6, 0.95],
-  sheetGrabberVisible: Platform.OS !== "android",
-};
-
 const LEGAL_DOCUMENT_HEADER_OPTIONS: AppScreenOptions = {
   ...SHEET_SOLID_HEADER_OPTIONS,
   headerBackVisible: false,
@@ -219,18 +201,6 @@ const SettingsContentStack = createNativeStackNavigator({
       options: {
         title: "Settings",
       },
-    }),
-    // One route per shared settings section (see SETTINGS_SECTIONS). The older
-    // per-page routes below stay registered for deep links and row targets.
-    SettingsSection: createNativeStackScreen({
-      screen: SettingsSectionRouteScreen,
-      linking: "section/:section",
-      options: ({ route }) => ({ title: settingsSectionRouteTitle(route.params) }),
-    }),
-    SettingsGlados: createNativeStackScreen({
-      screen: GladosSettingsRouteScreen,
-      linking: "glados",
-      options: { title: "GLaDOS" },
     }),
     SettingsEnvironments: createNativeStackScreen({
       screen: SettingsEnvironmentsRouteScreen,
@@ -258,6 +228,11 @@ const SettingsContentStack = createNativeStackNavigator({
       screen: SettingsEnvironmentAgentBehaviorRouteScreen,
       linking: "agent-behavior",
       options: { title: "Agent behavior" },
+    }),
+    SettingsProviderAccounts: createNativeStackScreen({
+      screen: SettingsProviderAccountsRouteScreen,
+      linking: "provider-accounts",
+      options: { title: "Provider accounts" },
     }),
     SettingsEnvironmentMaintenance: createNativeStackScreen({
       screen: SettingsEnvironmentMaintenanceRouteScreen,
@@ -548,6 +523,10 @@ const NewTaskSheetStack = createNativeStackNavigator({
       screen: AddProjectLocalRoute,
       linking: "add-project/local",
     }),
+    AddProjectNew: createNativeStackScreen({
+      screen: AddProjectNewRoute,
+      linking: "add-project/new",
+    }),
   },
 });
 
@@ -563,8 +542,6 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "GitConfirm",
   "GitOverview",
   "NewTaskSheet",
-  "PullRequestComment",
-  "PullRequestReview",
   "SettingsLegal",
   "SettingsSheet",
   "ThreadAgents",
@@ -608,7 +585,12 @@ function RootStackLayout(props: {
   const navigation = useNavigation();
   const { pendingShare } = useIncomingShare();
   const sharePresentationRef = useRef(EMPTY_INCOMING_SHARE_PRESENTATION_STATE);
-  useAgentNotificationNavigation();
+  // Keyboard commands follow the top route; notification suppression follows
+  // the thread beneath overlay sheets.
+  const path = getPathFromState(props.state, navigationPathConfig);
+  const pathname = path.startsWith("/") ? path : `/${path}`;
+  const workspaceLocation = workspaceLocationFromState(props.state);
+  useAgentNotificationNavigation(workspaceLocation.pathname);
   // Presents the T3 Connect onboarding sheet after an in-session sign-in.
   useConnectOnboardingNavigation();
   // Launcher app shortcuts: routes shortcut taps and tracks opened threads.
@@ -628,11 +610,6 @@ function RootStackLayout(props: {
       params: { incomingShareId: transition.shareIdToPresent },
     });
   }, [navigation, pendingShare, props.state]);
-  // Full pathname (sheets included) for keyboard-command scoping; the
-  // workspace layout only reacts to the underlying non-overlay route.
-  const path = getPathFromState(props.state, navigationPathConfig);
-  const pathname = path.startsWith("/") ? path : `/${path}`;
-  const workspaceLocation = workspaceLocationFromState(props.state);
 
   return (
     <HardwareKeyboardCommandProvider pathname={pathname}>
@@ -724,6 +701,8 @@ const RootStackConfig = createNativeStackNavigator({
         presentation: "fullScreenModal",
         headerShown: false,
         gestureEnabled: false,
+        autoHideHomeIndicator: true,
+        navigationBarHidden: true,
       },
     }),
     ThreadReview: createNativeStackScreen({
@@ -801,29 +780,6 @@ const RootStackConfig = createNativeStackNavigator({
         sheetAllowedDetents: [0.5, 0.9],
         sheetGrabberVisible: true,
       },
-    }),
-    PullRequests: createNativeStackScreen({
-      screen: PullRequestsRouteScreen,
-      linking: "pull-requests",
-      options: SOLID_HEADER_OPTIONS,
-    }),
-    PullRequest: createNativeStackScreen({
-      screen: PullRequestRouteScreen,
-      linking: "pull-requests/:environmentId/:projectId/:number",
-      options: SOLID_HEADER_OPTIONS,
-    }),
-    PullRequestFiles: createNativeStackScreen({
-      screen: PullRequestFilesRouteScreen,
-      linking: "pull-requests/:environmentId/:projectId/:number/files",
-      options: SOLID_HEADER_OPTIONS,
-    }),
-    PullRequestComment: createNativeStackScreen({
-      screen: PullRequestCommentSheet,
-      options: PULL_REQUEST_SHEET_OPTIONS,
-    }),
-    PullRequestReview: createNativeStackScreen({
-      screen: PullRequestReviewSheet,
-      options: PULL_REQUEST_SHEET_OPTIONS,
     }),
     GitOverview: createNativeStackScreen({
       screen: GitOverviewSheet,

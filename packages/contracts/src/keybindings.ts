@@ -57,9 +57,6 @@ const MODEL_PICKER_KEYBINDING_COMMANDS = [
 export type ModelPickerKeybindingCommand = (typeof MODEL_PICKER_KEYBINDING_COMMANDS)[number];
 
 export const STATIC_KEYBINDING_COMMANDS = [
-  "voice.toggle",
-  "voice.mute",
-  "voice.outputMute",
   "sidebar.toggle",
   "navigation.back",
   "navigation.forward",
@@ -90,7 +87,9 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.stash",
   "composer.sendAlternate",
   "composer.sendBackground",
+  "composer.sendAndNewThread",
   "composer.host",
+  "composer.cycleHost",
   "composer.effort",
   "composer.mode",
   "composer.workspace",
@@ -98,6 +97,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.branch",
   "chat.new",
   "chat.newLocal",
+  "chat.newWithoutProject",
   "editor.openFavorite",
   "usage.cost",
   "usage.tokens",

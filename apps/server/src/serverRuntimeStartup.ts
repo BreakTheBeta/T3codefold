@@ -1,6 +1,3 @@
-import { RunId, WorktreeSetupSnapshot } from "@t3tools/contracts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as StorageCleanup from "./storageCleanup.ts";
 import {
   CommandId,
   DEFAULT_MODEL,
@@ -34,14 +31,15 @@ import { flushCompileCache } from "./compileCache.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
-import * as LegacyV1ThreadImporter from "./orchestration-v2/LegacyV1ThreadImporter.ts";
+import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
+import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 import * as ProviderRuntimeRecovery from "./orchestration-v2/ProviderRuntimeRecoveryService.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
@@ -324,11 +322,9 @@ const resolveStartupBrowserTarget = Effect.gen(function* () {
       ? `http://${formatHostForUrl(serverConfig.host)}:${serverConfig.port}`
       : localUrl;
   const baseTarget = serverConfig.devUrl?.toString() ?? bindUrl;
-  return yield* Effect.succeed(serverConfig.mode === "desktop" ? baseTarget : undefined).pipe(
-    Effect.flatMap((target) =>
-      target ? Effect.succeed(target) : serverAuth.issueStartupPairingUrl(baseTarget),
-    ),
-  );
+  return serverConfig.mode === "desktop"
+    ? baseTarget
+    : yield* serverAuth.issueStartupPairingUrl(baseTarget);
 });
 
 const maybeOpenBrowser = (target: string) =>
@@ -353,71 +349,6 @@ const runStartupPhase = <A, E, R>(phase: string, effect: Effect.Effect<A, E, R>)
     Effect.annotateSpans({ "startup.phase": phase }),
     Effect.withSpan(`server.startup.${phase}`),
   );
-
-function interruptedWorktreeSetup(
-  snapshot: WorktreeSetupSnapshot,
-  interruptedAt: string,
-): WorktreeSetupSnapshot {
-  if (snapshot.phase !== "running") return snapshot;
-  const turnStarted = snapshot.stages.some(
-    (stage) => stage.id === "agent" && stage.status === "done",
-  );
-  return {
-    ...snapshot,
-    phase: turnStarted ? "done" : "failed",
-    endedAt: interruptedAt,
-    error: turnStarted
-      ? null
-      : "The server restarted before the worktree setup finished. Send the message again.",
-    stages: snapshot.stages.map((stage) =>
-      stage.status === "running" || stage.status === "pending"
-        ? {
-            ...stage,
-            status: "failed",
-            endedAt: interruptedAt,
-            detail: "interrupted by a server restart",
-          }
-        : stage,
-    ),
-    sequence: snapshot.sequence + 1,
-  };
-}
-
-export const reconcileWorktreeSetups = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  const threads = yield* ThreadManagement.ThreadManagementService;
-  const rows = yield* sql`
-    SELECT i.thread_id AS "threadId", i.run_id AS "runId", json_extract(i.payload_json, '$.worktreeSetup') AS snapshot
-    FROM orchestration_v2_projection_turn_items i JOIN orchestration_v2_projection_threads t ON t.thread_id = i.thread_id
-    WHERE t.deleted_at IS NULL AND i.type = 'command_execution' AND json_extract(i.payload_json, '$.worktreeSetup.phase') = 'running'
-  `;
-  const setups = yield* Schema.decodeUnknownEffect(
-    Schema.Array(
-      Schema.Struct({
-        threadId: ThreadId,
-        runId: RunId,
-        snapshot: Schema.fromJsonString(WorktreeSetupSnapshot),
-      }),
-    ),
-  )(rows);
-  const now = DateTime.formatIso(yield* DateTime.now);
-  for (const { threadId, runId, snapshot } of setups) {
-    yield* threads.dispatch({
-      type: "prepared-run.progress",
-      commandId: CommandId.make(`setup:recovery:${runId}:${snapshot.sequence}`),
-      threadId,
-      runId,
-      phase: "setup",
-      snapshot: interruptedWorktreeSetup(snapshot, now),
-    });
-  }
-}).pipe(
-  Effect.catchCause((cause) =>
-    Cause.hasInterruptsOnly(cause)
-      ? Effect.failCause(cause)
-      : Effect.logWarning("worktree setup recovery failed", { cause }),
-  ),
-);
 
 interface StartupOptions {
   readonly activate?: Effect.Effect<void>;
@@ -456,21 +387,26 @@ export function runOrderedV2StartupPhases<
   Bootstrap,
   ImportError,
   RecoveryError,
+  DelegationError,
   WorkerError,
   BootstrapError,
   ImportContext,
   RecoveryContext,
+  DelegationContext,
   WorkerContext,
   BootstrapContext,
 >(input: {
   readonly importLegacyShells: Effect.Effect<Import, ImportError, ImportContext>;
   readonly recover: Effect.Effect<Recovery, RecoveryError, RecoveryContext>;
+  /** Settles delegated tasks whose runs recovery just terminalized. */
+  readonly recoverDelegatedTasks: Effect.Effect<void, DelegationError, DelegationContext>;
   readonly startEffectWorker: Effect.Effect<void, WorkerError, WorkerContext>;
   readonly autoBootstrap: Effect.Effect<Bootstrap, BootstrapError, BootstrapContext>;
 }) {
   return Effect.gen(function* () {
     yield* input.importLegacyShells;
     const recovery = yield* input.recover;
+    yield* input.recoverDelegatedTasks;
     yield* input.startEffectWorker;
     const bootstrap = yield* input.autoBootstrap;
     return { recovery, bootstrap } as const;
@@ -483,6 +419,7 @@ const make = (options?: StartupOptions) =>
     const keybindings = yield* Keybindings.Keybindings;
     const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
     const providerRuntimeRecovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const agentAwarenessRelay = yield* AgentAwarenessRelay.AgentAwarenessRelay;
     const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -579,6 +516,10 @@ const make = (options?: StartupOptions) =>
           ),
         ),
         recover: runStartupPhase("orchestration-v2.recovery", providerRuntimeRecovery.recover),
+        recoverDelegatedTasks: runStartupPhase(
+          "orchestration-v2.delegated-tasks.recover",
+          orchestrator.recoverDelegatedTasks,
+        ),
         startEffectWorker: runStartupPhase(
           "orchestration-v2.effect-worker.start",
           startEffectWorkerWithRelay({
@@ -596,13 +537,10 @@ const make = (options?: StartupOptions) =>
         ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
-      yield* reconcileWorktreeSetups;
-      yield* (yield* StorageCleanup.StorageCleanup).start();
       yield* runStartupPhase(
         "projects.auto-pull",
         Effect.gen(function* () {
-          const snapshots = yield* ProjectionSnapshotQuery;
-          const projects = yield* snapshots.getProjectShellsWithoutEnrichment();
+          const projects = yield* (yield* ProjectStore.ProjectStoreV2).listShells();
           const settings = yield* serverSettings.getSettings;
           yield* autoPullProjects(projects, settings);
         }),

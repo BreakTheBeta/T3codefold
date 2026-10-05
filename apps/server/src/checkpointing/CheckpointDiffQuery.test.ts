@@ -39,7 +39,6 @@ function makeProjection(): ProjectionCheckpointContext {
         appRunOrdinal: 2,
         status: "ready",
         ref: secondRef,
-        fileCount: 0,
       },
     ],
   };

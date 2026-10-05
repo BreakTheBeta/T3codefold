@@ -1,3 +1,4 @@
+import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import type {
   ProjectScript,
   ResolvedKeybindingsConfig,
@@ -42,11 +43,7 @@ import { cn } from "~/lib/utils";
 import {
   THREAD_DETAILS_PANEL_CHEVRON_CLASS,
   THREAD_DETAILS_PANEL_ICON_CLASS,
-  THREAD_DETAILS_PANEL_ROW_POPUP_CLASS,
-  THREAD_DETAILS_PANEL_ROW_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
-  THREAD_DETAILS_PANEL_SPLIT_PRIMARY_CLASS,
-  THREAD_DETAILS_PANEL_SPLIT_SECONDARY_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./chat/threadDetailsPanelStyles";
 
@@ -55,11 +52,8 @@ export type { NewProjectScriptInput, ProjectScriptActionResult };
 const NO_FILE_SCRIPTS: ReadonlyArray<T3ProjectFileScript> = [];
 
 interface ProjectScriptsControlProps {
-  /**
-   * "toolbar" is the standalone split button, "menu" renders as items inside a parent menu for
-   * narrow headers, and "panel" is the thread details panel's full-width row.
-   */
-  presentation?: "toolbar" | "menu" | "panel";
+  displayMode?: "toolbar" | "panel";
+  presentation?: "toolbar" | "menu";
   onRequestMenuClose?: () => void;
   scripts: ReadonlyArray<ProjectScript>;
   /** Scripts declared in the project's checked-in t3.json, offered for import. */
@@ -76,6 +70,7 @@ interface ProjectScriptsControlProps {
 }
 
 export default function ProjectScriptsControl({
+  displayMode = "toolbar",
   presentation = "toolbar",
   onRequestMenuClose,
   scripts,
@@ -87,11 +82,9 @@ export default function ProjectScriptsControl({
   onUpdateScript,
   onDeleteScript,
 }: ProjectScriptsControlProps) {
-  const isPanel = presentation === "panel";
+  const isPanel = displayMode === "panel";
   const ActionGroup = isPanel ? "div" : Group;
   const panelAnchorRef = React.useRef<HTMLDivElement | null>(null);
-  const addScriptFormId = React.useId();
-  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
   const [actionsMenuOpen, setActionsMenuOpen] = useState({
     presentation,
     scripts: false,
@@ -296,14 +289,12 @@ export default function ProjectScriptsControl({
           <Tooltip>
             <TooltipTrigger
               render={
-                <Button
+                <ThreadDetailsControl
                   size="xs"
                   variant={isPanel ? "ghost" : "outline"}
-                  className={
-                    isPanel
-                      ? THREAD_DETAILS_PANEL_SPLIT_PRIMARY_CLASS
-                      : "w-7 sm:w-6 @3xl/header-actions:w-auto!"
-                  }
+                  part="primary"
+                  panel={isPanel}
+                  className={isPanel ? undefined : "w-7 sm:w-6 @3xl/header-actions:w-auto!"}
                   aria-label={`Run ${primaryScript.name}`}
                   // The tooltip wrapper replaces data-slot="button", so themed
                   // toolbar styling needs its own hook.
@@ -319,7 +310,7 @@ export default function ProjectScriptsControl({
               <span
                 className={cn(
                   "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                  isPanel && "not-sr-only ml-0.5 truncate",
+                  isPanel && "not-sr-only ml-0 truncate",
                 )}
               >
                 {primaryScript.name}
@@ -340,10 +331,11 @@ export default function ProjectScriptsControl({
           >
             <MenuTrigger
               render={
-                <Button
+                <ThreadDetailsControl
                   size={isPanel ? "sm" : "icon-xs"}
                   variant={isPanel ? "ghost" : "outline"}
-                  className={isPanel ? THREAD_DETAILS_PANEL_SPLIT_SECONDARY_CLASS : undefined}
+                  part="secondary"
+                  panel={isPanel}
                   aria-label="Script actions"
                 />
               }
@@ -355,7 +347,7 @@ export default function ProjectScriptsControl({
             <MenuPopup
               align="end"
               {...(isPanel ? { anchor: panelAnchorRef } : {})}
-              className={isPanel ? THREAD_DETAILS_PANEL_ROW_POPUP_CLASS : undefined}
+              className={isPanel ? "w-(--anchor-width)" : undefined}
             >
               {scriptItems}
             </MenuPopup>
@@ -369,16 +361,16 @@ export default function ProjectScriptsControl({
             className={THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS}
             ref={panelAnchorRef}
           >
-            <Button
+            <ThreadDetailsControl
               size="sm"
               variant="ghost"
-              className={THREAD_DETAILS_PANEL_SPLIT_PRIMARY_CLASS}
+              part="primary"
               aria-label="Project actions"
               onClick={() => setActionsMenuOpen({ presentation, scripts: false, imports: true })}
             >
               <WrenchIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} />
-              <span className="ml-0.5 min-w-0 truncate">Actions</span>
-            </Button>
+              <span className="min-w-0 truncate">Actions</span>
+            </ThreadDetailsControl>
             <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
             <Menu
               highlightItemOnHover={false}
@@ -389,21 +381,17 @@ export default function ProjectScriptsControl({
             >
               <MenuTrigger
                 render={
-                  <Button
+                  <ThreadDetailsControl
                     size="sm"
                     variant="ghost"
-                    className={THREAD_DETAILS_PANEL_SPLIT_SECONDARY_CLASS}
+                    part="secondary"
                     aria-label="Choose project action"
                   />
                 }
               >
                 <ChevronDownIcon className={THREAD_DETAILS_PANEL_CHEVRON_CLASS} />
               </MenuTrigger>
-              <MenuPopup
-                align="end"
-                anchor={panelAnchorRef}
-                className={THREAD_DETAILS_PANEL_ROW_POPUP_CLASS}
-              >
+              <MenuPopup align="end" anchor={panelAnchorRef} className="w-(--anchor-width)">
                 {importMenuItems}
                 <MenuItem onClick={openAddDialog}>
                   <PlusIcon className="size-4" />
@@ -442,14 +430,12 @@ export default function ProjectScriptsControl({
         <Tooltip>
           <TooltipTrigger
             render={
-              <Button
+              <ThreadDetailsControl
                 size="xs"
                 variant={isPanel ? "ghost" : "outline"}
-                className={
-                  isPanel
-                    ? THREAD_DETAILS_PANEL_ROW_CLASS
-                    : "w-7 sm:w-6 @3xl/header-actions:w-auto!"
-                }
+                part="row"
+                panel={isPanel}
+                className={isPanel ? undefined : "w-7 sm:w-6 @3xl/header-actions:w-auto!"}
                 aria-label={isPanel ? "Add project script" : "Add action"}
                 // The tooltip wrapper replaces data-slot="button", so themed
                 // toolbar styling needs its own hook.

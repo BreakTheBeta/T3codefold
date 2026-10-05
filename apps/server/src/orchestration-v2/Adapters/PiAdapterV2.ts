@@ -57,10 +57,11 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
-import { ServerConfig } from "../../config.ts";
+import * as ServerConfig from "../../config.ts";
+import { mcpToolPresentation } from "../../provider/McpToolPresentation.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   expandPiSkillReference,
@@ -69,31 +70,8 @@ import {
   type PiCompactCommand,
 } from "../../provider/PiCommands.ts";
 import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
-import { IdAllocatorV2 } from "../IdAllocator.ts";
-import {
-  ProviderAdapterEnsureThreadError,
-  ProviderAdapterEventStreamError,
-  ProviderAdapterForkThreadError,
-  ProviderAdapterInterruptError,
-  ProviderAdapterOpenSessionError,
-  ProviderAdapterProtocolError,
-  ProviderAdapterReadThreadSnapshotError,
-  ProviderAdapterResumeThreadError,
-  ProviderAdapterRollbackThreadError,
-  ProviderAdapterRuntimeRequestResponseError,
-  ProviderAdapterSteerRunError,
-  ProviderAdapterTurnStartError,
-  ProviderAdapterV2,
-  type ProviderAdapterV2Error,
-  type ProviderAdapterV2Event,
-  type ProviderAdapterV2EnsureThreadInput,
-  type ProviderAdapterV2OpenSessionInput,
-  type ProviderAdapterV2SessionRuntime,
-  type ProviderAdapterV2Shape,
-  type ProviderAdapterV2SteerInput,
-  type ProviderAdapterV2ThreadSnapshot,
-  type ProviderAdapterV2TurnInput,
-} from "../ProviderAdapter.ts";
+import * as IdAllocator from "../IdAllocator.ts";
+import * as ProviderAdapter from "../ProviderAdapter.ts";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -130,6 +108,8 @@ const PI_INHERIT_MODEL_SLUG = "default";
 
 const STREAM_FLUSH_MS = 50;
 const PI_REQUEST_TIMEOUT_MS = 15_000;
+// Session lifecycle hooks reload extensions, MCP servers and language servers.
+const PI_SESSION_TIMEOUT_MS = 60_000;
 const PI_SKILL_DISCOVERY_TIMEOUT_MS = 4_000;
 const PI_UNSOLICITED_ACTIVITY_ERROR =
   "Pi started agent work outside an active T3 turn. The session was stopped to prevent invisible tool execution.";
@@ -246,8 +226,8 @@ export interface PiAdapterV2Options {
   readonly environment: NodeJS.ProcessEnv;
   readonly spawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly fileSystem: FileSystem.FileSystem;
-  readonly idAllocator: IdAllocatorV2["Service"];
-  readonly serverConfig: ServerConfig["Service"];
+  readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
+  readonly serverConfig: ServerConfig.ServerConfig["Service"];
 }
 
 /** Concatenate the `text` fields of a Pi content-block array. */
@@ -311,7 +291,7 @@ function compactionTitle(status: PiCompactionStatus): string {
 }
 
 interface ActivePiTurn {
-  readonly turnInput: ProviderAdapterV2TurnInput;
+  readonly turnInput: ProviderAdapter.ProviderAdapterV2TurnInput;
   readonly providerTurn: OrchestrationV2ProviderTurn;
   readonly startedAt: DateTime.Utc;
   readonly itemOrdinals: Map<string, number>;
@@ -349,6 +329,13 @@ interface ActivePiTurn {
   activeCompaction: PiCompactionState | null;
   activeProviderRetry: PiProviderRetryState | null;
   failure: ReturnType<typeof makeProviderFailure> | null;
+  /** Session-tree refs read just before Stop terminates Pi, when no read is possible later. */
+  stopTreeRefs?: PiTurnTreeRefs | null;
+}
+
+interface PiTurnTreeRefs {
+  readonly turnStartEntryId: string | null;
+  readonly leafId: string | null;
 }
 
 interface PendingPiPrompt {
@@ -381,23 +368,25 @@ interface PiThreadState {
 
 // ── adapter ───────────────────────────────────────────────────
 
-export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2Shape {
+export function makePiAdapterV2(
+  options: PiAdapterV2Options,
+): ProviderAdapter.ProviderAdapterV2Shape {
   const { idAllocator } = options;
 
   const protocolError = (detail: string, payload?: unknown) =>
-    new ProviderAdapterProtocolError({
+    new ProviderAdapter.ProviderAdapterProtocolError({
       driver: PI_PROVIDER,
       detail,
       ...(payload === undefined ? {} : { payload }),
     });
 
-  return ProviderAdapterV2.of({
+  return ProviderAdapter.ProviderAdapterV2.of({
     instanceId: options.instanceId,
     driver: PI_PROVIDER,
     getCapabilities: () => Effect.succeed(PiProviderCapabilitiesV2),
     planSelectionTransition: () => Effect.succeed(turnScopedSelectionTransition()),
     openSession: Effect.fn("PiAdapterV2.openSession")(function* (
-      input: ProviderAdapterV2OpenSessionInput,
+      input: ProviderAdapter.ProviderAdapterV2OpenSessionInput,
     ) {
       const scope = yield* Effect.scope;
       const cwd = input.runtimePolicy.cwd ?? options.serverConfig.cwd;
@@ -407,7 +396,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           Effect.provideService(FileSystem.FileSystem, options.fileSystem),
           Effect.mapError(
             (cause) =>
-              new ProviderAdapterOpenSessionError({
+              new ProviderAdapter.ProviderAdapterOpenSessionError({
                 driver: PI_PROVIDER,
                 providerSessionId: input.providerSessionId,
                 cause,
@@ -440,7 +429,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, options.spawner),
         Effect.mapError(
           (cause) =>
-            new ProviderAdapterOpenSessionError({
+            new ProviderAdapter.ProviderAdapterOpenSessionError({
               driver: PI_PROVIDER,
               providerSessionId: input.providerSessionId,
               cause,
@@ -470,8 +459,8 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
         lastError: null,
       };
       const events = yield* Queue.unbounded<
-        ProviderAdapterV2Event,
-        ProviderAdapterV2Error | Cause.Done
+        ProviderAdapter.ProviderAdapterV2Event,
+        ProviderAdapter.ProviderAdapterV2Error | Cause.Done
       >();
       const pendingPrompts = new Map<string, PendingPiPrompt>();
       const sessionApprovals = new Set<string>();
@@ -481,6 +470,8 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
       // dialog's own resolution updates.
       const sessionEventPermit = yield* Semaphore.make(1);
       let threadState: PiThreadState | null = null;
+      let registrationAttempted = false;
+      let lastNativeThreadId: string | null = null;
       // User Stop intentionally tears down this RPC process after aborting.
       // Keep that intent beyond turn finalization so the later stdout close is
       // not mistaken for an unexpected transport failure.
@@ -515,6 +506,8 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
       let baselineThinking: string | null = null;
       /** Context window of the model Pi currently runs, from get_state and set_model. */
       let contextWindow: number | null = null;
+      const modelContextWindows = new Map<string, number>();
+      let modelsDiscovered = false;
       // Prompt responses carry no id. Keep their session-wide send order and
       // owner so a late ack from a settled turn cannot affect the next turn.
       const pendingPromptResponses: Array<{
@@ -531,7 +524,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           ? { type: "compact" }
           : { type: "compact", customInstructions: command.customInstructions };
 
-      const emit = (event: ProviderAdapterV2Event) =>
+      const emit = (event: ProviderAdapter.ProviderAdapterV2Event) =>
         Queue.offer(events, event).pipe(Effect.asVoid);
 
       const updateProviderSession = (
@@ -577,6 +570,35 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
         const value = recordNumber(input, key);
         return value === undefined ? undefined : Math.max(0, Math.trunc(value));
       };
+
+      const rememberModelContextWindow = (model: unknown): number | null => {
+        const provider = recordString(model, "provider");
+        const id = recordString(model, "id");
+        const capacity = nonNegativeInteger(model, "contextWindow");
+        if (provider !== undefined && id !== undefined && capacity !== undefined && capacity > 0) {
+          modelContextWindows.set(`${provider}/${id}`, capacity);
+          return capacity;
+        }
+        return null;
+      };
+
+      const lifecycleRequest = (record: PiRpcRecord) =>
+        request(record, PI_SESSION_TIMEOUT_MS).pipe(
+          // A local timeout does not cancel Pi's lifecycle hook. Retire the
+          // process before fallback can race its eventual switch/new-session.
+          Effect.tapError((error) =>
+            Effect.logWarning("Pi session lifecycle request failed", {
+              providerSessionId: input.providerSessionId,
+              operation: record["type"],
+              errorTag: error._tag,
+            }),
+          ),
+          Effect.catchTags({
+            PiRpcTimeoutError: (error) =>
+              connection.terminate.pipe(Effect.andThen(Effect.fail(error))),
+          }),
+          Effect.onInterrupt(() => connection.terminate),
+        );
 
       const tokenUsageFromStats = (
         stats: unknown,
@@ -967,6 +989,12 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
         if (toolName === "edit" || toolName === "write") {
           const fileName = recordString(args, "path") ?? recordString(args, "file_path");
           if (fileName !== undefined) {
+            // edit reports a unified patch in its result details; write only
+            // carries the new content in its args. A failed call keeps its error.
+            const diffStr =
+              recordString(recordField(resultRecord, "details"), "patch") ??
+              (isError && outputText.trim().length > 0 ? outputText : undefined);
+            const newStr = toolName === "write" ? recordString(args, "content") : undefined;
             yield* emit({
               type: "turn_item.updated",
               driver: PI_PROVIDER,
@@ -975,6 +1003,8 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
                 title: toolName,
                 type: "file_change",
                 fileName,
+                ...(diffStr === undefined ? {} : { diffStr }),
+                ...(newStr === undefined ? {} : { newStr }),
               },
             });
             return;
@@ -987,6 +1017,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
             ...shared,
             title: toolName,
             type: "dynamic_tool",
+            ...mcpToolPresentation({ toolName }),
             toolName,
             input: args ?? {},
             ...(outputText.length > 0 ? { output: outputText } : {}),
@@ -1332,13 +1363,18 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
        * point `fork` rolls back to); the leaf becomes the conversation head.
        * Pure bookkeeping: failures degrade to the synthetic refs.
        */
-      const captureTurnTreeRefs = Effect.fnUntraced(function* () {
+      const captureTurnTreeRefs = Effect.fnUntraced(function* (
+        timeoutMs = PI_REQUEST_TIMEOUT_MS,
+      ): Effect.fn.Return<PiTurnTreeRefs | null> {
         const cursorWasStale = leafCursorStale;
         const cursor = cursorWasStale ? null : lastKnownLeaf;
-        const data = yield* request({
-          type: "get_entries",
-          ...(cursor === null ? {} : { since: cursor }),
-        }).pipe(Effect.orElseSucceed(() => undefined));
+        const data = yield* request(
+          {
+            type: "get_entries",
+            ...(cursor === null ? {} : { since: cursor }),
+          },
+          timeoutMs,
+        ).pipe(Effect.orElseSucceed(() => undefined));
         if (data === undefined) {
           // Pi may have advanced past `lastKnownLeaf` while this failed, so the
           // cursor can no longer be trusted to bound a single turn.
@@ -1396,7 +1432,8 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           }
         }
         yield* cancelPendingPrompts(completedAt);
-        const treeRefs = yield* captureTurnTreeRefs();
+        const treeRefs =
+          turn.stopTreeRefs !== undefined ? turn.stopTreeRefs : yield* captureTurnTreeRefs();
         const tokenUsage = readUsage
           ? yield* readTokenUsage(turn.latestCompactionAfterTokens, completedAt)
           : undefined;
@@ -1933,7 +1970,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
                 );
                 yield* Queue.fail(
                   events,
-                  new ProviderAdapterEventStreamError({
+                  new ProviderAdapter.ProviderAdapterEventStreamError({
                     driver: PI_PROVIDER,
                     providerSessionId: input.providerSessionId,
                     cause,
@@ -1959,44 +1996,48 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
       // ── session runtime ───────────────────────────────────
 
       const registerThread = Effect.fnUntraced(function* (
-        threadInput: ProviderAdapterV2EnsureThreadInput,
+        threadInput: ProviderAdapter.ProviderAdapterV2EnsureThreadInput,
         publish = true,
       ) {
         if (threadState !== null && threadState.activeTurn !== null) {
           return yield* protocolError("Cannot register a Pi thread while a turn is active");
         }
         const existing = threadInput.existingProviderThread;
-        if (existing?.nativeThreadRef?.nativeId != null) {
-          const switchData = yield* request({
-            type: "switch_session",
-            sessionPath: existing.nativeThreadRef.nativeId,
-          });
-          // A session_before_switch extension handler can veto the switch.
-          // Proceeding would silently adopt whatever session is active and
-          // write the wrong thread's turns into it.
-          if (recordField(switchData, "cancelled") === true) {
-            return yield* protocolError("A Pi extension cancelled the session switch");
-          }
-          // Pi is now attached to the target session. Drop the previous
-          // binding before reading its state so a failed refresh cannot let a
-          // later turn run against the old T3 thread and the new Pi session.
+        const resumeId = existing?.nativeThreadRef?.nativeId;
+        const needsNewSession = resumeId == null && registrationAttempted;
+        registrationAttempted = true;
+        if (resumeId != null || needsNewSession) {
+          lastNativeThreadId = resumeId ?? lastNativeThreadId;
+          // Even a failed lifecycle operation can change Pi's native session.
+          // Never leave the old app binding or model defaults usable afterward.
           threadState = null;
-          // These caches describe the session we just left. Clearing them
-          // stops the next turn from treating this session as already
-          // configured and skipping set_model or set_session_name.
           appliedModel = null;
           appliedThinking = null;
           appliedSessionName = null;
-          // The baselines describe the session we just left too. Dropping
-          // them lets the `get_state` below re-capture this session's own
-          // defaults, so the "Pi default" choice cannot replay the previous
-          // session's model or thinking level.
           baselineModel = null;
           baselineThinking = null;
+          contextWindow = null;
+          const result = yield* lifecycleRequest(
+            resumeId != null
+              ? { type: "switch_session", sessionPath: resumeId }
+              : { type: "new_session" },
+          );
+          if (recordField(result, "cancelled") === true) {
+            return yield* protocolError("A Pi extension cancelled the session switch");
+          }
         }
         const stateData = yield* request({ type: "get_state" });
-        contextWindow =
-          nonNegativeInteger(recordField(stateData, "model"), "contextWindow") ?? contextWindow;
+        if (!modelsDiscovered) {
+          const modelsData = yield* request({ type: "get_available_models" }).pipe(
+            Effect.orElseSucceed(() => undefined),
+          );
+          const models = recordField(modelsData, "models");
+          if (Array.isArray(models)) {
+            for (const model of models) rememberModelContextWindow(model);
+            modelsDiscovered = true;
+          }
+        }
+        contextWindow = rememberModelContextWindow(recordField(stateData, "model"));
         // Each baseline is captured independently, and only while nothing has
         // been applied yet, so a `get_state` that arrives after our own
         // selection cannot record that selection as Pi's default.
@@ -2016,6 +2057,10 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
         if (nativeId === undefined) {
           return yield* protocolError("get_state returned no persisted sessionFile", stateData);
         }
+        if (needsNewSession && nativeId === lastNativeThreadId) {
+          return yield* protocolError("Pi did not create a distinct session file");
+        }
+        lastNativeThreadId = nativeId;
         const createdAt = yield* DateTime.now;
         const providerThread: OrchestrationV2ProviderThread =
           existing !== undefined
@@ -2023,6 +2068,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
                 ...existing,
                 providerSessionId: input.providerSessionId,
                 nativeThreadRef: providerRef(nativeId),
+                ...(needsNewSession ? { nativeConversationHeadRef: null, contextUsage: null } : {}),
                 status: "idle",
                 updatedAt: createdAt,
               }
@@ -2074,7 +2120,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           // captured baseline, otherwise Pi stays on the last model applied.
           if (appliedModel !== null && baselineModel !== null) {
             const restoredModel = yield* request({ type: "set_model", ...baselineModel });
-            contextWindow = nonNegativeInteger(restoredModel, "contextWindow") ?? contextWindow;
+            contextWindow = rememberModelContextWindow(restoredModel);
             appliedModel = null;
             const updatedAt = yield* DateTime.now;
             sessionEntity = { ...sessionEntity, model: PI_INHERIT_MODEL_SLUG, updatedAt };
@@ -2108,7 +2154,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
             provider: parsed.provider,
             modelId: parsed.modelId,
           });
-          contextWindow = nonNegativeInteger(selectedModel, "contextWindow") ?? contextWindow;
+          contextWindow = rememberModelContextWindow(selectedModel);
           appliedModel = modelSelection.model;
           const updatedAt = yield* DateTime.now;
           sessionEntity = { ...sessionEntity, model: modelSelection.model, updatedAt };
@@ -2165,7 +2211,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
         return { message, images };
       });
 
-      const runtime: ProviderAdapterV2SessionRuntime = {
+      const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
         instanceId: options.instanceId,
         driver: PI_PROVIDER,
         providerSessionId: input.providerSessionId,
@@ -2173,11 +2219,21 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           return sessionEntity;
         },
         events: Stream.fromQueue(events),
+        getModelContextWindow: (selection) => {
+          if (selection.instanceId !== options.instanceId) return undefined;
+          const slug =
+            selection.model === PI_INHERIT_MODEL_SLUG
+              ? baselineModel === null
+                ? undefined
+                : `${baselineModel.provider}/${baselineModel.modelId}`
+              : selection.model;
+          return slug === undefined ? undefined : modelContextWindows.get(slug);
+        },
         ensureThread: (threadInput) =>
           registerThread(threadInput).pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterEnsureThreadError({
+                new ProviderAdapter.ProviderAdapterEnsureThreadError({
                   driver: PI_PROVIDER,
                   threadId: threadInput.threadId,
                   cause,
@@ -2194,7 +2250,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           }).pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterResumeThreadError({
+                new ProviderAdapter.ProviderAdapterResumeThreadError({
                   driver: PI_PROVIDER,
                   providerSessionId: input.providerSessionId,
                   providerThreadId: threadInput.providerThread.id,
@@ -2349,7 +2405,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           }).pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterTurnStartError({
+                new ProviderAdapter.ProviderAdapterTurnStartError({
                   driver: PI_PROVIDER,
                   threadId: turnInput.threadId,
                   providerThreadId: turnInput.providerThread.id,
@@ -2358,7 +2414,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
                 }),
             ),
           ),
-        steerTurn: (steerInput: ProviderAdapterV2SteerInput) =>
+        steerTurn: (steerInput: ProviderAdapter.ProviderAdapterV2SteerInput) =>
           Effect.gen(function* () {
             const turn = threadState?.activeTurn ?? null;
             if (turn === null || turn.providerTurn.id !== steerInput.providerTurnId) {
@@ -2409,7 +2465,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           }).pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterSteerRunError({
+                new ProviderAdapter.ProviderAdapterSteerRunError({
                   driver: PI_PROVIDER,
                   providerThreadId: steerInput.providerThread.id,
                   providerTurnId: steerInput.providerTurnId,
@@ -2420,6 +2476,9 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
         interruptTurn: (interruptInput) =>
           Effect.gen(function* () {
             const turn = threadState?.activeTurn ?? null;
+            // Stop on a settled turn: Pi runs nothing between prompts, so
+            // nothing of that turn is left to stop.
+            if (turn === null && interruptInput.requestRuntimeRestart === true) return;
             if (turn === null || turn.providerTurn.id !== interruptInput.providerTurnId) {
               return yield* protocolError(`Pi turn ${interruptInput.providerTurnId} is not active`);
             }
@@ -2436,7 +2495,18 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
               if (interruptInput.requestRuntimeRestart === true && !turn.settleWhenIdle) {
                 yield* request({ type: "abort" }, 2_000).pipe(Effect.ignore);
               }
-              yield* connection.terminate;
+              // Terminating fails every later request, so read the stopped
+              // turn's session-tree refs first: rolling back past this turn
+              // forks at its user entry. Holding the event permit also lets a
+              // finalize that is already reading them finish before the kill.
+              yield* sessionEventPermit.withPermits(1)(
+                Effect.gen(function* () {
+                  if (threadState?.activeTurn === turn && turn.stopTreeRefs === undefined) {
+                    turn.stopTreeRefs = yield* captureTurnTreeRefs(2_000);
+                  }
+                  yield* connection.terminate;
+                }),
+              );
               return;
             }
             yield* request({ type: "abort" }).pipe(
@@ -2445,7 +2515,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           }).pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterInterruptError({
+                new ProviderAdapter.ProviderAdapterInterruptError({
                   driver: PI_PROVIDER,
                   providerThreadId: interruptInput.providerThread.id,
                   providerTurnId: interruptInput.providerTurnId,
@@ -2504,7 +2574,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
             sessionEventPermit.withPermits(1),
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterRuntimeRequestResponseError({
+                new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
                   driver: PI_PROVIDER,
                   requestId: requestInput.requestId,
                   cause,
@@ -2571,7 +2641,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           }).pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterReadThreadSnapshotError({
+                new ProviderAdapter.ProviderAdapterReadThreadSnapshotError({
                   driver: PI_PROVIDER,
                   providerThreadId: snapshotInput.providerThread.id,
                   cause,
@@ -2603,7 +2673,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
             if (forkEntryId === undefined) {
               return yield* protocolError("Pi rollback target has no captured session-tree entry");
             }
-            const forkData = yield* request({ type: "fork", entryId: forkEntryId });
+            const forkData = yield* lifecycleRequest({ type: "fork", entryId: forkEntryId });
             if (recordField(forkData, "cancelled") === true) {
               return yield* protocolError("A Pi extension cancelled the session fork");
             }
@@ -2621,6 +2691,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
               threadState = null;
               return yield* protocolError("Pi fork did not return a persisted session file");
             }
+            lastNativeThreadId = forkSessionFile;
             appliedModel = null;
             appliedThinking = null;
             appliedSessionName = null;
@@ -2640,7 +2711,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           }).pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterRollbackThreadError({
+                new ProviderAdapter.ProviderAdapterRollbackThreadError({
                   driver: PI_PROVIDER,
                   providerThreadId: rollbackInput.providerThread.id,
                   checkpointId: rollbackInput.target.checkpointId,
@@ -2752,7 +2823,7 @@ export function makePiAdapterV2(options: PiAdapterV2Options): ProviderAdapterV2S
           }).pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterForkThreadError({
+                new ProviderAdapter.ProviderAdapterForkThreadError({
                   driver: PI_PROVIDER,
                   providerThreadId: forkInput.sourceProviderThread.id,
                   cause,
@@ -2825,7 +2896,7 @@ function piExtensionDisplayName(extensionPath: string | undefined): string {
 
 function piThreadSnapshot(
   providerThread: OrchestrationV2ProviderThread,
-): ProviderAdapterV2ThreadSnapshot {
+): ProviderAdapter.ProviderAdapterV2ThreadSnapshot {
   return { providerThread, providerTurns: [], messages: [], runtimeRequests: [] };
 }
 
@@ -2885,8 +2956,8 @@ function piUiResponse(
 export type PiAdapterV2DriverEnv =
   | ChildProcessSpawner.ChildProcessSpawner
   | FileSystem.FileSystem
-  | IdAllocatorV2
-  | ServerConfig;
+  | IdAllocator.IdAllocatorV2
+  | ServerConfig.ServerConfig;
 
 export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2DriverEnv> = {
   driverKind: PI_DRIVER_KIND,
@@ -2897,8 +2968,8 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
       const hostEnvironment = yield* HostProcessEnvironment;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const fileSystem = yield* FileSystem.FileSystem;
-      const idAllocator = yield* IdAllocatorV2;
-      const serverConfig = yield* ServerConfig;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const serverConfig = yield* ServerConfig.ServerConfig;
       return makePiAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
@@ -2924,22 +2995,23 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
   ),
 };
 
-const layer: Layer.Layer<ProviderAdapterV2, never, PiAdapterV2DriverEnv> = Layer.effect(
-  ProviderAdapterV2,
-  Effect.gen(function* () {
-    const hostEnvironment = yield* HostProcessEnvironment;
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const fileSystem = yield* FileSystem.FileSystem;
-    const idAllocator = yield* IdAllocatorV2;
-    const serverConfig = yield* ServerConfig;
-    return makePiAdapterV2({
-      instanceId: PI_DEFAULT_INSTANCE_ID,
-      settings: DEFAULT_PI_SETTINGS,
-      environment: hostEnvironment,
-      spawner,
-      fileSystem,
-      idAllocator,
-      serverConfig,
-    });
-  }),
-);
+const layer: Layer.Layer<ProviderAdapter.ProviderAdapterV2, never, PiAdapterV2DriverEnv> =
+  Layer.effect(
+    ProviderAdapter.ProviderAdapterV2,
+    Effect.gen(function* () {
+      const hostEnvironment = yield* HostProcessEnvironment;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      return makePiAdapterV2({
+        instanceId: PI_DEFAULT_INSTANCE_ID,
+        settings: DEFAULT_PI_SETTINGS,
+        environment: hostEnvironment,
+        spawner,
+        fileSystem,
+        idAllocator,
+        serverConfig,
+      });
+    }),
+  );

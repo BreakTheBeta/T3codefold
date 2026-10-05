@@ -3,10 +3,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./glados-board": {
-      "types": "./src/gladosBoard.ts",
-      "default": "./src/gladosBoard.ts"
-    },
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"
@@ -34,10 +30,6 @@
     "./project-favicon-cache": {
       "types": "./src/projectFaviconCache.ts",
       "default": "./src/projectFaviconCache.ts"
-    },
-    "./pending-requests": {
-      "types": "./src/pendingRequests.ts",
-      "default": "./src/pendingRequests.ts"
     },
     "./user-message": {
       "types": "./src/userMessage.ts",
@@ -227,13 +219,13 @@
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"
     },
+    "./state/outdatedServerUpdate": {
+      "types": "./src/state/outdatedServerUpdate.ts",
+      "default": "./src/state/outdatedServerUpdate.ts"
+    },
     "./state/session": {
       "types": "./src/state/session.ts",
       "default": "./src/state/session.ts"
-    },
-    "./settings-sections": {
-      "types": "./src/settingsSections.ts",
-      "default": "./src/settingsSections.ts"
     },
     "./state/shared-settings": {
       "types": "./src/state/sharedSettings.ts",
@@ -266,6 +258,10 @@
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"
+    },
+    "./state/thread-inbox": {
+      "types": "./src/state/threadInbox.ts",
+      "default": "./src/state/threadInbox.ts"
     },
     "./state/thread-relationships": {
       "types": "./src/state/threadRelationships.ts",
@@ -315,6 +311,10 @@
       "types": "./src/work-log/userInput.ts",
       "default": "./src/work-log/userInput.ts"
     },
+    "./work-log/item-detail": {
+      "types": "./src/work-log/itemDetail.ts",
+      "default": "./src/work-log/itemDetail.ts"
+    },
     "./work-log/presentation": {
       "types": "./src/work-log/presentation.ts",
       "default": "./src/work-log/presentation.ts"
@@ -334,18 +334,6 @@
     "./thread-pull-request-compatibility": {
       "types": "./src/threadPullRequestCompatibility.ts",
       "default": "./src/threadPullRequestCompatibility.ts"
-    },
-    "./realtime-voice/workspace": {
-      "types": "./src/realtime-voice/workspace.ts",
-      "default": "./src/realtime-voice/workspace.ts"
-    },
-    "./realtime-voice/feed": {
-      "types": "./src/realtime-voice/feed.ts",
-      "default": "./src/realtime-voice/feed.ts"
-    },
-    "./realtime-voice": {
-      "types": "./src/realtime-voice/controller.ts",
-      "default": "./src/realtime-voice/controller.ts"
     },
     "./file-preview": {
       "types": "./src/filePreview.ts",

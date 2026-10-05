@@ -385,44 +385,45 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it.each([{ kind: "plan", isOpen: true }])(
-    "drops $kind with isOpen=$isOpen and falls back",
-    ({ kind, isOpen }) => {
-      expect(
-        migratePersistedRightPanelState({
-          byThreadKey: {
-            "env-1:thread-A": {
-              isOpen,
-              activeSurfaceId: kind,
-              surfaces: [{ id: kind, kind }],
-            },
-            "env-1:thread-B": {
-              isOpen,
-              activeSurfaceId: kind,
-              surfaces: [
-                { id: kind, kind },
-                { id: "diff", kind: "diff" },
-              ],
-            },
-          },
-        }),
-      ).toEqual({
+  it.each([
+    { kind: "plan", isOpen: true },
+    { kind: "agents", isOpen: true },
+    { kind: "agents", isOpen: false },
+  ])("drops $kind with isOpen=$isOpen and falls back", ({ kind, isOpen }) => {
+    expect(
+      migratePersistedRightPanelState({
         byThreadKey: {
           "env-1:thread-A": {
-            isOpen: false,
-            activeSurfaceId: null,
-            surfaces: [],
+            isOpen,
+            activeSurfaceId: kind,
+            surfaces: [{ id: kind, kind }],
           },
           "env-1:thread-B": {
             isOpen,
-            activeSurfaceId: "diff",
-            surfaces: [{ id: "diff", kind: "diff" }],
+            activeSurfaceId: kind,
+            surfaces: [
+              { id: kind, kind },
+              { id: "diff", kind: "diff" },
+            ],
           },
         },
-        threadPanelVisibilityByThreadKey: {},
-      });
-    },
-  );
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: false,
+          activeSurfaceId: null,
+          surfaces: [],
+        },
+        "env-1:thread-B": {
+          isOpen,
+          activeSurfaceId: "diff",
+          surfaces: [{ id: "diff", kind: "diff" }],
+        },
+      },
+      threadPanelVisibilityByThreadKey: {},
+    });
+  });
 
   it("persists inline preference without restoring an open popover", () => {
     expect(

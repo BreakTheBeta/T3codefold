@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentId, type ServerConfig } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
 import { AVAILABLE_CONNECTION_STATE, PrimaryConnectionTarget } from "../connection/model.ts";
 import {
@@ -105,6 +105,38 @@ describe("environment summary subscriptions", () => {
       expect(counts.ids).toBe(0);
     } finally {
       stops.forEach((stop) => stop());
+      h.registry.dispose();
+    }
+  });
+
+  it("keeps connected search targets stable through config refreshes and updates them on disconnect", () => {
+    const h = harness();
+    let changes = 0;
+    const stop = h.registry.subscribe(h.connectedEnvironmentIdsAtom, () => changes++);
+    try {
+      expect(h.registry.get(h.connectedEnvironmentIdsAtom)).toEqual([]);
+      h.registry.set(
+        h.state,
+        AsyncResult.success({
+          ...AVAILABLE_CONNECTION_STATE,
+          phase: "connected",
+          generation: 1,
+        }),
+      );
+      const connected = h.registry.get(h.connectedEnvironmentIdsAtom);
+      expect(connected).toEqual([FIRST, SECOND]);
+      const connectionChanges = changes;
+      expect(connectionChanges).toBeGreaterThan(0);
+      for (let index = 0; index < 20; index++) {
+        h.registry.set(h.configs(FIRST), config(false, `/workspace-${index}`));
+        expect(h.registry.get(h.connectedEnvironmentIdsAtom)).toBe(connected);
+      }
+      expect(changes).toBe(connectionChanges);
+      h.registry.set(h.state, AsyncResult.success(AVAILABLE_CONNECTION_STATE));
+      expect(h.registry.get(h.connectedEnvironmentIdsAtom)).toEqual([]);
+      expect(changes).toBeGreaterThan(connectionChanges);
+    } finally {
+      stop();
       h.registry.dispose();
     }
   });

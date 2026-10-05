@@ -1,4 +1,6 @@
-import { PitbossWork } from "./PitbossWork";
+import { useAtomValue } from "@effect/atom-react";
+import { useThreadReportedModelSelection } from "../../state/entities";
+import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { useNavigation } from "@react-navigation/native";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -8,7 +10,6 @@ import type {
   CodexFeedbackSubmission,
   EnvironmentThreadStatus,
 } from "@t3tools/client-runtime/state/threads";
-import type { ActiveTurnComposerAction } from "@t3tools/client-runtime/state/composer-dispatch";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
@@ -30,9 +31,20 @@ import {
   type CodexArtifactTemplate,
 } from "@t3tools/client-runtime/codex-artifact-templates";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
+import {
+  presentPendingBackgroundWork,
+  presentProviderGoal,
+} from "@t3tools/client-runtime/state/thread-execution";
 import { resolveSubagentPillSegment } from "@t3tools/client-runtime/state/thread-subagents";
+import {
+  formatModelSelectionEffort,
+  type ProviderSubagentStatus,
+} from "@t3tools/client-runtime/state/thread-execution";
+import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/model";
+import { isProviderNativeSubagentThread } from "@t3tools/contracts";
 import type { QueuedRunEdit } from "../../state/queued-run-edit";
 import type { FollowUpBehavior } from "../../lib/followUpBehavior";
+import type { ActiveTurnComposerAction } from "@t3tools/client-runtime/state/composer-dispatch";
 import * as Haptics from "expo-haptics";
 import {
   memo,
@@ -52,6 +64,7 @@ import {
   useWindowDimensions,
   View,
   type GestureResponderEvent,
+  type ViewInstance,
 } from "react-native";
 import {
   KeyboardController,
@@ -65,6 +78,7 @@ import Animated, {
   ReduceMotion,
   useAnimatedReaction,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
@@ -83,6 +97,10 @@ import { useEnvironmentQuery } from "../../state/query";
 import { threadDevicePreviews } from "../devices/threadDevicePreviews";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import {
+  clearThreadComposerError,
+  threadComposerErrorsAtom,
+} from "../../state/thread-composer-error";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useDelayedStatus } from "../../lib/useDelayedStatus";
@@ -93,16 +111,18 @@ import type {
   ThreadFeedEntry,
   ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
-import { ComposerUsageLimits } from "./ComposerUsageLimits";
-import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
-import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { ComposerErrorNotice } from "./ComposerErrorNotice";
 import { ComposerFeedback } from "./ComposerFeedback";
+import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
+import { ProviderSubagentBar } from "./ProviderSubagentBar";
+import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
 } from "./floating-working-control";
+import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import {
   derivePendingUserInputMaxHeight,
   ESTIMATED_KEYBOARD_HEIGHT,
@@ -115,13 +135,13 @@ import {
   COMPOSER_TRANSITION_DURATION_MS,
   ThreadComposer,
 } from "./ThreadComposer";
-import { ThreadCanvasBackdrop } from "./ThreadCanvasBackdrop";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { useThreadQueuedCount } from "./ThreadQueueControl";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
+import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
 
 export interface ThreadDetailScreenProps {
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
@@ -136,6 +156,10 @@ export interface ThreadDetailScreenProps {
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
   readonly activityRun: ThreadFeedLatestRun | null;
   readonly activeWorkStartedAt: string | null;
+  /** The live work is a provider-native subagent's runless root turn. */
+  readonly runlessWorkActive?: boolean;
+  /** Set on a provider-native subagent thread, which shows status instead of a composer. */
+  readonly providerSubagentStatus?: ProviderSubagentStatus | null;
   readonly isCompacting: boolean;
   /**
    * The server has not created this thread yet. "preparing" runs while the
@@ -146,8 +170,6 @@ export interface ThreadDetailScreenProps {
     | { readonly kind: "preparing"; readonly preparingWorktree: boolean }
     | { readonly kind: "failed"; readonly reason: string; readonly onEditTask: () => void }
     | null;
-  readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
-  readonly dispatchingMessageId: MessageId | null;
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: RuntimeRequestId | null;
   readonly activePendingUserInput: PendingUserInput | null;
@@ -175,6 +197,8 @@ export interface ThreadDetailScreenProps {
   readonly projectWorkspaceRoot: string | null;
   readonly threadCwd: string | null;
   readonly selectedThreadQueueCount: number;
+  readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
+  readonly dispatchingMessageId: MessageId | null;
   readonly serverConfig: T3ServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
@@ -208,8 +232,8 @@ export interface ThreadDetailScreenProps {
     questionId: string,
     customAnswer: string,
   ) => void;
-  readonly onDismissUserInput: () => Promise<unknown>;
   readonly onSubmitUserInput: () => Promise<unknown>;
+  readonly onDismissUserInput: () => Promise<unknown>;
   readonly showContent?: boolean;
 }
 
@@ -290,6 +314,11 @@ const USER_INPUT_TOGGLE_TIMING = {
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
   const navigation = useNavigation();
+  const { session: voiceInputSession } = useGlobalVoiceInput();
+  const reportedModelSelection = useThreadReportedModelSelection({
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+  });
   const deviceState = useEnvironmentQuery(
     deviceEnvironment.state({ environmentId: props.environmentId, input: {} }),
   );
@@ -307,27 +336,42 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const insets = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
-  // Android can keep stale keyboard visibility and height after the app resumes
-  // during an IME hide. Hold sticky translation until a fresh input or keyboard
-  // signal confirms the state again.
+  // Android can swallow the IME hide callbacks when the app is backgrounded
+  // mid keyboard-hide (the reported repro: send — which blurs and starts the
+  // hide — then Home within a second). The keyboard library's height AND
+  // visibility then stay frozen open, so gating the sticky translation on
+  // visibility alone still strands the composer after resume. Quarantine the
+  // translation on every Android resume instead; any sign of a live keyboard
+  // stream — an owned input gaining focus, or any visibility/height movement —
+  // lifts it. A healthy resume sees no visual difference (the translation is
+  // already zero while the keyboard is closed).
   const [keyboardStateSuspect, setKeyboardStateSuspect] = useState(false);
   useEffect(() => {
-    if (Platform.OS !== "android") return;
+    if (Platform.OS !== "android") {
+      return;
+    }
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") setKeyboardStateSuspect(true);
+      if (state === "active") {
+        setKeyboardStateSuspect(true);
+      }
     });
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+    };
   }, []);
   useEffect(() => {
     setKeyboardStateSuspect(false);
   }, [isKeyboardVisible, liveKeyboardHeight]);
   const handleOwnedInputFocusChange = useCallback((focused: boolean) => {
-    if (focused) setKeyboardStateSuspect(false);
+    if (focused) {
+      setKeyboardStateSuspect(false);
+    }
   }, []);
   const windowHeight = useWindowDimensions().height;
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + 44;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  const composerError = useAtomValue(threadComposerErrorsAtom)[selectedThreadKey]?.message ?? null;
   const queuedCount = useThreadQueuedCount({
     environmentId: props.environmentId,
     threadId: props.selectedThread.id,
@@ -338,6 +382,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   });
   const agentsSegment = resolveSubagentPillSegment(turnSubagents);
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
+  // A provider-native subagent shows status instead of a composer.
+  const isProviderSubagent = isProviderNativeSubagentThread(props.selectedThread.source);
   // Entering edit mode from the queue sheet should land in a ready composer,
   // not require a second tap on a composer already holding the message.
   const editingRunId = props.queuedRunEdit?.runId ?? null;
@@ -348,7 +394,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   }, [editingRunId]);
   const draftMessageRef = useRef(props.draftMessage);
   draftMessageRef.current = props.draftMessage;
-  const composerOverlayRef = useRef<View>(null);
+  const composerOverlayRef = useRef<ViewInstance>(null);
   const listRef = useRef<LegendListRef>(null);
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const selectedThreadKeyRef = useRef(selectedThreadKey);
@@ -401,6 +447,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   // One floating pill above the composer: it reads the connection phase while
   // disconnected, the sync state while messages load, then the working timer
   // once the feed is settled.
+  // The shell's roster is the server's post-settlement view of what still runs.
+  const pendingBackgroundWork = presentPendingBackgroundWork(
+    props.selectedThread.pendingBackgroundTasks,
+  );
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
       connectionError: props.connectionError,
@@ -408,12 +458,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       environmentLabel: props.environmentLabel,
       onReconnect: props.onReconnectEnvironment,
     });
-    if (connectionStatus !== null) return connectionStatus;
-    if (
-      props.connectionStateLabel !== "connected" ||
-      props.activePendingApproval !== null ||
-      props.activePendingUserInput !== null
-    ) {
+    if (connectionStatus !== null) {
+      return connectionStatus;
+    }
+    if (props.activePendingApproval !== null || props.activePendingUserInput !== null) {
       return null;
     }
     if (props.creationState?.kind === "preparing") {
@@ -424,7 +472,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         label: props.creationState.preparingWorktree ? "Setting up worktree…" : "Starting…",
       };
     }
-    if (props.creationState?.kind === "failed") return null;
+    if (props.creationState?.kind === "failed") {
+      return null;
+    }
     if (threadSyncLabel !== null) {
       return { kind: "syncing", label: threadSyncLabel };
     }
@@ -433,6 +483,24 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     }
     if (props.activeWorkStartedAt !== null && contentPresentationKind === "ready") {
       return { kind: "working", startedAt: props.activeWorkStartedAt };
+    }
+    if (pendingBackgroundWork !== null && contentPresentationKind === "ready") {
+      return {
+        kind: "background",
+        label: pendingBackgroundWork.title,
+        accessibilityLabel: `${pendingBackgroundWork.title}: ${pendingBackgroundWork.items
+          .map((item) => item.label)
+          .join(", ")}`,
+        waiting: pendingBackgroundWork.waiting,
+      };
+    }
+    if (props.selectedThread.goal !== null && contentPresentationKind === "ready") {
+      const goal = presentProviderGoal(props.selectedThread.goal, false);
+      return {
+        kind: "goal",
+        label: goal.title,
+        accessibilityLabel: `${goal.title}: ${goal.objective}`,
+      };
     }
     return null;
   })();
@@ -614,6 +682,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     },
     [userInputCoverageApplies],
   );
+  // The floating control is anchored to the bar's top edge, so ride it up
+  // with the expanded card instead of drawing it over the questions.
+  const floatingControlLift = useDerivedValue(
+    () =>
+      userInputCoverageApplies ? userInputCardProgress.value * userInputCardCoverage.value : 0,
+    [userInputCoverageApplies],
+  );
   const { freeze, scrollMessageToEnd } = useKeyboardScrollToEnd({ listRef });
   const endFollowEnabledRef = useRef(true);
   endFollowEnabledRef.current = endFollowEnabled;
@@ -708,6 +783,20 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const layoutVariant = props.layoutVariant ?? "compact";
   const isSplitLayout = layoutVariant === "split";
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
+  const providerSubagentProvider = props.serverConfig?.providers.find(
+    (provider) => provider.instanceId === props.selectedThread.modelSelection.instanceId,
+  );
+  // Providers can report a dated id or alias (claude-haiku-4-5-20251001).
+  const providerSubagentModelSlug = providerSubagentProvider
+    ? resolveSelectableModel(
+        providerSubagentProvider.driver,
+        props.selectedThread.modelSelection.model,
+        providerSubagentProvider.models,
+      )
+    : null;
+  const providerSubagentCatalogModel = providerSubagentProvider?.models.find(
+    (model) => model.slug === providerSubagentModelSlug,
+  );
   const workspaceContentWidth = useWorkspaceContentWidth();
   // Clearing animated width can retain the unfolded width after Android resumes folded.
   // Assign both layouts explicitly so the dock always follows its current parent.
@@ -860,10 +949,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         (entry) => entry.type === "message" && entry.message.role === "user",
       );
       const messageId = await props.onSendMessage(followUp);
-      if (messageId !== null) clearUsageLimitsFor(selectedThreadKey);
       if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
         return messageId;
       }
+
+      // A sent message makes the snapshot stale; a refused send leaves it in place.
+      clearUsageLimitsFor(targetThreadKey);
 
       setSubmittedMessageId(messageId);
       setAnchorMessageId(
@@ -907,11 +998,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   const collapseComposer = useCallback(() => {
     composerEditorRef.current?.blur();
-  }, []);
-
-  const handleComposeWork = useCallback(() => {
-    setComposerExpanded(true);
-    requestAnimationFrame(() => composerEditorRef.current?.focus());
   }, []);
 
   const handleUseArtifactTemplate = useCallback(
@@ -973,14 +1059,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
-      <PitbossWork
-        connected={props.connectionStateLabel === "connected"}
-        environmentId={props.environmentId}
-        threadId={props.selectedThread.id}
-        projectId={props.selectedThread.projectId}
-        modelSelection={props.selectedThread.modelSelection}
-        onComposeWork={handleComposeWork}
-      />
       {showContent ? (
         <View
           style={{ flex: 1 }}
@@ -993,12 +1071,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             pointerEvents="none"
             className={
               Platform.OS === "android"
-                ? "absolute inset-0 bg-thread-canvas overflow-hidden"
-                : "absolute inset-0 bg-screen overflow-hidden"
+                ? "absolute inset-0 bg-thread-canvas"
+                : "absolute inset-0 bg-screen"
             }
-          >
-            <ThreadCanvasBackdrop />
-          </View>
+          />
           <RenderErrorBoundary
             key={selectedThreadKey}
             resetKeys={[props.threadCwd]}
@@ -1019,12 +1095,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               setupWorkingStartedAt={props.setupWorkingStartedAt}
               queuedMessages={props.queuedMessages}
               dispatchingMessageId={props.dispatchingMessageId}
-              onEditPendingMessage={handleEditPendingMessage}
+              // A native subagent has no composer to edit a pending message in;
+              // Cancel on the edit banner would discard it.
+              onEditPendingMessage={isProviderSubagent ? null : handleEditPendingMessage}
               contentPresentation={props.contentPresentation}
               agentLabel={agentLabel}
               threadTitle={props.selectedThread.title}
               latestRun={props.activityRun}
               activeWorkStartedAt={props.activeWorkStartedAt}
+              runlessWorkActive={props.runlessWorkActive ?? false}
               listRef={listRef}
               freeze={freeze}
               anchorMessageId={anchorMessageId}
@@ -1053,6 +1132,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
       {showContent ? (
         <KeyboardStickyView
+          // iOS emits a native animated height target on both will-show and
+          // will-hide, so stay subscribed for the full transition. Android
+          // retains its background/resume stale-state quarantine.
           enabled={Platform.OS === "ios" || (isKeyboardVisible && !keyboardStateSuspect)}
           pointerEvents="box-none"
           style={{ position: "absolute", bottom: 0, left: 0, right: 0, top: 0 }}
@@ -1069,14 +1151,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             {/* No paddingTop here: the overlay's measured height becomes the
                 list's bottom inset, so any padding above the pill/composer
                 pushes the resting content floor up by the same amount. */}
-            <View
-              ref={composerOverlayRef}
-              onLayout={onComposerLayout}
-              className={Platform.OS === "android" ? "w-full bg-screen" : "w-full"}
-            >
+            <View ref={composerOverlayRef} onLayout={onComposerLayout} className="w-full">
               <FloatingWorkingControl
                 colorScheme={isDarkMode ? "dark" : "light"}
                 status={floatingStatus}
+                lift={floatingControlLift}
                 devicePreview={
                   devicePreviews.length > 0
                     ? { count: devicePreviews.length, onPress: openDevicePreview }
@@ -1110,10 +1189,18 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   >
                     <ComposerQueuedEditBanner
                       saving={props.isSavingQueuedEdit}
-                      onCancel={props.onCancelQueuedRunEdit}
+                      onCancel={() => {
+                        voiceInputSession.cancel(props.composerDraftKey);
+                        props.onCancelQueuedRunEdit();
+                      }}
                     />
                   </Animated.View>
                 ) : null}
+                <UsageLimitRecoveryCard
+                  key={props.selectedThread.latestRun?.runId}
+                  thread={props.selectedThread}
+                  environmentId={props.environmentId}
+                />
                 {props.feedbackSubmissions.map((submission) => (
                   <ComposerFeedback
                     key={submission.id}
@@ -1121,6 +1208,18 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     onDismiss={() => props.onDismissFeedback(submission.id)}
                   />
                 ))}
+                {composerError !== null ? (
+                  <Animated.View
+                    className="shrink-0"
+                    entering={FadeInDown.duration(180)}
+                    exiting={FadeOut.duration(120)}
+                  >
+                    <ComposerErrorNotice
+                      message={composerError}
+                      onDismiss={() => clearThreadComposerError(selectedThreadKey)}
+                    />
+                  </Animated.View>
+                ) : null}
                 {usageLimitsReport && activeUserInputRequestId === null ? (
                   <Animated.View
                     className="shrink-0 px-4 pb-3"
@@ -1201,59 +1300,94 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     : undefined
                 }
               >
-                <>
-                  <ThreadComposer
-                    editorRef={composerEditorRef}
-                    draftMessage={props.draftMessage}
-                    draftAttachments={props.draftAttachments}
-                    placeholder="Ask the repo agent, or run a command…"
-                    contentMaxWidth={contentMaxWidth}
-                    connectionState={props.connectionStateLabel}
-                    environmentLabel={props.environmentLabel}
-                    selectedThread={props.selectedThread}
-                    hasCompactableConversation={hasCompactableConversation && !props.isCompacting}
-                    serverConfig={props.serverConfig}
-                    queueCount={props.selectedThreadQueueCount}
-                    activeThreadBusy={props.activeThreadBusy}
-                    canStopThread={props.canStopThread}
-                    environmentId={props.environmentId}
-                    projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
-                    // Follow-ups typed during setup wait in the draft: queueing
-                    // them against a thread id the server may still reject
-                    // would strand them in the outbox.
-                    sendBlockedReason={
-                      props.creationState?.kind === "preparing" ? "Starting the task…" : null
-                    }
-                    draftKey={props.composerDraftKey ?? undefined}
-                    followUpBehavior={props.followUpBehavior}
-                    canSteerActiveTurn={props.canSteerActiveTurn}
-                    queuedEdit={
-                      props.queuedRunEdit === null
-                        ? null
-                        : {
-                            existingAttachments: props.queuedRunEdit.existingAttachments,
-                            saving: props.isSavingQueuedEdit,
-                            onRemoveExistingAttachment: props.onRemoveQueuedEditAttachment,
-                          }
-                    }
-                    bottomInset={composerBottomInset}
-                    onChangeDraftMessage={props.onChangeDraftMessage}
-                    onPickDraftMedia={props.onPickDraftMedia}
-                    onPickDraftFiles={props.onPickDraftFiles}
-                    onNativePasteImages={props.onNativePasteImages}
-                    onNativePasteText={props.onNativePasteText}
-                    onRemoveDraftImage={props.onRemoveDraftImage}
-                    onStopThread={props.onStopThread}
-                    onSendMessage={handleSendMessage}
-                    onShowUsageLimits={showUsageLimits}
-                    canSwitchProvider={props.canSwitchThreadProvider}
-                    onUpdateModelSelection={props.onUpdateThreadModelSelection}
-                    onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
-                    onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
-                    onExpandedChange={setComposerExpanded}
-                    onEditorFocusChange={handleComposerFocusChange}
-                  />
-                </>
+                {isProviderSubagent ? (
+                  <View
+                    className="self-center px-3 pt-1.5"
+                    style={{
+                      width: "100%",
+                      maxWidth: contentMaxWidth,
+                      paddingBottom: composerBottomInset + 6,
+                    }}
+                  >
+                    <ProviderSubagentBar
+                      provider={providerSubagentProvider ?? null}
+                      modelLabel={
+                        providerSubagentCatalogModel?.name ??
+                        formatModelSlugName(props.selectedThread.modelSelection.model)
+                      }
+                      effortLabel={formatModelSelectionEffort(
+                        props.selectedThread.modelSelection,
+                        providerSubagentProvider?.models,
+                        reportedModelSelection,
+                      )}
+                      status={props.providerSubagentStatus ?? null}
+                      onOpenParent={
+                        props.selectedThread.lineage.parentThreadId === null
+                          ? null
+                          : () =>
+                              navigation.navigate("Thread", {
+                                environmentId: String(props.environmentId),
+                                threadId: String(props.selectedThread.lineage.parentThreadId),
+                              })
+                      }
+                    />
+                  </View>
+                ) : (
+                  <>
+                    <ThreadComposer
+                      reportedModelSelection={reportedModelSelection}
+                      editorRef={composerEditorRef}
+                      draftMessage={props.draftMessage}
+                      draftAttachments={props.draftAttachments}
+                      placeholder="Ask the repo agent, or run a command…"
+                      contentMaxWidth={contentMaxWidth}
+                      connectionState={props.connectionStateLabel}
+                      environmentLabel={props.environmentLabel}
+                      selectedThread={props.selectedThread}
+                      hasCompactableConversation={hasCompactableConversation && !props.isCompacting}
+                      serverConfig={props.serverConfig}
+                      queueCount={props.selectedThreadQueueCount}
+                      activeThreadBusy={props.activeThreadBusy}
+                      canStopThread={props.canStopThread}
+                      environmentId={props.environmentId}
+                      projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
+                      // Follow-ups typed during setup wait in the draft: queueing
+                      // them against a thread id the server may still reject
+                      // would strand them in the outbox.
+                      sendBlockedReason={
+                        props.creationState?.kind === "preparing" ? "Starting the task…" : null
+                      }
+                      draftKey={props.composerDraftKey ?? undefined}
+                      followUpBehavior={props.followUpBehavior}
+                      canSteerActiveTurn={props.canSteerActiveTurn}
+                      queuedEdit={
+                        props.queuedRunEdit === null
+                          ? null
+                          : {
+                              existingAttachments: props.queuedRunEdit.existingAttachments,
+                              saving: props.isSavingQueuedEdit,
+                              onRemoveExistingAttachment: props.onRemoveQueuedEditAttachment,
+                            }
+                      }
+                      bottomInset={composerBottomInset}
+                      onChangeDraftMessage={props.onChangeDraftMessage}
+                      onPickDraftMedia={props.onPickDraftMedia}
+                      onPickDraftFiles={props.onPickDraftFiles}
+                      onNativePasteImages={props.onNativePasteImages}
+                      onNativePasteText={props.onNativePasteText}
+                      onRemoveDraftImage={props.onRemoveDraftImage}
+                      onStopThread={props.onStopThread}
+                      onSendMessage={handleSendMessage}
+                      onShowUsageLimits={showUsageLimits}
+                      canSwitchProvider={props.canSwitchThreadProvider}
+                      onUpdateModelSelection={props.onUpdateThreadModelSelection}
+                      onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
+                      onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
+                      onExpandedChange={setComposerExpanded}
+                      onEditorFocusChange={handleComposerFocusChange}
+                    />
+                  </>
+                )}
               </View>
             </View>
           </Animated.View>

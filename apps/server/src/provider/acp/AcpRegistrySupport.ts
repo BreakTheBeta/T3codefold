@@ -35,11 +35,12 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as NodeCrypto from "node:crypto";
 
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import type { AcpSpawnInput } from "./AcpSessionRuntime.ts";
 
 const ACP_REGISTRY_URL = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
@@ -58,7 +59,11 @@ const BoundedAgentId = Schema.String.check(
   Schema.isPattern(/^[a-z0-9][a-z0-9._-]*$/u),
 );
 const BoundedName = TrimmedNonEmptyString.check(Schema.isMaxLength(160));
-const BoundedVersion = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
+// Versions become install directory names, so "." and ".." must not decode.
+const BoundedVersion = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(128),
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/u),
+);
 const BoundedDescription = Schema.String.check(Schema.isMaxLength(1_024));
 const BoundedMetadata = Schema.String.check(Schema.isMaxLength(256));
 const BoundedArgument = Schema.String.check(Schema.isMaxLength(1_024));
@@ -205,7 +210,7 @@ export function toAcpRegistryOperationError(error: AcpRegistryError): AcpRegistr
   });
 }
 
-export const isAcpRegistryError = Schema.is(AcpRegistryError);
+const isAcpRegistryError = Schema.is(AcpRegistryError);
 
 export type AcpRegistryPlatformTarget =
   | "darwin-aarch64"
@@ -294,24 +299,9 @@ function withPreferredPath(
   };
 }
 
-function userNpmPrefix(
-  environment: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-  path: Path.Path,
-): string | undefined {
-  const baseDirectory =
-    platform === "win32"
-      ? (environment.LOCALAPPDATA ?? environment.APPDATA ?? environment.USERPROFILE)?.trim()
-      : environment.HOME?.trim();
-  if (!baseDirectory || !path.isAbsolute(baseDirectory)) return undefined;
-  return platform === "win32"
-    ? path.join(baseDirectory, "t3code", "npm-global")
-    : path.join(baseDirectory, ".local");
-}
-
 /**
  * Directories exposing installed ACP Registry commands. The integrated
- * terminal appends them to PATH so globally installed package commands and
+ * terminal appends them to PATH so managed package commands and
  * managed binary agents are both available by name. Best effort: unreadable
  * directories resolve to no entries.
  */
@@ -319,13 +309,14 @@ export const acpRegistryManagedBinaryDirectories = (input: {
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly cacheDir: string;
+  readonly toolsDir: string;
   readonly platform: NodeJS.Platform;
   readonly architecture: NodeJS.Architecture;
 }): Effect.Effect<ReadonlyArray<string>> =>
   Effect.gen(function* () {
     const target = resolveAcpRegistryPlatformTarget(input.platform, input.architecture);
     const registryDirectory = input.path.join(input.cacheDir, "acp-registry");
-    const installsDirectory = input.path.join(registryDirectory, "agents");
+    const installsDirectory = input.toolsDir;
     const packageReceiptsDirectory = input.path.join(registryDirectory, "package-installs");
     const listDirectories = (directory: string) =>
       input.fileSystem.readDirectory(directory).pipe(Effect.orElseSucceed((): Array<string> => []));
@@ -340,7 +331,14 @@ export const acpRegistryManagedBinaryDirectories = (input: {
         );
       if (
         Option.isSome(receipt) &&
-        input.path.isAbsolute(receipt.value.binDirectory) &&
+        receipt.value.binDirectory ===
+          input.path.join(
+            installsDirectory,
+            receipt.value.agentId,
+            encodeURIComponent(receipt.value.agentVersion),
+            receipt.value.distribution === "npx" ? "npm" : "python",
+            ...(receipt.value.distribution === "npx" && input.platform === "win32" ? [] : ["bin"]),
+          ) &&
         input.path.dirname(receipt.value.executablePath) === receipt.value.binDirectory &&
         (yield* input.fileSystem
           .exists(receipt.value.executablePath)
@@ -365,7 +363,10 @@ export const acpRegistryManagedBinaryDirectories = (input: {
         Effect.orElseSucceed((): ReadonlyArray<AcpRegistryAgent> => []),
       );
     const cachedAgentByInstall = new Map(
-      cachedAgents.map((agent) => [`${agent.id}\0${agent.version}`, agent] as const),
+      // Install directories are named by the URI-encoded version.
+      cachedAgents.map(
+        (agent) => [`${agent.id}\0${encodeURIComponent(agent.version)}`, agent] as const,
+      ),
     );
     for (const agent of (yield* listDirectories(installsDirectory)).toSorted()) {
       const versions = (yield* listDirectories(input.path.join(installsDirectory, agent))).toSorted(
@@ -439,8 +440,8 @@ export function resolveAcpRegistryDistribution(input: {
 }
 
 export interface ResolvedAcpRegistryAgent {
-  readonly agent: AcpRegistryAgent;
-  readonly distribution: AcpRegistryDistributionKind;
+  readonly agent?: AcpRegistryAgent;
+  readonly distribution: AcpRegistryDistributionKind | "local";
   readonly spawn: AcpSpawnInput;
 }
 
@@ -460,6 +461,11 @@ export type AcpRegistryInspection =
       readonly runner: string;
     }
   | {
+      readonly status: "missing_runner";
+      readonly version: null;
+      readonly distribution: "local";
+    }
+  | {
       readonly status: "unprepared";
       readonly agentId: string;
       readonly version: string;
@@ -468,8 +474,9 @@ export type AcpRegistryInspection =
   | {
       readonly status: "ready";
       readonly agentId: string;
-      readonly version: string;
-      readonly distribution: AcpRegistryDistributionKind;
+      readonly version: string | null;
+      readonly distribution: AcpRegistryDistributionKind | "local";
+      readonly documentationUrl?: string;
     };
 
 export class AcpRegistryCatalog extends Context.Service<
@@ -492,7 +499,6 @@ export class AcpRegistryCatalog extends Context.Service<
     ) => Effect.Effect<ResolvedAcpRegistryAgent, AcpRegistryError>;
     readonly uninstallManagedBinary: (
       input: AcpRegistryManagedBinaryUninstallInput,
-      isReferenced?: Effect.Effect<boolean, AcpRegistryError>,
     ) => Effect.Effect<AcpRegistryManagedBinaryUninstallResult, AcpRegistryError>;
   }
 >()("t3/provider/acp/AcpRegistrySupport/AcpRegistryCatalog") {
@@ -503,6 +509,7 @@ export class AcpRegistryCatalog extends Context.Service<
 
 export interface AcpRegistryCatalogOptions {
   readonly cacheDir: string;
+  readonly toolsDir: string;
   readonly registryUrl?: string;
 }
 
@@ -534,7 +541,7 @@ function validateArchiveEntries(output: string): boolean {
     .split(/\r?\n/u)
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
-    .every((entry) => normalizeRegistryCommandPath(entry) !== undefined);
+    .every((entry) => entry === "./" || normalizeRegistryCommandPath(entry) !== undefined);
 }
 
 type ArchiveKind = "raw" | "tar_bz2" | "tar_gz" | "zip";
@@ -593,11 +600,13 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
   | FileSystem.FileSystem
   | HttpClient.HttpClient
   | Path.Path
+  | ServerSettings.ServerSettingsService
 > {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const httpClient = yield* HttpClient.HttpClient;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const platform = yield* HostProcessPlatform;
   const architecture = yield* HostProcessArchitecture;
   const hostEnvironment = yield* HostProcessEnvironment;
@@ -606,7 +615,15 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
   const registryUrl = input.registryUrl ?? ACP_REGISTRY_URL;
   const registryDirectory = path.join(input.cacheDir, "acp-registry");
   const registryCachePath = path.join(registryDirectory, "registry.json");
-  const installsDirectory = path.join(registryDirectory, "agents");
+  const installsDirectory = input.toolsDir;
+  const agentInstallRoot = (agent: AcpRegistryAgent) =>
+    path.join(installsDirectory, agent.id, encodeURIComponent(agent.version));
+  const packageInstallRoot = (agent: AcpRegistryAgent, distribution: "npx" | "uvx") =>
+    path.join(agentInstallRoot(agent), distribution === "npx" ? "npm" : "python");
+  const packageBinDirectory = (agent: AcpRegistryAgent, distribution: "npx" | "uvx") =>
+    distribution === "npx" && platform === "win32"
+      ? packageInstallRoot(agent, distribution)
+      : path.join(packageInstallRoot(agent, distribution), "bin");
   const packageReceiptsDirectory = path.join(registryDirectory, "package-installs");
   const registryRef = yield* Ref.make<AcpRegistryIndex | undefined>(undefined);
   const registryRevision = yield* Ref.make(0);
@@ -942,7 +959,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       receipt.value.distribution !== distribution ||
       receipt.value.packageSpec !== packageSpec ||
       receipt.value.managerPath !== managerPath ||
-      !path.isAbsolute(receipt.value.binDirectory) ||
+      receipt.value.binDirectory !== packageBinDirectory(agent, distribution) ||
       path.dirname(receipt.value.executablePath) !== receipt.value.binDirectory
     ) {
       return Option.none<AcpRegistryPackageInstallReceipt>();
@@ -1012,35 +1029,6 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       return lines[0]!;
     },
   );
-
-  const npmGlobalEnvironment = Effect.fn("AcpRegistryCatalog.npmGlobalEnvironment")(function* (
-    managerPath: string,
-    environment: NodeJS.ProcessEnv,
-  ) {
-    const managerDirectory = yield* managerBinDirectory(managerPath);
-    const managerEnvironment = withPreferredPath(environment, managerDirectory, platform);
-    const configuredPrefix = yield* runCommand(managerPath, ["prefix", "--global"], {
-      env: managerEnvironment,
-      timeout: PACKAGE_QUERY_TIMEOUT,
-      truncatedOutputReason: "install_failed",
-    }).pipe(Effect.flatMap((output) => parsePackageManagerPath(managerPath, output)));
-    const ensureWritable = (directory: string) =>
-      fileSystem.makeDirectory(directory, { recursive: true }).pipe(
-        Effect.flatMap(() => fileSystem.access(directory, { writable: true })),
-        Effect.as(true),
-        Effect.orElseSucceed(() => false),
-      );
-    if (yield* ensureWritable(configuredPrefix)) return managerEnvironment;
-
-    const fallbackPrefix = userNpmPrefix(environment, platform, path);
-    if (fallbackPrefix === undefined || !(yield* ensureWritable(fallbackPrefix))) {
-      return yield* new AcpRegistryError({
-        reason: "install_failed",
-        detail: `ACP Registry cannot write to npm's global prefix '${configuredPrefix}' and could not create a writable user prefix.`,
-      });
-    }
-    return { ...managerEnvironment, npm_config_prefix: fallbackPrefix };
-  });
 
   const npmCommandName = (
     agent: AcpRegistryAgent,
@@ -1184,8 +1172,25 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
     const receipt = yield* readPackageReceipt(agent, distribution, packageSpec, managerPath);
     if (Option.isSome(receipt) && distribution === "npx") return receipt.value;
 
+    const packageRoot = packageInstallRoot(agent, distribution);
+    yield* fileSystem.makeDirectory(packageRoot, { recursive: true }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AcpRegistryError({
+            reason: "install_failed",
+            detail: `Could not create the managed install directory for ${agent.id}.`,
+            cause,
+          }),
+      ),
+    );
     const packageEnvironment =
-      distribution === "npx" ? yield* npmGlobalEnvironment(managerPath, environment) : environment;
+      distribution === "npx"
+        ? { ...environment, npm_config_prefix: packageRoot }
+        : {
+            ...environment,
+            UV_TOOL_DIR: packageRoot,
+            UV_TOOL_BIN_DIR: packageBinDirectory(agent, distribution),
+          };
     if (Option.isSome(receipt)) {
       const installed = yield* discoverUvGlobalPackage(
         agent,
@@ -1308,28 +1313,12 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
   const binaryPaths = (agent: AcpRegistryAgent, target: typeof AcpRegistryBinaryTarget.Type) => {
     const commandSegments = normalizeRegistryCommandPath(target.cmd);
     if (platformTarget === undefined || commandSegments === undefined) return undefined;
-    const installRoot = path.join(installsDirectory, agent.id, agent.version, platformTarget);
+    const installRoot = path.join(agentInstallRoot(agent), platformTarget);
     return {
       commandSegments,
       installRoot,
       executablePath: path.join(installRoot, ...commandSegments),
     };
-  };
-
-  /**
-   * An already-installed copy of a registry agent's binary on the instance
-   * PATH (for example a package-manager installed `kimi`). Checked before
-   * downloading the managed copy so existing installs are detected for every
-   * binary-distribution agent. A present managed install still wins so
-   * prepared agents stay on their pinned, checksum-verified version.
-   */
-  const resolveSystemAgentBinary = (
-    target: typeof AcpRegistryBinaryTarget.Type,
-    environment: NodeJS.ProcessEnv,
-  ): string | undefined => {
-    const name = target.cmd.trim().split(/[\\/]/u).pop() ?? "";
-    if (name.length === 0 || name === "." || name === "..") return undefined;
-    return resolveExecutable(name, platform, environment);
   };
 
   const installBinary = Effect.fn("AcpRegistryCatalog.installBinary")(function* (
@@ -1608,15 +1597,13 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       const agent = yield* findAgent(registry, input.agentId);
       const distribution = yield* compatibleDistribution(agent, "auto");
       if (distribution.kind === "binary") {
-        // An existing system install satisfies prepare without downloading a
-        // duplicate managed copy.
-        if (resolveSystemAgentBinary(distribution.binaryTarget!, hostEnvironment) === undefined) {
-          yield* installSemaphore.withPermits(1)(
-            installBinary(agent, distribution.binaryTarget!).pipe(
-              Effect.tap(() => reservePreparedBinary(agent.id)),
-            ),
-          );
-        }
+        // A PATH executable can be a different version with different ACP
+        // capabilities. Only an explicit command override opts into that copy.
+        yield* installSemaphore.withPermits(1)(
+          installBinary(agent, distribution.binaryTarget!).pipe(
+            Effect.tap(() => reservePreparedBinary(agent.id)),
+          ),
+        );
       } else {
         yield* installSemaphore.withPermits(1)(
           ensureGlobalPackage(agent, distribution.kind, distribution.packageName!, hostEnvironment),
@@ -1630,13 +1617,38 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       } satisfies AcpRegistryPrepareResult;
     });
 
+  const validateLocalExecutable = (command: string) =>
+    platform === "win32" && /\.(?:cmd|bat)$/iu.test(command)
+      ? Effect.fail(
+          new AcpRegistryError({
+            reason: "runner_unavailable",
+            detail:
+              "Local ACP commands launch without a shell. For a Windows batch wrapper, configure the underlying executable (for example node.exe) and pass the script path as an argument.",
+          }),
+        )
+      : Effect.void;
+
   const inspect: AcpRegistryCatalog["Service"]["inspect"] = (settings, environment) =>
     Effect.gen(function* () {
+      if (settings.source === "local") {
+        const command = settings.commandPath.trim();
+        if (!command) return { status: "unconfigured" } as const;
+        const executable = resolveExecutable(command, platform, environment ?? hostEnvironment);
+        if (executable !== undefined) yield* validateLocalExecutable(executable);
+        return executable === undefined
+          ? ({
+              status: "missing_runner",
+              version: null,
+              distribution: "local",
+            } as const)
+          : ({ status: "ready", agentId: command, version: null, distribution: "local" } as const);
+      }
       const agentId = settings.agentId.trim();
       if (agentId.length === 0) return { status: "unconfigured" } as const;
       const registry = yield* loadCachedRegistry();
       const agent = registry.agents.find((candidate) => candidate.id === agentId);
       if (agent === undefined) return { status: "not_found", agentId } as const;
+      const documentationUrl = agent.website ?? agent.repository;
       const distribution = resolveAcpRegistryDistribution({
         agent,
         preference: settings.distribution,
@@ -1655,8 +1667,10 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
           ? ({
               status: "ready",
               agentId,
-              version: agent.version,
+              // The catalog version does not describe an overridden executable.
+              version: null,
               distribution: distribution.kind,
+              ...(documentationUrl ? { documentationUrl } : {}),
             } as const)
           : ({
               status: "missing_runner",
@@ -1679,19 +1693,6 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
               .exists(paths.executablePath)
               .pipe(Effect.orElseSucceed(() => false));
             if (!exists) {
-              if (
-                resolveSystemAgentBinary(
-                  distribution.binaryTarget!,
-                  environment ?? hostEnvironment,
-                ) !== undefined
-              ) {
-                return {
-                  status: "ready",
-                  agentId,
-                  version: agent.version,
-                  distribution: "binary",
-                } as const;
-              }
               return {
                 status: "unprepared",
                 agentId,
@@ -1715,6 +1716,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
               agentId,
               version: agent.version,
               distribution: "binary",
+              ...(documentationUrl ? { documentationUrl } : {}),
             } as const;
           }),
         );
@@ -1729,6 +1731,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
             agentId,
             version: agent.version,
             distribution: distribution.kind,
+            ...(documentationUrl ? { documentationUrl } : {}),
           } as const)
         : ({
             status: "missing_runner",
@@ -1741,6 +1744,28 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
 
   const resolve: AcpRegistryCatalog["Service"]["resolve"] = (settings, cwd, environment) =>
     Effect.gen(function* () {
+      if (settings.source === "local") {
+        const executable = settings.commandPath.trim();
+        if (!executable) {
+          return yield* new AcpRegistryError({
+            reason: "agent_not_configured",
+            detail: "Local ACP provider requires an executable.",
+          });
+        }
+        const env = environment ?? hostEnvironment;
+        const command = resolveExecutable(executable, platform, env);
+        if (command === undefined) {
+          return yield* new AcpRegistryError({
+            reason: "runner_unavailable",
+            detail: "Local ACP executable is not available on this environment's PATH.",
+          });
+        }
+        yield* validateLocalExecutable(command);
+        return {
+          distribution: "local",
+          spawn: { command, args: settings.commandArgs, cwd, env, shell: false },
+        } satisfies ResolvedAcpRegistryAgent;
+      }
       const agentId = settings.agentId.trim();
       if (agentId.length === 0) {
         return yield* new AcpRegistryError({
@@ -1781,22 +1806,11 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
         commandBinDirectory = installed.binDirectory;
       } else {
         const target = distribution.binaryTarget!;
-        const paths = binaryPaths(agent, target);
-        const managedInstalled =
-          paths !== undefined &&
-          (yield* fileSystem.exists(paths.executablePath).pipe(Effect.orElseSucceed(() => false)));
-        const systemExecutable = managedInstalled
-          ? undefined
-          : resolveSystemAgentBinary(target, effectiveEnvironment);
-        if (systemExecutable !== undefined) {
-          command = systemExecutable;
-        } else {
-          command = yield* installSemaphore.withPermits(1)(
-            installBinary(agent, target).pipe(
-              Effect.tap(() => consumePreparedBinaryReservation(agent.id)),
-            ),
-          );
-        }
+        command = yield* installSemaphore.withPermits(1)(
+          installBinary(agent, target).pipe(
+            Effect.tap(() => consumePreparedBinaryReservation(agent.id)),
+          ),
+        );
         args = distribution.args;
       }
 
@@ -1821,55 +1835,98 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       } satisfies ResolvedAcpRegistryAgent;
     });
 
-  const uninstallManagedBinary: AcpRegistryCatalog["Service"]["uninstallManagedBinary"] = (
-    input,
-    isReferenced = Effect.succeed(false),
-  ) =>
-    installSemaphore.withPermits(1)(
-      Effect.gen(function* () {
-        const safeAgentId = yield* decodeBoundedAgentId(input.agentId).pipe(
-          Effect.mapError(
-            (cause) =>
-              new AcpRegistryError({
-                reason: "install_failed",
-                detail: "ACP Registry managed binary uninstall received an invalid agent ID.",
-                cause,
-              }),
-          ),
-        );
-        if (yield* isReferenced) {
-          yield* consumePreparedBinaryReservation(safeAgentId);
-          return { agentId: safeAgentId, removed: false };
-        }
-        if (yield* hasPreparedBinaryReservation(safeAgentId)) {
-          return { agentId: safeAgentId, removed: false };
-        }
-        const agentRoot = path.join(installsDirectory, safeAgentId);
-        const existed = yield* fileSystem.exists(agentRoot).pipe(
-          Effect.mapError(
-            (cause) =>
-              new AcpRegistryError({
-                reason: "install_failed",
-                detail: `Could not inspect the managed binary cache for ACP Registry agent ${safeAgentId}.`,
-                cause,
-              }),
-          ),
-        );
-        if (!existed) return { agentId: safeAgentId, removed: false };
+  const uninstallManagedBinary: AcpRegistryCatalog["Service"]["uninstallManagedBinary"] = (input) =>
+    serverSettings
+      .withSettingsSnapshot((settings) =>
+        installSemaphore.withPermits(1)(
+          Effect.gen(function* () {
+            const safeAgentId = yield* decodeBoundedAgentId(input.agentId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new AcpRegistryError({
+                    reason: "install_failed",
+                    detail: "ACP Registry managed binary uninstall received an invalid agent ID.",
+                    cause,
+                  }),
+              ),
+            );
+            const isReferenced = Object.values(settings.providerInstances).some((instance) => {
+              if (
+                instance.driver !== "acpRegistry" ||
+                instance.config === null ||
+                typeof instance.config !== "object"
+              )
+                return false;
+              const config = instance.config as Record<string, unknown>;
+              return (
+                config.source !== "local" &&
+                typeof config.agentId === "string" &&
+                config.agentId.trim() === safeAgentId
+              );
+            });
+            if (isReferenced) {
+              yield* consumePreparedBinaryReservation(safeAgentId);
+              return { agentId: safeAgentId, removed: false };
+            }
+            if (yield* hasPreparedBinaryReservation(safeAgentId)) {
+              return { agentId: safeAgentId, removed: false };
+            }
+            const agentRoot = path.join(installsDirectory, safeAgentId);
+            const existed = yield* fileSystem.exists(agentRoot).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new AcpRegistryError({
+                    reason: "install_failed",
+                    detail: `Could not inspect the managed binary cache for ACP Registry agent ${safeAgentId}.`,
+                    cause,
+                  }),
+              ),
+            );
+            if (!existed) return { agentId: safeAgentId, removed: false };
 
-        yield* fileSystem.remove(agentRoot, { recursive: true, force: true }).pipe(
-          Effect.mapError(
-            (cause) =>
-              new AcpRegistryError({
-                reason: "install_failed",
-                detail: `Could not remove managed binaries for ACP Registry agent ${safeAgentId}.`,
-                cause,
-              }),
-          ),
-        );
-        return { agentId: safeAgentId, removed: true };
-      }),
-    );
+            let removed = false;
+            yield* Effect.gen(function* () {
+              for (const version of yield* fileSystem.readDirectory(agentRoot)) {
+                const versionRoot = path.join(agentRoot, version);
+                for (const entry of yield* fileSystem.readDirectory(versionRoot)) {
+                  if (!/^(?:darwin|linux|windows)-(?:aarch64|x86_64)$/u.test(entry)) continue;
+                  yield* fileSystem.remove(path.join(versionRoot, entry), {
+                    recursive: true,
+                    force: true,
+                  });
+                  removed = true;
+                }
+                if ((yield* fileSystem.readDirectory(versionRoot)).length === 0)
+                  yield* fileSystem.remove(versionRoot, { recursive: true });
+              }
+              if ((yield* fileSystem.readDirectory(agentRoot)).length === 0)
+                yield* fileSystem.remove(agentRoot, { recursive: true });
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new AcpRegistryError({
+                    reason: "install_failed",
+                    detail: `Could not remove managed binaries for ACP Registry agent ${safeAgentId}.`,
+                    cause,
+                  }),
+              ),
+            );
+            return { agentId: safeAgentId, removed };
+          }),
+        ),
+      )
+      .pipe(
+        Effect.catchTag(
+          "ServerSettingsError",
+          (cause) =>
+            new AcpRegistryError({
+              reason: "install_failed",
+              detail:
+                "Could not read provider settings while checking managed ACP binary references.",
+              cause,
+            }),
+        ),
+      );
 
   return AcpRegistryCatalog.of({
     search,

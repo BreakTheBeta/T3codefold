@@ -19,14 +19,15 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
-import { AcpRegistryCatalog, toAcpRegistryOperationError } from "./AcpRegistrySupport.ts";
+import * as PtyAdapter from "../../terminal/PtyAdapter.ts";
+import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import { parseSessionModeState } from "./AcpRuntimeModel.ts";
 import { acpProviderOptionDescriptors } from "./AcpSessionConfig.ts";
-import { AcpRegistryRuntimeCoordinator } from "./AcpRegistryRuntimeCoordinator.ts";
+import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
 const MAX_AUTH_METHODS = 32;
@@ -126,7 +127,7 @@ export function normalizeAcpRegistryAuthMethods(
   for (const method of methods ?? []) {
     const id = boundedOpaqueValue(method.id, MAX_ID_LENGTH);
     if (id === undefined) continue;
-    const type = "type" in method ? method.type : "agent";
+    const type = method.type ?? "agent";
     const envVarNames =
       type === "env_var" && "vars" in method
         ? method.vars
@@ -312,11 +313,12 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
   ): Effect.fn.Return<
     AcpRegistryConfigurationProbeResult,
     AcpRegistryOperationError,
-    AcpRegistryCatalog | ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto
+    AcpRegistrySupport.AcpRegistryCatalog | ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto
   > {
-    const catalog = yield* AcpRegistryCatalog;
+    const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const crypto = yield* Crypto.Crypto;
+    const pty = yield* Effect.serviceOption(PtyAdapter.PtyAdapter);
 
     const result = yield* Effect.gen(function* () {
       // Resolution may install a missing registry package. Keep it inside the
@@ -324,16 +326,18 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       // much longer timeout.
       const resolved = yield* catalog
         .resolve(input.settings, input.cwd, input.environment)
-        .pipe(Effect.mapError(toAcpRegistryOperationError));
+        .pipe(Effect.mapError(AcpRegistrySupport.toAcpRegistryOperationError));
       const authMethodsRef = yield* Ref.make<ReadonlyArray<AcpRegistryProbeAuthMethod>>([]);
       const authActionRef = yield* Ref.make<AcpRegistryUrlAuthAction | undefined>(undefined);
-      const runtimeCoordinator = yield* Effect.serviceOption(AcpRegistryRuntimeCoordinator);
+      const runtimeCoordinator = yield* Effect.serviceOption(
+        AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator,
+      );
       const runtimeContext = yield* Layer.build(
         AcpSessionRuntime.layer({
           spawn: resolved.spawn,
           cwd: input.cwd,
           clientCapabilities: {
-            auth: { terminal: false },
+            auth: { terminal: Option.isSome(pty) },
             elicitation: { url: {} },
             fs: { readTextFile: false, writeTextFile: false },
             terminal: false,
@@ -436,7 +440,7 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       probe: acpRegistryProbeResult(
         input.instanceId,
         result.started,
-        result.resolved.agent.icon ?? null,
+        result.resolved.agent?.icon ?? null,
         {
           command: result.resolved.spawn.command,
           args: result.resolved.spawn.args,
@@ -452,13 +456,15 @@ const MANAGEMENT_TIMEOUT = Duration.seconds(60);
 
 const makeAcpRegistryManagementRuntime = Effect.fn("AcpRegistryProbe.makeManagementRuntime")(
   function* (input: AcpRegistryManagementInput) {
-    const catalog = yield* AcpRegistryCatalog;
+    const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const crypto = yield* Crypto.Crypto;
-    const runtimeCoordinator = yield* Effect.serviceOption(AcpRegistryRuntimeCoordinator);
+    const runtimeCoordinator = yield* Effect.serviceOption(
+      AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator,
+    );
     const resolved = yield* catalog
       .resolve(input.settings, input.cwd, input.environment)
-      .pipe(Effect.mapError(toAcpRegistryOperationError));
+      .pipe(Effect.mapError(AcpRegistrySupport.toAcpRegistryOperationError));
     const runtimeContext = yield* Layer.build(
       AcpSessionRuntime.layer({
         spawn: resolved.spawn,
@@ -470,6 +476,7 @@ const makeAcpRegistryManagementRuntime = Effect.fn("AcpRegistryProbe.makeManagem
           terminal: false,
         },
         clientInfo: { name: "t3-code-session-manager", version: "0.0.0" },
+        authenticateOnAuthRequired: false,
         ...(input.settings.authMethodId ? { authMethodId: input.settings.authMethodId } : {}),
       }).pipe(
         Layer.provide(

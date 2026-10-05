@@ -26,9 +26,11 @@ import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+
+import { signalProcessGroup } from "../../process/processGroup.ts";
 
 export class PiRpcError extends Schema.TaggedError<PiRpcError>()("PiRpcError", {
   operation: Schema.String,
@@ -37,6 +39,18 @@ export class PiRpcError extends Schema.TaggedError<PiRpcError>()("PiRpcError", {
 }) {
   override get message(): string {
     return `Pi RPC ${this.operation} failed${this.detail === undefined ? "" : `: ${this.detail}`}.`;
+  }
+}
+
+export class PiRpcTimeoutError extends Schema.TaggedError<PiRpcTimeoutError>()(
+  "PiRpcTimeoutError",
+  {
+    operation: Schema.String,
+    timeoutMs: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+  },
+) {
+  override get message(): string {
+    return `Pi RPC ${this.operation} failed: timed out after ${this.timeoutMs}ms.`;
   }
 }
 
@@ -82,7 +96,10 @@ export interface PiRpcConnection {
    * record, and returns its `data` (undefined when the command carries none).
    * Fails on `success: false`, transport death, or timeout.
    */
-  readonly request: (record: PiRpcRecord, timeoutMs?: number) => Effect.Effect<unknown, PiRpcError>;
+  readonly request: (
+    record: PiRpcRecord,
+    timeoutMs?: number,
+  ) => Effect.Effect<unknown, PiRpcError | PiRpcTimeoutError>;
   /**
    * Session events (every non-response stdout record) in arrival order. The
    * full queue is exposed so consumers can append order-preserving synthetic
@@ -223,7 +240,7 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
       if (platform === "win32") {
         process.kill(Number(child.pid), signal);
       } else {
-        process.kill(-Number(child.pid), signal);
+        signalProcessGroup(Number(child.pid), signal);
       }
       return true;
     } catch {
@@ -235,7 +252,8 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   const hasExited = (): boolean => {
     if (childExited) return true;
     try {
-      process.kill(platform === "win32" ? Number(child.pid) : -Number(child.pid), 0);
+      if (platform === "win32") process.kill(Number(child.pid), 0);
+      else signalProcessGroup(Number(child.pid), 0);
       return false;
     } catch {
       return true;
@@ -426,7 +444,7 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   const request = (
     record: PiRpcRecord,
     timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-  ): Effect.Effect<unknown, PiRpcError> =>
+  ): Effect.Effect<unknown, PiRpcError | PiRpcTimeoutError> =>
     Effect.gen(function* () {
       const id = `t3-${nextRequestId++}`;
       const deferred = yield* Deferred.make<unknown, PiRpcError>();
@@ -443,9 +461,9 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
           duration: Duration.millis(timeoutMs),
           orElse: () =>
             Effect.fail(
-              new PiRpcError({
+              new PiRpcTimeoutError({
                 operation: String(record["type"] ?? "request"),
-                detail: `timed out after ${timeoutMs}ms`,
+                timeoutMs,
               }),
             ),
         }),
@@ -459,6 +477,8 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
     request,
     events,
     exited: Deferred.await(exitDeferred),
-    terminate: terminateProcess.pipe(Effect.ignore, Effect.uninterruptible),
+    terminate: failTransport(
+      new PiRpcError({ operation: "terminate", detail: "pi process was stopped" }),
+    ).pipe(Effect.andThen(terminateProcess), Effect.ignore, Effect.uninterruptible),
   } satisfies PiRpcConnection;
 });

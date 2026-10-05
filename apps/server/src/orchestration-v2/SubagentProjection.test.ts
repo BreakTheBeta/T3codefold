@@ -114,6 +114,30 @@ it("keeps a subagent child awake when its parent thread is snoozed", () => {
   });
 });
 
+it("attributes native subagent prompts to their parent thread", () => {
+  for (const role of ["user", "assistant"] as const) {
+    const artifacts = makeSubagentConversationArtifacts({
+      messageId: MessageId.make(`native-${role}`),
+      turnItemId: TurnItemId.make(`native-${role}`),
+      threadId: childThreadId,
+      senderThreadId: parentThreadId,
+      rootNodeId: NodeId.make("child-root"),
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      role,
+      text: role === "user" ? "Review the changes" : "Review complete",
+      ordinal: 100,
+      now: childCreatedAt,
+    });
+    assert.equal(artifacts.message.threadId, childThreadId);
+    assert.equal(artifacts.message.senderThreadId, role === "user" ? parentThreadId : undefined);
+    if (artifacts.turnItem.type === "user_message") {
+      assert.equal(artifacts.turnItem.senderThreadId, parentThreadId);
+    }
+  }
+});
+
 function taskFixture() {
   const projection = emptyProjection({
     type: "thread.created",
@@ -142,6 +166,28 @@ function taskFixture() {
   return { projection: { ...projection, runs: [run] }, run };
 }
 
+it("reports the run that ended last, not the highest ordinal", () => {
+  const { projection, run } = taskFixture();
+  // A restart continuation (ordinal 4) ran ahead of held queued runs 2 and 3.
+  const ended = (ordinal: number, completedAt: string): OrchestrationV2Run => ({
+    ...run,
+    id: RunId.make(`run:${ordinal}`),
+    ordinal,
+    completedAt: DateTime.makeUnsafe(completedAt),
+  });
+  const progress = delegatedTaskProgress({
+    ...projection,
+    runs: [
+      { ...run, status: "cancelled" },
+      ended(4, "2026-07-24T10:00:00.000Z"),
+      ended(2, "2026-07-24T10:05:00.000Z"),
+      ended(3, "2026-07-24T10:10:00.000Z"),
+    ],
+  });
+  assert.equal(progress.state, "result_available");
+  assert.equal(progress.resultRun?.ordinal, 3);
+});
+
 it("waits for nested work and retains the report across monitor acknowledgements", () => {
   const { projection, run } = taskFixture();
   assert.equal(
@@ -150,6 +196,10 @@ it("waits for nested work and retains the report across monitor acknowledgements
   );
   assert.equal(
     delegatedTaskProgress({ ...projection, subagents: [{ status: "completed" }] }).state,
+    "result_available",
+  );
+  assert.equal(
+    delegatedTaskProgress({ ...projection, subagents: [{ status: "idle" }] }).state,
     "result_available",
   );
   for (const state of ["pending", "claimed"] as const) {
@@ -173,7 +223,9 @@ it("waits for nested work and retains the report across monitor acknowledgements
   assert.equal(
     delegatedTaskProgress({
       ...projection,
-      providerThreads: [{ pendingBackgroundTasks: [{ taskId: "background-audit" }] }],
+      providerThreads: [
+        { pendingBackgroundTasks: [{ taskId: "background-audit", kind: "command" }] },
+      ],
     }).state,
     "waiting_for_children",
   );

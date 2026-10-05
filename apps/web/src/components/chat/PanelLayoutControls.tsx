@@ -1,14 +1,10 @@
-import {
-  ListFilterIcon,
-  Maximize2Icon,
-  Minimize2Icon,
-  PanelBottomIcon,
-  PanelRightIcon,
-} from "lucide-react";
-import { memo, type ReactElement, type ReactNode, type RefObject } from "react";
+import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
+import { Maximize2, Minimize2 } from "lucide";
+import { MorphIcon } from "~/components/MorphIcon";
+import { memo, type ReactElement } from "react";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -21,16 +17,13 @@ export interface PanelLayoutControlsProps {
   terminalShortcutLabel: string | null;
   threadPanelOpen: boolean;
   threadPanelPresentation: ThreadPanelPresentation;
-  threadPanelPopoverAnchor?: RefObject<Element | null>;
-  threadPanelPopoverContent?: ReactNode;
+  threadPanelPopoverHandle?: ReturnType<typeof PopoverCreateHandle>;
   threadPanelShortcutLabel: string | null;
   threadPanelHasAttention: boolean;
   rightPanelAvailable: boolean;
   rightPanelOpen: boolean;
   rightPanelShortcutLabel: string | null;
   rightPanelUnavailableLabel?: string;
-  /** Running + waiting subagents in this thread; badges the right panel toggle. */
-  liveAgentCount: number;
   onToggleTerminal: () => void;
   onToggleThreadPanel: () => void;
   onToggleRightPanel: () => void;
@@ -45,15 +38,13 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   terminalShortcutLabel,
   threadPanelOpen,
   threadPanelPresentation,
-  threadPanelPopoverAnchor,
-  threadPanelPopoverContent,
+  threadPanelPopoverHandle,
   threadPanelShortcutLabel,
   threadPanelHasAttention,
   rightPanelAvailable,
   rightPanelOpen,
   rightPanelShortcutLabel,
   rightPanelUnavailableLabel = "Right panel is unavailable",
-  liveAgentCount,
   onToggleTerminal,
   onToggleThreadPanel,
   onToggleRightPanel,
@@ -66,7 +57,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       variant="ghost"
       size="sm"
     >
-      <ListFilterIcon className="size-4" />
+      <SquareMenuIcon className="size-4" />
       {threadPanelHasAttention ? (
         <span
           className="absolute right-1 top-1 size-1.5 rounded-full bg-warning ring-2 ring-background"
@@ -93,33 +84,13 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
-      {showThreadPanelControl ? (
-        threadPanelPresentation === "popover" ? (
-          <Popover
-            open={threadPanelOpen}
-            onOpenChange={(open) => {
-              if (open !== threadPanelOpen) onToggleThreadPanel();
-            }}
-          >
-            {threadPanelTooltip(<PopoverTrigger render={threadPanelToggle} />)}
-            <PopoverPopup
-              anchor={threadPanelPopoverAnchor}
-              align="end"
-              alignOffset={0}
-              collisionAvoidance={{ side: "shift", align: "shift", fallbackAxisSide: "none" }}
-              side="bottom"
-              sideOffset={0}
-              positionerClassName="w-[min(var(--thread-details-panel-width),var(--anchor-width))] !transition-none"
-              className="w-full !overflow-visible !rounded-none !border-0 !bg-transparent !shadow-none before:hidden! [--viewport-inline-padding:0] [-webkit-backdrop-filter:none]! [backdrop-filter:none]!"
-              viewportClassName="!overflow-visible p-2"
-            >
-              {threadPanelPopoverContent}
-            </PopoverPopup>
-          </Popover>
-        ) : (
-          threadPanelTooltip(threadPanelToggle)
-        )
-      ) : null}
+      {showThreadPanelControl
+        ? threadPanelPresentation === "popover"
+          ? threadPanelTooltip(
+              <PopoverTrigger handle={threadPanelPopoverHandle} render={threadPanelToggle} />,
+            )
+          : threadPanelTooltip(threadPanelToggle)
+        : null}
       {showTerminalControl ? (
         <Tooltip>
           <TooltipTrigger render={<span className="flex shrink-0" />}>
@@ -149,33 +120,17 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               className="shrink-0 [-webkit-app-region:no-drag]"
               pressed={rightPanelOpen}
               onPressedChange={onToggleRightPanel}
-              aria-label={
-                liveAgentCount > 0
-                  ? `Toggle right panel, ${liveAgentCount} ${liveAgentCount === 1 ? "agent" : "agents"} working`
-                  : "Toggle right panel"
-              }
+              aria-label="Toggle right panel"
               variant="ghost"
               size="sm"
               disabled={!rightPanelAvailable}
             >
               <PanelRightIcon className="size-4" />
-              {liveAgentCount > 0 ? (
-                <span
-                  aria-hidden
-                  className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-info px-1 text-[9px] font-semibold tabular-nums text-white"
-                >
-                  {liveAgentCount}
-                </span>
-              ) : null}
             </Toggle>
           </TooltipTrigger>
           <TooltipPopup side="bottom">
             {rightPanelAvailable
-              ? `Toggle right panel${rightPanelShortcutLabel ? ` (${rightPanelShortcutLabel})` : ""}${
-                  liveAgentCount > 0
-                    ? ` · ${liveAgentCount} ${liveAgentCount === 1 ? "agent" : "agents"} working`
-                    : ""
-                }`
+              ? `Toggle right panel${rightPanelShortcutLabel ? ` (${rightPanelShortcutLabel})` : ""}`
               : rightPanelUnavailableLabel}
           </TooltipPopup>
         </Tooltip>
@@ -204,11 +159,7 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
             variant="ghost"
             size="sm"
           >
-            {maximized ? (
-              <Minimize2Icon className="size-4" />
-            ) : (
-              <Maximize2Icon className="size-4" />
-            )}
+            <MorphIcon className="size-4" icon={maximized ? Minimize2 : Maximize2} />
           </Toggle>
         }
       />

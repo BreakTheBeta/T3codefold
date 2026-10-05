@@ -17,15 +17,18 @@ import {
   type OrchestrationV2RunAttempt,
   type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
+import type { ThreadRuntimeSummary } from "@t3tools/client-runtime/state/shell";
 import { deriveMessagesTimelineRows } from "./components/chat/MessagesTimeline.logic";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   deriveActivePlanState,
+  deriveCanInterruptRunningThread,
   deriveTimelineEntriesFromVisibleTurnItems,
   deriveTimelineEntriesFromVisibleTurnItemsWithState,
   deriveRevertTurnCountByUserMessageId,
+  derivePhase,
   findLatestProposedPlan,
   isLatestRunSettled,
   selectHandoffImageResources,
@@ -68,6 +71,44 @@ describe("V2 session presentation", () => {
     ).toBe(false);
   });
 
+  it("offers Stop while a run is preparing/starting, not just once it's running (#13392)", () => {
+    const runtimeWithStatus = (
+      status: ThreadRuntimeSummary["status"],
+      activeRunId: RunId | null = null,
+    ): ThreadRuntimeSummary => ({
+      status,
+      activeRunId,
+      providerInstanceId: ProviderInstanceId.make("claude-default"),
+      providerName: null,
+      lastError: null,
+      updatedAt: "2026-09-29T00:00:00.000Z",
+    });
+    const runId = RunId.make("run-stop-while-starting");
+
+    for (const status of ["preparing", "starting", "running"] as const) {
+      const runtime = runtimeWithStatus(status, runId);
+      expect(deriveCanInterruptRunningThread(true, runtime)).toBe(true);
+    }
+
+    // No active thread: never offer Stop, regardless of run status.
+    expect(deriveCanInterruptRunningThread(false, runtimeWithStatus("running", runId))).toBe(false);
+
+    // Queued with nothing interruptible: the server rejects interrupting a
+    // queued run, so Stop stays hidden.
+    expect(derivePhase(runtimeWithStatus("queued"))).toBe("connecting");
+    expect(deriveCanInterruptRunningThread(true, runtimeWithStatus("queued"))).toBe(false);
+    // Queued behind a run that is still interruptible: Stop targets that run.
+    expect(deriveCanInterruptRunningThread(true, runtimeWithStatus("queued", runId))).toBe(true);
+
+    // Waiting (e.g. on a subagent) is treated as "running" by derivePhase and
+    // keeps offering Stop, unchanged from before.
+    expect(derivePhase(runtimeWithStatus("waiting"))).toBe("running");
+    expect(deriveCanInterruptRunningThread(true, runtimeWithStatus("waiting"))).toBe(true);
+
+    // No runtime at all: nothing to interrupt.
+    expect(deriveCanInterruptRunningThread(true, null)).toBe(false);
+  });
+
   it("labels provider retry progress, delay, recovery, and exhaustion", () => {
     const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
     const retryItem = {
@@ -99,6 +140,35 @@ describe("V2 session presentation", () => {
       },
     } satisfies Extract<OrchestrationV2TurnItem, { readonly type: "error" }>;
 
+    expect(
+      providerErrorPresentation({
+        ...retryItem,
+        status: "failed",
+        failure: { ...retryItem.failure, class: "usage_limit" },
+      }),
+    ).toMatchObject({ label: "Usage limit reached after 2/10 retries" });
+    const recoveredLimit = {
+      ...retryItem,
+      status: "completed" as const,
+      completedAt: now,
+      failure: { ...retryItem.failure, class: "usage_limit" as const },
+    };
+    const [recoveredEntry] = deriveTimelineEntriesFromVisibleTurnItems({
+      visibleTurnItems: [
+        {
+          item: recoveredLimit,
+          position: 0,
+          visibility: "local",
+          sourceThreadId: recoveredLimit.threadId,
+          sourceItemId: recoveredLimit.id,
+        },
+      ],
+      optimisticMessages: [],
+    });
+    if (recoveredEntry?.kind !== "work") throw new Error("Expected recovered provider work");
+    expect(recoveredEntry.entry.label).toBe("Provider recovered (2/10 retries)");
+    expect(recoveredEntry.entry.sourceActivityKind).not.toBe("runtime.warning");
+    expect(workEntryDisplayIndicatesToolFailure(recoveredEntry.entry)).toBe(false);
     expect(providerErrorPresentation(retryItem)).toEqual({
       label: "Retrying provider (2/10)",
       detail: "Claude API overloaded. Retrying in 1.5s.",
@@ -562,6 +632,7 @@ describe("V2 session presentation", () => {
       createdBy: "agent" as const,
       creationSource: "mcp" as const,
       scheduledTaskId: ScheduledTaskId.make("task-queued"),
+      senderThreadId: ThreadId.make("thread-agent-sender"),
     } satisfies OrchestrationV2TurnItem;
     const promotedEntries = deriveTimelineEntriesFromVisibleTurnItems({
       visibleTurnItems: [
@@ -580,6 +651,7 @@ describe("V2 session presentation", () => {
     if (promotedEntries[0]?.kind === "message") {
       expect(promotedEntries[0].message.inputIntent).toBe("turn_start");
       expect(promotedEntries[0].message.scheduledTaskId).toBe("task-queued");
+      expect(promotedEntries[0].message.senderThreadId).toBe("thread-agent-sender");
     }
   });
 
@@ -1051,6 +1123,21 @@ describe("native provider presentation in the v2 timeline", () => {
       kind: "work",
       entry: { viewedImagePath: "/workspace/reference.png" },
     });
+  });
+
+  it("labels a read of a bare filename from its structured input", () => {
+    const item = {
+      ...base,
+      type: "dynamic_tool" as const,
+      toolName: "Read",
+      input: { file_path: "README" },
+      output: "project notes",
+    } satisfies OrchestrationV2TurnItem;
+    const [entry] = deriveTimelineEntriesFromVisibleTurnItems({
+      visibleTurnItems: [visible(item)],
+      optimisticMessages: [],
+    });
+    expect(entry).toMatchObject({ kind: "work", entry: { label: "Read README" } });
   });
 
   it("keeps browser identity and its source on a completed tool row", () => {

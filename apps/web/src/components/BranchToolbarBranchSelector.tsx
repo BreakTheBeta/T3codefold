@@ -1,3 +1,4 @@
+import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
@@ -36,10 +37,8 @@ import { cn } from "../lib/utils";
 import {
   THREAD_DETAILS_PANEL_CHEVRON_CLASS,
   THREAD_DETAILS_PANEL_ICON_CLASS,
-  THREAD_DETAILS_PANEL_ROW_POPUP_CLASS,
-  THREAD_DETAILS_PANEL_SELECT_ROW_CLASS,
 } from "./chat/threadDetailsPanelStyles";
-import { ThreadDetailsPrRow } from "./chat/ThreadDetailsPrRow";
+import { ThreadDetailsPrRows } from "./chat/ThreadDetailsPrRows";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
 import { useComposerMenuProps } from "./chat/composerEventScope";
@@ -60,12 +59,12 @@ import {
   resolveThreadPullRequestBadge,
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
-import { Button, InlineButton } from "./ui/button";
-import { ComposerControl } from "./chat/ComposerControl";
+
 import { ComboboxItem, ComboboxTrigger } from "./ui/combobox";
+import { ComposerControl } from "./chat/ComposerControl";
+import { MiddleTruncate } from "./ui/middle-truncate";
 import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { MiddleTruncate } from "./ui/middle-truncate";
 
 export interface BranchToolbarBranchSelectorHandle {
   open: () => void;
@@ -647,6 +646,7 @@ export function BranchToolbarBranchSelector({
         branch={refName}
         projectCwd={activeProjectCwd}
         index={index}
+        value={itemValue}
         onClick={() => selectPickerItem(itemValue)}
         onContextMenu={(event) => handleBranchContextMenu(event, itemValue)}
       />
@@ -659,6 +659,7 @@ export function BranchToolbarBranchSelector({
       filteredItems={filteredBranchPickerItems}
       open={isBranchMenuOpen}
       onOpenChange={handleOpenChange}
+      onSelectItem={selectPickerItem}
       value={resolvedActiveBranch}
       query={branchQuery}
       resultsQuery={deferredTrimmedBranchQuery}
@@ -668,7 +669,6 @@ export function BranchToolbarBranchSelector({
       onLoadNext={branchRefState.loadNext}
       statusText={branchStatusText}
       renderItem={renderPickerItem}
-      onSelectItem={selectPickerItem}
       getItemType={(item) =>
         item === checkoutPullRequestItemValue
           ? "checkout-pull-request"
@@ -684,10 +684,7 @@ export function BranchToolbarBranchSelector({
       popupProps={{
         align: displayMode === "panel" ? "start" : "end",
         side: displayMode === "panel" ? "bottom" : "top",
-        className: cn(
-          "flex flex-col",
-          displayMode === "panel" ? THREAD_DETAILS_PANEL_ROW_POPUP_CLASS : "w-80",
-        ),
+        className: cn("flex flex-col", displayMode === "panel" ? "w-(--anchor-width)" : "w-80"),
         ...(displayMode === "toolbar" ? composerFloatingLayerProps : {}),
       }}
     >
@@ -700,7 +697,7 @@ export function BranchToolbarBranchSelector({
       >
         {displayMode !== "panel" ? (
           <ThreadPullRequestBadgeControl
-            render={<InlineButton />}
+            render={<ComposerControl size="xs" />}
             badge={prBadge}
             pullRequests={serverThread?.pullRequests ?? []}
             number={prNumber}
@@ -714,20 +711,22 @@ export function BranchToolbarBranchSelector({
         ) : null}
         <span
           className="flex min-w-0"
+          onMouseDownCapture={(event) => {
+            if (event.button !== 0 || event.ctrlKey) {
+              event.stopPropagation();
+            }
+          }}
           onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
         >
           <ComboboxTrigger
             render={
               displayMode === "panel" ? (
-                <Button variant="ghost" size="sm" />
+                <ThreadDetailsControl part="select" />
               ) : (
                 <ComposerControl size="xs" />
               )
             }
-            className={cn(
-              "min-w-0 max-w-full active:scale-100",
-              displayMode === "panel" && THREAD_DETAILS_PANEL_SELECT_ROW_CLASS,
-            )}
+            className="min-w-0 max-w-full active:scale-100"
             disabled={isInitialBranchesLoadPending || isBranchActionPending}
           >
             <GitBranchIcon
@@ -737,7 +736,7 @@ export function BranchToolbarBranchSelector({
               )}
             />
             <ComposerContextLabel displayMode={displayMode}>
-              <MiddleTruncate value={triggerLabel} className="flex w-full" />
+              <MiddleTruncate value={triggerLabel} className="w-full" />
             </ComposerContextLabel>
             {displayMode === "panel" ? (
               <span data-slot="select-icon">
@@ -749,7 +748,10 @@ export function BranchToolbarBranchSelector({
           </ComboboxTrigger>
         </span>
         {displayMode === "panel" && prNumber !== undefined && prUrl !== undefined ? (
-          <ThreadDetailsPrRow
+          <ThreadDetailsPrRows
+            links={serverThread?.pullRequests ?? []}
+            currentLink={currentLinkedPr}
+            onOpenLink={openPrLink}
             environmentId={environmentId}
             pr={displayedPr}
             number={prNumber}

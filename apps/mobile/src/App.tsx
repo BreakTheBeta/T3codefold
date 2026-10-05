@@ -1,11 +1,10 @@
-import { VoiceWorkspaceProvider } from "./features/voice-input/VoiceWorkspaceProvider";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect, useState } from "react";
-import { StatusBar, View } from "react-native";
+import { useEffect } from "react";
+import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { createStaticNavigation } from "@react-navigation/native";
 
 import { RegistryContext } from "@effect/atom-react";
@@ -23,9 +22,9 @@ import { appAtomRegistry } from "./state/atom-registry";
 import { OverlayPortalHost } from "./components/OverlayPortal";
 import { shouldHandleAppLink } from "./lib/appLinking";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
-import { LocalAgentNotificationsCoordinator } from "./features/agent-awareness/localNotifications";
-
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
+import { VoiceInputProvider } from "./features/voice-input/VoiceInputProvider";
+import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
 
 import "../global.css";
 
@@ -46,12 +45,12 @@ const appLinking = {
 
 const Navigation = createStaticNavigation(RootStack);
 
-function SplashScreenCoordinator({ navigationReady }: { readonly navigationReady: boolean }) {
+function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
 
   useEffect(() => {
-    if (isReady && navigationReady) void SplashScreen.hide();
-  }, [isReady, navigationReady]);
+    if (isReady) void SplashScreen.hide();
+  }, [isReady]);
 
   return null;
 }
@@ -71,51 +70,32 @@ export default function App() {
 function AppContent() {
   const { themeAppearance } = useAppearancePreferences();
   const navigationTheme = useMobileNavigationTheme();
-  const [navigationReady, setNavigationReady] = useState(false);
 
   return (
     <>
-      <SplashScreenCoordinator navigationReady={navigationReady} />
+      <SplashScreenCoordinator />
       <SubscriptionUsageCoordinator />
-      {/* Uniwind compiles `className` into `style`, so an explicit `style` prop replaces
-          it outright. Passing the background colour on its own dropped `flex-1`, collapsing
-          the root view to zero height: everything still mounted and navigation reported
-          ready, but nothing had any size to paint. Keep the flex in the same object. */}
-      <GestureHandlerRootView
-        className="flex-1"
-        style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}
-      >
+      <GestureHandlerRootView className="flex-1">
         <KeyboardProvider statusBarTranslucent>
-          {/* Without initialMetrics SafeAreaProvider renders null until native insets
-              arrive, and everything below it — the navigator included — never mounts,
-              leaving the app on its splash screen. */}
-          <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-            <StatusBar
-              barStyle={themeAppearance === "dark" ? "light-content" : "dark-content"}
-              translucent
-            />
-            {/* The navigation theme drives the NATIVE header appearance: native-stack
+          <SafeAreaProvider>
+            <VoiceInputProvider>
+              <StatusBar barStyle={themeAppearance === "dark" ? "light-content" : "dark-content"} />
+              {/* The navigation theme drives the NATIVE header appearance: native-stack
                 forwards `dark` as the nav bar's overrideUserInterfaceStyle. Without
                 this, React Navigation defaults to its light theme and every native
                 header (glass buttons, title, materials) is forced light even when
                 the system is in dark mode. */}
-            <View style={{ flex: 1 }}>
-              <VoiceWorkspaceProvider>
+              <GlobalVoiceInputControl>
                 <IncomingShareProvider>
-                  <LocalAgentNotificationsCoordinator />
-                  <Navigation
-                    linking={appLinking}
-                    theme={navigationTheme}
-                    onReady={() => setNavigationReady(true)}
-                  />
+                  <Navigation linking={appLinking} theme={navigationTheme} />
                 </IncomingShareProvider>
-              </VoiceWorkspaceProvider>
-              <ConfirmDialogHost />
-              <ThreadArrangementHost />
-            </View>
-            {/* Anchored-menu overlays render here — in-window, so the
+                <ConfirmDialogHost />
+                <ThreadArrangementHost />
+              </GlobalVoiceInputControl>
+              {/* Anchored-menu overlays render here — in-window, so the
                 keyboard stays up while a dropdown is open. */}
-            <OverlayPortalHost />
+              <OverlayPortalHost />
+            </VoiceInputProvider>
           </SafeAreaProvider>
         </KeyboardProvider>
       </GestureHandlerRootView>
