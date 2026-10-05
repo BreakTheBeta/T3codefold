@@ -9,6 +9,7 @@ import {
   CheckpointRef,
   CommandId,
   ContextTransferId,
+  EnvironmentId,
   EventId,
   MessageId,
   NodeId,
@@ -35,6 +36,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -71,8 +73,21 @@ import {
   OrchestrationEventInfrastructureLayerLive,
   OrchestrationV2EventSinkLayerLive,
   OrchestrationV2LayerLive,
+  OrchestrationV2ProductionLayerLive,
   ProjectServiceLayerLive,
 } from "./runtimeLayer.ts";
+import { ELECTED_THREAD_RETENTION_REASON } from "../pitboss/OrchestrationSeams.ts";
+import * as PeerService from "../pitboss/PeerService.ts";
+import * as SourceService from "../pitboss/SourceService.ts";
+import * as WorkStore from "../pitboss/WorkStore.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
+import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as ProviderRegistry from "../provider/Services/ProviderRegistry.ts";
+import * as TerminalManager from "../terminal/Manager.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { FetchHttpClient } from "effect/http";
 import { shellStreamItemFromThreadShell } from "./ShellStream.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -4855,6 +4870,143 @@ it.layer(TestLayer)("usage-limit recovery", (it) => {
         assert.equal(resumed.runs[1]?.status, "starting");
         assert.isFalse(resumed.runs[1]?.queueHeld);
       }
+    }),
+  );
+});
+
+const isThreadRetentionGuardError = Schema.is(Orchestrator.ThreadRetentionGuardError);
+const pitbossProjectId = ProjectId.make("runtime-pitboss-project");
+const electedThreadId = ThreadId.make("runtime-pitboss-elected");
+
+// Queued before the production graph is built, so WorkRuntime's startup drain must consume it.
+const PendingElectionLayer = Layer.effectDiscard(
+  Effect.flatMap(WorkStore.WorkStore, (work) =>
+    work.command(
+      {
+        commandId: CommandId.make("runtime-pitboss-elect"),
+        expectedRevision: 0,
+        action: {
+          type: "elect",
+          threadId: electedThreadId,
+          projectId: pitbossProjectId,
+          brief: {
+            priorities: "Runtime wiring",
+            quality: "Prove behavior",
+            projectIds: [pitbossProjectId],
+            maxWorkers: 1,
+            maxAttempts: 3,
+            workerModel: modelSelection,
+          },
+        },
+      },
+      { type: "user" },
+    ),
+  ),
+).pipe(Layer.provide(WorkStore.layer));
+
+const ProductionTestLayer = Layer.mergeAll(
+  OrchestrationV2ProductionLayerLive,
+  OrchestrationV2EventSinkLayerLive,
+).pipe(
+  Layer.provide(PendingElectionLayer),
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({
+        peek: () =>
+          Effect.succeed({
+            repositoryIdentity: null,
+            faviconPath: null,
+            repositoryIdentityResolved: false,
+          }),
+        getAvailable: () =>
+          Effect.succeed({
+            repositoryIdentity: null,
+            faviconPath: null,
+            repositoryIdentityResolved: false,
+          }),
+        invalidate: () => Effect.void,
+      }),
+      Layer.mock(WorkspacePaths.WorkspacePaths)({
+        normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
+      }),
+      Layer.mock(ServerEnvironment.ServerEnvironment)({
+        getEnvironmentId: Effect.succeed(EnvironmentId.make("runtime-pitboss-environment")),
+      }),
+      Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
+      Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+      Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+      Layer.mock(TerminalManager.TerminalManager)({}),
+      Layer.mock(TextGeneration.TextGeneration)({}),
+      Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),
+      FetchHttpClient.layer,
+      ProjectStore.layer,
+    ),
+  ),
+  Layer.provide(McpSessionRegistryTestkit.layer),
+  Layer.provide(SqlitePersistenceMemory),
+  Layer.provide(CheckpointStoreTestLayer),
+  Layer.provide(ServerConfigLayer),
+  Layer.provide(ServerSettings.layerTest()),
+  Layer.provide(TestProviderInstanceRegistry),
+  Layer.provide(GitWorkflowTestLayer),
+  Layer.provide(PlatformTestLayer),
+);
+
+// Pitboss hangs off the production graph through layers and context references that compile
+// even when they are left out, so this proves the wiring end to end.
+it.layer(ProductionTestLayer)("production pitboss wiring", (it) => {
+  it.effect("runs pitboss beside orchestration and keeps the elected thread visible", () =>
+    Effect.gen(function* () {
+      yield* PeerService.PeerService;
+      yield* SourceService.SourceService;
+      const work = yield* WorkStore.WorkStore;
+      const projects = yield* ProjectService.ProjectService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      assert.equal((yield* work.read()).role?.threadId, electedThreadId);
+      assert.deepEqual(yield* work.effects(), []);
+
+      const otherThreadId = ThreadId.make("runtime-pitboss-other");
+      yield* projects.create({
+        commandId: CommandId.make("runtime-pitboss-project-create"),
+        projectId: pitbossProjectId,
+        title: "Pitboss",
+        workspaceRoot: "/work/pitboss",
+      });
+      for (const threadId of [electedThreadId, otherThreadId]) {
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`runtime-pitboss-create:${threadId}`),
+          createdBy: "user",
+          creationSource: "web",
+          threadId,
+          projectId: pitbossProjectId,
+          title: threadId,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+      }
+
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("runtime-pitboss-archive-other"),
+        threadId: otherThreadId,
+      });
+      const rejected = yield* Effect.flip(
+        orchestrator.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("runtime-pitboss-archive-elected"),
+          threadId: electedThreadId,
+        }),
+      );
+      const cause = rejected._tag === "OrchestratorDispatchError" ? rejected.cause : undefined;
+      assert.equal(
+        isThreadRetentionGuardError(cause) ? cause.reason : undefined,
+        ELECTED_THREAD_RETENTION_REASON,
+      );
+      assert.isNull((yield* orchestrator.getThreadShell(electedThreadId))?.archivedAt);
     }),
   );
 });

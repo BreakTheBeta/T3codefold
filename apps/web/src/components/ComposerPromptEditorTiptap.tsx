@@ -63,6 +63,7 @@ import {
   markAsClipboardEdit,
 } from "~/composer-undo-grouping";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
+import { dropdownNavigationKey } from "~/lib/dropdownNavigationKey";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { basenameOfPath } from "~/pierre-icons";
 import { FileTagChipContent } from "./chat/FileTagChip";
@@ -83,6 +84,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { importPastedComposerText } from "./composerInlineTokenPaste";
 import { didComposerSelectionChangeVisibly } from "./composerSelection";
 import type { ComposerDraftContextRecords } from "./composerContextPresentation";
+import { ComposerVimExtension, type ComposerVimModeDisplay } from "./ComposerPromptEditorTiptapVim";
 
 export interface ComposerPromptEditorHandle {
   focus: () => void;
@@ -126,6 +128,10 @@ export interface ComposerPromptEditorProps {
     | undefined;
   skills: ReadonlyArray<ServerProviderSkill>;
   disabled: boolean;
+  /** Modal Vim editing (NORMAL, INSERT, VISUAL). */
+  vimModeEnabled?: boolean | undefined;
+  /** Read when the editor mounts, like the other extensions: pass a stable callback. */
+  onVimModeDisplayChange?: ((display: ComposerVimModeDisplay) => void) | undefined;
   placeholder: string;
   ariaLabel?: string | undefined;
   /** Identifies an editor with suggestions, even while its list is closed. */
@@ -584,7 +590,10 @@ export function ComposerPromptEditorTiptap(props: ComposerPromptEditorProps) {
   // Both halves initialize from the controlled Markdown value, so the draft
   // survives the flip.
   return (
-    <ComposerPromptEditorTiptapInner key={props.richTextEnabled ? "rich" : "plain"} {...props} />
+    <ComposerPromptEditorTiptapInner
+      key={`${props.richTextEnabled ? "rich" : "plain"}${props.vimModeEnabled ? "-vim" : ""}`}
+      {...props}
+    />
   );
 }
 
@@ -618,6 +627,8 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
     importContextFragment,
     skills,
     disabled,
+    vimModeEnabled,
+    onVimModeDisplayChange,
     placeholder,
     ariaLabel,
     suggestionListId,
@@ -830,6 +841,13 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
         ComposerCitationExtension,
         ComposerContextReferenceExtension,
         ComposerMarkersExtension,
+        ...(vimModeEnabled
+          ? [
+              ComposerVimExtension.configure(
+                onVimModeDisplayChange ? { onDisplayChange: onVimModeDisplayChange } : {},
+              ),
+            ]
+          : []),
         ...(richText
           ? [
               ComposerCodeExtension,
@@ -997,7 +1015,8 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
             });
           }
           if (!handler) return false;
-          const handled = handler(event.key, event);
+          // Ctrl+N/P step through an open suggestion menu like ArrowDown/Up.
+          const handled = handler(dropdownNavigationKey(event) ?? event.key, event);
           if (handled) {
             event.preventDefault();
             event.stopPropagation();

@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef } from "react";
 import { AppState, Platform } from "react-native";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 
 import { useThreadShells } from "../../state/entities";
 import { mobilePreferencesAtom } from "../../state/preferences";

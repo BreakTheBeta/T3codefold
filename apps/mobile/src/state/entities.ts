@@ -13,6 +13,11 @@ import type {
   ScopedThreadRef,
   ServerConfig,
 } from "@t3tools/contracts";
+import {
+  collectMergedPullRequests,
+  sameMerges,
+  type MergedPullRequest,
+} from "@t3tools/shared/mergeSplatters";
 import { Atom } from "effect/reactivity";
 
 import { environmentProjects } from "./projects";
@@ -95,4 +100,25 @@ const selectReportedModelSelection = (thread: EnvironmentThread | null) =>
 
 export function useThreadReportedModelSelection(ref: ScopedThreadRef) {
   return useAtomValue(environmentThreadDetails.threadAtom(ref), selectReportedModelSelection);
+}
+
+/**
+ * Every merged PR across connected environments, for the dynamic splatter.
+ * Hands back the previous array while the merges are unchanged, so thread
+ * activity that is not a merge never re-renders its readers. Unmounted, it
+ * is not computed at all.
+ */
+let previousMergedPullRequests: ReadonlyArray<MergedPullRequest> = [];
+const mergedPullRequestsAtom = Atom.make((get) => {
+  const next = collectMergedPullRequests(
+    get(environmentThreadShells.threadShellsAtom),
+    get(environmentProjects.projectsAtom),
+  );
+  if (sameMerges(previousMergedPullRequests, next)) return previousMergedPullRequests;
+  previousMergedPullRequests = next;
+  return next;
+}).pipe(Atom.withLabel("mobile-merged-pull-requests"));
+
+export function useMergedPullRequests(): ReadonlyArray<MergedPullRequest> {
+  return useAtomValue(mergedPullRequestsAtom);
 }

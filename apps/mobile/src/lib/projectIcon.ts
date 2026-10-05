@@ -1,8 +1,78 @@
 import type { ProjectIconColor, ProjectIconOverride } from "@t3tools/contracts";
 
+/**
+ * The Lucide names mobile draws, a curated set rather than the whole library so the
+ * Hermes bundle carries only these glyphs. ProjectLucideGlyph maps each to an icon.
+ */
+export const MOBILE_LUCIDE_ICON_NAMES = [
+  "alarm-clock",
+  "book",
+  "book-open",
+  "bot",
+  "box",
+  "braces",
+  "brain",
+  "bug",
+  "chart-bar",
+  "circuit-board",
+  "cloud",
+  "cloud-cog",
+  "code",
+  "code-2",
+  "code-xml",
+  "cpu",
+  "database",
+  "file-text",
+  "flask-conical",
+  "folder",
+  "folder-code",
+  "gamepad-2",
+  "git-branch",
+  "globe",
+  "globe-2",
+  "heart",
+  "house",
+  "image",
+  "layers",
+  "layers-3",
+  "lock",
+  "mail",
+  "map",
+  "monitor",
+  "music",
+  "package",
+  "palette",
+  "rocket",
+  "server",
+  "settings",
+  "shield-check",
+  "shopping-bag",
+  "smartphone",
+  "sparkles",
+  "star",
+  "terminal",
+  "users",
+  "video",
+  "wrench",
+  "zap",
+] as const;
+
+export type MobileLucideIconName = (typeof MOBILE_LUCIDE_ICON_NAMES)[number];
+
+const MOBILE_LUCIDE_ICON_NAME_SET: ReadonlySet<string> = new Set(MOBILE_LUCIDE_ICON_NAMES);
+
+function isMobileLucideIconName(name: string): name is MobileLucideIconName {
+  return MOBILE_LUCIDE_ICON_NAME_SET.has(name);
+}
+
 export type ProjectIconGlyph =
   | { readonly kind: "emoji"; readonly emoji: string }
-  | { readonly kind: "monogram"; readonly text: string; readonly color: ProjectIconColor };
+  | { readonly kind: "monogram"; readonly text: string; readonly color: ProjectIconColor }
+  | {
+      readonly kind: "lucide";
+      readonly name: MobileLucideIconName;
+      readonly color: ProjectIconColor;
+    };
 
 /**
  * Visible glyph count for sizing monogram text. Hermes has no Intl.Segmenter, so combining
@@ -32,9 +102,9 @@ export function projectMonogram(projectName: string): string {
 }
 
 /**
- * Picks what mobile draws for an assigned project icon. Mobile does not bundle
- * the Lucide set, so a Lucide override keeps its color and falls back to the
- * project's monogram instead of the folder glyph.
+ * Picks what mobile draws for an assigned project icon. Mobile bundles only the
+ * curated Lucide names, so any other Lucide override keeps its color and falls
+ * back to the project's monogram instead of the folder glyph.
  */
 export function resolveProjectIconGlyph(
   projectIcon: ProjectIconOverride | null | undefined,
@@ -46,7 +116,9 @@ export function resolveProjectIconGlyph(
     case "monogram":
       return { kind: "monogram", text: projectIcon.text, color: projectIcon.color };
     case "lucide":
-      return { kind: "monogram", text: projectMonogram(projectTitle), color: projectIcon.color };
+      return isMobileLucideIconName(projectIcon.name)
+        ? { kind: "lucide", name: projectIcon.name, color: projectIcon.color }
+        : { kind: "monogram", text: projectMonogram(projectTitle), color: projectIcon.color };
     case undefined:
       return null;
   }

@@ -6,6 +6,7 @@ import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
+import { routeIfRemote } from "../../fleet/route.ts";
 import { resolveRuntimeMode } from "../../OrchestratorMcpService.ts";
 import {
   newCommandId,
@@ -13,9 +14,12 @@ import {
   readFullAccessCaller,
   readMutationCaller,
   resolveProjectId,
+  retryCommandId,
   unavailable,
 } from "../../threadAccess.ts";
-import { ProjectToolkit } from "./tools.ts";
+import { requireLedgerDelegation } from "../work/ledgerGuard.ts";
+import { ProjectListResult, ProjectToolkit, ThreadLaunchResult } from "./tools.ts";
+import type { ThreadLaunchParameters } from "./tools.ts";
 
 function projectFailure(error: Project.ProjectServiceError) {
   if (error._tag === "ProjectOperationError") return unavailable();
@@ -38,110 +42,129 @@ const mutation = Effect.gen(function* () {
   );
   return yield* Project.ProjectService;
 });
-export const ProjectHandlersLive = ProjectToolkit.toLayer({
-  t3_thread_launch: (input) =>
-    Effect.gen(function* () {
-      const context = yield* readMutationCaller();
-      const { caller, limits } = context;
-      // A thread caller launches only as itself (full-access/default), as before. A client
-      // launches anything up to its ceiling.
-      if (
-        caller !== undefined &&
-        (caller.runtimeMode !== "full-access" || caller.interactionMode !== "default")
-      )
-        return yield* new OrchestratorMcpFailure({
-          code: "capability_denied",
-          message: "Project launches require a full-access/default calling thread.",
-        });
-      const runtimeMode = yield* resolveRuntimeMode(
-        limits.runtimeMode,
-        input.runtimeMode ?? caller?.runtimeMode,
-      );
-      const commandId = yield* newCommandId();
-      const threadId = ThreadId.make(commandId);
-      const messageId = MessageId.make(commandId);
-      const attachments = input.attachments ?? [];
-      if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message: "A new thread accepts only pending attachment uploads.",
-        });
-      if (
-        input.scratch === true &&
-        (input.projectId !== undefined || input.workspaceStrategy !== undefined)
-      )
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            "scratch:true picks its own project and folder; omit projectId and workspaceStrategy.",
-        });
-      const projectId =
-        input.scratch === true
-          ? (yield* ManagedProjectFolders.ManagedProjectFolders.pipe(
-              Effect.flatMap((folders) => folders.ensureScratchProject),
-              Effect.mapError(
-                (error) =>
-                  new OrchestratorMcpFailure({
-                    code: "orchestration_error",
-                    message: error.message,
-                  }),
-              ),
-            )).projectId
-          : yield* resolveProjectId(context, input.projectId);
-      const modelSelection =
-        input.modelSelection ??
-        caller?.modelSelection ??
-        (yield* Project.ProjectService.pipe(
-          Effect.flatMap((projects) => projects.getById(projectId)),
-          Effect.mapError(unavailable),
-          Effect.map((project) =>
-            Option.getOrUndefined(Option.flatMapNullishOr(project, (p) => p.defaultModelSelection)),
-          ),
-        ));
-      if (modelSelection === undefined)
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message:
-            "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
-        });
-      const result = yield* ThreadMessageIntake.launchThread({
-        commandId,
-        threadId,
-        projectId,
-        title: input.title,
-        modelSelection,
-        runtimeMode,
-        interactionMode: input.interactionMode ?? caller?.interactionMode ?? "default",
-        workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
-        ...(input.message === undefined && attachments.length === 0
-          ? {}
-          : {
-              initialMessage: {
-                messageId,
-                ...(caller === undefined ? {} : { senderThreadId: caller.id }),
-                text: input.message ?? "",
-                attachments,
-              },
-            }),
-        createdBy: "agent",
-        creationSource: "mcp",
-      }).pipe(
-        Effect.mapError((error) =>
-          error._tag === "AttachmentClaimError"
-            ? new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message })
-            : unavailable(),
+const launchLocally = (input: typeof ThreadLaunchParameters.Type) =>
+  Effect.gen(function* () {
+    const context = yield* readMutationCaller();
+    const { caller, limits } = context;
+    // A thread caller launches only as itself (full-access/default), as before. A client
+    // launches anything up to its ceiling.
+    if (
+      caller !== undefined &&
+      (caller.runtimeMode !== "full-access" || caller.interactionMode !== "default")
+    )
+      return yield* new OrchestratorMcpFailure({
+        code: "capability_denied",
+        message: "Project launches require a full-access/default calling thread.",
+      });
+    const runtimeMode = yield* resolveRuntimeMode(
+      limits.runtimeMode,
+      input.runtimeMode ?? caller?.runtimeMode,
+    );
+    // A clientRequestId keys the command, thread and message ids, so a retry replays the
+    // original launch (ThreadLaunchService treats a repeated commandId as a resume).
+    const commandId =
+      input.clientRequestId === undefined
+        ? yield* newCommandId()
+        : retryCommandId(context.scope, "launch", input.clientRequestId);
+    const threadId = ThreadId.make(commandId);
+    const messageId = MessageId.make(commandId);
+    const attachments = input.attachments ?? [];
+    if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message: "A new thread accepts only pending attachment uploads.",
+      });
+    if (
+      input.scratch === true &&
+      (input.projectId !== undefined || input.workspaceStrategy !== undefined)
+    )
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message:
+          "scratch:true picks its own project and folder; omit projectId and workspaceStrategy.",
+      });
+    const projectId =
+      input.scratch === true
+        ? (yield* ManagedProjectFolders.ManagedProjectFolders.pipe(
+            Effect.flatMap((folders) => folders.ensureScratchProject),
+            Effect.mapError(
+              (error) =>
+                new OrchestratorMcpFailure({
+                  code: "orchestration_error",
+                  message: error.message,
+                }),
+            ),
+          )).projectId
+        : yield* resolveProjectId(context, input.projectId);
+    const modelSelection =
+      input.modelSelection ??
+      caller?.modelSelection ??
+      (yield* Project.ProjectService.pipe(
+        Effect.flatMap((projects) => projects.getById(projectId)),
+        Effect.mapError(unavailable),
+        Effect.map((project) =>
+          Option.getOrUndefined(Option.flatMapNullishOr(project, (p) => p.defaultModelSelection)),
         ),
-      );
-      const thread = result.projection.thread;
-      const run = result.projection.runs.find((run) => run.userMessageId === messageId);
-      return {
-        threadId: thread.id,
-        projectId: thread.projectId,
-        modelSelection: thread.modelSelection,
-        runId: run?.id ?? null,
-        status: run?.status ?? null,
-      };
-    }),
+      ));
+    if (modelSelection === undefined)
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message:
+          "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
+      });
+    const result = yield* ThreadMessageIntake.launchThread({
+      commandId,
+      threadId,
+      projectId,
+      title: input.title,
+      modelSelection,
+      runtimeMode,
+      interactionMode: input.interactionMode ?? caller?.interactionMode ?? "default",
+      workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
+      ...(input.message === undefined && attachments.length === 0
+        ? {}
+        : {
+            initialMessage: {
+              messageId,
+              ...(caller === undefined ? {} : { senderThreadId: caller.id }),
+              text: input.message ?? "",
+              attachments,
+            },
+          }),
+      createdBy: "agent",
+      creationSource: "mcp",
+    }).pipe(
+      Effect.mapError((error) =>
+        error._tag === "AttachmentClaimError"
+          ? new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message })
+          : unavailable(),
+      ),
+    );
+    const thread = result.projection.thread;
+    const run = result.projection.runs.find((run) => run.userMessageId === messageId);
+    return {
+      threadId: thread.id,
+      projectId: thread.projectId,
+      modelSelection: thread.modelSelection,
+      runId: run?.id ?? null,
+      status: run?.status ?? null,
+    };
+  });
+
+/**
+ * Launches a top-level thread here, or in the environment `input.environmentId`
+ * names. `tool` is the name the caller used, for the ledger guard's refusal;
+ * t3_thread_start is an alias of this launch.
+ */
+export const launchThread = (input: typeof ThreadLaunchParameters.Type, tool: string) =>
+  requireLedgerDelegation(tool).pipe(
+    Effect.andThen(
+      launchLocally(input).pipe(routeIfRemote("t3_thread_launch", input, ThreadLaunchResult)),
+    ),
+  );
+
+export const ProjectHandlersLive = ProjectToolkit.toLayer({
+  t3_thread_launch: (input) => launchThread(input, "t3_thread_launch"),
   t3_project_list: (input) =>
     Effect.gen(function* () {
       const projects = yield* access;
@@ -150,7 +173,7 @@ export const ProjectHandlersLive = ProjectToolkit.toLayer({
       const start = input.cursor ?? 0,
         end = start + (input.limit ?? 20);
       return { projects: rows.slice(start, end), nextCursor: end < rows.length ? end : null };
-    }),
+    }).pipe(routeIfRemote("t3_project_list", input, ProjectListResult)),
   t3_project_read: (input) =>
     Effect.gen(function* () {
       const projects = yield* access;

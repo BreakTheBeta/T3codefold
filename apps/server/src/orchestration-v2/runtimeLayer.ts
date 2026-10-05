@@ -51,6 +51,15 @@ import { layer as threadLifecycleServiceLayer } from "./ThreadLifecycleService.t
 import { layer as threadForkServiceLayer } from "./ThreadForkService.ts";
 import { layer as turnItemPositionStoreLayer } from "./TurnItemPositionStore.ts";
 import { layer as scheduledTaskServiceLayer } from "../scheduledTasks/ScheduledTaskService.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import { orchestrationSeamsLayer } from "../pitboss/OrchestrationSeams.ts";
+import * as PeerService from "../pitboss/PeerService.ts";
+import * as SourceService from "../pitboss/SourceService.ts";
+import * as VerificationRunner from "../pitboss/VerificationRunner.ts";
+import * as VerificationRuntime from "../pitboss/VerificationRuntime.ts";
+import * as WorkRuntime from "../pitboss/WorkRuntime.ts";
+import * as WorkStore from "../pitboss/WorkStore.ts";
 
 /** The shared application event log and its command receipts. */
 export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
@@ -307,6 +316,41 @@ export const OrchestrationV2LayerLive = Layer.mergeAll(
   legacyV1ThreadImporterProvided,
 );
 
+const peerServiceProvided = PeerService.layer.pipe(
+  Layer.provide(Layer.mergeAll(WorkStore.layer, ServerSecretStore.layer)),
+);
+const sourceServiceProvided = SourceService.layer.pipe(
+  Layer.provide(Layer.mergeAll(WorkStore.layer, ServerSecretStore.layer)),
+);
+const verificationRuntimeProvided = VerificationRuntime.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      WorkStore.layer,
+      ProjectStore.layer,
+      VerificationRunner.layer.pipe(Layer.provide(ProcessRunner.layer)),
+    ),
+  ),
+);
+const workRuntimeProvided = WorkRuntime.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      WorkStore.layer,
+      peerServiceProvided,
+      threadLaunchProvided,
+      threadManagementProvided,
+    ),
+  ),
+);
+
+/** Pitboss services and background runtimes that run alongside orchestration. */
+const pitbossLayer = Layer.mergeAll(
+  WorkStore.layer,
+  peerServiceProvided,
+  sourceServiceProvided,
+  verificationRuntimeProvided,
+  workRuntimeProvided,
+);
+
 export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
   OrchestrationV2LayerLive.pipe(Layer.provide(ProjectServiceLayerLive)),
   ProjectServiceLayerLive,
@@ -319,7 +363,11 @@ export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
   ),
   providerContinuationWorkerProvided,
   agentSessionImporterProvided,
+  pitbossLayer,
 ).pipe(
+  // The orchestrator and turn-start layers read these references when they are built, so the
+  // pitboss retention guard and managed-work preamble only apply in the production graph.
+  Layer.provide(orchestrationSeamsLayer.pipe(Layer.provide(WorkStore.layer))),
   Layer.provide(Scheduler.layer),
   Layer.provideMerge(OrchestrationEventInfrastructureLayerLive),
 );

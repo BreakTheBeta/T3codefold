@@ -204,3 +204,19 @@ export const newCommandId = Effect.fn("mcp.newCommandId")(function* () {
   const crypto = yield* Crypto.Crypto;
   return CommandId.make(`mcp:${yield* crypto.randomUUIDv4.pipe(Effect.orDie)}`);
 });
+
+/**
+ * A command id that repeats for the same caller, operation and clientRequestId,
+ * so a retried request replays its original command instead of acting twice.
+ * Matches OrchestratorMcpService's stable ids.
+ */
+export const retryCommandId = (
+  scope: McpInvocationContext.McpInvocationScope,
+  operation: string,
+  clientRequestId: string,
+) =>
+  CommandId.make(
+    ["command", "mcp", scope.requestNamespace, operation, clientRequestId]
+      .map(encodeURIComponent)
+      .join(":"),
+  );

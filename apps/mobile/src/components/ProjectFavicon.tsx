@@ -12,6 +12,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { projectFaviconUrlAtom } from "../state/assets";
+import { ProjectLucideGlyph } from "./ProjectLucideGlyph";
 import {
   countGlyphs,
   projectIconColorClassNames,
@@ -108,6 +109,10 @@ function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonl
         </AppText>
       </View>
     );
+  }
+
+  if (glyph.kind === "lucide") {
+    return <ProjectLucideGlyph name={glyph.name} color={glyph.color} size={size} />;
   }
 
   const colors = projectIconColorClassNames(glyph.color);

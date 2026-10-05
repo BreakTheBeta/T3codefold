@@ -19,6 +19,8 @@ import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementSer
 import * as ServerConfig from "../../../config.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
+import { WorkStore } from "../../../pitboss/WorkStore.ts";
+import { FleetRouter } from "../../FleetRouter.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { ProjectHandlersLive } from "./handlers.ts";
 import { ProjectToolkit } from "./tools.ts";
@@ -43,6 +45,8 @@ it.effect("attributes a launched thread's first message to the calling thread", 
     let launchedSender: ThreadId | undefined;
     const dependencies = Layer.mergeAll(
       NodeCrypto.layer,
+      Layer.mock(FleetRouter)({}),
+      Layer.mock(FleetRouter)({}),
       Layer.succeed(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment"),
         requestNamespace: "session",
@@ -109,6 +113,8 @@ it.effect("launches a scratch thread into the Scratch project", () =>
     const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
     const dependencies = Layer.mergeAll(
       NodeCrypto.layer,
+      Layer.mock(FleetRouter)({}),
+      Layer.mock(FleetRouter)({}),
       Layer.succeed(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment"),
         requestNamespace: "session",
@@ -201,6 +207,8 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
     };
     const dependencies = Layer.mergeAll(
       NodeCrypto.layer,
+      Layer.mock(FleetRouter)({}),
+      Layer.mock(FleetRouter)({}),
       Layer.succeed(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment"),
         requestNamespace: "session",
@@ -285,6 +293,7 @@ const clientLaunchHarness = (input: {
   const modelSelection = { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus" };
   const dependencies = Layer.mergeAll(
     NodeCrypto.layer,
+    Layer.mock(FleetRouter)({}),
     Layer.succeed(McpInvocationContext.McpInvocationContext, {
       environmentId: EnvironmentId.make("environment"),
       requestNamespace: "client:session-1",
@@ -358,5 +367,119 @@ it.effect("a client launches at its ceiling with the project's default model", (
     const untargeted = yield* handle({ title: "Fix" });
     expect(untargeted.at(-1)?.result).toMatchObject({ code: "target_required" });
     expect(launched).toHaveLength(1);
+  }),
+);
+
+it.effect(
+  "a clientRequestId makes a retried launch reuse its command, thread and message ids",
+  () =>
+    Effect.gen(function* () {
+      const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+      const { projectId, dependencies } = clientLaunchHarness({
+        runtimeModeCeiling: "full-access",
+        launched,
+      });
+      const toolkit = yield* ProjectToolkit.pipe(
+        Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+      );
+      const launch = (clientRequestId?: string) =>
+        toolkit
+          .handle("t3_thread_launch", {
+            title: "Fix",
+            projectId,
+            message: "Fix the bug",
+            ...(clientRequestId === undefined ? {} : { clientRequestId }),
+          })
+          .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+
+      yield* launch("handoff-1");
+      yield* launch("handoff-1");
+      yield* launch("handoff-2");
+      yield* launch();
+      yield* launch();
+      const ids = launched.map((input) => [
+        input.commandId,
+        input.threadId,
+        input.initialMessage?.messageId,
+      ]);
+      expect(ids[0]).toEqual(ids[1]);
+      expect(ids[0]?.[0]).toBe("command:mcp:client%3Asession-1:launch:handoff-1");
+      expect(ids[0]?.[1]).toBe(ids[0]?.[0]);
+      expect(ids[0]?.[2]).toBe(ids[0]?.[0]);
+      expect(ids[2]?.[0]).not.toBe(ids[0]?.[0]);
+      expect(ids[3]?.[0]).not.toBe(ids[4]?.[0]);
+    }),
+);
+
+it.effect("keeps elected GLaDOS from launching threads outside the work ledger", () =>
+  Effect.gen(function* () {
+    const sourceThreadId = ThreadId.make("glados-thread");
+    const projectId = ProjectId.make("project");
+    const providerInstanceId = ProviderInstanceId.make("codex");
+    const caller = {
+      id: sourceThreadId,
+      projectId,
+      providerInstanceId,
+      modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      activeRunId: "active-run",
+      archivedAt: null,
+      deletedAt: null,
+    } as OrchestrationV2ThreadShell;
+    const dependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Layer.mock(FleetRouter)({}),
+      Layer.mock(WorkStore)({
+        read: () =>
+          Effect.succeed({
+            revision: 1,
+            role: {
+              threadId: sourceThreadId,
+              projectId,
+              generation: 1,
+              paused: false,
+              brief: {
+                priorities: "Ship",
+                quality: "Prove behavior",
+                projectIds: [projectId],
+                maxWorkers: 1,
+                maxAttempts: 1,
+                workerModel: { instanceId: providerInstanceId, model: "gpt-5" },
+              },
+            },
+            tasks: [],
+            messages: [],
+          }),
+      }),
+      Layer.succeed(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment"),
+        requestNamespace: "session",
+        thread: { threadId: sourceThreadId, providerSessionId: "session", providerInstanceId },
+        client: undefined,
+        issuedAt: 0,
+        capabilities: new Set(["orchestration" as const]),
+      }),
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: () => Effect.succeed(caller),
+      }),
+      Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
+      Layer.mock(Project.ProjectService)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
+      NodeServices.layer,
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-glados-launch-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    );
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+    );
+    const result = yield* toolkit
+      .handle("t3_thread_launch", { title: "Side quest", message: "Work" })
+      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+    expect(result.at(-1)?.result).toMatchObject({
+      code: "orchestration_error",
+      message: expect.stringContaining("work_command"),
+    });
   }),
 );

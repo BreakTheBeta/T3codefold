@@ -59,6 +59,7 @@ import {
   stagePendingTerminalLaunch,
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
+import { ThreadTerminalRouteScreen } from "../terminal/ThreadTerminalRouteScreen";
 import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetailScreen";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -77,6 +78,7 @@ import {
   useAdaptiveWorkspacePaneRole,
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
+import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
 import { ThreadFileNavigatorPane } from "../files/thread-file-navigator-pane";
 import {
   ThreadInspectorContentStack,
@@ -109,7 +111,10 @@ function ThreadHeader(
       });
     }
     if (props.hasThreadCwd) {
-      const filesVisible = props.inspectorMode === "files" && panes.auxiliaryPaneVisible;
+      // A route inspector is the files pane arriving through a deep link, so it reads as files.
+      const filesVisible =
+        (props.inspectorMode === "files" || props.inspectorMode === "route") &&
+        panes.auxiliaryPaneVisible;
       actions.push({
         accessibilityLabel: filesVisible ? "Close files" : "Open files",
         selected: filesVisible,
@@ -118,16 +123,20 @@ function ThreadHeader(
       });
     }
     if (props.hasWorkspaceRoot) {
+      const terminalVisible = props.inspectorMode === "terminal" && panes.auxiliaryPaneVisible;
       actions.push({
-        accessibilityLabel: "Open terminal",
+        accessibilityLabel: terminalVisible ? "Close terminal" : "Open terminal",
+        selected: terminalVisible,
         icon: "terminal",
-        onPress: () => onOpenTerminal(null),
+        onPress: terminalVisible ? toggleAuxiliaryPane : () => onOpenTerminal(null),
       });
     }
+    const gitVisible = props.inspectorMode === "git" && panes.auxiliaryPaneVisible;
     actions.push({
-      accessibilityLabel: "Open git controls",
+      accessibilityLabel: gitVisible ? "Close git controls" : "Open git controls",
+      selected: gitVisible,
       icon: "point.topleft.down.curvedto.point.bottomright.up",
-      onPress: props.onOpenGitInspector,
+      onPress: gitVisible ? toggleAuxiliaryPane : props.onOpenGitInspector,
     });
     if (onMergeBack) {
       actions.push({
@@ -193,6 +202,7 @@ function ThreadHeader(
 interface ThreadInspectorSelection {
   readonly routeThreadIdentity: string | null;
   readonly mode: ThreadInspectorMode;
+  readonly terminalId?: string | null;
 }
 
 function InspectorPaneRoleActivation() {
@@ -250,6 +260,7 @@ function ThreadUnavailableScreen(props: {
 
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   const connectionsReady = useConnectionsReady();
+  useFoldWorkspaceAndroidBack();
   const { connectionState } = useRemoteConnectionStatus();
   const { selectedThread } = useThreadSelection();
   const params = props.route.params;
@@ -326,6 +337,7 @@ function ThreadRouteContent(
   const headerColor = themeVariables["--color-header"];
   const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
+  useFoldWorkspaceAndroidBack();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
   const {
@@ -419,6 +431,11 @@ function ThreadRouteContent(
     }
     return null;
   })();
+  const inspectorTerminalId =
+    inspectorSelection?.routeThreadIdentity === routeThreadIdentity &&
+    inspectorSelection.mode === "terminal"
+      ? inspectorSelection.terminalId
+      : null;
   useEffect(() => {
     if (
       fileInspector.supported &&
@@ -540,9 +557,22 @@ function ThreadRouteContent(
       });
       return;
     }
+    if (inspectorMode === "git" && panes.auxiliaryPaneVisible) {
+      toggleAuxiliaryPane();
+      return;
+    }
     setInspectorSelection({ routeThreadIdentity, mode: "git" });
     showAuxiliaryPane("inspector");
-  }, [fileInspector.supported, navigation, routeThreadIdentity, selectedThread, showAuxiliaryPane]);
+  }, [
+    fileInspector.supported,
+    inspectorMode,
+    navigation,
+    panes.auxiliaryPaneVisible,
+    routeThreadIdentity,
+    selectedThread,
+    showAuxiliaryPane,
+    toggleAuxiliaryPane,
+  ]);
   const handleOpenFilesInspector = useCallback(() => {
     if (selectedThread === null || selectedThreadCwd === null) {
       return;
@@ -554,19 +584,24 @@ function ThreadRouteContent(
       });
       return;
     }
-    setInspectorSelection({
-      routeThreadIdentity,
-      mode: props.renderInspector === undefined ? "files" : "route",
-    });
+    const nextMode = props.renderInspector === undefined ? "files" : "route";
+    if (inspectorMode === nextMode && panes.auxiliaryPaneVisible) {
+      toggleAuxiliaryPane();
+      return;
+    }
+    setInspectorSelection({ routeThreadIdentity, mode: nextMode });
     showAuxiliaryPane("inspector");
   }, [
     fileInspector.supported,
+    inspectorMode,
     navigation,
+    panes.auxiliaryPaneVisible,
     props.renderInspector,
     routeThreadIdentity,
     selectedThread,
     selectedThreadCwd,
     showAuxiliaryPane,
+    toggleAuxiliaryPane,
   ]);
   const inspectorToggleActionRef = useRef({
     inspectorMode,
@@ -643,6 +678,22 @@ function ThreadRouteContent(
     () => props.renderInspector?.(inspectorHeaderInset),
     [inspectorHeaderInset, props.renderInspector],
   );
+  const TerminalInspector = useCallback(
+    () =>
+      selectedThread !== null ? (
+        <ThreadTerminalRouteScreen
+          presentation="inspector"
+          route={{
+            params: {
+              environmentId: String(selectedThread.environmentId),
+              threadId: String(selectedThread.id),
+              ...(inspectorTerminalId ? { terminalId: inspectorTerminalId } : {}),
+            },
+          }}
+        />
+      ) : null,
+    [inspectorTerminalId, selectedThread],
+  );
   const renderInspectorStack = useCallback(
     () =>
       inspectorMode === null ? null : (
@@ -652,12 +703,14 @@ function ThreadRouteContent(
           mode={inspectorMode}
           resetKeys={[routeThreadIdentity, selectedThreadCwd]}
           Route={props.renderInspector ? RouteInspector : undefined}
+          Terminal={TerminalInspector}
         />
       ),
     [
       FilesInspector,
       GitInspector,
       RouteInspector,
+      TerminalInspector,
       inspectorMode,
       props.renderInspector,
       routeThreadIdentity,
@@ -698,13 +751,32 @@ function ThreadRouteContent(
         return;
       }
 
+      // Android tablets and foldables keep the terminal in the inspector pane. The header
+      // button closes it; picking a terminal while it is open switches to that terminal.
+      if (Platform.OS === "android" && fileInspector.supported) {
+        setInspectorSelection({
+          routeThreadIdentity,
+          mode: "terminal",
+          terminalId: nextTerminalId,
+        });
+        showAuxiliaryPane("inspector");
+        return;
+      }
+
       void navigation.navigate("ThreadTerminal", {
         environmentId: String(selectedThread.environmentId),
         threadId: String(selectedThread.id),
         ...(nextTerminalId ? { terminalId: nextTerminalId } : {}),
       });
     },
-    [navigation, selectedThread, selectedThreadProject?.workspaceRoot],
+    [
+      fileInspector.supported,
+      navigation,
+      routeThreadIdentity,
+      selectedThread,
+      selectedThreadProject?.workspaceRoot,
+      showAuxiliaryPane,
+    ],
   );
 
   const handleOpenNewTerminal = useCallback(() => {
@@ -721,12 +793,13 @@ function ThreadRouteContent(
     const nextId = nextOpenTerminalId({
       listedTerminalIds: terminalMenuSessions.map((session) => session.terminalId),
     });
-    void navigation.navigate("ThreadTerminal", {
-      environmentId: String(selectedThread.environmentId),
-      threadId: String(selectedThread.id),
-      terminalId: nextId,
-    });
-  }, [navigation, selectedThread, selectedThreadProject?.workspaceRoot, terminalMenuSessions]);
+    handleOpenTerminal(nextId);
+  }, [
+    handleOpenTerminal,
+    selectedThread,
+    selectedThreadProject?.workspaceRoot,
+    terminalMenuSessions,
+  ]);
 
   const handleRunProjectScript = useCallback(
     async (script: ProjectScript) => {
@@ -783,14 +856,10 @@ function ThreadRouteContent(
         worktreePath: preferredWorktreePath,
       });
 
-      void navigation.navigate("ThreadTerminal", {
-        environmentId: String(selectedThread.environmentId),
-        threadId: String(selectedThread.id),
-        terminalId: targetTerminalId,
-      });
+      handleOpenTerminal(targetTerminalId);
     },
     [
-      navigation,
+      handleOpenTerminal,
       selectedThread,
       selectedThreadDetailWorktreePath,
       selectedThreadProject,

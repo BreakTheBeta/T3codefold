@@ -135,7 +135,9 @@ import {
   COMPOSER_TRANSITION_DURATION_MS,
   ThreadComposer,
 } from "./ThreadComposer";
+import { ThreadCanvasBackdrop } from "./ThreadCanvasBackdrop";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
+import { PitbossWork } from "./PitbossWork";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { useThreadQueuedCount } from "./ThreadQueueControl";
@@ -1000,6 +1002,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     composerEditorRef.current?.blur();
   }, []);
 
+  const handleComposeWork = useCallback(() => {
+    setComposerExpanded(true);
+    requestAnimationFrame(() => composerEditorRef.current?.focus());
+  }, []);
+
   const handleUseArtifactTemplate = useCallback(
     (template: CodexArtifactTemplate) => {
       const currentDraft = draftMessageRef.current;
@@ -1059,6 +1066,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
+      <PitbossWork
+        connected={props.connectionStateLabel === "connected"}
+        environmentId={props.environmentId}
+        threadId={props.selectedThread.id}
+        projectId={props.selectedThread.projectId}
+        modelSelection={props.selectedThread.modelSelection}
+        onComposeWork={handleComposeWork}
+      />
       {showContent ? (
         <View
           style={{ flex: 1 }}
@@ -1071,10 +1086,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             pointerEvents="none"
             className={
               Platform.OS === "android"
-                ? "absolute inset-0 bg-thread-canvas"
-                : "absolute inset-0 bg-screen"
+                ? "absolute inset-0 overflow-hidden bg-thread-canvas"
+                : "absolute inset-0 overflow-hidden bg-screen"
             }
-          />
+          >
+            <ThreadCanvasBackdrop />
+          </View>
           <RenderErrorBoundary
             key={selectedThreadKey}
             resetKeys={[props.threadCwd]}

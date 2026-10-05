@@ -2140,6 +2140,13 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             "Sent by another agent"
           )}
         </p>
+      ) : row.message.createdBy === "system" ? (
+        <p
+          className="me-1 text-2xs text-muted-foreground/70"
+          data-user-message-attribution="system"
+        >
+          Sent by T3 Code
+        </p>
       ) : null}
       {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (
         <UserMessageIntentMarker intent={row.message.inputIntent} />
@@ -2248,7 +2255,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         ) : null}
-        <div onCopyCapture={onBodyCopyCapture}>
+        <div data-vim-conversation-text="" onCopyCapture={onBodyCopyCapture}>
           <CollapsibleUserMessageBody
             text={resolvedContext.text}
             renderContextReference={renderContextReference}

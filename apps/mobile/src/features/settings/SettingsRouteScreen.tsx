@@ -6,6 +6,7 @@ import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-g
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
+import { VoiceSettings } from "../voice-input/VoiceWorkspaceProvider";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -153,6 +154,8 @@ function SettingsIndexSections() {
         ) : null}
       </SettingsSection>
 
+      <VoiceSettings />
+
       <SettingsSection title="Automations">
         <SettingsRow icon="clock" label="Scheduled tasks" target="SettingsScheduledTasks" />
       </SettingsSection>
@@ -170,6 +173,16 @@ function SettingsIndexSections() {
         <SettingsRow icon="text.bubble" label="Thread behavior" target="SettingsThreads" />
         <SettingsRow icon="arrow.turn.left.up" label="Follow-ups" target="SettingsFollowUp" />
         <SettingsRow icon="archivebox" label="Archived Threads" target="SettingsArchive" />
+      </SettingsSection>
+
+      <SettingsSection title="GLaDOS">
+        <SettingsRow
+          icon="point.3.connected.trianglepath.dotted"
+          label="GLaDOS"
+          value="Brief, autonomy, sources, peers"
+          target="SettingsGlados"
+          disabled={noServerTargets}
+        />
       </SettingsSection>
 
       <SettingsSection title="Server settings">

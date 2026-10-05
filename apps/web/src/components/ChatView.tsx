@@ -22,6 +22,10 @@ import {
   rememberCheckoutIsRepo,
 } from "./ChatView.logic";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
+import { useCodexRealtimeVoice } from "../hooks/useCodexRealtimeVoice";
+import { PitbossPanel } from "./pitboss/PitbossPanel";
+import { useVoiceViewContext } from "./voice/VoiceWorkspaceProvider";
+import { TimelineVimMode } from "~/vim/TimelineVimMode";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -3208,6 +3212,15 @@ export default function ChatView(props: ChatViewProps) {
   const supportsConversationRollback =
     conversationProviderStatus !== null &&
     conversationProviderStatus.supportsConversationRollback !== false;
+  const codexRealtimeVoice = useCodexRealtimeVoice({
+    title: activeThread?.title ?? "Current thread",
+    environmentId,
+    threadId: routeKind === "server" ? activeThreadId : null,
+    enabled:
+      routeKind === "server" &&
+      selectedProvider === ProviderDriverKind.make("codex") &&
+      activeEnvironmentUnavailableState === null,
+  });
   const phase = derivePhase(activeRuntime);
   const pendingRequests = useMemo(
     () =>
@@ -3225,6 +3238,10 @@ export default function ChatView(props: ChatViewProps) {
     [pendingRequests.userInputs],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
+  useVoiceViewContext(
+    "question",
+    activePendingUserInput ? JSON.stringify(activePendingUserInput.questions).slice(0, 2500) : null,
+  );
   const activePendingRequestKey = JSON.stringify([
     environmentId,
     activeThreadId,
@@ -6571,12 +6588,14 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
     const frame = window.requestAnimationFrame(() => {
+      // Sidebar previews must keep receiving j/k after the new thread loads.
+      if (settings.vimModeEnabled && document.activeElement?.closest("[data-app-sidebar]")) return;
       focusComposer();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, terminalUiState.terminalOpen]);
+  }, [activeThread?.id, focusComposer, settings.vimModeEnabled, terminalUiState.terminalOpen]);
 
   // Tabbing back into the app lands focus wherever it last was, often the right panel or the
   // body. Put it in the composer unless something that takes typing already holds it. The
@@ -10945,6 +10964,15 @@ export default function ChatView(props: ChatViewProps) {
           />
         </header>
 
+        {isServerThread && activeProject && (
+          <PitbossPanel
+            environmentId={activeThread.environmentId}
+            threadId={activeThread.id}
+            runtimeMode={activeThread.runtimeMode}
+            onComposeWork={focusComposer}
+          />
+        )}
+
         {/* Main content area with optional plan sidebar */}
         <div className="relative flex min-h-0 min-w-0 flex-1">
           {/* Chat column */}
@@ -10992,14 +11020,27 @@ export default function ChatView(props: ChatViewProps) {
               />
             </div>
             {/* Messages Wrapper */}
-            <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+            <div className="relative flex min-h-0 flex-1 flex-col bg-background" data-chat-messages>
+              {settings.vimModeEnabled ? (
+                <TimelineVimMode
+                  key={activeThreadKey ?? routeThreadKey}
+                  routeKey={activeThreadKey ?? routeThreadKey}
+                  previewThreads={settings.vimThreadPreviewEnabled}
+                  getScrollNode={getTimelineScrollableNode}
+                  focusComposer={() => composerRef.current?.focusAtEnd()}
+                  onUserNavigation={cancelTimelineLiveFollowForUserNavigation}
+                  onScrollToEnd={() => scrollToEnd(false)}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
                 {...(!paintOnlyDisplayedTimeline
                   ? {
-                      onCiteAssistantText: citeAssistantText,
+                      ...(settings.citeSelectionEnabled
+                        ? { onCiteAssistantText: citeAssistantText }
+                        : {}),
                       ...(activeProject ? { onRunShellCommand: runShellCommand } : {}),
                     }
                   : {})}
@@ -11193,6 +11234,7 @@ export default function ChatView(props: ChatViewProps) {
                           {!composerMounted ? null : (
                             <ChatComposer
                               reportedModelSelection={reportedModelSelection}
+                              codexRealtimeVoice={codexRealtimeVoice}
                               multipleModelSelections={multipleModelSelections}
                               supportsMultipleModels={
                                 serverConfig?.environment.capabilities.requiredWorktreeBootstrap ===

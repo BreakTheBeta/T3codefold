@@ -64,6 +64,12 @@ import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
+import * as FleetBroker from "./mcp/FleetBroker.ts";
+import * as FleetExecutor from "./mcp/FleetExecutor.ts";
+import * as FleetRouter from "./mcp/FleetRouter.ts";
+import * as OrchestratorMcpService from "./mcp/OrchestratorMcpService.ts";
+import * as PitbossPeerHttp from "./pitboss/PeerHttp.ts";
+import * as ThreadTitleRefinement from "./orchestration-v2/ThreadTitleRefinement.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
@@ -508,6 +514,7 @@ const ProviderInstallationRefreshLive = Layer.effectDiscard(
 
 const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   AgentAwarenessRelay.layer,
+  Layer.effectDiscard(ThreadTitleRefinement.start),
   ThreadSettlementWorkerLive,
   Layer.effectDiscard(StorageCleanup.make.pipe(Effect.flatMap((service) => service.start()))).pipe(
     Layer.provide(ProjectionStoreV2.layer),
@@ -634,6 +641,15 @@ const commandReadinessLayer = HttpRouter.middleware(
   { global: true },
 );
 
+// The MCP toolkits and the WebSocket fleet handlers share one broker, so a
+// request routed by an MCP tool reaches the client connection that leased it.
+const FleetLayerLive = FleetExecutor.layer.pipe(
+  Layer.provide(OrchestratorMcpService.layer),
+  Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
+  Layer.provideMerge(FleetRouter.layer),
+  Layer.provideMerge(FleetBroker.layer),
+);
+
 const makeRoutesLayer = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
@@ -660,7 +676,10 @@ const makeRoutesLayer = Layer.mergeAll(
   McpHttpServer.layer.pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
   ),
+  // Peer GLaDOS environments call this directly, authenticated by enrollment credentials.
+  PitbossPeerHttp.layer,
 ).pipe(
+  Layer.provide(FleetLayerLive),
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),

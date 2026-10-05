@@ -43,6 +43,8 @@ export interface PendingUserInputQuestionsProps {
  */
 export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps) {
   const roomy = props.roomy === true;
+  const responseDisabled =
+    !props.canRespond || props.respondingUserInputId === props.pendingUserInput.requestId;
   return (
     <>
       {!props.canRespond ? (
@@ -62,7 +64,7 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
           <View key={question.id} className={cn("gap-2", roomy ? "pt-3" : "pt-1")}>
             <Text
               className={cn(
-                "font-t3-bold uppercase tracking-[1px] text-neutral-500",
+                "font-t3-bold uppercase tracking-[1px] text-foreground-muted",
                 roomy ? "text-sm" : "text-xs",
               )}
             >
@@ -70,7 +72,7 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
             </Text>
             <Text
               className={cn(
-                "font-sans leading-snug text-adaptive-neutral-950-50",
+                "font-sans leading-snug text-foreground",
                 roomy ? "text-xl" : "text-base",
               )}
             >
@@ -85,13 +87,13 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
                 return (
                   <Pressable
                     key={optionValue}
-                    disabled={!props.canRespond}
+                    accessibilityRole={question.multiSelect ? "checkbox" : "radio"}
+                    accessibilityState={{ checked: selected, disabled: responseDisabled }}
+                    disabled={responseDisabled}
                     className={cn(
                       "w-full rounded-2xl border",
                       roomy ? "min-h-14 px-4 py-4" : "min-h-12 px-3.5 py-3",
-                      selected
-                        ? "border-adaptive-blue-300-a50-blue-400-a28 bg-adaptive-blue-50-blue-400-a14"
-                        : "border-adaptive-neutral-200-white-a6 bg-adaptive-white-neutral-950-a70",
+                      selected ? "border-primary bg-primary/10" : "border-border bg-input",
                     )}
                     onPress={() =>
                       props.onSelectOption(props.pendingUserInput.requestId, question, optionValue)
@@ -102,7 +104,7 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
                         className={cn(
                           "font-t3-bold",
                           roomy ? "text-base" : "text-sm",
-                          selected ? "text-adaptive-sky-700-300" : "text-adaptive-neutral-600-300",
+                          selected ? "text-foreground" : "text-foreground-secondary",
                         )}
                       >
                         {option.label}
@@ -110,7 +112,7 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
                       {description ? (
                         <Text
                           className={cn(
-                            "font-sans text-adaptive-neutral-500-400",
+                            "font-sans text-foreground-muted",
                             roomy ? "text-base leading-6" : "text-sm leading-5",
                           )}
                         >
@@ -127,7 +129,7 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
                 requestId={props.pendingUserInput.requestId}
                 question={question}
                 questions={props.pendingUserInput.questions}
-                disabled={props.respondingUserInputId === props.pendingUserInput.requestId}
+                disabled={responseDisabled}
                 value={draft?.customAnswer ?? ""}
                 onChangeText={(value) =>
                   props.onChangeCustomAnswer(props.pendingUserInput.requestId, question.id, value)

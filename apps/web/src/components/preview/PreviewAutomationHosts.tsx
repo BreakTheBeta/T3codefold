@@ -58,6 +58,7 @@ import {
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
+import { withPreviewAutomationFocus } from "~/lib/previewAutomationFocus";
 import { useEnvironments } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
@@ -133,12 +134,11 @@ const waitForDesktopOverlay = async (
   });
 };
 
-interface ExecutablePreviewWebview extends Element {
-  readonly executeJavaScript: (code: string, userGesture?: boolean) => Promise<unknown>;
-}
-
-const findPreviewWebview = (tabId: string): ExecutablePreviewWebview | null =>
-  Array.from(document.querySelectorAll<ExecutablePreviewWebview>("webview[data-preview-tab]")).find(
+// Fold renders desktop tabs as native views (HostedBrowserView), so the tagged
+// element is a stream surface rather than a <webview> and the desktop reports
+// the page viewport.
+const findPreviewWebview = (tabId: string): Element | null =>
+  Array.from(document.querySelectorAll("[data-preview-tab]")).find(
     (candidate) => candidate.getAttribute("data-preview-tab") === tabId,
   ) ?? null;
 
@@ -148,21 +148,10 @@ const isPreviewWebviewRendering = (runtimeTabId: string): boolean => {
 };
 
 const readWebviewViewport = async (
-  webview: ExecutablePreviewWebview,
+  element: Element,
 ): Promise<PreviewRenderedViewportSize | null> => {
-  const value = await webview.executeJavaScript(
-    "({ width: window.innerWidth, height: window.innerHeight })",
-  );
-  if (typeof value !== "object" || value === null) return null;
-  const { width, height } = value as { readonly width?: unknown; readonly height?: unknown };
-  return typeof width === "number" &&
-    Number.isInteger(width) &&
-    width > 0 &&
-    typeof height === "number" &&
-    Number.isInteger(height) &&
-    height > 0
-    ? { width, height }
-    : null;
+  const tabId = element.getAttribute("data-preview-tab");
+  return tabId ? ((await window.desktopBridge?.preview?.browser.viewport(tabId)) ?? null) : null;
 };
 
 const readRenderedViewport = async (
@@ -173,9 +162,7 @@ const readRenderedViewport = async (
   return await readWebviewViewport(webview);
 };
 
-const readDeclaredViewport = (
-  webview: ExecutablePreviewWebview | null,
-): PreviewRenderedViewportSize | null => {
+const readDeclaredViewport = (webview: Element | null): PreviewRenderedViewportSize | null => {
   const width = Number(webview?.getAttribute("data-preview-css-width"));
   const height = Number(webview?.getAttribute("data-preview-css-height"));
   return Number.isInteger(width) && width > 0 && Number.isInteger(height) && height > 0
@@ -686,27 +673,36 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             return await ready.bridge.automation.snapshot(ready.runtimeTabId);
           }
           case "click": {
-            const ready = await requireReadyTab();
-            return await runPreviewClickKeepingHostFocus(ready.runtimeTabId, () =>
-              ready.bridge.automation.click(
-                ready.runtimeTabId,
-                request.input as Parameters<typeof ready.bridge.automation.click>[1],
-              ),
-            );
+            return await withPreviewAutomationFocus(async (trackWebview) => {
+              const ready = await requireReadyTab();
+              trackWebview(ready.runtimeTabId);
+              return await runPreviewClickKeepingHostFocus(ready.runtimeTabId, () =>
+                ready.bridge.automation.click(
+                  ready.runtimeTabId,
+                  request.input as Parameters<typeof ready.bridge.automation.click>[1],
+                ),
+              );
+            });
           }
           case "type": {
-            const ready = await requireReadyTab();
-            return await ready.bridge.automation.type(
-              ready.runtimeTabId,
-              request.input as Parameters<typeof ready.bridge.automation.type>[1],
-            );
+            return await withPreviewAutomationFocus(async (trackWebview) => {
+              const ready = await requireReadyTab();
+              trackWebview(ready.runtimeTabId);
+              return await ready.bridge.automation.type(
+                ready.runtimeTabId,
+                request.input as Parameters<typeof ready.bridge.automation.type>[1],
+              );
+            });
           }
           case "press": {
-            const ready = await requireReadyTab();
-            return await ready.bridge.automation.press(
-              ready.runtimeTabId,
-              request.input as Parameters<typeof ready.bridge.automation.press>[1],
-            );
+            return await withPreviewAutomationFocus(async (trackWebview) => {
+              const ready = await requireReadyTab();
+              trackWebview(ready.runtimeTabId);
+              return await ready.bridge.automation.press(
+                ready.runtimeTabId,
+                request.input as Parameters<typeof ready.bridge.automation.press>[1],
+              );
+            });
           }
           case "scroll": {
             const ready = await requireReadyTab();

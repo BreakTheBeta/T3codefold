@@ -13,7 +13,10 @@ import {
   ProjectCreatePayload,
   ProjectUpdatePayload,
   ProjectId,
+  EnvironmentId,
   OrchestratorMcpFailure,
+  OrchestratorMcpProjectListInput,
+  OrchestratorMcpThreadLaunchFoldFields,
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
 } from "@t3tools/contracts";
@@ -28,6 +31,7 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as SourceControlRepositoryService from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import { FleetRouter } from "../../FleetRouter.ts";
 
 const shared = {
   success: Project,
@@ -40,18 +44,18 @@ const shared = {
     Crypto.Crypto,
   ],
 };
+export const ProjectListResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  projects: Schema.Array(Project),
+  nextCursor: Schema.NullOr(NonNegativeInt),
+});
 const ProjectListTool = Tool.make("t3_project_list", {
   ...shared,
   description:
-    "List registered projects in this environment. Pages use the current project snapshot and may shift between calls.",
-  parameters: Schema.Struct({
-    cursor: Schema.optional(NonNegativeInt),
-    limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
-  }),
-  success: Schema.Struct({
-    projects: Schema.Array(Project),
-    nextCursor: Schema.NullOr(NonNegativeInt),
-  }),
+    "List registered projects in this environment, or in another environment reached through a connected client (environmentId from t3_environment_list). Pages use the current project snapshot and may shift between calls.",
+  parameters: OrchestratorMcpProjectListInput,
+  success: ProjectListResult,
+  dependencies: [...shared.dependencies, FleetRouter],
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
@@ -99,50 +103,57 @@ const ProjectCloneTool = Tool.make("t3_project_clone", {
 })
   .annotate(Tool.Destructive, true)
   .annotate(Tool.OpenWorld, true);
+export const ThreadLaunchParameters = Schema.Struct({
+  ...OrchestratorMcpThreadLaunchFoldFields,
+  projectId: Schema.optional(ProjectId),
+  scratch: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Launch without a project, in its own folder under the environment's Scratch project. Not with projectId or workspaceStrategy.",
+    }),
+  ),
+  title: TrimmedNonEmptyString,
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: Schema.optional(RuntimeMode),
+  interactionMode: Schema.optional(ProviderInteractionMode),
+  workspaceStrategy: Schema.optional(
+    OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate({
+      description:
+        "Choose where this thread runs before starting its agent: worktree creates and binds a new checkout from baseRef; existing_worktree binds worktreePath; root uses the project checkout. Omitted means root, not the caller's worktree. For a PR stack use the parent branch as baseRef and startFromOrigin:false. Uncommitted changes are not copied.",
+    }),
+  ),
+  message: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(120000)).annotate({
+      description:
+        "First task prompt, delivered after workspace preparation. Omit message and attachments to create an idle thread.",
+    }),
+  ),
+  attachments: Schema.optional(Schema.Array(McpAttachmentInput).check(Schema.isMaxLength(8))),
+});
+export const ThreadLaunchResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
+  threadId: ThreadId,
+  projectId: ProjectId,
+  modelSelection: ModelSelection,
+  runId: Schema.NullOr(RunId),
+  status: Schema.NullOr(OrchestrationV2RunStatus),
+});
+/** What a thread launch needs per call; t3_thread_start shares it. */
+export const threadLaunchDependencies = [
+  ...shared.dependencies,
+  ThreadLaunchService.ThreadLaunchService,
+  ManagedProjectFolders.ManagedProjectFolders,
+  FileSystem.FileSystem,
+  ServerConfig.ServerConfig,
+  FleetRouter,
+];
 const ThreadLaunchTool = Tool.make("t3_thread_launch", {
   ...shared,
   description:
-    'Create an ordinary TOP-LEVEL thread with an explicit workspace binding before its agent starts. Use this when the user requests independent work, a new thread, or a PR stack in its own worktree; use delegate_task for child subagents. Set workspaceStrategy to {type:"worktree",baseRef:"parent-branch",branch:"new-branch",startFromOrigin:false} for a new worktree based on local commits, or {type:"existing_worktree",worktreePath:"/absolute/path",branch:"existing-branch"} to use an existing checkout. For upstream commits, set startFromOrigin:true. Omitted workspaceStrategy means the project root, NOT the caller\'s worktree. Omit projectId/modelSelection/modes to inherit those settings from the calling thread; a caller outside a T3 thread must pass projectId and gets the project\'s default model. Set scratch:true instead of projectId for a thread without a project: it runs in a fresh folder of its own, outside any repository. Put the task in message. Do not ask the agent to create its own worktree via shell: that does not update the thread binding. Each call creates a new launch with no retry key; retain threadId and use t3_thread_read/t3_thread_wait to follow preparation. After errors or lost responses, inspect t3_thread_list before retrying. Attachments must be pending uploads. Requires a full-access/default calling thread; a caller outside a T3 thread launches up to its approved permission mode.',
-  parameters: Schema.Struct({
-    projectId: Schema.optional(ProjectId),
-    scratch: Schema.optional(
-      Schema.Boolean.annotate({
-        description:
-          "Launch without a project, in its own folder under the environment's Scratch project. Not with projectId or workspaceStrategy.",
-      }),
-    ),
-    title: TrimmedNonEmptyString,
-    modelSelection: Schema.optional(ModelSelection),
-    runtimeMode: Schema.optional(RuntimeMode),
-    interactionMode: Schema.optional(ProviderInteractionMode),
-    workspaceStrategy: Schema.optional(
-      OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate({
-        description:
-          "Choose where this thread runs before starting its agent: worktree creates and binds a new checkout from baseRef; existing_worktree binds worktreePath; root uses the project checkout. Omitted means root, not the caller's worktree. For a PR stack use the parent branch as baseRef and startFromOrigin:false. Uncommitted changes are not copied.",
-      }),
-    ),
-    message: Schema.optional(
-      Schema.String.check(Schema.isMaxLength(120000)).annotate({
-        description:
-          "First task prompt, delivered after workspace preparation. Omit message and attachments to create an idle thread.",
-      }),
-    ),
-    attachments: Schema.optional(Schema.Array(McpAttachmentInput).check(Schema.isMaxLength(8))),
-  }),
-  success: Schema.Struct({
-    threadId: ThreadId,
-    projectId: ProjectId,
-    modelSelection: ModelSelection,
-    runId: Schema.NullOr(RunId),
-    status: Schema.NullOr(OrchestrationV2RunStatus),
-  }),
-  dependencies: [
-    ...shared.dependencies,
-    ThreadLaunchService.ThreadLaunchService,
-    ManagedProjectFolders.ManagedProjectFolders,
-    FileSystem.FileSystem,
-    ServerConfig.ServerConfig,
-  ],
+    'Create an ordinary TOP-LEVEL thread with an explicit workspace binding before its agent starts. Use this when the user requests independent work, a new thread, or a PR stack in its own worktree; use delegate_task for child subagents. Set workspaceStrategy to {type:"worktree",baseRef:"parent-branch",branch:"new-branch",startFromOrigin:false} for a new worktree based on local commits, or {type:"existing_worktree",worktreePath:"/absolute/path",branch:"existing-branch"} to use an existing checkout. For upstream commits, set startFromOrigin:true. Omitted workspaceStrategy means the project root, NOT the caller\'s worktree. Omit projectId/modelSelection/modes to inherit those settings from the calling thread; a caller outside a T3 thread must pass projectId and gets the project\'s default model. Set scratch:true instead of projectId for a thread without a project: it runs in a fresh folder of its own, outside any repository. Put the task in message. Do not ask the agent to create its own worktree via shell: that does not update the thread binding. Pass clientRequestId to make retries return the original launch; without it each call creates a new launch, so after errors or lost responses inspect t3_thread_list before retrying. Retain threadId and use t3_thread_read/t3_thread_wait to follow preparation. Set environmentId (from t3_environment_list) to launch in another environment reached through a connected client. Attachments must be pending uploads. Requires a full-access/default calling thread; a caller outside a T3 thread launches up to its approved permission mode.',
+  parameters: ThreadLaunchParameters,
+  success: ThreadLaunchResult,
+  dependencies: threadLaunchDependencies,
 })
   .annotate(Tool.Destructive, true)
   .annotate(Tool.OpenWorld, true);

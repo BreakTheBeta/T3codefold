@@ -40,6 +40,7 @@ const declaredFailure = (result: McpSchema.CallToolResult) => {
   return result.isError === true && text?.type === "text" ? JSON.parse(text.text) : undefined;
 };
 import { PullRequestsToolkit } from "./pullRequests/tools.ts";
+import { WorkToolkit } from "./work/tools.ts";
 import {
   resolveT3McpToolDefinition,
   resolveT3McpToolPresentation,
@@ -61,6 +62,7 @@ it("publishes unique tool names with reference-free object-root inputs", () => {
     PreviewControlsToolkit,
     DeviceToolkit,
     PullRequestsToolkit,
+    WorkToolkit,
   ]) {
     for (const tool of Object.values(toolkit.tools)) {
       expect(names.has(tool.name)).toBe(false);
@@ -83,7 +85,8 @@ it("publishes unique tool names with reference-free object-root inputs", () => {
     }
   }
   expect(names.has("t3_thread_launch")).toBe(true);
-  expect(names.has("t3_thread_start")).toBe(false);
+  // Kept as an alias of t3_thread_launch for agents and fleet sources that learned it.
+  expect(names.has("t3_thread_start")).toBe(true);
 });
 
 const threadId = ThreadId.make("mcp-core-thread");

@@ -4,11 +4,7 @@ import { useOptionalVoiceWorkspace, runVoiceAction } from "./voice/VoiceWorkspac
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
-import {
-  scopedThreadKey,
-  scopeProjectRef,
-  scopeThreadRef,
-} from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -110,22 +106,14 @@ import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { sourceControlEnvironment } from "../state/sourceControl";
-import { vcsEnvironment } from "../state/vcs";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useNewProject } from "../hooks/useNewProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import {
-  useProject,
-  useProjects,
-  useServerConfigs,
-  useThreadShells,
-  waitForProject,
-} from "../state/entities";
+import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
-import * as ThreadPr from "./ThreadStatusIndicators";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
@@ -203,7 +191,7 @@ import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
-import { searchSettings, settingsPathLabel } from "./settings/settingsSearch";
+import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
 import {
   COMMAND_PALETTE_META_ICON_CLASS,
   CommandPaletteMetaDot,
@@ -756,35 +744,6 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const projects = useProjects();
-  const changeRequestSnapshotByKey = useAtomValue(ThreadPr.threadChangeRequestSnapshotsAtom);
-  const activeThreadProject = useProject(
-    activeThread === null
-      ? null
-      : scopeProjectRef(activeThread.environmentId, activeThread.projectId),
-  );
-  const activeThreadCwd = activeThread?.worktreePath ?? activeThreadProject?.workspaceRoot ?? null;
-  const activeThreadGitStatus = useEnvironmentQuery(
-    activeThread != null &&
-      activeThread.linkedPullRequest == null &&
-      activeThread.branch !== null &&
-      activeThreadCwd !== null
-      ? vcsEnvironment.status({
-          environmentId: activeThread.environmentId,
-          input: { cwd: activeThreadCwd },
-        })
-      : null,
-  ).data;
-  const detectedPullRequestUrl =
-    activeThread == null || activeThread.linkedPullRequest != null
-      ? null
-      : (ThreadPr.resolveDisplayedThreadPr({
-          threadBranch: activeThread.branch,
-          gitStatus: activeThreadGitStatus ?? null,
-          snapshot: changeRequestSnapshotByKey.get(
-            scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id)),
-          ),
-          retainTerminalOnBranchMismatch: activeThread.worktreePath === null,
-        })?.url ?? null);
   const referenceThreadRef =
     pathname === "/pull-requests"
       ? environments.some(
@@ -805,8 +764,9 @@ function OpenCommandPaletteDialog(props: {
       : resolveThreadReferenceCopyTarget({
           threadId: referenceThreadRef.threadId,
           openPanelPullRequestUrl,
-          linkedPullRequestUrl: activeThread?.linkedPullRequest?.url ?? null,
-          detectedPullRequestUrl,
+          pullRequests: activeThread?.pullRequests,
+          linkedPullRequestUrl:
+            activeThread?.linkedPullRequest?.url ?? activeThread?.branchPullRequest?.url ?? null,
         });
   const copyActiveThreadReference = useCallback(async () => {
     const target = activeThreadReferenceCopyTarget;
@@ -1445,14 +1405,7 @@ function OpenCommandPaletteDialog(props: {
         projectTitleById,
         sortOrder: clientSettings.sidebarThreadSortOrder,
         icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
-        renderLeadingContent: (thread) => (
-          <ThreadRowLeadingStatus
-            thread={thread}
-            snapshot={changeRequestSnapshotByKey.get(
-              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-            )}
-          />
-        ),
+        renderLeadingContent: (thread) => <ThreadRowLeadingStatus thread={thread} />,
         renderTrailingContent: (thread) => <ThreadRowTrailingStatus thread={thread} />,
         renderDescription: (thread, { projectTitle }) => {
           const modelInstanceId =
@@ -1504,7 +1457,6 @@ function OpenCommandPaletteDialog(props: {
       }),
     [
       activeThreadId,
-      changeRequestSnapshotByKey,
       clientSettings.sidebarThreadSortOrder,
       navigate,
       projectCwdById,
@@ -1638,7 +1590,7 @@ function OpenCommandPaletteDialog(props: {
 
   const openSourceControlSettings = useCallback(() => {
     setOpen(false);
-    void navigate({ to: "/settings/git" });
+    void navigate({ to: "/settings/source-control" });
   }, [navigate, setOpen]);
 
   const buildAddProjectSourceGroups = useCallback(
@@ -2385,9 +2337,9 @@ function OpenCommandPaletteDialog(props: {
   ).map((item) => ({
     kind: "action",
     value: `setting:${item.id}`,
-    searchTerms: [item.title, settingsPathLabel(item.to), ...(item.searchTerms ?? [])],
+    searchTerms: [item.title, SETTINGS_SECTION_LABELS[item.to], ...(item.searchTerms ?? [])],
     title: item.title,
-    description: `Settings · ${settingsPathLabel(item.to)}`,
+    description: `Settings · ${SETTINGS_SECTION_LABELS[item.to]}`,
     ...(item.secondary ? { secondary: true } : {}),
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     run: async () => {

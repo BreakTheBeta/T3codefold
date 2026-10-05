@@ -1,6 +1,7 @@
 import { OrchestratorMcpFailure, type ServerSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Environment from "../../../environment/ServerEnvironment.ts";
+import { FleetRouter } from "../../FleetRouter.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as Settings from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -45,6 +46,11 @@ const access = (writable = false) =>
     return { ...context, descriptor, settings: yield* Settings.ServerSettingsService };
   });
 export const EnvironmentHandlersLive = EnvironmentToolkit.toLayer({
+  t3_environment_list: () =>
+    Effect.gen(function* () {
+      yield* readCaller();
+      return yield* (yield* FleetRouter).environments;
+    }),
   t3_environment_read: () =>
     Effect.gen(function* () {
       const { descriptor, settings } = yield* access();

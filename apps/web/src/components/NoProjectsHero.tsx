@@ -17,11 +17,13 @@ export function NoProjectsHero() {
   const scratchTargetEnvironmentId = scratchEnvironmentId(primaryEnvironmentId);
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
       <div
         className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background"
         data-chat-canvas
       >
+        {/* The desktop window only moves where CSS opts in, so keep a titlebar strip. */}
+        {isElectron ? <WorkspacePageHeader electron /> : null}
         <Empty size="hero" className="flex-1">
           <div className="w-full max-w-lg px-8 py-12">
             <EmptyHeader className="max-w-none">

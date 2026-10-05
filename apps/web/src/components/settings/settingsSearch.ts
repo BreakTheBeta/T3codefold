@@ -18,6 +18,7 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
+  | "/settings/glados"
   | "/settings/integrations"
   | "/settings/scheduled-tasks"
   | "/settings/source-control"
@@ -90,6 +91,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
+  "/settings/glados": "GLaDOS",
   "/settings/integrations": "Integrations",
   "/settings/scheduled-tasks": "Scheduled Tasks",
   "/settings/source-control": "Source Control",
@@ -206,6 +208,54 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Glass opacity",
     to: "/settings/appearance",
     searchTerms: ["transparent transparency solid menus dialogs composer"],
+  },
+  {
+    id: "theme-backdrop",
+    title: "Splatter backdrop",
+    to: "/settings/appearance",
+    searchTerms: ["splat paint neon background texture grain cyberpunk codex theme artwork"],
+  },
+  {
+    id: "theme-backdrop-scope",
+    title: "Show splatter on",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter every all themes cyberpunk codex"],
+  },
+  {
+    id: "theme-backdrop-colors",
+    title: "Splatter colors",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter colours custom paint match theme"],
+  },
+  {
+    id: "theme-backdrop-intensity",
+    title: "Splatter intensity",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter strength opacity subtle bold"],
+  },
+  {
+    id: "theme-backdrop-amount",
+    title: "Splatter amount",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter density more less spray grain specks busy"],
+  },
+  {
+    id: "theme-backdrop-seed",
+    title: "Splatter pattern",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter seed shuffle random pattern layout"],
+  },
+  {
+    id: "theme-backdrop-glow",
+    title: "Neon glow",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter glow glowing neon bloom"],
+  },
+  {
+    id: "theme-backdrop-dynamic",
+    title: "Dynamic splatter",
+    to: "/settings/appearance",
+    searchTerms: ["splat splatter dynamic merged merge pull request pr daily"],
   },
   {
     id: "diff-color-scheme",
@@ -377,6 +427,30 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Proactive panels",
     to: "/settings/general",
     searchTerms: ["automatically open diff pull request pr right panel agent completion"],
+  },
+  {
+    id: "cite-selection",
+    title: "Show Cite on text selection",
+    to: "/settings/general",
+    searchTerms: ["citation quote bubble popup highlight assistant text selection"],
+  },
+  {
+    id: "vim-thread-preview",
+    title: "Preview threads while navigating",
+    to: "/settings/general",
+    searchTerms: ["vim sidebar j k cycle selection preview open"],
+  },
+  {
+    id: "vim-keyboard-mode",
+    title: "Vim keyboard mode",
+    to: "/settings/general",
+    searchTerms: ["vim vimium zed keyboard modal navigation normal insert visual hjkl"],
+  },
+  {
+    id: "live-voice",
+    title: "Live voice",
+    to: "/settings/general",
+    searchTerms: ["codex realtime voice call speaking microphone speaker audio"],
   },
   {
     id: "skills-in-slash-menu",
@@ -894,6 +968,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
   "/settings/providers": null,
+  "/settings/glados": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",

@@ -223,10 +223,6 @@
       "types": "./src/gladosBoard.ts",
       "default": "./src/gladosBoard.ts"
     },
-    "./settings-sections": {
-      "types": "./src/settingsSections.ts",
-      "default": "./src/settingsSections.ts"
-    },
     "./realtime-voice": {
       "types": "./src/realtime-voice/controller.ts",
       "default": "./src/realtime-voice/controller.ts"

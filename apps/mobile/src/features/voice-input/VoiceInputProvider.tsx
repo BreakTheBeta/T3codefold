@@ -105,6 +105,9 @@ function useVoiceInputRuntime() {
       return next;
     });
   }, []);
+  // A live Codex voice call owns the microphone and audio session, so dictation
+  // stays unavailable until the call ends. VoiceWorkspaceProvider reports it.
+  const [liveCallActive, setLiveCallActive] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const keepAwakeId = useId();
   const keepAwakeSessionRef = useRef(0);
@@ -229,7 +232,8 @@ function useVoiceInputRuntime() {
   return {
     // Store screenshots show the dictation button even on simulators, whose
     // on-device transcription is unavailable.
-    isAvailable: getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null,
+    isAvailable:
+      !liveCallActive && (getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null),
     state,
     audioLevels,
     elapsedSeconds,
@@ -238,6 +242,7 @@ function useVoiceInputRuntime() {
     label,
     focusedOwners,
     setOwnerFocused,
+    setLiveCallActive,
     session,
     stop,
     cancel,

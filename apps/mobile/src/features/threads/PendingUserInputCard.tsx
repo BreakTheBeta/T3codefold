@@ -1,8 +1,10 @@
 import { RequestActionButton } from "./RequestActionButton";
-import { QuestionAttachments } from "./QuestionAttachments";
+import { PendingUserInputFullScreen } from "./PendingUserInputFullScreen";
+import { PendingUserInputQuestions } from "./PendingUserInputQuestions";
+import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
 import type { RuntimeRequestId } from "@t3tools/contracts";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
   Easing,
@@ -20,12 +22,7 @@ import { USER_INPUT_TOGGLE_DURATION_MS } from "./pendingUserInputLayout";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPill } from "../../components/ControlPill";
-import { cn } from "../../lib/cn";
-import {
-  isPendingUserInputOptionSelected,
-  type PendingUserInput,
-  type PendingUserInputDraftAnswer,
-} from "../../lib/threadActivity";
+import type { PendingUserInput, PendingUserInputDraftAnswer } from "../../lib/threadActivity";
 
 export interface PendingUserInputCardProps {
   readonly pendingUserInput: PendingUserInput;
@@ -91,11 +88,15 @@ const EXPANDED_CARD_IS_OVERLAY = Platform.OS === "ios";
 const CARD_LAYOUT_TRANSITION = LinearTransition.duration(200);
 
 export function PendingUserInputCard(props: PendingUserInputCardProps) {
+  // A live voice call can read the open questions when context sharing is on.
+  useVoiceViewContext("question", JSON.stringify(props.pendingUserInput.questions).slice(0, 2500));
   const questionCount = props.pendingUserInput.questions.length;
   // Message responses start a new run and remain available after the provider exits.
   const canRespond = props.pendingUserInput.responseCapability !== "not_resumable";
   const isResponding = props.respondingUserInputId === props.pendingUserInput.requestId;
   const responseDisabled = !canRespond || isResponding;
+  // Opt-in reading mode for long requests; the card stays the default presentation.
+  const [fullScreen, setFullScreen] = useState(false);
 
   const cardCoverage = props.cardCoverage;
   const barHeightRef = useRef(0);
@@ -244,6 +245,19 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
           </Text>
           <Text className="font-t3-bold text-lg text-foreground">Fill in the pending answers</Text>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open user input full screen"
+          onPress={() => setFullScreen(true)}
+          className="h-8 w-8 items-center justify-center rounded-full bg-subtle-strong active:opacity-70"
+        >
+          <SymbolView
+            name="arrow.up.left.and.arrow.down.right"
+            size={13}
+            tintColorClassName={"accent-icon-subtle"}
+            type="monochrome"
+          />
+        </Pressable>
         <View className="h-8 w-8 items-center justify-center rounded-full bg-subtle-strong">
           <SymbolView
             name="chevron.down"
@@ -262,81 +276,15 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         showsVerticalScrollIndicator
         style={{ flexShrink: 1 }}
       >
-        {!canRespond ? (
-          <Text className="font-sans text-sm leading-5 text-adaptive-neutral-600-400">
-            The provider process for this request is no longer available. Interrupt or restart the
-            run to continue.
-          </Text>
-        ) : null}
-        {props.pendingUserInput.questions.map((question) => {
-          const draft = props.drafts[question.id];
-          return (
-            <View key={question.id} className="gap-2 pt-1">
-              <Text className="font-t3-bold text-xs uppercase tracking-[1px] text-foreground-muted">
-                {question.header}
-              </Text>
-              <Text className="font-sans text-base leading-snug text-foreground">
-                {question.question}
-              </Text>
-              <View className="gap-2">
-                {question.options.map((option) => {
-                  const optionValue = option.value ?? option.label.trim();
-                  const selected = isPendingUserInputOptionSelected(question, draft, optionValue);
-                  const description =
-                    option.description !== option.label ? option.description : undefined;
-                  return (
-                    <Pressable
-                      key={optionValue}
-                      accessibilityRole={question.multiSelect ? "checkbox" : "radio"}
-                      accessibilityState={{ checked: selected, disabled: responseDisabled }}
-                      disabled={responseDisabled}
-                      className={cn(
-                        "min-h-12 w-full rounded-2xl border px-3.5 py-3",
-                        selected ? "border-primary bg-primary/10" : "border-border bg-input",
-                      )}
-                      onPress={() =>
-                        props.onSelectOption(
-                          props.pendingUserInput.requestId,
-                          question,
-                          optionValue,
-                        )
-                      }
-                    >
-                      <View className="min-w-0 flex-1 gap-0.5">
-                        <Text
-                          className={cn(
-                            "font-t3-bold text-sm",
-                            selected ? "text-foreground" : "text-foreground-secondary",
-                          )}
-                        >
-                          {option.label}
-                        </Text>
-                        {description ? (
-                          <Text className="font-sans text-sm leading-5 text-foreground-muted">
-                            {description}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {question.allowCustomAnswer !== false ? (
-                <QuestionAttachments
-                  requestId={props.pendingUserInput.requestId}
-                  question={question}
-                  questions={props.pendingUserInput.questions}
-                  disabled={responseDisabled}
-                  value={draft?.customAnswer ?? ""}
-                  onChangeText={(value) =>
-                    props.onChangeCustomAnswer(props.pendingUserInput.requestId, question.id, value)
-                  }
-                  onInputFocusChange={props.onInputFocusChange}
-                />
-              ) : null}
-            </View>
-          );
-        })}
+        <PendingUserInputQuestions
+          pendingUserInput={props.pendingUserInput}
+          canRespond={canRespond}
+          drafts={props.drafts}
+          respondingUserInputId={props.respondingUserInputId}
+          onSelectOption={props.onSelectOption}
+          onChangeCustomAnswer={props.onChangeCustomAnswer}
+          onInputFocusChange={props.onInputFocusChange}
+        />
       </ScrollView>
       <RequestActionButton
         label="Submit answers"
@@ -362,6 +310,20 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
   return (
     <View className="relative">
       {bar}
+      <PendingUserInputFullScreen
+        visible={fullScreen}
+        pendingUserInput={props.pendingUserInput}
+        canRespond={canRespond}
+        drafts={props.drafts}
+        answers={props.answers}
+        respondingUserInputId={props.respondingUserInputId}
+        onSelectOption={props.onSelectOption}
+        onChangeCustomAnswer={props.onChangeCustomAnswer}
+        onInputFocusChange={props.onInputFocusChange}
+        onRequestClose={() => setFullScreen(false)}
+        onSubmit={props.onSubmit}
+        onDismiss={props.onDismiss}
+      />
       {EXPANDED_CARD_IS_OVERLAY ? (
         // Clipping window for the collapse slide: same footprint as the
         // expanded card, bottom edge on the bar's bottom edge. The sliding

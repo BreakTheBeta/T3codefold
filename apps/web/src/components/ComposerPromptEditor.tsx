@@ -6,11 +6,13 @@ export type {
   ComposerPromptEditorHandle,
   ComposerPromptEditorProps,
 } from "./ComposerPromptEditorTiptap";
+export type { ComposerVimModeDisplay } from "./ComposerPromptEditorTiptapVim";
 
 /**
  * The composer editor. Tiptap in both modes: the `richTextEnabled` setting
  * toggles Markdown styling, never the engine. Plain mode renders every
  * marker as a literal character and serializes byte-identically.
+ * `vimModeEnabled` adds modal Vim editing to the same engine.
  */
 export function ComposerPromptEditor(props: ComposerPromptEditorProps) {
   return <ComposerPromptEditorTiptap {...props} />;

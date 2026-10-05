@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import { createStaticNavigation } from "@react-navigation/native";
 
 import { RegistryContext } from "@effect/atom-react";
@@ -25,6 +25,8 @@ import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { VoiceInputProvider } from "./features/voice-input/VoiceInputProvider";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
+import { VoiceWorkspaceProvider } from "./features/voice-input/VoiceWorkspaceProvider";
+import { LocalAgentNotificationsCoordinator } from "./features/agent-awareness/localNotifications";
 
 import "../global.css";
 
@@ -77,7 +79,9 @@ function AppContent() {
       <SubscriptionUsageCoordinator />
       <GestureHandlerRootView className="flex-1">
         <KeyboardProvider statusBarTranslucent>
-          <SafeAreaProvider>
+          {/* Without initialMetrics SafeAreaProvider renders nothing until native insets
+              arrive, which held Fold Android on its splash screen. */}
+          <SafeAreaProvider initialMetrics={initialWindowMetrics}>
             <VoiceInputProvider>
               <StatusBar barStyle={themeAppearance === "dark" ? "light-content" : "dark-content"} />
               {/* The navigation theme drives the NATIVE header appearance: native-stack
@@ -86,9 +90,13 @@ function AppContent() {
                 header (glass buttons, title, materials) is forced light even when
                 the system is in dark mode. */}
               <GlobalVoiceInputControl>
-                <IncomingShareProvider>
-                  <Navigation linking={appLinking} theme={navigationTheme} />
-                </IncomingShareProvider>
+                {/* Live Codex voice calls; its panel docks below the navigator. */}
+                <VoiceWorkspaceProvider>
+                  <IncomingShareProvider>
+                    <LocalAgentNotificationsCoordinator />
+                    <Navigation linking={appLinking} theme={navigationTheme} />
+                  </IncomingShareProvider>
+                </VoiceWorkspaceProvider>
                 <ConfirmDialogHost />
                 <ThreadArrangementHost />
               </GlobalVoiceInputControl>

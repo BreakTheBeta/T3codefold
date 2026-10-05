@@ -1,6 +1,7 @@
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { supportsCodexRealtimeVoiceVersion } from "@t3tools/client-runtime/realtime-voice";
 import { useAtomValue } from "@effect/atom-react";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
@@ -113,6 +114,9 @@ import {
   ComposerDictationToolbar,
 } from "../voice-input/ComposerDictationControl";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
+import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
+import { useCodexRealtimeVoice } from "../voice-input/useCodexRealtimeVoice";
+import { CodexVoiceControl } from "../voice-input/CodexVoiceControl";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
 import {
   rememberModelOptions,
@@ -516,6 +520,31 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
   });
+  // Any dictation, here or on another screen, holds the microphone a call needs.
+  const dictationBusy = useGlobalVoiceInput().isBusy;
+  const isCodexThread = selectedProviderStatus?.driver === "codex";
+  const codexVoice = useCodexRealtimeVoice({
+    title: props.selectedThread.title,
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+    enabled: isCodexThread && props.connectionState === "connected" && !dictationBusy,
+  });
+  const codexVoiceActive = codexVoice.status !== "idle" && codexVoice.status !== "error";
+  // While a call is live its controls live in the workspace voice panel.
+  const codexVoiceControl =
+    isCodexThread && !codexVoiceActive ? (
+      <CodexVoiceControl
+        voice={codexVoice}
+        disabled={
+          dictationBusy ||
+          props.connectionState !== "connected" ||
+          !supportsCodexRealtimeVoiceVersion(selectedProviderStatus.version)
+        }
+      />
+    ) : null;
+  useEffect(() => {
+    if (codexVoice.error) Alert.alert("Codex voice", codexVoice.error);
+  }, [codexVoice.error]);
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
     voiceInput.elapsedSeconds,
@@ -1045,6 +1074,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             ) : null}
             {!isExpanded ? (
               <View className="flex-row items-center">
+                {codexVoiceControl}
                 <ComposerDictationStartAction
                   state={voiceInput.state}
                   isAvailable={voiceInput.isAvailable}
@@ -1097,6 +1127,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 paddingTop={0}
                 style={{ gap: 0 }}
               >
+                {isExpanded ? codexVoiceControl : null}
                 <ComposerDictationCancelAction
                   presentation={voicePresentation}
                   onCancel={voiceInput.cancel}
