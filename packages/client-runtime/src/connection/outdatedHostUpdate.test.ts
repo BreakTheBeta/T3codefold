@@ -4,6 +4,7 @@ import {
   ExecutionEnvironmentDescriptor,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { FOLD_REPOSITORY } from "@t3tools/shared/foldRelease";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -36,7 +37,11 @@ const descriptor = (protocol: number | undefined, serverVersion: string) =>
     platform: { os: "darwin", arch: "arm64" },
     serverVersion,
     ...(protocol === undefined ? {} : { orchestrationProtocolVersion: protocol }),
-    capabilities: { repositoryIdentity: true, serverSelfUpdate: "boot-service" },
+    capabilities: {
+      repositoryIdentity: true,
+      serverSelfUpdate: "boot-service",
+      updateRepository: FOLD_REPOSITORY,
+    },
   }) satisfies ExecutionEnvironmentDescriptor;
 
 const RpcRequest = Schema.TaggedStruct("Request", {
@@ -206,12 +211,9 @@ describe("updateOutdatedHost", () => {
     }),
   );
 
-  it.effect("refuses a host that cannot update itself without opening a socket", () =>
+  const refuse = (capabilities: ExecutionEnvironmentDescriptor["capabilities"]) =>
     Effect.gen(function* () {
-      const manual = {
-        ...descriptor(undefined, "0.0.45"),
-        capabilities: { repositoryIdentity: true },
-      };
+      const manual = { ...descriptor(undefined, "0.0.45"), capabilities };
       let opened = false;
       const error = yield* Effect.flip(
         updateOutdatedHost(TARGET.environmentId, { targetVersion: "0.0.46" }, () => Effect.void),
@@ -271,8 +273,22 @@ describe("updateOutdatedHost", () => {
           ),
         ),
       );
-      expect(error).toMatchObject({ _tag: "OutdatedHostUpdateError" });
       expect(opened).toBe(false);
+      return error;
+    });
+
+  it.effect("refuses a host that cannot update itself without opening a socket", () =>
+    Effect.gen(function* () {
+      const error = yield* refuse({ repositoryIdentity: true });
+      expect(error).toMatchObject({ _tag: "OutdatedHostUpdateError" });
+    }),
+  );
+
+  it.effect("refuses a pre-Fold updater, which would install upstream npm t3", () =>
+    Effect.gen(function* () {
+      const error = yield* refuse({ repositoryIdentity: true, serverSelfUpdate: "boot-service" });
+      expect(error).toMatchObject({ _tag: "OutdatedHostUpdateError" });
+      expect(error.message).toContain(FOLD_REPOSITORY);
     }),
   );
 });

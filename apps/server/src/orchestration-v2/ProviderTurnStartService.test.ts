@@ -855,3 +855,64 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
       }),
   );
 }
+
+const preambleFor = (preamble: Effect.Effect<string | null, unknown>) => {
+  const calls: Array<readonly [ThreadId, RunAttemptId]> = [];
+  return {
+    calls,
+    turnPreamble: {
+      forAttempt: (threadId: ThreadId, attemptId: RunAttemptId) =>
+        Effect.suspend(() => {
+          calls.push([threadId, attemptId]);
+          return preamble;
+        }),
+    },
+  };
+};
+
+effectIt.effect("leads a starting turn with its preamble for this thread and attempt", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Ship the dark mode toggle",
+      failReadsAfterRunning: true,
+    });
+    const preamble = preambleFor(
+      Effect.succeed(
+        "<t3-pitboss-context>\nYou are this environment's elected GLaDOS.\n</t3-pitboss-context>",
+      ),
+    );
+
+    yield* harness.start.pipe(
+      Effect.provideService(ProviderTurnStart.TurnPreamble, preamble.turnPreamble),
+    );
+
+    expect(preamble.calls).toEqual([
+      [ThreadId.make("thread-native-account-command"), harness.attemptId],
+    ]);
+    expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe(
+      "<t3-pitboss-context>\nYou are this environment's elected GLaDOS.\n</t3-pitboss-context>\n\n<user_request>\nShip the dark mode toggle\n</user_request>",
+    );
+  }),
+);
+
+for (const [label, preamble] of [
+  ["without a preamble", Effect.succeed(null)],
+  ["when the preamble cannot be read", Effect.fail("work store unavailable")],
+] as const) {
+  effectIt.effect(`leaves the turn text untouched ${label}`, () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Ship the dark mode toggle",
+        failReadsAfterRunning: true,
+      });
+
+      yield* harness.start.pipe(
+        Effect.provideService(ProviderTurnStart.TurnPreamble, preambleFor(preamble).turnPreamble),
+      );
+
+      expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe(
+        "Ship the dark mode toggle",
+      );
+    }),
+  );
+}

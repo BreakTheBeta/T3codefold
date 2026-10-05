@@ -62,17 +62,3 @@ export function resolveVisibleWorktreeSetup(input: {
 export function worktreeSetupAgentStarted(snapshot: WorktreeSetupSnapshot): boolean {
   return snapshot.stages.some((stage) => stage.id === "agent" && stage.status === "done");
 }
-
-/** Preparation snapshots are stored on the V2 workspace preparation item. */
-export function recordedWorktreeSetupActivities(
-  items: ReadonlyArray<{
-    readonly type: string;
-    readonly worktreeSetup?: WorktreeSetupSnapshot | undefined;
-  }>,
-) {
-  return items.flatMap((item) =>
-    item.type === "command_execution" && item.worktreeSetup
-      ? [{ kind: WORKTREE_SETUP_ACTIVITY_KIND, payload: item.worktreeSetup }]
-      : [],
-  );
-}

@@ -4,7 +4,6 @@ import type {
   ProjectCloneStartInput,
   ProjectCloneStartResult,
   ProjectId,
-  CommandId,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import {
@@ -460,24 +459,6 @@ export const rejectCommandsDuringClone = (
         clone.phase === "running"
           ? "The repository is still being cloned."
           : "The repository was not cloned. Retry the clone first.",
-    });
-  });
-
-/** Guards V2 dispatches that need a populated project workspace. */
-export const ensureProjectCloneReady = (
-  tracker: ProjectCloneTracker["Service"],
-  projectId: ProjectId,
-  commandId: CommandId,
-): Effect.Effect<void, OrchestrationDispatchCommandError> =>
-  Effect.gen(function* () {
-    const clone = yield* tracker.get(projectId);
-    if (clone === null || clone.phase === "done") return;
-    return yield* new OrchestrationDispatchCommandError({
-      message:
-        clone.phase === "running"
-          ? "The repository is still being cloned."
-          : "The repository was not cloned. Retry the clone first.",
-      cause: { projectId, commandId, phase: clone.phase },
     });
   });
 

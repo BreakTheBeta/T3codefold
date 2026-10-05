@@ -1,3 +1,4 @@
+import { foldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
 import {
   type EnvironmentId,
   type ServerConfig,
@@ -48,6 +49,7 @@ import {
 } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
+import { createPitbossEnvironmentAtoms } from "./pitboss.ts";
 import {
   applyServerConfigProjection,
   type ServerConfigProjection,
@@ -90,6 +92,16 @@ export const serverUpdateStateAtom = Atom.family((environmentId: EnvironmentId) 
     Atom.withLabel(`environment-data:server:update-state:${environmentId}`),
   ),
 );
+
+/** Upstream updaters install npm `t3`, which would cross-grade a Fold host to upstream. */
+export class ServerUpdateSourceMismatchError extends Schema.TaggedError<ServerUpdateSourceMismatchError>()(
+  "ServerUpdateSourceMismatchError",
+  { targetVersion: Schema.String },
+) {
+  override get message(): string {
+    return `This server updater does not identify itself as Fold. Update it manually with: ${foldServerCommand(this.targetVersion)} service update`;
+  }
+}
 
 export class ServerUpdateResumeTimeoutError extends Schema.TaggedError<ServerUpdateResumeTimeoutError>()(
   "ServerUpdateResumeTimeoutError",
@@ -730,6 +742,9 @@ export function createServerEnvironmentAtoms<R, E>(
           target,
           Effect.gen(function* () {
             const currentConfig = atomRegistry.get(configValueAtom(target.environmentId));
+            if (!supportsFoldUpdates(currentConfig?.environment.capabilities ?? {})) {
+              return yield* new ServerUpdateSourceMismatchError({ targetVersion });
+            }
             fromVersion = currentConfig?.environment.serverVersion ?? targetVersion;
             atomRegistry.set(stateAtom, {
               status: "running",
@@ -1107,6 +1122,7 @@ export function createServerEnvironmentAtoms<R, E>(
       staleTimeMs: 0,
       idleTtlMs: 0,
     }),
+    ...createPitbossEnvironmentAtoms(runtime),
     configProjection,
     welcome,
     legacyThreadMigration: createEnvironmentRpcSubscriptionAtomFamily(runtime, {

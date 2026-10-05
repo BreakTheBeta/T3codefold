@@ -4,6 +4,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import {
   ContextTransferId,
+  EnvironmentId,
   IsoDateTime,
   MessageId,
   NodeId,
@@ -258,6 +259,7 @@ export const OrchestratorMcpCreatedThreadStatus = Schema.Union([
 export type OrchestratorMcpCreatedThreadStatus = typeof OrchestratorMcpCreatedThreadStatus.Type;
 
 export const OrchestratorMcpCreatedThread = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   threadId: ThreadId,
   runId: Schema.NullOr(RunId),
   status: OrchestratorMcpCreatedThreadStatus,
@@ -287,7 +289,50 @@ const OrchestratorMcpProjectTarget = Schema.optional(
   }),
 );
 
+/** Fleet routing: another environment reachable through a connected client. */
+const OrchestratorMcpEnvironmentTarget = Schema.optional(
+  EnvironmentId.annotate({
+    description:
+      "Environment to act on, reached through a connected client. Omit for this environment.",
+  }),
+);
+
+/**
+ * Fold additions to `t3_thread_launch`'s parameters: fleet routing, plus a
+ * retry key that makes a repeated launch return the original thread.
+ */
+export const OrchestratorMcpThreadLaunchFoldFields = {
+  environmentId: OrchestratorMcpEnvironmentTarget,
+  clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
+};
+
+/** Input of `t3_thread_start`, kept as an alias of `t3_thread_launch` for existing callers. */
+export const OrchestratorMcpThreadStartInput = Schema.Struct({
+  environmentId: OrchestratorMcpEnvironmentTarget,
+  projectId: OrchestratorMcpProjectTarget,
+  prompt: OrchestratorMcpPrompt,
+  title: Schema.optional(OrchestratorMcpTitle),
+  target: Schema.optional(OrchestratorMcpTarget),
+  clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
+  runtimeMode: Schema.optional(OrchestratorMcpRuntimeMode),
+  interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
+});
+export type OrchestratorMcpThreadStartInput = typeof OrchestratorMcpThreadStartInput.Type;
+
+export const OrchestratorMcpCapabilitiesInput = Schema.Struct({
+  environmentId: OrchestratorMcpEnvironmentTarget,
+});
+export type OrchestratorMcpCapabilitiesInput = typeof OrchestratorMcpCapabilitiesInput.Type;
+
+export const OrchestratorMcpProjectListInput = Schema.Struct({
+  environmentId: OrchestratorMcpEnvironmentTarget,
+  cursor: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
+});
+export type OrchestratorMcpProjectListInput = typeof OrchestratorMcpProjectListInput.Type;
+
 export const OrchestratorMcpThreadListInput = Schema.Struct({
+  environmentId: OrchestratorMcpEnvironmentTarget,
   projectId: OrchestratorMcpProjectTarget,
   statuses: Schema.optional(
     Schema.Array(OrchestratorMcpThreadStatus).check(Schema.isMaxLength(10)),
@@ -323,6 +368,7 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
 export type OrchestratorMcpThreadListItem = typeof OrchestratorMcpThreadListItem.Type;
 
 export const OrchestratorMcpThreadListResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   projectId: ProjectId,
   /** The calling thread, or null when the caller is not a T3 thread. */
   currentThreadId: Schema.NullOr(ThreadId),
@@ -333,6 +379,7 @@ export const OrchestratorMcpThreadListResult = Schema.Struct({
 export type OrchestratorMcpThreadListResult = typeof OrchestratorMcpThreadListResult.Type;
 
 export const OrchestratorMcpThreadReadInput = Schema.Struct({
+  environmentId: OrchestratorMcpEnvironmentTarget,
   threadId: ThreadId,
   itemId: Schema.optional(TurnItemId),
   textOffset: Schema.optional(NonNegativeInt),
@@ -406,6 +453,7 @@ export const OrchestratorMcpThreadTimelineItem = Schema.Struct({
 export type OrchestratorMcpThreadTimelineItem = typeof OrchestratorMcpThreadTimelineItem.Type;
 
 export const OrchestratorMcpThreadReadResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   thread: OrchestratorMcpThreadDetail,
   recentRuns: Schema.Array(OrchestratorMcpThreadRun),
   items: Schema.Array(OrchestratorMcpThreadTimelineItem),
@@ -415,6 +463,7 @@ export const OrchestratorMcpThreadReadResult = Schema.Struct({
 export type OrchestratorMcpThreadReadResult = typeof OrchestratorMcpThreadReadResult.Type;
 
 export const OrchestratorMcpThreadSendInput = Schema.Struct({
+  environmentId: OrchestratorMcpEnvironmentTarget,
   threadId: ThreadId,
   message: OrchestratorMcpPrompt,
   mode: Schema.optional(Schema.Literals(["auto", "queue", "steer", "restart"])),
@@ -423,6 +472,7 @@ export const OrchestratorMcpThreadSendInput = Schema.Struct({
 export type OrchestratorMcpThreadSendInput = typeof OrchestratorMcpThreadSendInput.Type;
 
 export const OrchestratorMcpThreadSendResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   threadId: ThreadId,
   messageId: MessageId,
   runId: RunId,
@@ -432,6 +482,7 @@ export const OrchestratorMcpThreadSendResult = Schema.Struct({
 export type OrchestratorMcpThreadSendResult = typeof OrchestratorMcpThreadSendResult.Type;
 
 export const OrchestratorMcpThreadWaitInput = Schema.Struct({
+  environmentId: OrchestratorMcpEnvironmentTarget,
   threadId: ThreadId,
   runId: Schema.optional(RunId),
   timeoutMs: Schema.optional(Schema.Number),
@@ -439,6 +490,7 @@ export const OrchestratorMcpThreadWaitInput = Schema.Struct({
 export type OrchestratorMcpThreadWaitInput = typeof OrchestratorMcpThreadWaitInput.Type;
 
 export const OrchestratorMcpThreadWaitResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   threadId: ThreadId,
   runId: Schema.NullOr(RunId),
   status: OrchestratorMcpThreadStatus,
@@ -447,6 +499,7 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
 export const OrchestratorMcpThreadInterruptInput = Schema.Struct({
+  environmentId: OrchestratorMcpEnvironmentTarget,
   threadId: ThreadId,
   runId: Schema.optional(RunId),
   reason: Schema.optional(Schema.String.check(Schema.isMaxLength(2_000))),
@@ -455,6 +508,7 @@ export const OrchestratorMcpThreadInterruptInput = Schema.Struct({
 export type OrchestratorMcpThreadInterruptInput = typeof OrchestratorMcpThreadInterruptInput.Type;
 
 export const OrchestratorMcpThreadInterruptResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   threadId: ThreadId,
   runId: Schema.NullOr(RunId),
   status: Schema.Union([
@@ -484,6 +538,7 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
 export type OrchestratorMcpProviderCapability = typeof OrchestratorMcpProviderCapability.Type;
 
 export const OrchestratorMcpCapabilitiesResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   /** The calling thread, or null when the caller is not a T3 thread. */
   parentThreadId: Schema.NullOr(ThreadId),
   /** The calling thread's selection, or null when the caller is not a T3 thread. */

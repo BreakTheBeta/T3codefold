@@ -4,10 +4,10 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import { runMigrations } from "../Migrations.ts";
-import migrateAutoSettleDisabledAt from "./069_ProjectionThreadsAutoSettleDisabledAt.ts";
+import migrateAutoSettleDisabledAt from "./054_ProjectionThreadsAutoSettleDisabledAt.ts";
 
 it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))(
-  "069_ProjectionThreadsAutoSettleDisabledAt",
+  "054_ProjectionThreadsAutoSettleDisabledAt",
   (it) => {
     it.effect("adds the column with auto-settle left on for existing threads", () =>
       Effect.gen(function* () {

@@ -52,6 +52,10 @@ import {
   OrchestrationSearchThreadsError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_V2_WS_METHODS,
+  FoldRpcGroup,
+  OrchestratorMcpFailure,
+  PitbossError,
+  ProviderRealtimeVoiceError,
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
   OrchestrationV2DispatchCommandError,
@@ -540,6 +544,39 @@ function projectFileFailureContext(
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 const ServerWsRpcGroup = WsRpcGroup;
+
+// Placeholders until the pitboss, fleet and realtime voice services are wired in.
+const FOLD_RPC_UNAVAILABLE = "Not available on this server build.";
+const pitbossUnavailable = () =>
+  Effect.fail(new PitbossError({ code: "unavailable", message: FOLD_RPC_UNAVAILABLE }));
+const fleetUnavailable = () =>
+  Effect.fail(
+    new OrchestratorMcpFailure({ code: "capability_denied", message: FOLD_RPC_UNAVAILABLE }),
+  );
+const realtimeVoiceUnavailable =
+  (operation: ProviderRealtimeVoiceError["operation"]) =>
+  (input: { readonly threadId: ThreadId }) =>
+    Effect.fail(new ProviderRealtimeVoiceError({ threadId: input.threadId, operation }));
+const unavailableFoldHandlers = FoldRpcGroup.of({
+  [WS_METHODS.pitbossPeers]: pitbossUnavailable,
+  [WS_METHODS.pitbossPeerCommand]: pitbossUnavailable,
+  [WS_METHODS.pitbossSources]: pitbossUnavailable,
+  [WS_METHODS.pitbossSourceCommand]: pitbossUnavailable,
+  [WS_METHODS.pitbossRead]: pitbossUnavailable,
+  [WS_METHODS.pitbossSubscribe]: () => Stream.fromEffect(pitbossUnavailable()),
+  [WS_METHODS.pitbossCommand]: pitbossUnavailable,
+  [WS_METHODS.fleetConnect]: () => Stream.fromEffect(fleetUnavailable()),
+  [WS_METHODS.fleetRespond]: fleetUnavailable,
+  [WS_METHODS.fleetExecute]: fleetUnavailable,
+  [WS_METHODS.fleetInvoke]: fleetUnavailable,
+  [WS_METHODS.fleetEnvironments]: () => Effect.succeed({ environments: [] }),
+  [WS_METHODS.providerRealtimeVoiceStart]: realtimeVoiceUnavailable("start"),
+  [WS_METHODS.providerRealtimeVoiceStop]: realtimeVoiceUnavailable("stop"),
+  [WS_METHODS.providerRealtimeVoiceList]: realtimeVoiceUnavailable("list voices"),
+  [WS_METHODS.providerRealtimeVoiceContext]: realtimeVoiceUnavailable("share context"),
+  [WS_METHODS.providerRealtimeVoiceEvents]: (input) =>
+    Stream.fromEffect(realtimeVoiceUnavailable("subscribe")(input)),
+});
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1794,6 +1831,7 @@ const makeWsRpcLayer = (
       });
 
       const handlers = ServerWsRpcGroup.of({
+        ...unavailableFoldHandlers,
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_V2_WS_METHODS.dispatchCommand,

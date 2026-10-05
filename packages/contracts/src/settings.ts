@@ -38,6 +38,7 @@ import {
   type ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
+import { FoldClientSettingsFields, FoldClientSettingsPatchFields } from "./foldSettings.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -499,6 +500,7 @@ export const ClientSettingsSchema = Schema.Struct({
   snapShotFlash: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  ...FoldClientSettingsFields,
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1824,5 +1826,6 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotFlash: Schema.optionalKey(Schema.Boolean),
   snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
+  ...FoldClientSettingsPatchFields,
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

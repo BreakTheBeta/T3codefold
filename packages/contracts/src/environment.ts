@@ -180,6 +180,12 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   serverSelfUpdate: Schema.optionalKey(ServerSelfUpdateCapability),
   /** Manual commands must update this install, not the host's default global prefix. */
   serverInstallation: ForwardCompatibleOptional(ServerInstallation),
+  /** Distribution owning this server and desktop update path. Absent on pre-Fold updaters. */
+  updateRepository: Schema.optionalKey(Schema.String),
+  /** Supports native thread control through a client's connected environments. */
+  fleetOrchestration: Schema.optionalKey(Schema.Boolean),
+  /** Voice selection, transcript events and view context; absent on basic-voice hosts. */
+  realtimeVoiceControls: Schema.optionalKey(Schema.Boolean),
   /** Server can stream self-update progress before acknowledging the
       restart. Clients fall back to server.updateServer when absent. */
   serverSelfUpdateProgress: Schema.optionalKey(Schema.Boolean),

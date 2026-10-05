@@ -2,6 +2,8 @@ import { expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import {
+  isPendingApprovalRequest,
+  isRuntimeModeBroaderThan,
   isUserWorkMessage,
   pitbossMessageHeadline,
   verificationProposalApprovalAction,
@@ -145,4 +147,18 @@ it("reads a message as a headline without dragging its agent detail along", () =
   expect(pitbossMessageHeadline(message({ text: "Landed the fix\nEvidence: commit:abc" }))).toBe(
     "Landed the fix",
   );
+});
+
+it("orders runtime modes from approval-required to full-access", () => {
+  expect(isRuntimeModeBroaderThan("full-access", "approval-required")).toBe(true);
+  expect(isRuntimeModeBroaderThan("auto", "auto-accept-edits")).toBe(true);
+  expect(isRuntimeModeBroaderThan("auto", "auto")).toBe(false);
+  expect(isRuntimeModeBroaderThan("approval-required", "full-access")).toBe(false);
+});
+
+it("treats only provider approvals as pending approvals", () => {
+  expect(isPendingApprovalRequest(null)).toBe(false);
+  expect(isPendingApprovalRequest({ kind: "user_input" })).toBe(false);
+  expect(isPendingApprovalRequest({ kind: "auth_refresh" })).toBe(false);
+  expect(isPendingApprovalRequest({ kind: "dynamic_tool_call" })).toBe(true);
 });

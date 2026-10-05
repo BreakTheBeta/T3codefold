@@ -1,5 +1,3 @@
-import { CHATGPT_USAGE_LIMIT_MESSAGE } from "@t3tools/shared/usageLimits";
-
 const legacyFailures = {
   subscription_sharing_v2_user_not_eligible: {
     message:
@@ -7,7 +5,8 @@ const legacyFailures = {
     revoke: false,
   },
   subscription_sharing_usage_limit_exceeded: {
-    message: CHATGPT_USAGE_LIMIT_MESSAGE,
+    message:
+      "Your ChatGPT usage limit was reached. Check ChatGPT Usage settings for your available allowance.",
     revoke: false,
   },
   subscription_sharing_usage_unavailable: {

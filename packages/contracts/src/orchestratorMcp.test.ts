@@ -9,6 +9,7 @@ import {
   OrchestratorMcpThreadListInput,
   OrchestratorMcpThreadReadInput,
   OrchestratorMcpThreadSendInput,
+  OrchestratorMcpThreadStartInput,
   OrchestratorMcpThreadWaitInput,
 } from "./orchestratorMcp.ts";
 
@@ -19,6 +20,7 @@ const decodeThreadInterruptInput = Schema.decodeUnknownSync(OrchestratorMcpThrea
 const decodeThreadListInput = Schema.decodeUnknownSync(OrchestratorMcpThreadListInput);
 const decodeThreadReadInput = Schema.decodeUnknownSync(OrchestratorMcpThreadReadInput);
 const decodeThreadSendInput = Schema.decodeUnknownSync(OrchestratorMcpThreadSendInput);
+const decodeThreadStartInput = Schema.decodeUnknownSync(OrchestratorMcpThreadStartInput);
 const decodeThreadWaitInput = Schema.decodeUnknownSync(OrchestratorMcpThreadWaitInput);
 
 describe("orchestrator MCP contracts", () => {
@@ -124,6 +126,20 @@ describe("orchestrator MCP contracts", () => {
     expect(request.threads).toHaveLength(2);
     expect(request.threads[0]?.prompt).toBeUndefined();
     expect(request.threads[1]?.target?.driverKind).toBe("claudeAgent");
+  });
+
+  it("decodes fleet-routed requests and the t3_thread_start alias", () => {
+    expect(
+      decodeThreadStartInput({
+        environmentId: "environment-b",
+        prompt: "Run the first loop iteration.",
+        clientRequestId: "start-loop-1",
+      }),
+    ).toMatchObject({ environmentId: "environment-b", clientRequestId: "start-loop-1" });
+    expect(
+      decodeThreadReadInput({ environmentId: "environment-b", threadId: "thread-1" }).environmentId,
+    ).toBe("environment-b");
+    expect(decodeThreadListInput({}).environmentId).toBeUndefined();
   });
 
   it("decodes project-scoped thread orchestration requests", () => {

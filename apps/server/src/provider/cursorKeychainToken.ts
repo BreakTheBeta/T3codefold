@@ -11,7 +11,14 @@ export class CursorKeychainTimeoutError extends Error {
   }
 }
 
-/** Share one Keychain request across usage history and limits in this server process. */
+/**
+ * Share one Keychain request across usage history and limits in this server process.
+ *
+ * macOS shows the access prompt on the server's own screen, which a remote
+ * client cannot answer, so callers give up after `timeoutMs`. The read stays in
+ * flight: the next call reuses it instead of stacking a second prompt, and picks
+ * up the token once someone allows access.
+ */
 export function makeCachedCursorAccessTokenReader(
   read: () => Promise<string | null>,
   now: () => number = Date.now,

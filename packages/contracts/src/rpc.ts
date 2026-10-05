@@ -335,8 +335,11 @@ import {
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
+import { FOLD_WS_METHODS, FoldRpcGroup } from "./foldRpc.ts";
 
 export const WS_METHODS = {
+  ...FOLD_WS_METHODS,
+
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -1617,6 +1620,8 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
      * client would send it to the provider as an ordinary prompt.
      */
     usageLimitsCommand: Schema.optional(Schema.Boolean),
+    /** This client understands voice shortcut commands in server config. */
+    realtimeVoiceControls: Schema.optional(Schema.Boolean),
   }),
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
@@ -1874,4 +1879,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
-).middleware(RpcScopeAuthorization);
+)
+  .merge(FoldRpcGroup)
+  .middleware(RpcScopeAuthorization);

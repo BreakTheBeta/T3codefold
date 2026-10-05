@@ -64,6 +64,23 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
 
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
 
+/**
+ * Supplies text that leads a provider turn, such as managed-work rules for this thread. It is
+ * keyed by attempt so a retried attempt reuses the text it started with. The default adds none.
+ */
+export class TurnPreamble extends Context.Reference<{
+  readonly forAttempt: (
+    threadId: ThreadId,
+    attemptId: OrchestrationV2RunAttempt["id"],
+  ) => Effect.Effect<string | null, unknown>;
+}>("t3/orchestration-v2/ProviderTurnStartService/TurnPreamble", {
+  defaultValue: () => ({ forAttempt: () => Effect.succeed(null) }),
+}) {}
+
+/** The wrapper keeps a preamble from being mistaken for text the user wrote. */
+const withTurnPreamble = (preamble: string | null, text: string) =>
+  preamble === null ? text : `${preamble}\n\n<user_request>\n${text}\n</user_request>`;
+
 export interface ProviderTurnStartServiceV2Shape {
   /**
    * Starts the run's provider turn. When `willRetry` is true, a session open
@@ -110,6 +127,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const turnPreamble = yield* TurnPreamble;
 
     // These callbacks outlive startup while a run drains background work. Build
     // them outside start's scope so they cannot retain its full thread history.
@@ -944,10 +962,21 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
-      const userText = projectComposerContextForProvider({
+      const providerText = projectComposerContextForProvider({
         text: message.text,
         records: message.context?.records ?? [],
       });
+      // Slash commands such as /compact must reach the provider verbatim. A preamble failure
+      // degrades to an ordinary turn rather than blocking the run.
+      const userText =
+        message.attachments.length === 0 && message.text.trimStart().startsWith("/")
+          ? providerText
+          : withTurnPreamble(
+              yield* turnPreamble
+                .forAttempt(projection.thread.id, attempt.id)
+                .pipe(Effect.orElseSucceed(() => null)),
+              providerText,
+            );
       // Delivered once: this run's provider turn marks the work as told. A
       // restart continuation is prompted by its own text or resumes natively.
       const noteContinuation = isRestartNoteContinuation(

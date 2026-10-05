@@ -219,6 +219,34 @@
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"
     },
+    "./glados-board": {
+      "types": "./src/gladosBoard.ts",
+      "default": "./src/gladosBoard.ts"
+    },
+    "./settings-sections": {
+      "types": "./src/settingsSections.ts",
+      "default": "./src/settingsSections.ts"
+    },
+    "./realtime-voice": {
+      "types": "./src/realtime-voice/controller.ts",
+      "default": "./src/realtime-voice/controller.ts"
+    },
+    "./realtime-voice/feed": {
+      "types": "./src/realtime-voice/feed.ts",
+      "default": "./src/realtime-voice/feed.ts"
+    },
+    "./realtime-voice/workspace": {
+      "types": "./src/realtime-voice/workspace.ts",
+      "default": "./src/realtime-voice/workspace.ts"
+    },
+    "./state/pitboss": {
+      "types": "./src/state/pitboss.ts",
+      "default": "./src/state/pitboss.ts"
+    },
+    "./state/realtime-voice": {
+      "types": "./src/state/realtimeVoice.ts",
+      "default": "./src/state/realtimeVoice.ts"
+    },
     "./state/outdatedServerUpdate": {
       "types": "./src/state/outdatedServerUpdate.ts",
       "default": "./src/state/outdatedServerUpdate.ts"

@@ -106,6 +106,31 @@ describe("ClientSettings rich text composer", () => {
   });
 });
 
+describe("ClientSettings Fold fields", () => {
+  it("decodes defaults for settings saved before the Fold fields existed", () => {
+    expect(decodeClientSettings({})).toMatchObject({
+      themeBackdropEnabled: true,
+      themeBackdropScope: "featured",
+      themeBackdropColors: null,
+      themeBackdropIntensity: 100,
+      themeBackdropSeed: 0,
+      citeSelectionEnabled: true,
+      vimModeEnabled: false,
+      vimThreadPreviewEnabled: false,
+    });
+  });
+
+  it("round-trips patches and rejects out-of-range backdrop values", () => {
+    const preference = {
+      vimModeEnabled: true,
+      themeBackdropColors: ["#112233", "#445566", "#778899"],
+    };
+    expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+    expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
+    expect(() => decodeClientSettingsPatch({ themeBackdropIntensity: 1 })).toThrow();
+  });
+});
+
 describe("ServerSettings default permissions", () => {
   it("keeps full access for settings saved before a default was configured", () => {
     expect(decodeServerSettings({}).defaultRuntimeMode).toBe("full-access");

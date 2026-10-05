@@ -8,7 +8,37 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { OrchestrationV2ThreadLaunchWorkspaceStrategy } from "./orchestrationV2.ts";
+import {
+  OrchestrationV2ThreadLaunchWorkspaceStrategy,
+  type OrchestrationV2RuntimeRequest,
+} from "./orchestrationV2.ts";
+import type { RuntimeMode } from "./providerPolicy.ts";
+
+const runtimeModeRank = (mode: RuntimeMode) => {
+  switch (mode) {
+    case "approval-required":
+      return 0;
+    case "auto-accept-edits":
+      return 1;
+    case "auto":
+      return 2;
+    case "full-access":
+      return 3;
+  }
+};
+
+/** True when `mode` grants the agent more autonomy than `boundary` allows. */
+export const isRuntimeModeBroaderThan = (mode: RuntimeMode, boundary: RuntimeMode) =>
+  runtimeModeRank(mode) > runtimeModeRank(boundary);
+
+/**
+ * A pending request the user must approve before the agent may proceed. The agent asking its own
+ * question and a credential that needs refreshing block the same way but are not approvals, and
+ * both the server and the clients must classify them identically.
+ */
+export const isPendingApprovalRequest = (
+  request: { readonly kind: OrchestrationV2RuntimeRequest["kind"] } | null | undefined,
+) => !!request && request.kind !== "user_input" && request.kind !== "auth_refresh";
 
 const Text = Schema.String.check(Schema.isMaxLength(16000));
 const Id = TrimmedNonEmptyString.check(Schema.isMaxLength(200));

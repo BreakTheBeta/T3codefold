@@ -32,8 +32,6 @@ import {
 
 import antigravityInitialize from "../../../../packages/effect-acp/test/fixtures/antigravity-initialize.json" with { type: "json" };
 
-import antigravityInitialize from "../../../../packages/effect-acp/test/fixtures/antigravity-initialize.json" with { type: "json" };
-
 const serverContents = "antigravity runtime\n";
 const harnessContents = "local harness\n";
 const previousReleaseId = "1".repeat(64);

@@ -1,4 +1,9 @@
-import type { OrchestrationV2HistoricalMessage } from "@t3tools/contracts";
+import type {
+  OrchestrationV2HistoricalMessage,
+  ProviderRealtimeVoiceEvent,
+  ProviderRealtimeVoiceListResult,
+  RealtimeVoiceOptions,
+} from "@t3tools/contracts";
 import {
   ChatAttachment,
   CheckpointId,
@@ -564,6 +569,29 @@ export interface ProviderAdapterV2SessionRuntime {
   readonly readThreadSnapshot: (
     input: ProviderAdapterV2ReadThreadSnapshotInput,
   ) => Effect.Effect<ProviderAdapterV2ThreadSnapshot, ProviderAdapterV2Error>;
+  /**
+   * Providers with a realtime voice channel for a thread (Codex) expose it here;
+   * absent means the driver has no voice support.
+   */
+  readonly listRealtimeVoices?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+  }) => Effect.Effect<ProviderRealtimeVoiceListResult, ProviderAdapterV2Error>;
+  readonly appendRealtimeVoiceContext?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+    readonly callId: string;
+    readonly text: string;
+  }) => Effect.Effect<void, ProviderAdapterV2Error>;
+  readonly realtimeVoiceEvents?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+  }) => Stream.Stream<ProviderRealtimeVoiceEvent, ProviderAdapterV2Error>;
+  readonly startRealtimeVoice?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+    readonly sdp: string;
+    readonly options?: RealtimeVoiceOptions;
+  }) => Effect.Effect<{ readonly sdp: string }, ProviderAdapterV2Error>;
+  readonly stopRealtimeVoice?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+  }) => Effect.Effect<void, ProviderAdapterV2Error>;
   /**
    * Providers that accept product feedback for a thread (#7949, Codex → OpenAI)
    * expose it here; absent means the driver has no feedback channel.

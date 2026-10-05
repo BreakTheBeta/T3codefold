@@ -102,7 +102,6 @@ export class SourceControlProvider extends Context.Service<
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;
       readonly source?: SourceControlRefSelector;
-      readonly repository?: string;
       readonly headSelector: string;
       readonly state: ChangeRequestState | "all";
       readonly limit?: number;
@@ -135,7 +134,6 @@ export class SourceControlProvider extends Context.Service<
     readonly getDefaultBranch: (input: {
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;
-      readonly repository?: string;
     }) => Effect.Effect<string | null, SourceControlProviderError>;
     readonly checkoutChangeRequest: (input: {
       readonly cwd: string;

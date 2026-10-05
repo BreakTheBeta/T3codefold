@@ -11,6 +11,7 @@ export type FleetEnvironment = typeof FleetEnvironment.Type;
 export const FleetOperation = Schema.Literals([
   "orchestrator_capabilities",
   "t3_project_list",
+  "t3_thread_launch",
   "t3_thread_start",
   "t3_thread_list",
   "t3_thread_read",

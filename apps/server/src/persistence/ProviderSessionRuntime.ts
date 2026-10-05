@@ -16,7 +16,6 @@ import {
   RuntimeMode,
   ThreadId,
 } from "@t3tools/contracts";
-import { ProviderSessionRuntimeStatus } from "@t3tools/contracts/legacy-orchestration";
 
 import {
   PersistenceDecodeError,

@@ -216,6 +216,27 @@ export class OrchestratorCommandIdConflictError extends Schema.TaggedError<Orche
   }
 }
 
+export class ThreadRetentionGuardError extends Schema.TaggedError<ThreadRetentionGuardError>()(
+  "ThreadRetentionGuardError",
+  { reason: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {
+  override get message(): string {
+    return this.reason;
+  }
+}
+
+/**
+ * Lets a feature outside orchestration veto a command before it is planned, for example
+ * refusing to archive a thread that must stay visible. The default allows every command.
+ */
+export class ThreadRetentionGuard extends Context.Reference<{
+  readonly check: (
+    command: OrchestrationV2ServerCommand,
+  ) => Effect.Effect<void, ThreadRetentionGuardError>;
+}>("t3/orchestration-v2/ThreadRetentionGuard", {
+  defaultValue: () => ({ check: () => Effect.void }),
+}) {}
+
 /**
  * A command receipt only proves that this exact command already ran for the
  * thread it was recorded against. Replaying it for a command aimed at another
@@ -784,6 +805,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const runtimePolicy = yield* RuntimePolicyV2;
   const threadForkService = yield* ThreadForkServiceV2;
   const threadDispatch = yield* ThreadCommandExecutor;
+  const retentionGuard = yield* ThreadRetentionGuard;
 
   const mapDispatchError =
     (command: OrchestrationV2ServerCommand) =>
@@ -9718,6 +9740,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       "orchestration_v2.thread_id": commandThreadId(command),
     });
 
+    yield* retentionGuard.check(command).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause,
+          }),
+      ),
+    );
     const events = yield* Ref.make<Array<OrchestrationV2DomainEvent>>([]);
     const effects = yield* Ref.make<Array<PendingOrchestrationEffectV2>>([]);
     let cancelUnsettledEffects:

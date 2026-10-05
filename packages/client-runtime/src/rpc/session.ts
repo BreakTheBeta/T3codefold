@@ -24,7 +24,6 @@ import * as RpcClientError from "effect/rpc/RpcClientError";
 import * as RpcSerialization from "effect/rpc/RpcSerialization";
 import * as Socket from "effect/socket/Socket";
 
-import { makeLegacyWsRpcClient } from "./legacy.ts";
 import { makeWsRpcProtocolClient, type WsRpcProtocolClient } from "./protocol.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
 import type {
@@ -61,6 +60,7 @@ export interface RpcSessionOptions {
   readonly usageLimitSources?: boolean;
   /** This client answers /usage-limits itself, so the server may advertise it. */
   readonly usageLimitsCommand?: boolean;
+  /** This client renders live voice controls, so voice.* keybindings may reach it. */
   readonly realtimeVoiceControls?: boolean;
 }
 
@@ -219,10 +219,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const protocolContext = yield* Layer.build(protocolLayer).pipe(
       Effect.withSpan("environment.websocket.connect"),
     );
-    const protocolClient: WsRpcProtocolClient =
-      connection.legacyOrchestration === true
-        ? yield* makeLegacyWsRpcClient.pipe(Effect.provide(protocolContext))
-        : yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
+    const protocolClient = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
     const initialConfigDeferred = yield* Deferred.make<ServerConfig>();
     const serverConfigExit = yield* Deferred.make<void, ServerConfigSubscriptionError>();
     const configSubscriptionClosed = yield* Deferred.make<never, ConnectionAttemptError>();

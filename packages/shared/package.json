@@ -387,10 +387,6 @@
       "types": "./src/foldRelease.ts",
       "import": "./src/foldRelease.ts"
     },
-    "./composerContextAttachments": {
-      "types": "./src/composerContextAttachments.ts",
-      "import": "./src/composerContextAttachments.ts"
-    },
     "./cliRelease": {
       "types": "./src/cliRelease.ts",
       "import": "./src/cliRelease.ts"
