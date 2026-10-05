@@ -62,6 +62,7 @@ import { SourceControlWritingSettingsSection } from "./SourceControlWritingSetti
 import {
   PolicyTooltip,
   SettingResetButton,
+  SettingsPageContainer,
   SettingsSearchTarget,
   SettingsSection,
   useSettingsSearchTargetId,
@@ -505,8 +506,7 @@ function EmptySourceControlDiscovery({
   );
 }
 
-/** Git and hosting integrations plus writing style; rendered on the Git & worktrees page. */
-export function SourceControlSettings() {
+export function SourceControlSettingsPanel() {
   const { scope, environment, connectedEnvironments } = useSettingsScope();
   // Discovery scans one machine's tools, so it shows the representative
   // environment (named in the section title when several are selected);
@@ -550,7 +550,7 @@ export function SourceControlSettings() {
   );
 
   return (
-    <>
+    <SettingsPageContainer>
       <ProjectDefaultsSettings category="source-control" />
       {environmentId === null ? (
         <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
@@ -618,6 +618,6 @@ export function SourceControlSettings() {
       )}
 
       <SourceControlWritingSettingsSection />
-    </>
+    </SettingsPageContainer>
   );
 }

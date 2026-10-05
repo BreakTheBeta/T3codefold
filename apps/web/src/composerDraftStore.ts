@@ -52,8 +52,6 @@ import {
   type TerminalContextDraft,
   migrateLegacyTerminalContextPlaceholders,
   normalizeTerminalContextText,
-  stripInlineTerminalContextPlaceholders,
-  ensureInlineTerminalContextPlaceholders,
 } from "./lib/terminalContext";
 import {
   appendInlineContextReference,

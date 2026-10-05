@@ -7,7 +7,6 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
-import type { ReactNode } from "react";
 
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -45,21 +44,14 @@ import {
 /**
  * Rows for the settings a project may override. The same rows edit
  * environment defaults at an environment scope and project overrides at a
- * project or checkout scope; the scoped hooks route the write. `children`
- * appends related rows to the same section.
+ * project or checkout scope; the scoped hooks route the write.
  */
 const WORKTREE_SUBMODULES_OPTIONS = ["recursive", "top-level", "none"] as const;
 function isWorktreeSubmodules(value: string | null): value is WorktreeSubmodules {
   return value !== null && (WORKTREE_SUBMODULES_OPTIONS as readonly string[]).includes(value);
 }
 
-export function ProjectDefaultsSettings({
-  category,
-  children,
-}: {
-  category: ProjectSettingsCategory;
-  children?: ReactNode;
-}) {
+export function ProjectDefaultsSettings({ category }: { category: ProjectSettingsCategory }) {
   const { scope, target, targets, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -177,7 +169,7 @@ export function ProjectDefaultsSettings({
               onOpenProviderSetup={(instanceId) => {
                 if (representative)
                   void navigate({
-                    to: "/settings/agents",
+                    to: "/settings/providers",
                     search: { environmentId: representative.environmentId, instanceId },
                   });
               }}
@@ -269,7 +261,7 @@ export function ProjectDefaultsSettings({
         category === "general" || category === "project"
           ? "New threads"
           : category === "integrations"
-            ? "Agent access"
+            ? "Browser"
             : "Repositories"
       }
     >
@@ -533,7 +525,6 @@ export function ProjectDefaultsSettings({
           />
         </>
       )}
-      {children}
     </SettingsSection>
   );
 }

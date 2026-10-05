@@ -145,7 +145,7 @@ export function ProviderUpdatePrimaryNotification() {
       ) {
         activeToastRef.current = null;
       }
-      void navigate({ to: "/settings/agents" });
+      void navigate({ to: "/settings/providers" });
     },
     [navigate],
   );

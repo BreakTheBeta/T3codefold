@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/expo/modules/updates/manifest/UpdateFactory.kt b/android/src/main/java/expo/modules/updates/manifest/UpdateFactory.kt
-index eed5a921f9672b2587aeb4cfba2e303bffc19e29..86702dfad14d23cdb7dad01e2b45dd24c33fa18b 100644
+index eed5a92..86702df 100644
 --- a/android/src/main/java/expo/modules/updates/manifest/UpdateFactory.kt
 +++ b/android/src/main/java/expo/modules/updates/manifest/UpdateFactory.kt
 @@ -12,7 +12,14 @@ import org.json.JSONObject

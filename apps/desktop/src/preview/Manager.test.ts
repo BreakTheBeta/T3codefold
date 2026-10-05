@@ -5100,6 +5100,65 @@ describe("PreviewManager", () => {
       }),
     ),
   );
+
+  effectIt.effect("hands native page downloads back to the Save dialog on human input", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const wc = makeTestPreviewWebContents(vi.fn());
+        Object.assign(wc, {
+          isDevToolsOpened: () => false,
+          loadURL: vi.fn(async () => undefined),
+        });
+        Object.assign(wc.debugger, {
+          sendCommand: vi.fn(async (method: string) =>
+            method === "Runtime.evaluate" ? { result: { value: 42 } } : undefined,
+          ),
+        });
+        fromId.mockReturnValue(wc);
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          once: vi.fn(),
+          webContents: {},
+        } as never);
+        yield* manager.getBrowserSession();
+        const willDownload = previewSession.on.mock.calls.findLast(
+          ([event]) => event === "will-download",
+        )![1] as (
+          event: unknown,
+          item: {
+            getFilename: () => string;
+            getStartTime: () => number;
+            setSavePath: (path: string) => void;
+          },
+          source: Electron.WebContents,
+        ) => void;
+        const download = () => {
+          const setSavePath = vi.fn();
+          willDownload(
+            {},
+            { getFilename: () => "chart.png", getStartTime: () => 1, setSavePath },
+            wc,
+          );
+          return setSavePath;
+        };
+        yield* manager.createTab("tab_native");
+        yield* manager.mountBrowser("tab_native", {} as Electron.Session, "preload.cjs", null);
+
+        yield* manager.automationEvaluate("tab_native", { expression: "42" });
+        expect(download()).toHaveBeenCalled();
+
+        yield* manager.browserInput("tab_native", {
+          type: "mouseDown",
+          x: 1,
+          y: 1,
+          modifiers: [],
+          button: "left",
+          clickCount: 1,
+        });
+        expect(download()).not.toHaveBeenCalled();
+      }),
+    ),
+  );
 });
 
 describe("PreviewOperationError", () => {

@@ -279,7 +279,11 @@ export function makeGrokAcpAdapterFlavor(options: GrokAdapterV2Options): AcpAdap
           ...input,
           interruptPromptOnCancel: input.interruptPromptOnCancel ?? false,
           grokSettings: options.settings,
-          environment: options.environment,
+          // Thread-scoped credentials (`t3 work`, MCP bridge) for this session's process.
+          environment:
+            input.processEnvironment === undefined
+              ? options.environment
+              : { ...options.environment, ...input.processEnvironment },
           childProcessSpawner: options.childProcessSpawner,
           runtimeMode: grokLaunchRuntimeMode(runtimePolicy),
         })),

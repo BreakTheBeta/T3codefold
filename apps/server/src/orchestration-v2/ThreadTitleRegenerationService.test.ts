@@ -323,6 +323,144 @@ describe("ThreadTitleRegenerationService", () => {
     }),
   );
 
+  it.effect("marks a provisional initial title and refines it only at the current version", () =>
+    Effect.gen(function* () {
+      let generated = 0;
+      const harness = makeHarness({
+        generateTitle: () =>
+          Effect.sync(() =>
+            ++generated === 1
+              ? { title: "Provisional title", needsRefinement: true }
+              : { title: "Refined title", needsRefinement: true },
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
+        const titleRegeneration = yield* ThreadTitleRegeneration.ThreadTitleRegenerationService;
+        const threadId = yield* createThread({
+          command: "command:title:refinement:create",
+          thread: "thread:title:refinement",
+        });
+        const messageCommand = "command:title:refinement:message";
+        yield* dispatchUserMessage({
+          command: messageCommand,
+          threadId,
+          text: "Fix this",
+        });
+        const initialRequest = yield* armRegeneration({
+          command: "command:title:refinement:arm",
+          threadId,
+        });
+        yield* titleRegeneration.execute({
+          threadId,
+          requestId: initialRequest,
+          kind: { type: "initial", messageId: MessageId.make(`${messageCommand}:message`) },
+        });
+
+        const provisional = yield* threads.getThreadProjection(threadId);
+        const provisionalVersion = CommandId.make(`${initialRequest}:title-complete`);
+        assert.equal(provisional.thread.title, "Provisional title");
+        assert.deepEqual(provisional.thread.titleState, {
+          source: "generated",
+          version: provisionalVersion,
+          needsRefinement: true,
+        });
+
+        const staleRefine = CommandId.make("command:title:refinement:stale");
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: staleRefine,
+          threadId,
+          expectedTitleVersion: CommandId.make("command:title:refinement:older"),
+          regenerateTitle: true,
+        });
+        assert.isNotOk((yield* threads.getThreadProjection(threadId)).thread.titleRegeneration);
+        assert.deepEqual(yield* outbox.listByCommandId(staleRefine), []);
+
+        const refine = CommandId.make("command:title:refinement:refine");
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: refine,
+          threadId,
+          expectedTitleVersion: provisionalVersion,
+          regenerateTitle: true,
+        });
+        assert.equal(
+          (yield* threads.getThreadProjection(threadId)).thread.titleRegeneration?.requestId,
+          refine,
+        );
+        yield* titleRegeneration.execute({
+          threadId,
+          requestId: refine,
+          kind: { type: "regenerate" },
+        });
+
+        const refined = yield* threads.getThreadProjection(threadId);
+        assert.equal(refined.thread.title, "Refined title");
+        // A regeneration saw the conversation, so it is never provisional.
+        assert.deepEqual(refined.thread.titleState, {
+          source: "generated",
+          version: CommandId.make(`${refine}:title-complete`),
+          needsRefinement: false,
+        });
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect("stops refinement once the user renames the thread", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        generateTitle: () => Effect.succeed({ title: "Provisional title", needsRefinement: true }),
+      });
+      yield* Effect.gen(function* () {
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const titleRegeneration = yield* ThreadTitleRegeneration.ThreadTitleRegenerationService;
+        const threadId = yield* createThread({
+          command: "command:title:manual:create",
+          thread: "thread:title:manual",
+        });
+        const messageCommand = "command:title:manual:message";
+        yield* dispatchUserMessage({ command: messageCommand, threadId, text: "Fix this" });
+        const initialRequest = yield* armRegeneration({
+          command: "command:title:manual:arm",
+          threadId,
+        });
+        yield* titleRegeneration.execute({
+          threadId,
+          requestId: initialRequest,
+          kind: { type: "initial", messageId: MessageId.make(`${messageCommand}:message`) },
+        });
+
+        const rename = CommandId.make("command:title:manual:rename");
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: rename,
+          threadId,
+          title: "My title",
+        });
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("command:title:manual:refine"),
+          threadId,
+          expectedTitleVersion: CommandId.make(`${initialRequest}:title-complete`),
+          regenerateTitle: true,
+        });
+
+        const projection = yield* threads.getThreadProjection(threadId);
+        assert.equal(projection.thread.title, "My title");
+        assert.isNotOk(projection.thread.titleRegeneration);
+        assert.deepEqual(projection.thread.titleState, {
+          source: "manual",
+          version: rename,
+          needsRefinement: false,
+        });
+        const shell = yield* threads.getThreadShell(threadId);
+        assert.deepEqual(shell?.titleState, projection.thread.titleState);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
   it.effect("keeps the current title when generation returns the fallback", () =>
     Effect.gen(function* () {
       const harness = makeHarness({

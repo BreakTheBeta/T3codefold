@@ -1,18 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { SettingsPageContainer } from "../components/settings/settingsLayout";
-import { SourceControlSettings } from "../components/settings/SourceControlSettings";
-import { StorageWorktreeSettings } from "../components/settings/StorageSettings";
-
-function SettingsGitRoute() {
-  return (
-    <SettingsPageContainer>
-      <SourceControlSettings />
-      <StorageWorktreeSettings />
-    </SettingsPageContainer>
-  );
-}
-
+/** Old Fold settings URL; its content lives at /settings/source-control again. */
 export const Route = createFileRoute("/settings/git")({
-  component: SettingsGitRoute,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      to: "/settings/source-control",
+      search: {},
+      hash: location.hash,
+      replace: true,
+    });
+  },
 });

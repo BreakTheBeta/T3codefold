@@ -220,7 +220,7 @@ export function PullRequestsRouteScreen() {
               </Text>
             ))}
           </View>
-        ) : null
+        ) : undefined
       }
       ListEmptyComponent={
         list.isPending ? (

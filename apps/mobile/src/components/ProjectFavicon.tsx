@@ -1,4 +1,4 @@
-import { ProjectIcon } from "./ProjectIcon";
+import { SymbolView } from "./AppSymbol";
 import { AppText } from "./AppText";
 import { Image } from "expo-image";
 import { memo, useLayoutEffect, useMemo, useState } from "react";
@@ -42,7 +42,7 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
   const size = props.size ?? 42;
   const glyph = resolveProjectIconGlyph(props.projectIcon, props.projectTitle);
   const faviconUrl = useAtomValue(
-    props.workspaceRoot == null || props.projectIcon != null
+    props.workspaceRoot == null || glyph !== null
       ? EMPTY_FAVICON_URL
       : projectFaviconUrlAtom({
           environmentId: props.environmentId,
@@ -83,8 +83,7 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
       key={cacheKey}
       cacheKey={cacheKey}
       faviconUrl={renderableFaviconUrl}
-      projectIcon={props.projectIcon}
-      workspaceRoot={props.workspaceRoot}
+      open={props.open}
       projectTitle={props.projectTitle}
       size={size}
     />
@@ -142,8 +141,6 @@ function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonl
 }
 
 function ProjectFaviconImage(props: {
-  readonly projectIcon?: ProjectIconOverride | null;
-  readonly workspaceRoot?: string | null;
   readonly cacheKey: string | null;
   readonly faviconUrl: string | null;
   readonly open?: boolean;
@@ -181,12 +178,13 @@ function ProjectFaviconImage(props: {
         justifyContent: "center",
       }}
     >
+      {/* Folder icon fallback (matches web's FolderIcon) */}
       {!showImage ? (
-        <ProjectIcon
-          projectTitle={props.projectTitle}
-          workspaceRoot={props.workspaceRoot}
-          projectIcon={props.projectIcon}
+        <SymbolView
+          name={{ ios: "folder.fill", android: props.open ? "folder_open" : "folder" }}
           size={props.size}
+          tintColorClassName={"accent-icon-subtle"}
+          type="monochrome"
         />
       ) : null}
 

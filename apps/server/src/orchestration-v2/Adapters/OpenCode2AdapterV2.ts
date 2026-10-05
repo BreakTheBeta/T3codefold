@@ -3223,6 +3223,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       state: ThreadState,
       turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
     ) {
+      // No `t3 work` env (T3_WORK_*): one shared server hosts every thread, so
+      // a per-thread credential cannot go in its process env. Agents reach
+      // managed work through the t3-code MCP server registered here instead.
       const mcpSession = McpProviderSession.readMcpProviderSession(turnInput.threadId);
       const directory = turnInput.runtimePolicy.cwd ?? serverConfig.cwd;
       const name = t3McpServerName(turnInput.threadId);

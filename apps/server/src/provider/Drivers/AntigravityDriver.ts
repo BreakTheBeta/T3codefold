@@ -50,6 +50,7 @@ import {
 import * as IdAllocator from "../../orchestration-v2/IdAllocator.ts";
 import * as ProviderContinuationRequests from "../../orchestration-v2/ProviderContinuationRequests.ts";
 import { makeAntigravityAdapterV2 } from "../../orchestration-v2/Adapters/AntigravityAdapterV2.ts";
+import type { AcpAdapterV2RuntimeInput } from "../../orchestration-v2/Adapters/AcpAdapterV2.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeAntigravityProvider } from "../Layers/AntigravityProvider.ts";
@@ -161,7 +162,9 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         );
 
       const makeRuntime = Effect.fn("AntigravityDriver.makeRuntime")(function* (
-        input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner">,
+        // Chat sessions pass AcpAdapterV2's thread-scoped `processEnvironment` through.
+        input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner"> &
+          Pick<AcpAdapterV2RuntimeInput, "processEnvironment">,
       ): Effect.fn.Return<
         AcpSessionRuntime["Service"],
         AcpError | ProviderSetupError,
@@ -242,7 +245,13 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
             installation: executable,
             profile,
             cwd: input.cwd,
-            baseEnv: withAgentDeviceEnvironment(processEnvironment, input),
+            // One agent process per session, so it gets the thread's `t3 work` credential.
+            baseEnv: withAgentDeviceEnvironment(
+              input.processEnvironment === undefined
+                ? processEnvironment
+                : { ...processEnvironment, ...input.processEnvironment },
+              input,
+            ),
             auth,
             runtimeTempDirectory,
           }),

@@ -106,4 +106,44 @@ describe("makeManagedCodexClient", () => {
       ]);
     }).pipe(Effect.scoped),
   );
+
+  it.effect("keeps the old process while the session reports other busy work", () =>
+    Effect.gen(function* () {
+      const token = yield* Ref.make("token-1");
+      const busy = yield* Ref.make(true);
+      const log: Array<string> = [];
+      const processes: Array<ReturnType<typeof makeFakeCodex>> = [];
+      const client = yield* makeManagedCodexClient({
+        resolve: Ref.get(token).pipe(
+          Effect.map((revision) => ({ config, environment: {}, revision })),
+        ),
+        open: () =>
+          Effect.sync(() => {
+            const process = makeFakeCodex(`codex-${processes.length}`, log);
+            processes.push(process);
+            return process.client;
+          }),
+        onOpenError: (cause) =>
+          new ProviderAdapterOpenSessionError({
+            driver: ProviderDriverKind.make("codex"),
+            providerSessionId: ProviderSessionId.make("session"),
+            cause,
+          }),
+        isBusy: Ref.get(busy),
+      });
+
+      yield* client.request("thread/start", {} as never);
+      yield* client.request("thread/unsubscribe", { threadId: "native-thread" } as never);
+      yield* Ref.set(token, "token-2");
+      yield* client.request("turn/start", { threadId: "native-thread" } as never);
+      assert.strictEqual(processes.length, 1, "a live voice call keeps the process");
+
+      yield* processes[0]!.emit("turn/completed", { turn: { id: "codex-0-turn-1" } });
+      yield* Ref.set(busy, false);
+      log.length = 0;
+      yield* client.request("turn/start", { threadId: "native-thread" } as never);
+      assert.strictEqual(processes.length, 2);
+      assert.deepEqual(log, ["codex-1 turn/start"], "an unsubscribed thread is not resumed");
+    }).pipe(Effect.scoped),
+  );
 });

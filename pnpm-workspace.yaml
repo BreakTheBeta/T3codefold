@@ -257,6 +257,8 @@ patchedDependencies:
   "@expo/metro-config@58.0.6": patches/@expo__metro-config@58.0.6.patch
   expo-sharing@58.0.13: patches/expo-sharing@58.0.13.patch
   expo-widgets@58.0.11: patches/expo-widgets@58.0.11.patch
+  # Treat GitHub-hosted OTA manifests (no expo-protocol-version header) as protocol 1.
+  expo-updates@58.0.13: patches/expo-updates@58.0.13.patch
   "@ff-labs/fff-node@0.9.4": patches/@ff-labs__fff-node@0.9.4.patch
   "@legendapp/list@3.3.5": patches/@legendapp__list@3.3.5.patch
   "@opencode/client@2.0.23": patches/@opencode__client@2.0.23.patch

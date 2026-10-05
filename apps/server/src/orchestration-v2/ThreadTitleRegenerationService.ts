@@ -15,7 +15,10 @@ import * as Schedule from "effect/Schedule";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
-import type { OrchestratorV2Error } from "./Orchestrator.ts";
+import type {
+  OrchestratorV2Error,
+  ThreadTitleRegenerationCompleteCommand,
+} from "./Orchestrator.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 
@@ -48,23 +51,29 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly requestId: CommandId;
     readonly title?: string;
-  }) =>
-    threads
-      .dispatch({
-        type: "thread.title.regeneration.complete",
-        commandId: CommandId.make(`${input.requestId}:title-complete`),
-        threadId: input.threadId,
-        requestId: input.requestId,
-        ...(input.title === undefined ? {} : { title: input.title }),
-      })
-      .pipe(Effect.asVoid);
+    readonly needsRefinement?: boolean;
+  }) => {
+    const command: ThreadTitleRegenerationCompleteCommand = {
+      type: "thread.title.regeneration.complete",
+      commandId: CommandId.make(`${input.requestId}:title-complete`),
+      threadId: input.threadId,
+      requestId: input.requestId,
+      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(input.needsRefinement === true ? { needsRefinement: true } : {}),
+    };
+    return threads.dispatch(command).pipe(Effect.asVoid);
+  };
 
   const execute: ThreadTitleRegenerationService["Service"]["execute"] = Effect.fn(
     "ThreadTitleRegenerationService.execute",
   )(function* (input) {
     const outcome:
       | { readonly type: "stale" }
-      | { readonly type: "complete"; readonly title?: string } = yield* Effect.gen(function* () {
+      | {
+          readonly type: "complete";
+          readonly title?: string;
+          readonly needsRefinement?: boolean;
+        } = yield* Effect.gen(function* () {
       const projection = yield* threads.getThreadRecords(
         input.threadId,
         ["messages"],
@@ -118,7 +127,13 @@ const make = Effect.gen(function* () {
       return generatedTitle === "New thread" ||
         (input.kind.type === "regenerate" && generatedTitle === projection.thread.title.trim())
         ? { type: "complete" as const }
-        : { type: "complete" as const, title: result.title };
+        : {
+            type: "complete" as const,
+            title: result.title,
+            // Only a first-message title can be provisional; a regeneration
+            // already saw the conversation.
+            needsRefinement: input.kind.type === "initial" && result.needsRefinement === true,
+          };
     }).pipe(
       Effect.retry({
         times: input.kind.type === "initial" ? 2 : 0,
@@ -141,6 +156,7 @@ const make = Effect.gen(function* () {
     yield* complete({
       ...input,
       ...(outcome.title === undefined ? {} : { title: outcome.title }),
+      ...(outcome.needsRefinement === true ? { needsRefinement: true } : {}),
     });
   });
 

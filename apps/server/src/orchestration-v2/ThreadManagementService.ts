@@ -544,14 +544,23 @@ const make = Effect.gen(function* () {
 
   const sendToThread: ThreadManagementServiceShape["sendToThread"] = (input) =>
     Effect.gen(function* () {
-      const target = yield* getProjectThreadRecords(input, ["runs", "providerTurns"]);
-      if (target.thread.archivedAt !== null) {
+      const target = yield* getProjectThreadRecords(input, ["runs", "providerTurns", "messages"], {
+        messageIds: [input.messageId],
+      });
+      const acceptedRunId = target.messages.find(
+        (message) => message.id === input.messageId,
+      )?.runId;
+      const acceptedRun =
+        acceptedRunId == null ? undefined : target.runs.find((run) => run.id === acceptedRunId);
+      if (acceptedRun === undefined && target.thread.archivedAt !== null) {
         return yield* new ThreadManagementThreadArchivedError({
           threadId: input.threadId,
         });
       }
 
-      const steerableRun = latestSteerableRun(target);
+      // A retry must reach the durable command receipt even after its run has
+      // finished or its thread was archived. Fresh sends still require a live target.
+      const steerableRun = acceptedRun ?? latestSteerableRun(target);
       let dispatchMode: Extract<
         OrchestrationV2Command,
         { readonly type: "message.dispatch" }

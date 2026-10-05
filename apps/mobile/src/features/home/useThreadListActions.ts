@@ -6,7 +6,6 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useRef } from "react";
 import { Alert, Platform } from "react-native";
 
-import { threadCanArchive } from "./threadArchive";
 import { withThreadDismissal } from "./thread-dismissal";
 import { showConfirmDialog, showTextInputDialog } from "../../components/ConfirmDialogHost";
 import { scopedThreadKey } from "../../lib/scopedEntities";

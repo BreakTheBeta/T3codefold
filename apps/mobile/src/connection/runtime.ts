@@ -1,4 +1,5 @@
 import { Connection } from "@t3tools/client-runtime/connection";
+import { PullRequestDiffLoader } from "@t3tools/client-runtime/state/pull-requests";
 import { ShellSnapshotLoader } from "@t3tools/client-runtime/state/shell";
 import {
   boundedThreadSnapshotLoaderLayer,
@@ -27,6 +28,7 @@ const snapshotLoaderLayer = Layer.mergeAll(
   boundedThreadSnapshotLoaderLayer,
   ShellSnapshotLoader.layer,
   ThreadHistoryController.layer,
+  PullRequestDiffLoader.layer,
 );
 
 type ConnectionLayerSource =
@@ -39,7 +41,11 @@ type ConnectionLayerSource =
 
 const providedClientConnectionLayer = snapshotLoaderLayer.pipe(
   Layer.provideMerge(
-    Connection.layerWithOptions({ usageLimitSources: true, usageLimitsCommand: true }),
+    Connection.layerWithOptions({
+      usageLimitSources: true,
+      usageLimitsCommand: true,
+      realtimeVoiceControls: true,
+    }),
   ),
   Layer.provideMerge(
     Layer.mergeAll(

@@ -415,7 +415,11 @@ export function makePiAdapterV2(
       }
       const launch = buildPiRpcLaunch({
         launchArgs: resolvedLaunchArgs.args,
-        environment: options.environment,
+        // One Pi process per session, so its shell gets `t3 work`.
+        environment: McpProviderSession.providerSessionEnvironment(
+          options.environment,
+          input.threadId,
+        ),
         mcpSession,
         extensionPath,
         runtimeMode: input.runtimePolicy.runtimeMode,

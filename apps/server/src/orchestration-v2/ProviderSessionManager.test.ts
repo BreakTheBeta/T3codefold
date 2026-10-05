@@ -294,8 +294,10 @@ function makeProviderAdapter(
     readonly hasPendingBackgroundWork?: Effect.Effect<boolean>;
     readonly hangSessionScopeClose?: boolean;
     readonly beforeUnload?: Effect.Effect<void>;
+    readonly startRealtimeVoice?: Effect.Effect<void>;
   } = {},
 ): ProviderAdapterV2Shape {
+  const { startRealtimeVoice } = options;
   return {
     instanceId: ProviderInstanceId.make("codex"),
     driver: CODEX_DRIVER,
@@ -358,6 +360,12 @@ function makeProviderAdapter(
           ...(options.hasPendingBackgroundWork === undefined
             ? {}
             : { hasPendingBackgroundWork: options.hasPendingBackgroundWork }),
+          ...(startRealtimeVoice === undefined
+            ? {}
+            : {
+                startRealtimeVoice: () => startRealtimeVoice.pipe(Effect.as({ sdp: "answer" })),
+                stopRealtimeVoice: () => Effect.void,
+              }),
           ensureThread: () => unimplemented("ensureThread unused in test"),
           resumeThread: (threadInput) =>
             Ref.update(state, (current) => ({
@@ -410,6 +418,7 @@ function makeTestLayer(input: {
   readonly hasPendingBackgroundWork?: Effect.Effect<boolean>;
   readonly hangSessionScopeClose?: boolean;
   readonly beforeUnload?: Effect.Effect<void>;
+  readonly startRealtimeVoice?: Effect.Effect<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
   readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
 }) {
@@ -432,6 +441,9 @@ function makeTestLayer(input: {
         ? {}
         : { hangSessionScopeClose: input.hangSessionScopeClose }),
       ...(input.beforeUnload === undefined ? {} : { beforeUnload: input.beforeUnload }),
+      ...(input.startRealtimeVoice === undefined
+        ? {}
+        : { startRealtimeVoice: input.startRealtimeVoice }),
     }),
   );
   const providerEventIngestorTestLayer = ProviderEventIngestor.layer.pipe(
@@ -1803,6 +1815,68 @@ it.effect("ProviderSessionManagerV2 defers idle release while background work is
           state,
           idleTimeoutMs: 1000,
           hasPendingBackgroundWork: Ref.get(pendingWork),
+        }),
+      ),
+    );
+  }),
+);
+
+it.effect("ProviderSessionManagerV2 keeps a session live while a voice call is starting", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    const voiceAnswered = yield* Deferred.make<void>();
+    const effect = Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const now = yield* DateTime.now;
+      const threadId = yield* idAllocator.allocate.thread({
+        fixtureName: "provider-session-manager-voice",
+        projectId: yield* idAllocator.allocate.project({
+          fixtureName: "provider-session-manager-voice",
+        }),
+      });
+      const providerSessionId = yield* idAllocator.allocate.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+      });
+
+      yield* eventSink.write({
+        events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+      });
+      const runtime = yield* manager.open({
+        threadId,
+        providerSessionId,
+        modelSelection,
+        runtimePolicy,
+      });
+      const providerThread = makeProviderThread({ idAllocator, threadId, providerSessionId, now });
+      const startRealtimeVoice = runtime.startRealtimeVoice;
+      assert.isDefined(startRealtimeVoice);
+      const voiceFiber = yield* startRealtimeVoice({ providerThread, sdp: "offer" }).pipe(
+        Effect.forkScoped,
+      );
+      yield* Effect.yieldNow;
+
+      yield* TestClock.adjust("3 seconds");
+      yield* Effect.yieldNow;
+      assert.isTrue(Option.isSome(yield* manager.get(providerSessionId)));
+      assert.equal((yield* Ref.get(state)).closeCount, 0);
+
+      yield* Deferred.succeed(voiceAnswered, undefined);
+      assert.deepStrictEqual(yield* Fiber.join(voiceFiber), { sdp: "answer" });
+      yield* TestClock.adjust("1 second");
+      yield* Effect.yieldNow;
+      assert.isTrue(Option.isNone(yield* manager.get(providerSessionId)));
+      assert.equal((yield* Ref.get(state)).closeCount, 1);
+    });
+
+    yield* effect.pipe(
+      Effect.provide(
+        makeTestLayer({
+          state,
+          idleTimeoutMs: 1000,
+          startRealtimeVoice: Deferred.await(voiceAnswered),
         }),
       ),
     );

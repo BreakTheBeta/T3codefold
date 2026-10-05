@@ -313,7 +313,7 @@ export function SourceControlWritingSettingsSection() {
                     ? {
                         onOpenProviderSetup: (instanceId: ProviderInstanceId) => {
                           void navigate({
-                            to: "/settings/agents",
+                            to: "/settings/providers",
                             search: { environmentId, instanceId },
                           });
                         },

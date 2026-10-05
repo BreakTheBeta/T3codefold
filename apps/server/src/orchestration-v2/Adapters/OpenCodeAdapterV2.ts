@@ -960,7 +960,11 @@ export function makeOpenCodeAdapterV2(
           binaryPath: options.settings.binaryPath,
           directory: cwd,
           serverUrl: options.settings.serverUrl,
-          environment: options.environment,
+          // A spawned server is this session's own, so its shell gets `t3 work`.
+          environment: McpProviderSession.providerSessionEnvironment(
+            options.environment,
+            input.threadId,
+          ),
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,

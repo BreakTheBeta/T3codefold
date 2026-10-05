@@ -120,6 +120,7 @@ export const make = Effect.gen(function* () {
         return github
           .listOpenPullRequests({
             cwd: input.cwd,
+            ...(input.repository === undefined ? {} : { repository: input.repository }),
             headSelector: input.headSelector,
             ...(input.context === undefined
               ? {}
@@ -148,6 +149,7 @@ export const make = Effect.gen(function* () {
       return github
         .listPullRequestsByHead({
           cwd: input.cwd,
+          ...(input.repository === undefined ? {} : { repository: input.repository }),
           headSelector: input.headSelector,
           state: input.state,
           limit: input.limit ?? 20,
@@ -260,10 +262,32 @@ export const make = Effect.gen(function* () {
               }),
           ),
         ),
-    createChangeRequest: (input) =>
-      github
+    createChangeRequest: (input) => {
+      // GitHub publication must name its repository; gh's inferred default can be a parent.
+      const repository = input.target?.repository?.trim();
+      if (!repository) {
+        return Effect.fail(
+          new SourceControlProviderError({
+            provider: "github",
+            operation: "createChangeRequest",
+            command: "gh",
+            cwd: input.cwd,
+            reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+              input.headSelector,
+            ),
+            detail: "GitHub pull request creation requires an explicit target repository.",
+            cause: new GitHubCli.GitHubRepositoryTargetError({
+              command: "gh",
+              cwd: input.cwd,
+              repository: "",
+            }),
+          }),
+        );
+      }
+      return github
         .createPullRequest({
           cwd: input.cwd,
+          repository,
           baseBranch: input.baseRefName,
           headSelector: input.headSelector,
           title: input.title,
@@ -284,7 +308,8 @@ export const make = Effect.gen(function* () {
                 cause: error,
               }),
           ),
-        ),
+        );
+    },
     getRepositoryCloneUrls: (input) =>
       github.getRepositoryCloneUrls(input).pipe(
         Effect.mapError(

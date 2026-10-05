@@ -24,6 +24,27 @@ records, checkpoints and diffs, tool activity, approval history, or proposed pla
 new format. These items may be absent from a migrated timeline even though the conversation text is
 present.
 
+## Upgrading from an earlier Fold build
+
+Earlier Fold builds stored their V2 database under migration numbers that upstream T3 Code now
+uses for other changes. On the first start of a current build, the server upgrades `statev2.sqlite`
+in place before it opens it: threads, projects, GLaDOS work, pairings, and settings carry over with
+the same IDs. In-flight background work and queued GLaDOS actions from the old build are cancelled
+rather than replayed; start them again if you still need them.
+
+The original database is kept beside the new one as `statev2.fold-backup-<timestamp>.sqlite`.
+The upgrade needs free disk space of about twice the database size, and it takes a few seconds for
+large histories.
+
+Stop every other T3 Code or Fold server that uses the same data directory first. If one is still
+running, the server refuses to start with "Stop other T3 Code / Fold servers using this data
+directory" and leaves the database unchanged.
+
+An older Fold build cannot open an upgraded database. To go back, stop the server, then replace
+`statev2.sqlite` with the backup file (removing any `statev2.sqlite-wal` and `statev2.sqlite-shm`
+next to it) before starting the older build. Changes made since the upgrade are lost. Once the
+upgraded database works for you, you can delete the backup.
+
 ## Continuing a migrated thread
 
 The first new message starts a fresh provider session. T3 Code selects intact user and assistant

@@ -231,6 +231,7 @@ interface BranchHeadContext {
   remoteName: string | null;
   headRemoteUrlKey: string | null;
   targetRemoteUrlKey: string | null;
+  targetRepositoryNameWithOwner: string | null;
   headRepositoryNameWithOwner: string | null;
   headRepositoryOwnerLogin: string | null;
   isCrossRepository: boolean;
@@ -1489,6 +1490,7 @@ export const make = Effect.gen(function* () {
         remoteRepository.remoteUrlKey ??
         (remoteName === null ? originRepository.remoteUrlKey : null),
       targetRemoteUrlKey: originRepository.remoteUrlKey,
+      targetRepositoryNameWithOwner: originRepository.repositoryNameWithOwner,
       headRepositoryNameWithOwner: remoteRepository.repositoryNameWithOwner,
       headRepositoryOwnerLogin: remoteRepository.ownerLogin,
       isCrossRepository,
@@ -1645,12 +1647,14 @@ export const make = Effect.gen(function* () {
       | "headRepositoryOwnerLogin"
       | "isCrossRepository"
     >,
+    repository?: string,
   ) {
     const provider = yield* sourceControlProvider(cwd);
     const headSelectors = probeableHeadSelectors(provider.kind, headContext.headSelectors);
     for (const headSelector of headSelectors) {
       const pullRequests = yield* provider.listChangeRequests({
         cwd,
+        ...(repository === undefined ? {} : { repository }),
         headSelector,
         state: "open",
         limit: provider.kind === "github" ? GITHUB_HEAD_BRANCH_PROBE_LIMIT : 1,
@@ -1802,6 +1806,7 @@ export const make = Effect.gen(function* () {
     branch: string,
     upstreamRef: string | null,
     headContext: Pick<BranchHeadContext, "isCrossRepository" | "remoteName">,
+    repository?: string,
   ) {
     const configured = yield* gitCore.readConfigValue(cwd, `branch.${branch}.gh-merge-base`);
     if (configured) return configured;
@@ -1816,7 +1821,9 @@ export const make = Effect.gen(function* () {
     }
 
     const defaultFromProvider = yield* sourceControlProvider(cwd).pipe(
-      Effect.flatMap((provider) => provider.getDefaultBranch({ cwd })),
+      Effect.flatMap((provider) =>
+        provider.getDefaultBranch({ cwd, ...(repository === undefined ? {} : { repository }) }),
+      ),
       Effect.orElseSucceed(() => null),
     );
     if (defaultFromProvider) {
@@ -2053,7 +2060,34 @@ export const make = Effect.gen(function* () {
       upstreamRef: details.upstreamRef,
     });
 
-    const existing = yield* findOpenPr(cwd, headContext);
+    // GitHub publication targets origin's owner/repository explicitly, so reads and the
+    // create never fall through to a parent repository gh would infer for a fork checkout.
+    const publicationRepository =
+      provider.kind === "github" ? headContext.targetRepositoryNameWithOwner : null;
+    if (provider.kind === "github" && publicationRepository === null) {
+      return yield* new GitManagerError({
+        operation: "runPrStep",
+        cwd,
+        detail:
+          "Cannot create a GitHub pull request because origin does not identify an unambiguous owner/repository target.",
+      });
+    }
+    if (publicationRepository !== null) {
+      const validated = yield* provider.getRepositoryCloneUrls({
+        cwd,
+        repository: publicationRepository,
+      });
+      if (validated.nameWithOwner.toLowerCase() !== publicationRepository.toLowerCase()) {
+        return yield* new GitManagerError({
+          operation: "runPrStep",
+          cwd,
+          detail: `Cannot create a GitHub pull request because ${publicationRepository} resolved as ${validated.nameWithOwner}.`,
+        });
+      }
+    }
+    const scopedRepository = publicationRepository ?? undefined;
+
+    const existing = yield* findOpenPr(cwd, headContext, scopedRepository);
     if (existing) {
       return {
         status: "opened_existing" as const,
@@ -2065,7 +2099,13 @@ export const make = Effect.gen(function* () {
       };
     }
 
-    const baseBranch = yield* resolveBaseBranch(cwd, branch, details.upstreamRef, headContext);
+    const baseBranch = yield* resolveBaseBranch(
+      cwd,
+      branch,
+      details.upstreamRef,
+      headContext,
+      scopedRepository,
+    );
     yield* emit({
       kind: "phase_started",
       phase: "pr",
@@ -2114,6 +2154,9 @@ export const make = Effect.gen(function* () {
     yield* provider
       .createChangeRequest({
         cwd,
+        ...(publicationRepository === null
+          ? {}
+          : { target: { refName: baseBranch, repository: publicationRepository } }),
         baseRefName: baseBranch,
         headSelector: headContext.preferredHeadSelector,
         title: generated.title,
@@ -2121,7 +2164,7 @@ export const make = Effect.gen(function* () {
       })
       .pipe(Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.ignore)));
 
-    const created = yield* findOpenPr(cwd, headContext);
+    const created = yield* findOpenPr(cwd, headContext, scopedRepository);
     if (!created) {
       return {
         status: "created" as const,

@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { describe, expect } from "vite-plus/test";
 import {
   FleetCliError,
@@ -40,8 +40,8 @@ function fixture() {
         return yield* Effect.succeed(
           input.operation === "t3_project_list"
             ? {
-                environmentId: input.environmentId ?? local,
-                projects: [{ projectId, title: "Repo", workspaceRoot: "/srv/repo" }],
+                projects: [{ id: projectId, title: "Repo", workspaceRoot: "/srv/repo" }],
+                nextCursor: null,
               }
             : { accepted: true },
         );
@@ -57,7 +57,7 @@ function fixture() {
 
 describe("fleet CLI", () => {
   it.effect(
-    "routes native start flags through the connected environment and its project, preserving retry id and long text",
+    "starts through t3_thread_launch on the connected environment and its project, preserving retry id and long text",
     () =>
       Effect.gen(function* () {
         const f = fixture();
@@ -77,16 +77,20 @@ describe("fleet CLI", () => {
           "sonnet",
         ]);
         expect(f.calls).toEqual([
-          { environmentId: remote, operation: "t3_project_list", input: {} },
           {
             environmentId: remote,
-            projectId,
-            operation: "t3_thread_start",
+            operation: "t3_project_list",
+            input: { cursor: 0, limit: 100 },
+          },
+          {
+            environmentId: remote,
+            operation: "t3_thread_launch",
             input: {
-              prompt: "Continue this work\nwith these constraints",
-              title: undefined,
+              projectId,
+              title: "New thread",
+              message: "Continue this work\nwith these constraints",
               clientRequestId: "stable-handoff",
-              target: { providerInstanceId: "claude", model: "sonnet" },
+              modelSelection: { instanceId: "claude", model: "sonnet" },
             },
           },
         ]);
@@ -109,7 +113,6 @@ describe("fleet CLI", () => {
       expect(f.calls).toEqual([
         {
           environmentId: undefined,
-          projectId: undefined,
           operation: "t3_thread_send",
           input: {
             threadId: "thread-a",
@@ -226,7 +229,7 @@ describe("fleet CLI", () => {
       yield* fs.writeFileString(`${dir}/handoff.md`, text);
       const f = fixture();
       yield* f.run(["start", "--project", "Repo", "--file", `${dir}/handoff.md`]);
-      expect(f.calls[1]?.input).toMatchObject({ prompt: text });
+      expect(f.calls[1]?.input).toMatchObject({ projectId, message: text });
     }).pipe(Effect.provide(NodeServices.layer)),
   );
   it.effect(
@@ -255,11 +258,11 @@ describe("fleet CLI", () => {
         invoke: (input) => {
           f.calls.push(input);
           return Effect.succeed({
-            environmentId: remote,
             projects: [
-              { projectId, title: "Repo", workspaceRoot: "/one" },
-              { projectId: ProjectId.make("second"), title: "Repo", workspaceRoot: "/two" },
+              { id: projectId, title: "Repo", workspaceRoot: "/one" },
+              { id: ProjectId.make("second"), title: "Repo", workspaceRoot: "/two" },
             ],
+            nextCursor: null,
           });
         },
       };
@@ -267,12 +270,57 @@ describe("fleet CLI", () => {
         invokeFleetCommand(client, {
           environment: "Home",
           project: "Repo",
-          operation: "t3_thread_start",
-          input: { prompt: "continue" },
+          operation: "t3_thread_launch",
+          input: { title: "New thread", message: "continue" },
         }),
       );
       expect(result._tag === "Failure" && result.failure.message).toContain("Ambiguous project");
       expect(f.calls).toHaveLength(1);
+    }),
+  );
+  it.effect("resolves a project from any page of the project list", () =>
+    Effect.gen(function* () {
+      const f = fixture();
+      const later = ProjectId.make("later");
+      const client: FleetCliClient = {
+        ...f.client,
+        invoke: (input) => {
+          f.calls.push(input);
+          if (input.operation !== "t3_project_list") return Effect.succeed({ accepted: true });
+          const first = (input.input as { cursor: number }).cursor === 0;
+          return Effect.succeed(
+            first
+              ? {
+                  projects: [{ id: projectId, title: "Repo", workspaceRoot: "/one" }],
+                  nextCursor: 1,
+                }
+              : {
+                  projects: [{ id: later, title: "Later", workspaceRoot: "/two" }],
+                  nextCursor: null,
+                },
+          );
+        },
+      };
+      yield* invokeFleetCommand(client, {
+        project: "Later",
+        operation: "t3_thread_list",
+        input: {},
+      });
+      expect(f.calls.map((call) => call.input)).toEqual([
+        { cursor: 0, limit: 100 },
+        { cursor: 1, limit: 100 },
+        { projectId: later },
+      ]);
+    }),
+  );
+  it.effect("requires --provider and --model together", () =>
+    Effect.gen(function* () {
+      const f = fixture();
+      const result = yield* Effect.result(
+        f.run(["start", "--project", "Repo", "--prompt", "go", "--model", "sonnet"]),
+      );
+      expect(result._tag).toBe("Failure");
+      expect(f.calls).toEqual([]);
     }),
   );
 });

@@ -207,6 +207,26 @@ export class GitHubRepositoryDecodeError extends Schema.TaggedError<GitHubReposi
   }
 }
 
+export class GitHubRepositoryTargetError extends Schema.TaggedError<GitHubRepositoryTargetError>()(
+  "GitHubRepositoryTargetError",
+  {
+    command: Schema.Literal("gh"),
+    cwd: Schema.String,
+    repository: Schema.String,
+    actualRepository: Schema.optional(Schema.String),
+  },
+) {
+  get detail(): string {
+    return this.actualRepository === undefined
+      ? "Pull request creation requires an explicit owner/repository target."
+      : `GitHub resolved the intended repository as ${this.actualRepository}, not ${this.repository}.`;
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in createPullRequest: ${this.detail}`;
+  }
+}
+
 export const GitHubCliError = Schema.Union([
   GitHubCliUnavailableError,
   GitHubCliAuthenticationError,
@@ -217,6 +237,7 @@ export const GitHubCliError = Schema.Union([
   GitHubChangeRequestListDecodeError,
   GitHubPullRequestDecodeError,
   GitHubRepositoryDecodeError,
+  GitHubRepositoryTargetError,
 ]);
 export type GitHubCliError = typeof GitHubCliError.Type;
 
@@ -302,6 +323,8 @@ export class GitHubCli extends Context.Service<
 
     readonly listOpenPullRequests: (input: {
       readonly cwd: string;
+      /** Explicit `owner/repo` to read instead of the repository gh infers from `cwd`. */
+      readonly repository?: string;
       readonly headSelector: string;
       readonly limit?: number;
       readonly rateLimitHost?: string;
@@ -314,6 +337,8 @@ export class GitHubCli extends Context.Service<
      */
     readonly listPullRequestsByHead: (input: {
       readonly cwd: string;
+      /** Explicit `owner/repo`; the lookup then goes through `gh pr list --repo` unbatched. */
+      readonly repository?: string;
       readonly headSelector: string;
       readonly state: "open" | "closed" | "merged" | "all";
       readonly limit: number;
@@ -338,8 +363,14 @@ export class GitHubCli extends Context.Service<
       readonly visibility: SourceControlRepositoryVisibility;
     }) => Effect.Effect<GitHubRepositoryCloneUrls, GitHubCliError>;
 
+    /**
+     * Creates the pull request in `repository` (`owner/repo` or `host/owner/repo`) after
+     * confirming GitHub resolves it to that same repository, so publication never lands on
+     * a parent or other repository gh would pick by default.
+     */
     readonly createPullRequest: (input: {
       readonly cwd: string;
+      readonly repository: string;
       readonly baseBranch: string;
       readonly headSelector: string;
       readonly title: string;
@@ -348,6 +379,7 @@ export class GitHubCli extends Context.Service<
 
     readonly getDefaultBranch: (input: {
       readonly cwd: string;
+      readonly repository?: string;
       readonly rateLimitHost?: string;
     }) => Effect.Effect<string | null, GitHubCliError>;
 
@@ -767,6 +799,7 @@ export const make = Effect.gen(function* () {
 
   const listPullRequestsWithCli = (input: {
     readonly cwd: string;
+    readonly repository?: string | undefined;
     readonly headSelector: string;
     readonly state: PullRequestListState;
     readonly limit: number;
@@ -778,6 +811,7 @@ export const make = Effect.gen(function* () {
       args: [
         "pr",
         "list",
+        ...(input.repository === undefined ? [] : ["--repo", input.repository]),
         "--head",
         input.headSelector,
         "--state",
@@ -918,9 +952,10 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     const host = input.rateLimitHost?.toLowerCase();
     const credential = yield* PinnedGitHubCredential;
-    // `owner:branch` selectors and other hosts keep gh's own handling.
+    // `owner:branch` selectors, explicit repositories and other hosts keep gh's own handling.
     const repository =
       host === undefined ||
+      input.repository !== undefined ||
       input.headSelector.includes(":") ||
       (credential !== null && credential.host !== host)
         ? null
@@ -953,6 +988,7 @@ export const make = Effect.gen(function* () {
         args: [
           "pr",
           "list",
+          ...(input.repository === undefined ? [] : ["--repo", input.repository]),
           "--head",
           input.headSelector,
           "--state",
@@ -1045,12 +1081,41 @@ export const make = Effect.gen(function* () {
           deriveRepositoryCloneUrlsFromCreateOutput(result.stdout, input.repository),
         ),
       ),
-    createPullRequest: (input) =>
-      execute({
+    createPullRequest: Effect.fn("GitHubCli.createPullRequest")(function* (input) {
+      const repositoryParts = input.repository.trim().split("/");
+      if (repositoryParts.length < 2 || repositoryParts.length > 3) {
+        return yield* new GitHubRepositoryTargetError({
+          command: "gh",
+          cwd: input.cwd,
+          repository: input.repository,
+        });
+      }
+      const expectedRepository = repositoryParts.slice(-2).join("/");
+      const credential = yield* PinnedGitHubCredential;
+      const repository =
+        credential !== null && repositoryParts.length === 2
+          ? `${credential.host}/${input.repository.trim()}`
+          : input.repository.trim();
+      const resolved = yield* execute({
+        cwd: input.cwd,
+        args: ["repo", "view", repository, "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+      });
+      const actualRepository = resolved.stdout.trim();
+      if (actualRepository.toLowerCase() !== expectedRepository.toLowerCase()) {
+        return yield* new GitHubRepositoryTargetError({
+          command: "gh",
+          cwd: input.cwd,
+          repository: expectedRepository,
+          actualRepository,
+        });
+      }
+      yield* execute({
         cwd: input.cwd,
         args: [
           "pr",
           "create",
+          "--repo",
+          repository,
           "--base",
           input.baseBranch,
           "--head",
@@ -1060,12 +1125,21 @@ export const make = Effect.gen(function* () {
           "--body-file",
           input.bodyFile,
         ],
-      }).pipe(Effect.asVoid),
+      });
+    }),
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
         ...(input.rateLimitHost === undefined ? {} : { rateLimitHost: input.rateLimitHost }),
-        args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        args: [
+          "repo",
+          "view",
+          ...(input.repository === undefined ? [] : [input.repository]),
+          "--json",
+          "defaultBranchRef",
+          "--jq",
+          ".defaultBranchRef.name",
+        ],
       }).pipe(
         Effect.map((value) => {
           const trimmed = value.stdout.trim();

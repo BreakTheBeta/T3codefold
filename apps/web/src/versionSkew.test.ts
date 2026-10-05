@@ -23,25 +23,56 @@ import {
   supportsDesktopAppUpdate,
 } from "./versionSkew";
 
+const FOLD_SPEC_0_0_45 =
+  "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v0.0.45/t3-0.0.45.tgz";
 const MISMATCH_HINT =
   "Version mismatch. Try syncing the client and server to the same T3 Code version.";
 
 describe("versionSkew", () => {
-  it("updates only the proven npm prefix and safely quotes its path", () => {
+  it("installs Fold release tarballs into the proven npm prefix and quotes its path", () => {
     expect(manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/node" })).toBe(
-      "npm install --global --prefix '/opt/node' t3@0.0.45",
+      `npm install --global --prefix '/opt/node' ${FOLD_SPEC_0_0_45}`,
     );
     expect(
       manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/maria's node" }),
-    ).toBe("npm install --global --prefix '/opt/maria'\\''s node' t3@0.0.45");
+    ).toBe(`npm install --global --prefix '/opt/maria'\\''s node' ${FOLD_SPEC_0_0_45}`);
   });
 
-  it("keeps runner and unknown commands as relaunches", () => {
-    expect(manualServerUpdateCommand("0.0.45")).toBe("npx t3@0.0.45");
-    expect(manualServerUpdateCommand("0.0.45", { kind: "npx" })).toBe("npx t3@0.0.45");
-    expect(manualServerUpdateCommand("0.0.45", { kind: "pnpm-dlx" })).toBe("pnpm dlx t3@0.0.45");
-    expect(manualServerUpdateCommand("0.0.45", { kind: "bunx" })).toBe("bunx t3@0.0.45");
+  it("relaunches every runner from the Fold release, never upstream npm t3", () => {
+    const command = `npx --yes --prefer-online --package=${FOLD_SPEC_0_0_45} t3`;
+    expect(manualServerUpdateCommand("0.0.45")).toBe(command);
+    expect(manualServerUpdateCommand("0.0.45", { kind: "npx" })).toBe(command);
+    expect(manualServerUpdateCommand("0.0.45", { kind: "pnpm-dlx" })).toBe(command);
+    expect(manualServerUpdateCommand("0.0.45", { kind: "bunx" })).toBe(command);
   });
+
+  it("falls back to the latest Fold release for versions without a release tag", () => {
+    expect(manualServerUpdateCommand("dev build")).toBe(
+      "npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3",
+    );
+  });
+
+  it("refuses self-update through older or upstream server updaters", () => {
+    for (const updateRepository of [undefined, "pingdotgg/t3code"]) {
+      const config = {
+        environment: {
+          environmentId: EnvironmentId.make("old-server"),
+          label: "Older Mac",
+          platform: { os: "darwin", arch: "arm64" } as const,
+          serverVersion: "0.1.4",
+          capabilities: {
+            repositoryIdentity: true,
+            serverSelfUpdate: "desktop-managed" as const,
+            desktopAppUpdate: true,
+            ...(updateRepository ? { updateRepository } : {}),
+          },
+        },
+      };
+      expect(resolveServerSelfUpdateCapability(config)).toBeNull();
+      expect(supportsDesktopAppUpdate(config)).toBe(false);
+    }
+  });
+
   beforeEach(() => {
     branding.APP_VERSION = "0.0.34";
   });
@@ -210,6 +241,7 @@ describe("versionSkew", () => {
           serverVersion: "9.9.9",
           capabilities: {
             repositoryIdentity: true,
+            updateRepository: "BreakTheBeta/T3codefold",
             serverSelfUpdate: "desktop-managed",
           },
         },
@@ -227,6 +259,7 @@ describe("versionSkew", () => {
         serverVersion: "9.9.9",
         capabilities: {
           repositoryIdentity: true,
+          updateRepository: "BreakTheBeta/T3codefold",
           serverSelfUpdate: "desktop-managed" as const,
           ...(desktopAppUpdate === undefined ? {} : { desktopAppUpdate }),
         },

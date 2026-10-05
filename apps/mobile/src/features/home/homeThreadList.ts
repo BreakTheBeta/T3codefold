@@ -7,7 +7,6 @@ import {
   getThreadSortTimestamp,
   toSortableTimestamp,
 } from "@t3tools/client-runtime/state/thread-sort";
-import { isSubagentThread } from "@t3tools/client-runtime/state/thread-relationships";
 import type {
   EnvironmentId,
   ScopedProjectRef,
@@ -90,7 +89,8 @@ export function sortHomeProjectScopes(input: {
   };
 
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null || isSubagentThread(thread)) continue;
+    // Delegated subagent activity must not reorder projects (see threadListV2).
+    if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent") continue;
     recordActivity(
       scopeKeyByProjectRef.get(scopedProjectKey(thread.environmentId, thread.projectId)),
       getThreadSortTimestamp(thread, input.projectSortOrder),

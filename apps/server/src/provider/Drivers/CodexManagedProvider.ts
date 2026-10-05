@@ -217,9 +217,16 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
   const resolveRuntime = runtime.auth.controller.withAccess!(runtime.resolve);
   // Launch settings resolve per session from the signed-in token. The registry
   // already wraps openSession in withAccess, so resolve without re-entering it.
+  // Token rotation respawns inside that same session scope. Revoking stops this
+  // provider's sessions, so it runs detached from the session that reported it.
   const orchestrationAdapter = yield* createCodexAdapterV2(input, {
     onUsageLimits: (update) => snapshot.applyUsageLimits(update),
     resolveRuntime: runtime.resolve,
+    onConnectionRevoked: runtime.auth.revoke.pipe(
+      Effect.ignoreCause({ log: true }),
+      Effect.forkDetach,
+      Effect.asVoid,
+    ),
   }).pipe(
     Effect.mapError(
       (cause) =>

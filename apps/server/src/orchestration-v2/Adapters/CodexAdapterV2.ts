@@ -14,6 +14,12 @@ import {
 } from "../../provider/CodexTurnTokenUsage.ts";
 import type { ServerProviderShape } from "../../provider/Services/ServerProvider.ts";
 import type { CodexEffectiveRuntime } from "../../provider/CodexManagedRuntime.ts";
+import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
+import {
+  makeCodexRealtimeVoice,
+  type CodexRealtimeVoice,
+} from "../../provider/codexRealtimeVoice.ts";
+import { makeManagedCodexClient } from "./CodexManagedClient.ts";
 import { buildCodexInitializeParams } from "../../provider/Layers/CodexProvider.ts";
 import {
   codexRateLimitsToUpdate,
@@ -104,7 +110,7 @@ import {
 } from "../../provider/Layers/EventNdjsonLogger.ts";
 import { ProviderEventLoggers } from "../../provider/Layers/ProviderEventLoggers.ts";
 import {
-  codexAppServerArgs,
+  codexSessionAppServerArgs,
   resolveCodexLaunchArgs,
 } from "../../provider/Layers/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
@@ -549,16 +555,29 @@ function approvalDecisionToLegacyReviewDecision(
   }
 }
 
-function providerRequestKindFromPermissions(
-  permissions: CodexSchema.PermissionsRequestApprovalParams["permissions"],
-): ProviderRequestKind {
-  if ((permissions.fileSystem?.write?.length ?? 0) > 0) {
-    return "file-change";
-  }
-  if ((permissions.fileSystem?.read?.length ?? 0) > 0) {
-    return "file-read";
-  }
-  return "command";
+/**
+ * Prompt for an app permission request: its nonblank reason, else the paths it
+ * asked for, so a reasonless request still says what it wants.
+ */
+export function codexPermissionApprovalPrompt(
+  input: Pick<CodexSchema.PermissionsRequestApprovalParams, "reason" | "permissions">,
+): string | undefined {
+  const reason = input.reason?.trim();
+  if (reason) return reason;
+  const paths = [
+    ...(input.permissions.fileSystem?.read ?? []),
+    ...(input.permissions.fileSystem?.write ?? []),
+  ];
+  return paths.length > 0 ? `Access: ${paths.join(", ")}` : undefined;
+}
+
+/** Codex limit codes, plus ChatGPT sharing's own usage limit on managed sessions. */
+function isCodexUsageLimitCode(code: string | null | undefined): boolean {
+  return (
+    code === "usageLimitExceeded" ||
+    code === "rateLimitExceeded" ||
+    code === "subscription_sharing_usage_limit_exceeded"
+  );
 }
 
 function permissionsResponseFromDecision(input: {
@@ -1471,12 +1490,12 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
         Effect.gen(function* () {
           const scope = yield* Scope.Scope;
           const environment = {
-            ...input.environment,
+            ...McpProviderSession.providerSessionEnvironment(input.environment, input.threadId),
             ...(input.settings.homePath ? { CODEX_HOME: input.settings.homePath } : {}),
           };
           const command = yield* makeCodexAppServerSpawnCommand({
             command: input.settings.binaryPath || "codex",
-            args: codexAppServerArgs(
+            args: codexSessionAppServerArgs(
               resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
             ),
             env: environment,
@@ -1523,7 +1542,10 @@ export type CodexAdapterV2DriverEnv =
 
 export const createCodexAdapterV2 = (
   { instanceId, environment, enabled, config }: ProviderAdapterDriverCreateInput<CodexSettings>,
-  hooks: Pick<CodexAdapterV2Options, "onUsageLimits" | "resolveRuntime"> = {},
+  hooks: Pick<
+    CodexAdapterV2Options,
+    "onUsageLimits" | "resolveRuntime" | "onConnectionRevoked"
+  > = {},
 ) =>
   Effect.gen(function* () {
     const clientFactory = yield* CodexAppServerClientFactory;
@@ -1612,6 +1634,11 @@ export interface CodexAdapterV2Options {
    * Codex with a current access token.
    */
   readonly resolveRuntime?: Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>;
+  /**
+   * Managed sessions only: runs when a ChatGPT sharing failure says the
+   * connection is no longer valid, so the provider can drop it.
+   */
+  readonly onConnectionRevoked?: Effect.Effect<void>;
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocatorV2Shape;
   readonly serverConfig: ServerConfig["Service"];
@@ -1637,27 +1664,49 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
     openSession: (input) =>
       Effect.gen(function* () {
         const scope = yield* Scope.Scope;
-        const resolvedRuntime =
-          adapterOptions.resolveRuntime === undefined
-            ? undefined
-            : yield* adapterOptions.resolveRuntime.pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterOpenSessionError({
-                      driver: CODEX_PROVIDER,
-                      providerSessionId: input.providerSessionId,
-                      cause,
-                    }),
-                ),
-              );
-        const client = yield* clientFactory.open({
-          instanceId: adapterOptions.instanceId,
-          threadId: input.threadId,
-          providerSessionId: input.providerSessionId,
-          runtimePolicy: input.runtimePolicy,
-          settings: resolvedRuntime?.config ?? adapterOptions.settings,
-          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
+        const openClient = (settings: CodexSettings, environment: NodeJS.ProcessEnv) =>
+          clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            threadId: input.threadId,
+            providerSessionId: input.providerSessionId,
+            runtimePolicy: input.runtimePolicy,
+            settings,
+            environment,
+          });
+        // One realtime voice controller per native thread, created on first use.
+        const voiceControllers = new Map<string, CodexRealtimeVoice>();
+        const isVoiceActive = Effect.gen(function* () {
+          for (const voice of voiceControllers.values()) {
+            if (yield* voice.isActive) return true;
+          }
+          return false;
         });
+        const resolveRuntime = adapterOptions.resolveRuntime;
+        // Managed Codex reads its ChatGPT token from the process environment, so
+        // the managed client respawns Codex when the token rotates.
+        const client =
+          resolveRuntime === undefined
+            ? yield* openClient(adapterOptions.settings, adapterOptions.environment)
+            : yield* makeManagedCodexClient({
+                resolve: resolveRuntime,
+                open: (runtime) => openClient(runtime.config, runtime.environment),
+                onOpenError: (cause) =>
+                  new ProviderAdapterOpenSessionError({
+                    driver: CODEX_PROVIDER,
+                    providerSessionId: input.providerSessionId,
+                    cause,
+                  }),
+                isBusy: isVoiceActive,
+              });
+        const classifyManagedError = (value: unknown) =>
+          Effect.gen(function* () {
+            if (resolveRuntime === undefined) return undefined;
+            const failure = classifyCodexManagedError(value);
+            if (failure?.revoke && adapterOptions.onConnectionRevoked) {
+              yield* adapterOptions.onConnectionRevoked;
+            }
+            return failure;
+          });
         const additionalContextByThread = yield* Ref.make(
           new Map<
             string,
@@ -4120,18 +4169,18 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             if (context === undefined) {
               return;
             }
-            const notificationCode = codexErrorInfoCode(payload.error.codexErrorInfo);
+            const managedError = yield* classifyManagedError(payload.error);
+            const notificationCode =
+              managedError?.code ?? codexErrorInfoCode(payload.error.codexErrorInfo);
             if (!payload.willRetry) {
               context.latestProviderFailure = {
                 nativeMessage: payload.error.message,
                 failure: makeProviderFailure({
-                  message: payload.error.additionalDetails?.trim() || payload.error.message,
+                  message:
+                    managedError?.message ??
+                    (payload.error.additionalDetails?.trim() || payload.error.message),
                   code: notificationCode,
-                  class:
-                    notificationCode === "usageLimitExceeded" ||
-                    notificationCode === "rateLimitExceeded"
-                      ? "usage_limit"
-                      : "provider_error",
+                  class: isCodexUsageLimitCode(notificationCode) ? "usage_limit" : "provider_error",
                 }),
               };
               return;
@@ -4144,20 +4193,20 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               maxAttempts: progress?.maxAttempts ?? previous?.retry.maxAttempts ?? null,
               retryDelayMs: null,
             };
-            const code = codexErrorInfoCode(payload.error.codexErrorInfo);
             const additionalDetails = payload.error.additionalDetails?.trim();
             const failure = makeProviderFailure({
               message:
-                additionalDetails === undefined || additionalDetails.length === 0
+                managedError?.message ??
+                (additionalDetails === undefined || additionalDetails.length === 0
                   ? payload.error.message
-                  : additionalDetails,
-              code,
-              class:
-                code === "usageLimitExceeded" || code === "rateLimitExceeded"
-                  ? "usage_limit"
-                  : code?.startsWith("http") === true || code?.startsWith("responseStream") === true
-                    ? "transport_error"
-                    : "provider_error",
+                  : additionalDetails),
+              code: notificationCode,
+              class: isCodexUsageLimitCode(notificationCode)
+                ? "usage_limit"
+                : notificationCode?.startsWith("http") === true ||
+                    notificationCode?.startsWith("responseStream") === true
+                  ? "transport_error"
+                  : "provider_error",
               retryable: true,
             });
             const itemOrdinal =
@@ -4807,13 +4856,16 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               );
             }
 
-            const requestKind = providerRequestKindFromPermissions(payload.permissions);
+            // App permission asks get their own kind; Codex still decides
+            // auto-approval itself through approvalPolicy and sandboxPolicy.
+            const requestKind = "permission" as const;
+            const prompt = codexPermissionApprovalPrompt(payload);
             const artifacts = yield* buildApprovalRequestArtifacts({
               context,
               nativeItemId: payload.itemId,
               nativeRequestId: payload.itemId,
               requestKind,
-              ...(payload.reason === undefined ? {} : { prompt: payload.reason }),
+              ...(prompt === undefined ? {} : { prompt }),
             });
             const decision = yield* Deferred.make<ProviderApprovalDecision, never>();
             yield* Ref.update(pendingRuntimeRequests, (current) => {
@@ -5144,11 +5196,9 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                   : makeProviderFailure({
                       message: input.failureMessage,
                       code: input.failureCode,
-                      class:
-                        input.failureCode === "usageLimitExceeded" ||
-                        input.failureCode === "rateLimitExceeded"
-                          ? "usage_limit"
-                          : "provider_error",
+                      class: isCodexUsageLimitCode(input.failureCode)
+                        ? "usage_limit"
+                        : "provider_error",
                     });
               return {
                 type: "turn.terminal",
@@ -5606,21 +5656,27 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               (yield* Ref.get(interruptingNativeTurns)).has(payload.turn.id)
                 ? "interrupted"
                 : nativeStatus;
+            const managedError =
+              payload.turn.error == null
+                ? undefined
+                : yield* classifyManagedError(payload.turn.error);
             yield* finalizeCodexTurn({
               context,
               nativeTurnId: payload.turn.id,
               status,
               completedAt: codexTimestamp(payload.turn.completedAt),
-              ...(payload.turn.error?.message === undefined
-                ? {}
-                : {
-                    failureMessage: payload.turn.error.message,
-                    ...(payload.turn.error.codexErrorInfo == null
-                      ? {}
-                      : {
-                          failureCode: codexErrorInfoCode(payload.turn.error.codexErrorInfo),
-                        }),
-                  }),
+              ...(managedError !== undefined
+                ? { failureMessage: managedError.message, failureCode: managedError.code }
+                : payload.turn.error?.message === undefined
+                  ? {}
+                  : {
+                      failureMessage: payload.turn.error.message,
+                      ...(payload.turn.error.codexErrorInfo == null
+                        ? {}
+                        : {
+                            failureCode: codexErrorInfoCode(payload.turn.error.codexErrorInfo),
+                          }),
+                    }),
             });
           }),
         );
@@ -5965,6 +6021,25 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             ),
           );
 
+        const voiceLock = yield* Semaphore.make(1);
+        const voiceForThread = (nativeThreadId: string) =>
+          voiceLock.withPermit(
+            Effect.gen(function* () {
+              const existing = voiceControllers.get(nativeThreadId);
+              if (existing) return existing;
+              const voice = yield* makeCodexRealtimeVoice(client, {
+                providerThreadId: nativeThreadId,
+              }).pipe(Effect.provideService(Scope.Scope, scope));
+              voiceControllers.set(nativeThreadId, voice);
+              return voice;
+            }),
+          );
+        yield* Effect.addFinalizer(() =>
+          Effect.forEach(voiceControllers.values(), (voice) => voice.close, { discard: true }),
+        );
+        const voiceError = (detail: string) => (cause: unknown) =>
+          new ProviderAdapterProtocolError({ driver: CODEX_PROVIDER, detail, payload: cause });
+
         const runtime: ProviderAdapterV2SessionRuntime = {
           instanceId: adapterOptions.instanceId,
           driver: CODEX_PROVIDER,
@@ -5977,6 +6052,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           // against a long-delayed resume. Codex emits no resume-expected
           // signal to pin on.
           hasPendingBackgroundWork: Effect.gen(function* () {
+            if (yield* isVoiceActive) return true;
             for (const items of (yield* Ref.get(runningCommandItemsByTurn)).values()) {
               if (items.size > 0) {
                 return true;
@@ -6682,6 +6758,35 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                     }),
               ),
             ),
+          listRealtimeVoices: (voiceInput) =>
+            Effect.gen(function* () {
+              const id = yield* getNativeThreadId(voiceInput.providerThread);
+              return yield* (yield* voiceForThread(id)).listVoices;
+            }).pipe(Effect.mapError(voiceError("Could not list voices."))),
+          appendRealtimeVoiceContext: (voiceInput) =>
+            Effect.gen(function* () {
+              const id = yield* getNativeThreadId(voiceInput.providerThread);
+              yield* (yield* voiceForThread(id)).appendContext(voiceInput.callId, voiceInput.text);
+            }).pipe(Effect.mapError(voiceError("Could not share voice context."))),
+          realtimeVoiceEvents: (voiceInput) =>
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const id = yield* getNativeThreadId(voiceInput.providerThread);
+                return (yield* voiceForThread(id)).events;
+              }).pipe(Effect.mapError(voiceError("Could not subscribe to voice."))),
+            ),
+          startRealtimeVoice: (voiceInput) =>
+            Effect.gen(function* () {
+              const id = yield* getNativeThreadId(voiceInput.providerThread);
+              const voice = yield* voiceForThread(id);
+              return { sdp: yield* voice.startRealtimeVoice(voiceInput.sdp, voiceInput.options) };
+            }).pipe(Effect.mapError(voiceError("Codex realtime voice failed."))),
+          stopRealtimeVoice: (voiceInput) =>
+            Effect.gen(function* () {
+              const id = yield* getNativeThreadId(voiceInput.providerThread);
+              const voice = voiceControllers.get(id);
+              if (voice) yield* voice.stopRealtimeVoice;
+            }).pipe(Effect.mapError(voiceError("Codex realtime voice failed."))),
           uploadFeedback: (feedbackInput) =>
             Effect.gen(function* () {
               const threadId = yield* getNativeThreadId(feedbackInput.providerThread);

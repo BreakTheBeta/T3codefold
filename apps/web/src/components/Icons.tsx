@@ -726,10 +726,6 @@ export const PiAgentIcon: Icon = ({ className, ...props }) => (
   </svg>
 );
 
-// Placeholder provider marks used by the disabled "coming soon" choices.
-export const Gemini: Icon = AntigravityIcon;
-export const GithubCopilotIcon: Icon = GitHubIcon;
-
 // Official two-color mark from https://forgejo.org/favicon.svg.
 export const ForgejoIcon: Icon = (props) => (
   <svg viewBox="0 0 212 212" aria-hidden="true" {...props}>

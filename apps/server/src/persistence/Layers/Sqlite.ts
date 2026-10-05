@@ -5,7 +5,9 @@ import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
+import { runFoldMigrations } from "../FoldMigrations.ts";
 import { runMigrations } from "../Migrations.ts";
+import { importFoldDatabase } from "../importFoldDatabase.ts";
 import { initializeV2Database } from "../initializeV2Database.ts";
 import * as ServerConfig from "../../config.ts";
 
@@ -23,6 +25,7 @@ const setup = Layer.effectDiscard(
     // largest size until the last connection closes.
     yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`);
     yield* runMigrations();
+    yield* runFoldMigrations();
   }),
 );
 
@@ -54,6 +57,7 @@ export const layerConfig = Layer.unwrap(
   Effect.gen(function* () {
     const { dbPath } = yield* ServerConfig.ServerConfig;
     yield* initializeV2Database(dbPath);
+    yield* importFoldDatabase(dbPath);
     return makeSqlitePersistenceLive(dbPath);
   }),
 );

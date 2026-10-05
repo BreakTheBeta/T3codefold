@@ -9,6 +9,7 @@ import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
+import { FOLD_REPOSITORY } from "@t3tools/shared/foldRelease";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import {
   HostProcessArguments,
@@ -227,6 +228,9 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.threadPullRequests).toBe(true);
       expect(second.capabilities.threadPullRequestLinking).toBe(true);
       expect(second.capabilities.serverResolvedCommandContext).toBe(true);
+      expect(second.capabilities.updateRepository).toBe(FOLD_REPOSITORY);
+      expect(second.capabilities.fleetOrchestration).toBe(true);
+      expect(second.capabilities.realtimeVoiceControls).toBe(true);
       expect(second.capabilities.agentActivityPublishing).toBe(false);
     }),
   );

@@ -5,6 +5,11 @@ import type {
   ServerSelfUpdateCapability,
 } from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
+import {
+  foldServerCommand,
+  foldServerPackageSpec,
+  supportsFoldUpdates,
+} from "@t3tools/shared/foldRelease";
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 import * as Schema from "effect/Schema";
 
@@ -100,7 +105,11 @@ export function resolveServerConfigVersionMismatch(
 export function resolveServerSelfUpdateCapability(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): ServerSelfUpdateCapability | null {
-  return serverConfig?.environment.capabilities.serverSelfUpdate ?? null;
+  // Updaters that predate Fold's release channel install upstream npm `t3`.
+  const capabilities = serverConfig?.environment.capabilities;
+  return capabilities && supportsFoldUpdates(capabilities)
+    ? (capabilities.serverSelfUpdate ?? null)
+    : null;
 }
 
 /** True when the desktop app supervising this server can be told to update
@@ -108,7 +117,12 @@ export function resolveServerSelfUpdateCapability(
 export function supportsDesktopAppUpdate(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): boolean {
-  return serverConfig?.environment.capabilities.desktopAppUpdate === true;
+  const capabilities = serverConfig?.environment.capabilities;
+  return (
+    capabilities !== undefined &&
+    supportsFoldUpdates(capabilities) &&
+    capabilities.desktopAppUpdate === true
+  );
 }
 
 /** True when the connected server can recover opted-in running turns after
@@ -119,18 +133,29 @@ export function supportsServerUpdateThreadContinuation(
   return serverConfig?.environment.capabilities.serverUpdateThreadContinuation === true;
 }
 
-/** The command to hand users whose server cannot update itself. */
+/** The command to hand users whose server cannot update itself. Fold ships
+    as GitHub release tarballs, never the upstream npm `t3` package, so global
+    installs get the tarball and every runner gets the Fold `npx` command. */
 export function manualServerUpdateCommand(
   targetVersion: string,
   installation?: ServerInstallation,
 ): string {
+  // Release specs require an exact version; fall back to the latest release.
+  const version = isFoldReleaseVersion(targetVersion) ? targetVersion : "latest";
   if (installation?.kind === "npm-global") {
     const prefix = `'${installation.prefix.replaceAll("'", "'\\''")}'`;
-    return `npm install --global --prefix ${prefix} t3@${targetVersion}`;
+    return `npm install --global --prefix ${prefix} ${foldServerPackageSpec(version)}`;
   }
-  const runner =
-    installation?.kind === "pnpm-dlx" ? "pnpm dlx" : installation?.kind === "bunx" ? "bunx" : "npx";
-  return `${runner} t3@${targetVersion}`;
+  return foldServerCommand(version);
+}
+
+function isFoldReleaseVersion(version: string): boolean {
+  try {
+    foldServerPackageSpec(version);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {

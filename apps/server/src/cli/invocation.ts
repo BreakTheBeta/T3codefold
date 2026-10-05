@@ -4,6 +4,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import type { ServerInstallation } from "@t3tools/contracts";
+import { foldServerPackageSpec } from "@t3tools/shared/foldRelease";
 import {
   HostProcessArguments,
   HostProcessExecutablePath,
@@ -108,21 +109,21 @@ export const resolveServerInstallation = Effect.gen(function* () {
 }).pipe(Effect.orElseSucceed(() => null));
 
 /**
- * The `t3` package spec to suggest. The literal spec the user typed (e.g.
- * `t3@nightly`) is resolved away before our process starts, so re-derive it
- * from the running version: nightly builds re-suggest the nightly channel,
- * anything else suggests the bare package.
+ * The package spec to suggest. Fold ships as GitHub release tarballs, never as
+ * the upstream npm `t3` package, so re-derive the release from the running
+ * version: nightly builds re-suggest the nightly channel, anything else pins
+ * the exact Fold release.
  */
 function suggestedPackageSpec(version: string): string {
-  const channel = /^[^-+]+-(nightly|preview)\./.exec(version)?.[1];
-  return channel === undefined ? "t3" : `t3@${channel}`;
+  return foldServerPackageSpec(version.includes("-nightly.") ? "nightly" : version);
 }
 
 /**
  * Render a `t3 <subcommand>` suggestion that matches how this process was
- * launched, so copy/pasting it actually works: `npx t3 connect` suggests
- * `npx t3 serve`, a global install suggests `t3 serve`, and a nightly build
- * keeps the `@nightly` tag.
+ * launched, so copy/pasting it actually works: `npx … connect` suggests
+ * `npx … serve`, a global install suggests `t3 serve`, and a nightly build
+ * keeps the nightly channel. Runners take a tarball URL through their
+ * `--package` flag because the bin name (`t3`) differs from the spec.
  */
 export function formatCliCommand(input: {
   readonly subcommand: string;
@@ -133,7 +134,15 @@ export function formatCliCommand(input: {
   if (runner === null) {
     return `t3 ${input.subcommand}`;
   }
-  return `${runner} ${suggestedPackageSpec(input.version)} ${input.subcommand}`;
+  const spec = suggestedPackageSpec(input.version);
+  switch (runner) {
+    case "npx":
+      return `npx --yes --prefer-online --package=${spec} t3 ${input.subcommand}`;
+    case "pnpm dlx":
+      return `pnpm --package=${spec} dlx t3 ${input.subcommand}`;
+    case "bunx":
+      return `bunx --package ${spec} t3 ${input.subcommand}`;
+  }
 }
 
 /** `formatCliCommand` against this process's real entry path and version. */

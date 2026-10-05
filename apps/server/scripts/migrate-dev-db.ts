@@ -14,7 +14,8 @@
  *      queued effects are dropped, so the dev server never adopts live work.
  *      Auth sessions, pairing links, command receipts, and provider
  *      runtime rows are dropped — pair a fresh browser against dev.
- *   3. Runs migrations on the result. Because the clone carries the real
+ *   3. Runs migrations on the result, after importing a Fold-ledgered source
+ *      into the upstream ledger the way server boot does. Because the clone carries the real
  *      `effect_sql_migrations` table, this proves a new migration applies
  *      on top of the real applied set, and the slot check below catches
  *      the silent failure where two branches claim the same
@@ -40,7 +41,9 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { Command, Flag } from "effect/cli";
 
 import * as ProjectionStore from "../src/orchestration-v2/ProjectionStore.ts";
+import { runFoldMigrations } from "../src/persistence/FoldMigrations.ts";
 import { migrationManifest, runMigrations } from "../src/persistence/Migrations.ts";
+import { importFoldDatabase } from "../src/persistence/importFoldDatabase.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 export class MigrateDevDbNotInWorktreeError extends Schema.TaggedError<MigrateDevDbNotInWorktreeError>()(
@@ -351,6 +354,7 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       // Pending work the dev server would otherwise pick up and run.
       yield* sql`DELETE FROM scheduled_tasks`;
       yield* sql`DELETE FROM orchestration_v2_effect_outbox`;
+      yield* sql`DELETE FROM pitboss_effects WHERE state = 'pending'`;
       yield* sql`DELETE FROM orchestration_v2_thread_launch_workflows`;
       yield* sql`DELETE FROM orchestration_command_receipts`;
       yield* sql`DELETE FROM provider_session_runtime`;
@@ -474,11 +478,17 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
     // Running against the full snapshot also exercises new migrations on the
     // same data volume the real database would face.
     yield* Console.log("Running migrations on the snapshot...");
+    // Mirror server boot (persistence/Layers/Sqlite.ts): a Fold source is re-imported under
+    // the upstream ledger first. The snapshot is disposable, so no backup is kept.
+    yield* importFoldDatabase(snapshotPath, { keepBackup: false }).pipe(
+      wrapPhase("migrate", snapshotPath),
+    );
     const executed = yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      // Mirror server boot (persistence/Layers/Sqlite.ts).
       yield* sql.unsafe("PRAGMA foreign_keys = ON").unprepared;
-      return yield* runMigrations();
+      const migrations = yield* runMigrations();
+      yield* runFoldMigrations();
+      return migrations;
     }).pipe(
       Effect.provide(NodeSqliteClient.layer({ filename: snapshotPath })),
       wrapPhase("migrate", snapshotPath),

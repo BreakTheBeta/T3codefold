@@ -3,7 +3,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   clampPreviewMiniPlayerPosition,
-  defaultPreviewMiniPlayerPosition,
   PREVIEW_MINI_PLAYER_EDGE_GAP,
   type PreviewMiniPlayerObstacles,
   resizePreviewMiniPlayer,
@@ -451,68 +450,5 @@ describe("clampPreviewMiniPlayerPosition", () => {
         obstacles,
       ),
     ).toEqual({ x: gap, y: 700 - 150 - gap - 500 });
-  });
-});
-
-describe("defaultPreviewMiniPlayerPosition", () => {
-  it("keeps the top-right fallback when the inline details panel is closed", () => {
-    expect(
-      defaultPreviewMiniPlayerPosition({
-        fallback: { x: 664, y: 16 },
-        parentRect: { left: 300, top: 60 },
-        playerWidth: 320,
-        detailsCardRect: null,
-      }),
-    ).toEqual({ x: 664, y: 16 });
-  });
-
-  it("slides under the inline details card with right edges aligned", () => {
-    expect(
-      defaultPreviewMiniPlayerPosition({
-        fallback: { x: 664, y: 16 },
-        parentRect: { left: 300, top: 60 },
-        playerWidth: 320,
-        detailsCardRect: { right: 1280, bottom: 320 },
-      }),
-    ).toEqual({
-      x: 1280 - 300 - 320,
-      y: 320 - 60 + PREVIEW_MINI_PLAYER_EDGE_GAP,
-    });
-  });
-});
-
-describe("inline thread details with aspect-ratio sizing", () => {
-  it("places a fresh aspect-ratio player under the card and leaves a dragged position alone", () => {
-    const input = {
-      width: null,
-      position: null,
-      source,
-      container,
-      detailsCardRect: { right: 980, bottom: 210 },
-    };
-    expect(resolvePreviewMiniPlayerFrame(input)).toEqual({
-      x: 660,
-      y: 222,
-      width: 320,
-      height: 200,
-    });
-    expect(resolvePreviewMiniPlayerFrame({ ...input, position: { x: 50, y: 80 } })).toEqual({
-      x: 50,
-      y: 80,
-      width: 320,
-      height: 200,
-    });
-  });
-  it("clamps below-card placement above the composer", () => {
-    expect(
-      resolvePreviewMiniPlayerFrame({
-        width: null,
-        position: null,
-        source,
-        container,
-        obstacles: { composer: { left: 0, right: 1000, height: 200 } },
-        detailsCardRect: { right: 980, bottom: 650 },
-      }),
-    ).toEqual({ x: 660, y: 288, width: 320, height: 200 });
   });
 });

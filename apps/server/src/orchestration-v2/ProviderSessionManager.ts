@@ -1402,9 +1402,32 @@ export const layerWithOptions = (
       ): ProviderAdapterV2SessionRuntime => {
         const providerSessionId = runtime.providerSessionId;
         const subscribeEvents = makeEventSubscription(eventSubscribers);
+        const { startRealtimeVoice, stopRealtimeVoice } = runtime;
         return {
           ...runtime,
           subscribeEvents,
+          // Voice start counts as activity so the idle reaper cannot release the
+          // session mid-handshake; the adapter keeps a live call pinned through
+          // hasPendingBackgroundWork afterwards.
+          ...(startRealtimeVoice === undefined
+            ? {}
+            : {
+                startRealtimeVoice: (input) =>
+                  observeActivity(providerSessionId, markBusy(providerSessionId)).pipe(
+                    Effect.andThen(startRealtimeVoice(input)),
+                    Effect.ensuring(
+                      observeActivity(providerSessionId, markIdle(providerSessionId)),
+                    ),
+                  ),
+              }),
+          ...(stopRealtimeVoice === undefined
+            ? {}
+            : {
+                stopRealtimeVoice: (input) =>
+                  observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
+                    Effect.andThen(stopRealtimeVoice(input)),
+                  ),
+              }),
           events: Stream.unwrap(
             subscribeEvents.pipe(Effect.map((subscription) => subscription.events)),
           ),

@@ -43,6 +43,12 @@ class T3KeyboardCommandsView(
         "copyThreadReference"
       event.keyCode == KeyEvent.KEYCODE_H && event.isShiftPressed && !event.isAltPressed ->
         "cycleHost"
+      event.isAltPressed && !event.isShiftPressed -> when (event.keyCode) {
+        KeyEvent.KEYCODE_V -> "voiceToggle"
+        KeyEvent.KEYCODE_M -> "voiceMute"
+        KeyEvent.KEYCODE_S -> "voiceOutputMute"
+        else -> null
+      }
       else -> null
     }
   }

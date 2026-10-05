@@ -262,6 +262,16 @@ export const OrchestratorV2Error = Schema.Union([
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
 
+/**
+ * The server's title-completion command. `needsRefinement` marks an initial
+ * generated title as provisional, so ThreadTitleRefinement regenerates it once
+ * the first run completes. It is server-only and never crosses the wire.
+ */
+export type ThreadTitleRegenerationCompleteCommand = Extract<
+  OrchestrationV2ServerCommand,
+  { readonly type: "thread.title.regeneration.complete" }
+> & { readonly needsRefinement?: boolean };
+
 export interface OrchestratorV2DispatchResult {
   readonly sequence: number;
   readonly storedEvents: ReadonlyArray<OrchestrationV2StoredEvent>;
@@ -2391,6 +2401,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} is deleted.`,
       });
     }
+    // A refinement aimed at a title that has since changed, was renamed by the
+    // user, or is already regenerating lands as a no-op.
+    if (
+      command.type === "thread.metadata.update" &&
+      command.expectedTitleVersion !== undefined &&
+      (thread.titleState?.source !== "generated" ||
+        thread.titleState.version !== command.expectedTitleVersion ||
+        !thread.titleState.needsRefinement ||
+        thread.titleRegeneration != null)
+    ) {
+      return;
+    }
     if (
       command.type === "thread.pull-request.watch" &&
       command.watching &&
@@ -2872,7 +2894,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   };
           return {
             ...thread,
-            ...(command.title === undefined ? {} : { title: command.title }),
+            ...(command.title === undefined
+              ? {}
+              : {
+                  title: command.title,
+                  titleState: {
+                    source: "manual" as const,
+                    version: command.commandId,
+                    needsRefinement: false,
+                  },
+                }),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&
             limitRecovery?.snooze === true &&
@@ -3115,7 +3146,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return thread.titleRegeneration?.requestId === command.requestId
             ? {
                 ...thread,
-                ...(command.title === undefined ? {} : { title: command.title }),
+                ...(command.title === undefined
+                  ? {}
+                  : {
+                      title: command.title,
+                      titleState: {
+                        source: "generated" as const,
+                        version: command.commandId,
+                        // See ThreadTitleRegenerationCompleteCommand.
+                        needsRefinement:
+                          "needsRefinement" in command && command.needsRefinement === true,
+                      },
+                    }),
                 titleRegeneration: null,
                 updatedAt: now,
               }
@@ -4529,6 +4571,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const onlyMaintenanceHistory =
         userMessages.length > 0 && userMessages.every(isNativeMaintenanceCommand);
       if (
+        projection.thread.titleState?.source !== "manual" &&
         !isNativeMaintenanceCommand(command) &&
         ((command.titleSeed !== undefined &&
           (yield* projectionStore
@@ -10092,10 +10135,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       Effect.flatMap((planned) =>
         // A settle that finds the provider already ended everything, or a
         // stop that finds nothing running, has nothing to record. That is
-        // its expected outcome, not a failure.
+        // its expected outcome, not a failure. Neither is a title refinement
+        // whose expected title version went stale.
         planned.events.length > 0 ||
         command.type === "thread.background-work.settle" ||
-        command.type === "thread.stop"
+        command.type === "thread.stop" ||
+        (command.type === "thread.metadata.update" && command.expectedTitleVersion !== undefined)
           ? Effect.succeed(planned)
           : Effect.fail(
               new OrchestratorDispatchError({

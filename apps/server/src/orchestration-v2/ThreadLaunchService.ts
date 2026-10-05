@@ -58,6 +58,8 @@ export type ThreadLaunchWorkspaceStrategy =
     }
   | {
       readonly type: "worktree";
+      /** Fail instead of running in the project checkout when no worktree can be made. */
+      readonly requireWorktree?: boolean | undefined;
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
@@ -318,7 +320,15 @@ const make = Effect.gen(function* () {
         input.workspaceStrategy.type === "existing_worktree"
           ? input.workspaceStrategy.worktreePath
           : null;
-      if (input.workspaceStrategy.type === "worktree") {
+      // A folder that is not a repository, or a base with no commit yet (an
+      // unborn branch), cannot host a worktree. Those launches run in the
+      // project checkout instead, unless the launch requires isolation.
+      const isRepository =
+        input.workspaceStrategy.type === "worktree" &&
+        (yield* git
+          .isRepository(project.workspaceRoot)
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))));
+      if (input.workspaceStrategy.type === "worktree" && isRepository) {
         if (runId !== null) {
           yield* threads
             .dispatch({
@@ -368,45 +378,78 @@ const make = Effect.gen(function* () {
           }
         }
         if (startFromOrigin) yield* setupTracker.stageStatus(threadId, "fetch", "done");
-        if (
-          branch !== null &&
-          isTemporaryWorktreeBranch(branch) &&
-          (yield* git
-            .hasCommit({
-              cwd: project.workspaceRoot,
-              refName: `refs/heads/${WORKTREE_BRANCH_PREFIX}`,
-            })
-            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))))
-        ) {
-          branch = flattenTemporaryWorktreeBranchName(branch);
-        }
-        yield* setupTracker.stageStatus(threadId, "checkout", "running");
-        const worktree = yield* git
-          .createWorktree(
-            {
-              cwd: project.workspaceRoot,
-              refName: startRef,
-              newRefName: branch!,
-              baseRefName: input.workspaceStrategy.baseRef,
-              path: null,
-            },
-            {
-              progress: {
-                onWorktreeClaimed: (path) =>
-                  Effect.sync(() => {
-                    createdWorktreePath = path;
-                  }),
-                onCheckoutProgress: (progress) =>
-                  setupTracker.stage(threadId, "checkout", { percent: progress.percent }),
-              },
-            },
-          )
+        const startRefExists = yield* git
+          .hasCommit({ cwd: project.workspaceRoot, refName: startRef })
           .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-        worktreePath = worktree.worktree.path;
-        branch = worktree.worktree.refName;
-        createdWorktreePath = worktreePath;
-        yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
-        yield* setupTracker.stageStatus(threadId, "checkout", "done");
+        if (startRefExists) {
+          if (
+            branch !== null &&
+            isTemporaryWorktreeBranch(branch) &&
+            (yield* git
+              .hasCommit({
+                cwd: project.workspaceRoot,
+                refName: `refs/heads/${WORKTREE_BRANCH_PREFIX}`,
+              })
+              .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))))
+          ) {
+            branch = flattenTemporaryWorktreeBranchName(branch);
+          }
+          yield* setupTracker.stageStatus(threadId, "checkout", "running");
+          const worktree = yield* git
+            .createWorktree(
+              {
+                cwd: project.workspaceRoot,
+                refName: startRef,
+                newRefName: branch!,
+                baseRefName: input.workspaceStrategy.baseRef,
+                path: null,
+              },
+              {
+                progress: {
+                  onWorktreeClaimed: (path) =>
+                    Effect.sync(() => {
+                      createdWorktreePath = path;
+                    }),
+                  onCheckoutProgress: (progress) =>
+                    setupTracker.stage(threadId, "checkout", { percent: progress.percent }),
+                },
+              },
+            )
+            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+          worktreePath = worktree.worktree.path;
+          branch = worktree.worktree.refName;
+          createdWorktreePath = worktreePath;
+          yield* setupTracker.update(threadId, (snapshot) => ({
+            ...snapshot,
+            worktreePath,
+            branch,
+          }));
+          yield* setupTracker.stageStatus(threadId, "checkout", "done");
+        }
+      }
+
+      const useProjectCheckout =
+        input.workspaceStrategy.type === "worktree" && worktreePath === null;
+      if (useProjectCheckout) {
+        if (input.workspaceStrategy.requireWorktree === true) {
+          return yield* mapError(
+            input,
+            "provision-worktree",
+            threadId,
+          )(
+            "This launch requires a separate worktree. Commit the base branch before starting multiple models.",
+          );
+        }
+        branch = null;
+        yield* setupTracker.update(threadId, (snapshot) => ({
+          ...snapshot,
+          branch: null,
+          stages: snapshot.stages.map((stage) =>
+            (stage.id === "fetch" || stage.id === "checkout") && stage.status !== "done"
+              ? { ...stage, status: "skipped", detail: "using project checkout" }
+              : stage,
+          ),
+        }));
       }
 
       // A reused worktree is already recorded, and rewriting it could undo
@@ -480,27 +523,30 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
       }
       yield* setupTracker.stageStatus(threadId, "setup-script", "running");
-      const setup = yield* setupScripts
-        .runForThread({
-          threadId,
-          projectId: input.projectId,
-          projectCwd: project.workspaceRoot,
-          worktreePath: cwd,
-          ...(tracked
-            ? {
-                observeCompletion: {
-                  onOutputLine: (line: string) =>
-                    setupTracker.appendTail(threadId, "setup-script", line),
-                },
-              }
-            : {}),
-          project: {
-            id: project.id,
-            workspaceRoot: project.workspaceRoot,
-            scripts: project.scripts,
-          },
-        })
-        .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
+      // The setup script prepares new worktrees, so the project checkout skips it.
+      const setup = yield* useProjectCheckout
+        ? Effect.succeed({ status: "no-script" } as const)
+        : setupScripts
+            .runForThread({
+              threadId,
+              projectId: input.projectId,
+              projectCwd: project.workspaceRoot,
+              worktreePath: cwd,
+              ...(tracked
+                ? {
+                    observeCompletion: {
+                      onOutputLine: (line: string) =>
+                        setupTracker.appendTail(threadId, "setup-script", line),
+                    },
+                  }
+                : {}),
+              project: {
+                id: project.id,
+                workspaceRoot: project.workspaceRoot,
+                scripts: project.scripts,
+              },
+            })
+            .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
 
       let awaitAsyncSetup = Effect.void;
       if (setup.status === "started") {
