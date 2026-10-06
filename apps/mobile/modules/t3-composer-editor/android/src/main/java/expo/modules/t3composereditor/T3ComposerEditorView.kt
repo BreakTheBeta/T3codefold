@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Build
 import android.text.Editable
@@ -52,6 +53,7 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
   private val onComposerPasteContext by EventDispatcher()
   private val onComposerPasteText by EventDispatcher()
   private val onComposerContentSizeChange by EventDispatcher()
+  private val onComposerSubmit by EventDispatcher()
   private var applyingNativeValue = false
   private var desiredLineHeightPx = 0
   private var lastContentHeight = 0
@@ -89,6 +91,10 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
     editor.pasteImagesListener = { uris ->
       onComposerPasteImages(mapOf("uris" to uris))
     }
+    editor.submitListener = { alternate ->
+      onComposerSubmit(mapOf("alternate" to alternate))
+    }
+    editor.escapeListener = { parkFocus() }
     editor.pasteContextListener = { payload ->
       nativeEventCount += 1
       onComposerPasteContext(
@@ -354,6 +360,32 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
     applySelection(start, end)
   }
 
+  fun setEnterBehavior(behavior: String) {
+    editor.sendOnEnter = behavior != "newline"
+  }
+
+  /**
+   * Esc blurs the composer. Plain clearFocus outside touch mode (where a hardware keyboard puts
+   * the window) hands focus to the first focusable view, often another text field, so the
+   * container holds focus instead until something else takes it.
+   */
+  private fun parkFocus() {
+    isFocusable = true
+    isFocusableInTouchMode = true
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) defaultFocusHighlightEnabled = false
+    requestFocus()
+    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+    imm?.hideSoftInputFromWindow(editor.windowToken, 0)
+  }
+
+  override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: Rect?) {
+    super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+    if (!gainFocus) {
+      isFocusableInTouchMode = false
+      isFocusable = false
+    }
+  }
+
   private fun applySelection(start: Int, end: Int) {
     val textLength = editor.text?.length ?: 0
     val safeStart = start.coerceIn(0, textLength)
@@ -580,8 +612,25 @@ private fun parseTokens(value: String): List<ComposerToken> = try {
   emptyList()
 }
 
+/**
+ * What a hardware Return press does, mirroring iOS: the plain key performs the configured
+ * behavior and Ctrl/Meta performs the send (the alternate send when Return already sends).
+ * Null leaves the key to EditText, which inserts a newline.
+ */
+internal fun composerEnterSubmit(sendOnEnter: Boolean, mod: Boolean, shift: Boolean): Boolean? =
+  when {
+    sendOnEnter && !mod && !shift -> false
+    sendOnEnter && mod && !shift -> true
+    !sendOnEnter && mod -> shift
+    else -> null
+  }
+
 internal class SelectionAwareEditText(context: Context) : EditText(context) {
   var readOnly = false
+  var sendOnEnter = true
+  var submitListener: ((Boolean) -> Unit)? = null
+  var escapeListener: (() -> Unit)? = null
+  private var consumedKeyCode: Int? = null
   var selectionListener: ((Int, Int) -> Unit)? = null
   var pasteImagesListener: ((List<String>) -> Unit)? = null
   var pasteContextListener: ((Map<String, String>) -> Unit)? = null
@@ -646,9 +695,36 @@ internal class SelectionAwareEditText(context: Context) : EditText(context) {
     val handled = when (keyCode) {
       KeyEvent.KEYCODE_DEL -> deleteChip(true)
       KeyEvent.KEYCODE_FORWARD_DEL -> deleteChip(false)
+      KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> submitFromKeyboard(event)
+      // Consumed so the system's Esc-to-Back fallback does not navigate away.
+      KeyEvent.KEYCODE_ESCAPE -> {
+        if (event.repeatCount == 0) escapeListener?.invoke()
+        true
+      }
       else -> false
     }
+    if (handled) consumedKeyCode = keyCode
     return handled || super.onKeyDown(keyCode, event)
+  }
+
+  override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+    if (consumedKeyCode == keyCode) {
+      consumedKeyCode = null
+      return true
+    }
+    return super.onKeyUp(keyCode, event)
+  }
+
+  private fun submitFromKeyboard(event: KeyEvent): Boolean {
+    if (readOnly || !isEnabled) return false
+    val alternate =
+      composerEnterSubmit(
+        sendOnEnter,
+        mod = event.isCtrlPressed || event.isMetaPressed,
+        shift = event.isShiftPressed,
+      ) ?: return false
+    if (event.repeatCount == 0) submitListener?.invoke(alternate)
+    return true
   }
 
   private fun deleteAdjacentChip(beforeLength: Int, afterLength: Int): Boolean = when {

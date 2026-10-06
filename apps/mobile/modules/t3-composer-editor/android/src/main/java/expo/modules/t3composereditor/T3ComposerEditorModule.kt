@@ -122,6 +122,9 @@ class T3ComposerEditorModule : Module() {
       Prop("maxInputChars") { view: T3ComposerEditorView, maxInputChars: Int ->
         view.setMaxInputChars(maxInputChars)
       }
+      Prop("enterBehavior") { view: T3ComposerEditorView, behavior: String ->
+        view.setEnterBehavior(behavior)
+      }
 
       Events(
         "onComposerChange",
@@ -133,6 +136,7 @@ class T3ComposerEditorModule : Module() {
         "onComposerPasteContext",
         "onComposerPasteText",
         "onComposerContentSizeChange",
+        "onComposerSubmit",
       )
 
       AsyncFunction("focus") { view: T3ComposerEditorView ->

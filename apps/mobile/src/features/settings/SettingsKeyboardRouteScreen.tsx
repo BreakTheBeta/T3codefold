@@ -28,7 +28,10 @@ const ENTER_BEHAVIOR_OPTIONS: ReadonlyArray<{
   {
     behavior: "newline",
     label: "Insert new line",
-    description: "Return inserts a new line. Command-Return sends the message.",
+    description:
+      Platform.OS === "android"
+        ? "Return inserts a new line. Ctrl-Return sends the message."
+        : "Return inserts a new line. Command-Return sends the message.",
   },
 ];
 
