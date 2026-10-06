@@ -1,158 +1,91 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import Animated, {
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-  type SharedValue,
-} from "react-native-reanimated";
+import { useEffect, useRef, type ReactNode } from "react";
+import { View } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { type WorkspacePaneLayout } from "../../lib/layout";
-import { constrainFoldablePaneWidth } from "../../lib/foldable-pane-layout";
+import { type PaneDividerRelease } from "../../lib/foldable-pane-layout";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
-import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
+import { WORKSPACE_PANE_REVEAL_TIMING } from "./workspace-pane-animation";
 import { WorkspacePaneDivider } from "./workspace-pane-divider";
 
 /**
- * The trailing inspector column: resize divider + animated reveal.
+ * The trailing inspector column: resize divider + reveal.
  *
  * Rendered by AdaptiveWorkspaceLayout as a SIBLING of the navigator so the
  * native stack header (and its trailing toolbar items) spans only the content
  * pane — the inspector owns its own full-height column, mirroring how each
  * column of a UISplitViewController has its own chrome.
  *
+ * Widths change in a single layout pass; only the newly shown pane fades in.
+ * A hidden pane keeps its content mounted at its last width (clipped to zero)
+ * so files keep their scroll position and a terminal never reports a sliver
+ * width to its PTY.
+ *
  * Receives the pane layout via props (not the workspace context hook) so this
  * module stays import-cycle-free with AdaptiveWorkspaceLayout.
  */
 export function WorkspaceInspectorPane(props: {
   readonly pathname: string;
-  readonly renderedInspectorWidth: SharedValue<number>;
-  /**
-   * When false the pane animates closed but keeps its content mounted for the
-   * exit transition (a route that lost focus). `onClosed` fires once the
-   * close animation settles so the owner can drop the stale content.
-   */
-  readonly active?: boolean;
-  readonly onClosed?: () => void;
   readonly panes: WorkspacePaneLayout;
   readonly renderInspector?: () => ReactNode;
-  readonly setAuxiliaryPaneWidth: (width: number) => void;
+  readonly snapWidths?: ReadonlyArray<number>;
+  readonly onDividerRelease: (release: PaneDividerRelease) => void;
+  readonly onToggleMaximized: () => void;
 }) {
-  const { panes, setAuxiliaryPaneWidth } = props;
-  const inspectorWidth = panes.auxiliaryPaneWidth;
-  const inspectorSupported = props.renderInspector !== undefined && inspectorWidth !== null;
-  const inspectorVisible =
-    inspectorSupported && panes.auxiliaryPaneVisible && (props.active ?? true);
-  const resizeStartWidth = useRef(0);
-  const [resizing, setResizing] = useState(false);
+  const { panes } = props;
+  const width = panes.auxiliaryPaneWidth;
+  const visible = props.renderInspector !== undefined && panes.auxiliaryPaneVisible;
+  const lastVisibleWidth = useRef(width ?? 0);
+  if (visible && width !== null) lastVisibleWidth.current = width;
 
-  // A file-to-file replace remounts the route. Initialize an already-visible
-  // inspector at its final position so route replacement never replays an
-  // entering transition. Only visibility and explicit resizing change it.
-  const inspectorProgress = useSharedValue(inspectorVisible ? 1 : 0);
-  const { renderedInspectorWidth } = props;
-  // The content keeps its own width so the reveal (outer width) clips a
-  // fully-laid-out pane instead of reflowing text every frame. When the OPEN
-  // pane's target width changes (e.g. the sidebar toggles and reserves
-  // space), animate the content width in lockstep rather than snapping.
-  const renderedContentWidth = useSharedValue(inspectorWidth ?? 0);
-
-  const onClosed = props.onClosed;
+  // A route replace remounts the screen that owns the inspector; starting at
+  // the current visibility keeps an already-open pane from replaying its reveal.
+  const reveal = useSharedValue(visible ? 1 : 0);
   useEffect(() => {
-    inspectorProgress.value = withTiming(
-      inspectorVisible ? 1 : 0,
-      WORKSPACE_PANE_TIMING,
-      (finished) => {
-        if (finished === true && !inspectorVisible && onClosed !== undefined) {
-          runOnJS(onClosed)();
-        }
-      },
-    );
-    const targetWidth = inspectorVisible ? (inspectorWidth ?? 0) : 0;
-    renderedInspectorWidth.value = resizing
-      ? targetWidth
-      : withTiming(targetWidth, WORKSPACE_PANE_TIMING);
-  }, [
-    inspectorProgress,
-    inspectorVisible,
-    inspectorWidth,
-    onClosed,
-    renderedInspectorWidth,
-    resizing,
-  ]);
+    reveal.value = visible ? withTiming(1, WORKSPACE_PANE_REVEAL_TIMING) : 0;
+  }, [reveal, visible]);
+  const revealStyle = useAnimatedStyle(() => ({
+    opacity: reveal.value,
+    transform: [{ translateX: (1 - reveal.value) * 16 }],
+  }));
 
-  useEffect(() => {
-    const targetWidth = inspectorWidth ?? 0;
-    if (!inspectorVisible || resizing) {
-      // Hidden panes re-measure silently; during a divider drag the content
-      // tracks the finger directly.
-      renderedContentWidth.value = targetWidth;
-      return;
-    }
-    renderedContentWidth.value = withTiming(targetWidth, WORKSPACE_PANE_TIMING);
-  }, [inspectorVisible, inspectorWidth, renderedContentWidth, resizing]);
-
-  const inspectorStyle = useAnimatedStyle(
-    () => ({
-      opacity: inspectorProgress.value,
-      transform: [{ translateX: (1 - inspectorProgress.value) * 24 }],
-      width: renderedInspectorWidth.value,
-    }),
-    [],
-  );
-  const inspectorContentStyle = useAnimatedStyle(() => ({ width: renderedContentWidth.value }), []);
-  const beginResize = useCallback(() => {
-    resizeStartWidth.current = inspectorWidth ?? 0;
-    setResizing(true);
-  }, [inspectorWidth]);
-  const resizeBy = useCallback(
-    (delta: number) => {
-      setAuxiliaryPaneWidth(
-        constrainFoldablePaneWidth({
-          preferredWidth: resizeStartWidth.current + delta,
-          availableWidth: panes.contentPaneWidth,
-        }),
-      );
-    },
-    [panes.contentPaneWidth, setAuxiliaryPaneWidth],
-  );
-  const endResize = useCallback(() => {
-    setResizing(false);
-  }, []);
+  if (props.renderInspector === undefined || width === null) return null;
 
   return (
     <>
-      {inspectorVisible ? (
+      {visible && panes.auxiliaryPaneWidthRange !== null ? (
         <WorkspacePaneDivider
           accessibilityLabel="Resize detail pane"
-          currentWidth={inspectorWidth ?? 0}
-          resizeDirection={-1}
-          onResizeStart={beginResize}
-          onResizeBy={resizeBy}
-          onResizeEnd={endResize}
+          width={width}
+          range={panes.auxiliaryPaneWidthRange}
+          maximized={panes.auxiliaryPaneMaximized}
+          {...(props.snapWidths ? { snapWidths: props.snapWidths } : {})}
+          onRelease={props.onDividerRelease}
+          onToggleMaximized={props.onToggleMaximized}
         />
       ) : null}
-      {inspectorSupported ? (
+      <View
+        className="shrink-0 overflow-hidden"
+        accessibilityElementsHidden={!visible}
+        collapsable={false}
+        importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
+        pointerEvents={visible ? "auto" : "none"}
+        style={{ width: visible ? width : 0 }}
+      >
         <Animated.View
-          className="shrink-0 overflow-hidden"
-          accessibilityElementsHidden={!inspectorVisible}
-          collapsable={false}
-          importantForAccessibility={inspectorVisible ? "auto" : "no-hide-descendants"}
-          pointerEvents={inspectorVisible ? "auto" : "none"}
-          style={inspectorStyle}
+          className="flex-1"
+          style={[{ width: visible ? width : lastVisibleWidth.current }, revealStyle]}
         >
-          <Animated.View className="flex-1" style={inspectorContentStyle}>
-            <RenderErrorBoundary
-              resetKeys={[props.pathname]}
-              renderFallback={(fallback) => (
-                <RenderFailureView {...fallback} title="The inspector couldn't be displayed" />
-              )}
-            >
-              <InspectorRenderer render={props.renderInspector} />
-            </RenderErrorBoundary>
-          </Animated.View>
+          <RenderErrorBoundary
+            resetKeys={[props.pathname]}
+            renderFallback={(fallback) => (
+              <RenderFailureView {...fallback} title="The inspector couldn't be displayed" />
+            )}
+          >
+            <InspectorRenderer render={props.renderInspector} />
+          </RenderErrorBoundary>
         </Animated.View>
-      ) : null}
+      </View>
     </>
   );
 }

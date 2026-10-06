@@ -1,3 +1,4 @@
+import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { ThreadContextDivider } from "./thread-context-divider";
 import { ThreadHandoffRow } from "./thread-handoff-row";
 import { SecretRequestCard } from "./SecretRequestCard";
@@ -2176,8 +2177,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     // This never runs for scrolling, streamed output, or disclosure toggles.
     props.listRef.current?.clearCaches({ mode: "sizes" });
   }, [workRowSizing.textSizeKey, props.listRef]);
+  const { panes } = useAdaptiveWorkspaceLayout();
+  // Seed from the workspace's chat column so the first frame is laid out at
+  // its real width instead of 0; layout then refines it.
   const [viewportWidth, setViewportWidth] = useState(() =>
-    props.layoutVariant === "split" ? 0 : windowWidth,
+    props.layoutVariant === "split" ? panes.contentPaneWidth : windowWidth,
   );
   const [viewportHeight, setViewportHeight] = useState(0);
   const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
@@ -2635,6 +2639,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const handleViewportLayout = useCallback((event: LayoutChangeEvent) => {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
     const nextHeight = Math.round(event.nativeEvent.layout.height);
+    // A chat collapsed behind a maximized inspector keeps its last layout.
+    if (nextWidth === 0) return;
     setViewportWidth((current) => (Math.abs(current - nextWidth) > 1 ? nextWidth : current));
     setViewportHeight((current) => (Math.abs(current - nextHeight) > 1 ? nextHeight : current));
   }, []);

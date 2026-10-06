@@ -75,7 +75,6 @@ import { projectThreadContentPresentation } from "./threadContentPresentation";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   useAdaptiveWorkspaceLayout,
-  useAdaptiveWorkspacePaneRole,
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
@@ -205,11 +204,6 @@ interface ThreadInspectorSelection {
   readonly terminalId?: string | null;
 }
 
-function InspectorPaneRoleActivation() {
-  useAdaptiveWorkspacePaneRole("inspector");
-  return null;
-}
-
 function firstRouteParam(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) {
     return value[0] ?? null;
@@ -337,7 +331,6 @@ function ThreadRouteContent(
   const headerColor = themeVariables["--color-header"];
   const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
-  useFoldWorkspaceAndroidBack();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
   const {
@@ -436,23 +429,6 @@ function ThreadRouteContent(
     inspectorSelection.mode === "terminal"
       ? inspectorSelection.terminalId
       : null;
-  useEffect(() => {
-    if (
-      fileInspector.supported &&
-      selectedThreadCwd === null &&
-      inspectorMode === null &&
-      panes.auxiliaryPaneVisible
-    ) {
-      toggleAuxiliaryPane();
-    }
-  }, [
-    fileInspector.supported,
-    inspectorMode,
-    panes.auxiliaryPaneVisible,
-    selectedThreadCwd,
-    toggleAuxiliaryPane,
-  ]);
-
   useEffect(() => {
     setInspectorSelection((current) => {
       if (props.renderInspector === undefined) {
@@ -562,7 +538,7 @@ function ThreadRouteContent(
       return;
     }
     setInspectorSelection({ routeThreadIdentity, mode: "git" });
-    showAuxiliaryPane("inspector");
+    showAuxiliaryPane();
   }, [
     fileInspector.supported,
     inspectorMode,
@@ -590,7 +566,7 @@ function ThreadRouteContent(
       return;
     }
     setInspectorSelection({ routeThreadIdentity, mode: nextMode });
-    showAuxiliaryPane("inspector");
+    showAuxiliaryPane();
   }, [
     fileInspector.supported,
     inspectorMode,
@@ -759,7 +735,7 @@ function ThreadRouteContent(
           mode: "terminal",
           terminalId: nextTerminalId,
         });
-        showAuxiliaryPane("inspector");
+        showAuxiliaryPane();
         return;
       }
 
@@ -1153,7 +1129,6 @@ function ThreadRouteContent(
 
   return (
     <>
-      {activeInspectorRenderer ? <InspectorPaneRoleActivation /> : null}
       <ThreadHeader
         title={selectedThread.title}
         subtitle={headerSubtitle}

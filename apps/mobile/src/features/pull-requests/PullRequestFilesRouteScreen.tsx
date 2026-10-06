@@ -23,9 +23,9 @@ import {
 } from "../diffs/nativeReviewDiffSurface";
 import {
   useAdaptiveWorkspaceLayout,
-  useAdaptiveWorkspacePaneRole,
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
+import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
 import {
   getCachedNativeReviewDiffData,
   NATIVE_REVIEW_DIFF_CONTENT_WIDTH,
@@ -60,7 +60,6 @@ const NO_SELECTED_ROWS: ReadonlyArray<string> = [];
 export function PullRequestFilesRouteScreen(props: StaticScreenProps<PullRequestRouteParams>) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  useAdaptiveWorkspacePaneRole("inspector");
   const { panes, showAuxiliaryPane, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
   const { themeAppearance } = useAppearancePreferences();
@@ -73,7 +72,7 @@ export function PullRequestFilesRouteScreen(props: StaticScreenProps<PullRequest
   const reviewKey = target === null ? "" : pullRequestReviewKey(target);
 
   useEffect(() => {
-    showAuxiliaryPane("inspector");
+    showAuxiliaryPane();
   }, [reviewKey, showAuxiliaryPane]);
 
   const diff = usePullRequestDiff(target);
@@ -147,6 +146,7 @@ export function PullRequestFilesRouteScreen(props: StaticScreenProps<PullRequest
   );
   const showFilesPane = parsedDiff.kind === "files";
   useRegisterWorkspaceInspector(showFilesPane ? renderInspector : undefined);
+  useFoldWorkspaceAndroidBack();
 
   const handleVisibleFileChange = useCallback(
     (event: NativeSyntheticEvent<{ readonly fileId?: string | null }>) => {

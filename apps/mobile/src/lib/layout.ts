@@ -1,6 +1,6 @@
 import { scaledTypographyLineHeight } from "./appearancePreferences";
 import { MOBILE_TYPOGRAPHY } from "./typography";
-import { constrainFoldablePaneWidth } from "./foldable-pane-layout";
+import { constrainFoldablePaneWidth, FOLDABLE_PANE_COMPACT_WIDTH } from "./foldable-pane-layout";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -19,7 +19,6 @@ export const SPLIT_LAYOUT_MIN_HEIGHT = 600;
 export const SPLIT_SIDEBAR_MIN_WIDTH = 280;
 const SPLIT_SIDEBAR_DEFAULT_MAX_WIDTH = 380;
 
-export const AUXILIARY_PANE_MIN_CONTENT_WIDTH = 960;
 export const CHAT_CONTENT_MAX_WIDTH = 960;
 // min-h-8 uses the 14px rem configured in metro.config.js.
 export const THREAD_WORK_ROW_MIN_HEIGHT = 28;
@@ -45,11 +44,10 @@ export function deriveThreadWorkLogSizing(input: {
   };
 }
 
-export const AUXILIARY_PANE_MIN_WIDTH = 260;
-export const AUXILIARY_PANE_MAX_WIDTH = 480;
-const AUXILIARY_PANE_DEFAULT_MAX_WIDTH = 320;
-const FILE_INSPECTOR_MIN_VIEWPORT_WIDTH = SPLIT_LAYOUT_MIN_WIDTH;
-const FILE_INSPECTOR_MIN_MAIN_WIDTH = 560;
+const INSPECTOR_DEFAULT_MIN_WIDTH = 260;
+const INSPECTOR_DEFAULT_MAX_WIDTH = 320;
+/** Below this, the chat beside an open inspector yields the thread sidebar's space. */
+const CHAT_MIN_WIDTH_BESIDE_SIDEBAR = 560;
 
 export type LayoutVariant = "compact" | "split";
 
@@ -62,11 +60,17 @@ export interface Layout {
 
 export interface WorkspacePaneLayout {
   readonly primarySidebarVisible: boolean;
+  /** The sidebar is preferred but yields to the inspector; showing it closes the inspector. */
   readonly primarySidebarSuppressedByAuxiliary: boolean;
+  /** Width of the chat column, between the sidebar and the inspector. */
   readonly contentPaneWidth: number;
   readonly supportsAuxiliaryPane: boolean;
   readonly auxiliaryPaneVisible: boolean;
+  readonly auxiliaryPaneMaximized: boolean;
+  /** Rendered inspector width: the whole workspace when maximized. */
   readonly auxiliaryPaneWidth: number | null;
+  /** Resting widths the divider may drag the inspector between. */
+  readonly auxiliaryPaneWidthRange: { readonly min: number; readonly max: number } | null;
 }
 
 export interface FileInspectorPaneLayout {
@@ -85,8 +89,6 @@ export function deriveThreadFeedInitialContentInset(input: {
 
   return { bottom: Math.max(0, input.bottomContentInset) };
 }
-
-export type WorkspaceAuxiliaryPaneRole = "supplementary" | "inspector";
 
 export function deriveLayout(input: { readonly width: number; readonly height: number }): Layout {
   const { width, height } = input;
@@ -113,134 +115,94 @@ export function deriveLayout(input: { readonly width: number; readonly height: n
   };
 }
 
+/**
+ * Splits a split-view workspace into thread sidebar, chat, and the trailing
+ * inspector (files, git, terminal, review). The inspector only takes space
+ * while a route has registered content for it. When it would squeeze the chat
+ * below a readable width, the sidebar yields; maximizing gives it everything.
+ */
 export function deriveWorkspacePaneLayout(input: {
   readonly layout: Layout;
   readonly viewportWidth: number;
   readonly primarySidebarPreferredVisible: boolean;
   readonly auxiliaryPanePreferredVisible: boolean;
-  readonly auxiliaryPaneRole?: WorkspaceAuxiliaryPaneRole;
+  /** Whether the focused route has inspector content to show. */
+  readonly auxiliaryPaneRegistered?: boolean;
+  readonly auxiliaryPaneMaximized?: boolean;
   readonly auxiliaryPanePreferredWidth?: number;
 }): WorkspacePaneLayout {
   const viewportWidth = Math.max(0, input.viewportWidth);
-  const auxiliaryPaneRole = input.auxiliaryPaneRole ?? "supplementary";
-  const preferredPrimarySidebarVisible =
-    input.layout.usesSplitView && input.primarySidebarPreferredVisible;
-  const preferredPrimarySidebarWidth = preferredPrimarySidebarVisible
-    ? (input.layout.listPaneWidth ?? 0)
-    : 0;
-
-  if (auxiliaryPaneRole === "inspector") {
-    let fileInspector = deriveFileInspectorPaneLayout({
-      layout: input.layout,
-      viewportWidth,
-      preferredWidth: input.auxiliaryPanePreferredWidth,
-      reservedLeadingWidth: preferredPrimarySidebarWidth,
+  const supportsAuxiliaryPane = input.layout.usesSplitView;
+  const auxiliaryPaneVisible =
+    supportsAuxiliaryPane &&
+    input.auxiliaryPanePreferredVisible &&
+    (input.auxiliaryPaneRegistered ?? true);
+  const sidebarPreferred = input.layout.usesSplitView && input.primarySidebarPreferredVisible;
+  const listPaneWidth = input.layout.listPaneWidth ?? 0;
+  const restingInspectorWidth = (availableWidth: number) =>
+    constrainFoldablePaneWidth({
+      preferredWidth:
+        input.auxiliaryPanePreferredWidth ??
+        clamp(
+          Math.round(availableWidth * 0.28),
+          INSPECTOR_DEFAULT_MIN_WIDTH,
+          INSPECTOR_DEFAULT_MAX_WIDTH,
+        ),
+      availableWidth,
     });
-    const auxiliaryPaneVisible = fileInspector.supported && input.auxiliaryPanePreferredVisible;
-    const primarySidebarSuppressedByAuxiliary =
-      preferredPrimarySidebarVisible &&
-      auxiliaryPaneVisible &&
-      fileInspector.width !== null &&
-      input.layout.listPaneWidth !== null &&
-      viewportWidth - input.layout.listPaneWidth - fileInspector.width <
-        FILE_INSPECTOR_MIN_MAIN_WIDTH;
-    if (primarySidebarSuppressedByAuxiliary) {
-      fileInspector = deriveFileInspectorPaneLayout({
-        layout: input.layout,
-        viewportWidth,
-        preferredWidth: input.auxiliaryPanePreferredWidth ?? fileInspector.width ?? undefined,
-        reservedLeadingWidth: 0,
-      });
-    }
-    const primarySidebarVisible =
-      preferredPrimarySidebarVisible && !primarySidebarSuppressedByAuxiliary;
-    const primarySidebarWidth = primarySidebarVisible ? (input.layout.listPaneWidth ?? 0) : 0;
+  const widthRange = (availableWidth: number) => ({
+    min: FOLDABLE_PANE_COMPACT_WIDTH,
+    max: Math.max(FOLDABLE_PANE_COMPACT_WIDTH, availableWidth - FOLDABLE_PANE_COMPACT_WIDTH),
+  });
 
+  if (!supportsAuxiliaryPane) {
     return {
-      primarySidebarVisible,
-      primarySidebarSuppressedByAuxiliary,
-      contentPaneWidth: Math.max(0, viewportWidth - primarySidebarWidth),
-      supportsAuxiliaryPane: fileInspector.supported,
-      auxiliaryPaneVisible,
-      auxiliaryPaneWidth: fileInspector.width,
+      primarySidebarVisible: false,
+      primarySidebarSuppressedByAuxiliary: false,
+      contentPaneWidth: viewportWidth,
+      supportsAuxiliaryPane: false,
+      auxiliaryPaneVisible: false,
+      auxiliaryPaneMaximized: false,
+      auxiliaryPaneWidth: null,
+      auxiliaryPaneWidthRange: null,
     };
   }
 
-  const contentPaneWidth = Math.max(0, viewportWidth - preferredPrimarySidebarWidth);
-  const supportsAuxiliaryPane =
-    input.layout.usesSplitView && contentPaneWidth >= AUXILIARY_PANE_MIN_CONTENT_WIDTH;
-  const auxiliaryPaneVisible = supportsAuxiliaryPane && input.auxiliaryPanePreferredVisible;
-  const defaultAuxiliaryPaneWidth = clamp(
-    Math.round(contentPaneWidth * 0.28),
-    AUXILIARY_PANE_MIN_WIDTH,
-    AUXILIARY_PANE_DEFAULT_MAX_WIDTH,
-  );
+  if (auxiliaryPaneVisible && input.auxiliaryPaneMaximized === true) {
+    return {
+      primarySidebarVisible: false,
+      primarySidebarSuppressedByAuxiliary: sidebarPreferred,
+      contentPaneWidth: 0,
+      supportsAuxiliaryPane,
+      auxiliaryPaneVisible,
+      auxiliaryPaneMaximized: true,
+      auxiliaryPaneWidth: viewportWidth,
+      auxiliaryPaneWidthRange: widthRange(viewportWidth),
+    };
+  }
+
+  const sidebarWidth = sidebarPreferred ? listPaneWidth : 0;
+  const besideSidebarWidth = restingInspectorWidth(viewportWidth - sidebarWidth);
+  const primarySidebarSuppressedByAuxiliary =
+    sidebarPreferred &&
+    auxiliaryPaneVisible &&
+    viewportWidth - listPaneWidth - besideSidebarWidth < CHAT_MIN_WIDTH_BESIDE_SIDEBAR;
+  const primarySidebarVisible = sidebarPreferred && !primarySidebarSuppressedByAuxiliary;
+  const availableWidth = viewportWidth - (primarySidebarVisible ? listPaneWidth : 0);
+  const auxiliaryPaneWidth = primarySidebarSuppressedByAuxiliary
+    ? restingInspectorWidth(availableWidth)
+    : besideSidebarWidth;
 
   return {
-    primarySidebarVisible: preferredPrimarySidebarVisible,
-    primarySidebarSuppressedByAuxiliary: false,
-    contentPaneWidth,
+    primarySidebarVisible,
+    primarySidebarSuppressedByAuxiliary,
+    contentPaneWidth: Math.max(0, availableWidth - (auxiliaryPaneVisible ? auxiliaryPaneWidth : 0)),
     supportsAuxiliaryPane,
     auxiliaryPaneVisible,
-    auxiliaryPaneWidth: supportsAuxiliaryPane
-      ? constrainAuxiliaryPaneWidth({
-          preferredWidth: input.auxiliaryPanePreferredWidth ?? defaultAuxiliaryPaneWidth,
-          availableWidth: contentPaneWidth,
-        })
-      : null,
+    auxiliaryPaneMaximized: false,
+    auxiliaryPaneWidth,
+    auxiliaryPaneWidthRange: widthRange(availableWidth),
   };
-}
-
-export function deriveFileInspectorPaneLayout(input: {
-  readonly layout: Layout;
-  readonly viewportWidth: number;
-  readonly preferredWidth?: number;
-  readonly reservedLeadingWidth?: number;
-}): FileInspectorPaneLayout {
-  const viewportWidth = Math.max(0, input.viewportWidth);
-  const reservedLeadingWidth = Number.isFinite(input.reservedLeadingWidth)
-    ? Math.max(0, input.reservedLeadingWidth ?? 0)
-    : 0;
-  const availableContentWidth = Math.max(0, viewportWidth - reservedLeadingWidth);
-  const supported =
-    input.layout.usesSplitView && viewportWidth >= FILE_INSPECTOR_MIN_VIEWPORT_WIDTH;
-
-  return {
-    supported,
-    width: supported
-      ? constrainFoldablePaneWidth({
-          preferredWidth:
-            input.preferredWidth ??
-            clamp(
-              Math.round(availableContentWidth * 0.28),
-              AUXILIARY_PANE_MIN_WIDTH,
-              AUXILIARY_PANE_DEFAULT_MAX_WIDTH,
-            ),
-          availableWidth: availableContentWidth,
-        })
-      : null,
-  };
-}
-
-/**
- * Keep an auxiliary pane within native-feeling bounds without squeezing its
- * neighboring content below a usable reading/editor width.
- */
-export function constrainAuxiliaryPaneWidth(input: {
-  readonly preferredWidth: number;
-  readonly availableWidth: number;
-}): number {
-  const safePreferredWidth = Number.isFinite(input.preferredWidth)
-    ? input.preferredWidth
-    : AUXILIARY_PANE_MIN_WIDTH;
-  const availableWidth = Number.isFinite(input.availableWidth)
-    ? Math.max(0, input.availableWidth)
-    : 0;
-  const maxWidth = Math.max(
-    AUXILIARY_PANE_MIN_WIDTH,
-    Math.min(AUXILIARY_PANE_MAX_WIDTH, availableWidth - FILE_INSPECTOR_MIN_MAIN_WIDTH),
-  );
-  return clamp(Math.round(safePreferredWidth), AUXILIARY_PANE_MIN_WIDTH, maxWidth);
 }
 
 export function deriveCenteredContentHorizontalPadding(input: {

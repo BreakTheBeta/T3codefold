@@ -22,6 +22,13 @@ describe("resolveAdaptiveWorkspaceBackAction", () => {
   it("unwinds the Fold workspace before leaving the thread", () => {
     expect(
       resolveAdaptiveWorkspaceBackAction({
+        auxiliaryPaneMaximized: true,
+        auxiliaryPaneVisible: true,
+        primarySidebarVisible: false,
+      }),
+    ).toBe("restore-inspector");
+    expect(
+      resolveAdaptiveWorkspaceBackAction({
         auxiliaryPaneVisible: true,
         primarySidebarVisible: false,
       }),

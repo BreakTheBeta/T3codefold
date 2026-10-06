@@ -33,9 +33,9 @@ import { projectEnvironment } from "../../state/projects";
 import type { AssetUrlFailureReason } from "../../state/asset-url-state";
 import {
   useAdaptiveWorkspaceLayout,
-  useAdaptiveWorkspacePaneRole,
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
+import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
@@ -413,7 +413,6 @@ function FilesToolbarBottomFade() {
 }
 
 export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
-  useAdaptiveWorkspacePaneRole("inspector");
   const navigation = useNavigation();
   const { fileInspector, layout, showAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const [searchQuery, setSearchQuery] = useState("");
@@ -494,7 +493,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
   useEffect(() => {
     if (fileInspector.supported && cwd !== null && !revealedInspectorRef.current) {
       revealedInspectorRef.current = true;
-      showAuxiliaryPane("inspector");
+      showAuxiliaryPane();
     }
   }, [cwd, fileInspector.supported, showAuxiliaryPane]);
 
@@ -558,7 +557,6 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
 }
 
 export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
-  useAdaptiveWorkspacePaneRole("inspector");
   const navigation = useNavigation();
   const { fileInspector } = useAdaptiveWorkspaceLayout();
   const { appearance, setCodeWordBreak } = useAppearancePreferences();
@@ -722,6 +720,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
     [inspectorHeaderInset, renderInspector],
   );
   useRegisterWorkspaceInspector(fileInspector.supported ? renderWorkspaceInspector : undefined);
+  useFoldWorkspaceAndroidBack();
 
   const fileMenuActions = useMemo(() => {
     if (relativePath === null) return [];
