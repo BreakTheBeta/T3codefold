@@ -8,6 +8,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { cn } from "../../lib/cn";
 import { resolvePaneDividerRelease, type PaneDividerRelease } from "../../lib/foldable-pane-layout";
 
 const ACCESSIBILITY_RESIZE_STEP = 24;
@@ -123,7 +124,12 @@ export function WorkspacePaneDivider(props: WorkspacePaneDividerProps) {
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View
-        className="relative z-[100] -mx-3 w-6 self-stretch items-center justify-center"
+        // Straddles the seam; a maximized pane's seam is the screen edge, so the
+        // handle sits just inside it instead of half off-screen.
+        className={cn(
+          "relative z-[100] w-6 self-stretch items-center justify-center",
+          props.maximized ? "-mr-6" : "-mx-3",
+        )}
         accessible
         accessibilityActions={[
           { name: "increment", label: "Make pane wider" },

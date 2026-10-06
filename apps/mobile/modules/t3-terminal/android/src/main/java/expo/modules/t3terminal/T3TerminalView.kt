@@ -247,6 +247,11 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
     inputView.setPadding(0, 0, 0, 0)
     inputView.setOnEditorActionListener { _, actionId, event ->
+      // A single-line EditText moves focus to the next view on an unconsumed hardware
+      // Enter key-up, which would leave the terminal deaf to the next keys.
+      if (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP) {
+        return@setOnEditorActionListener true
+      }
       val isKeyUp = event?.action == KeyEvent.ACTION_UP
       val isImeSend = actionId == EditorInfo.IME_ACTION_SEND && !isKeyUp
       val isHardwareEnter = event?.keyCode == KeyEvent.KEYCODE_ENTER &&
