@@ -37,6 +37,10 @@ export interface NativeTerminalSurfaceProps extends ViewProps {
   readonly fontSize: number;
   readonly onInput?: (event: NativeSyntheticEvent<TerminalInputEvent>) => void;
   readonly onOutputApplied?: (event: NativeSyntheticEvent<TerminalSurfaceOutputAck>) => void;
+  /** Android only: DECCKM (application cursor keys) changed. */
+  readonly onCursorKeysChange?: (
+    event: NativeSyntheticEvent<{ readonly application: boolean }>,
+  ) => void;
   readonly onResize?: (event: NativeSyntheticEvent<TerminalResizeEvent>) => void;
 }
 

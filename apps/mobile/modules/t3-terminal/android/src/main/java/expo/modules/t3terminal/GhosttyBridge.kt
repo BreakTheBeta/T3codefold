@@ -24,6 +24,19 @@ internal object GhosttyBridge {
   @JvmStatic external fun nativeFeed(handle: Long, data: ByteArray): ByteArray
 
   @JvmStatic
+  @Suppress("LongParameterList")
+  external fun nativeEncodeKey(
+    handle: Long,
+    keyCode: Int,
+    metaState: Int,
+    text: Int,
+    unshifted: Int,
+    repeat: Boolean
+  ): ByteArray
+
+  @JvmStatic external fun nativeApplicationCursorKeys(handle: Long): Boolean
+
+  @JvmStatic
   external fun nativeResize(
     handle: Long,
     cols: Int,

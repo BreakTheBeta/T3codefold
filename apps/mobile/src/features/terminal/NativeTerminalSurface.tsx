@@ -59,6 +59,8 @@ interface TerminalSurfaceProps extends ViewProps {
   readonly theme?: TerminalTheme;
   readonly onInput: (data: string) => void;
   readonly onResize: (size: { readonly cols: number; readonly rows: number }) => void;
+  /** Whether the terminal wants application cursor keys (DECCKM) for its arrow keys. */
+  readonly onApplicationCursorKeysChange?: (enabled: boolean) => void;
 }
 
 function estimateGridSize(input: {
@@ -288,6 +290,9 @@ export const TerminalSurface = memo(function TerminalSurface(props: TerminalSurf
           terminalKey={props.terminalKey}
           output={nativeOutput.write}
           onOutputApplied={nativeOutput.handleOutputApplied}
+          onCursorKeysChange={(event) =>
+            props.onApplicationCursorKeysChange?.(event.nativeEvent.application)
+          }
           fontSize={fontSize}
           style={{ flex: 1 }}
           themeConfig={buildGhosttyThemeConfig(theme)}

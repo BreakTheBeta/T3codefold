@@ -343,6 +343,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   const sentInitialInputKeyRef = useRef<string | null>(null);
   /** Default grid is always valid for attach; onResize refines cols/rows. Requiring a cached size blocked bootstrap for new terminal routes. */
   const [hasMeasuredSurface, setHasMeasuredSurface] = useState(true);
+  // Android reports DECCKM so the toolbar arrows match what the hardware keys send.
+  const [applicationCursorKeys, setApplicationCursorKeys] = useState(false);
   const [pendingModifierState, setPendingModifierState] = useState<{
     readonly terminalId: string;
     readonly value: PendingModifier | null;
@@ -554,6 +556,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     pendingModifierState.terminalId === terminalId ? pendingModifierState.value : null;
   const headerSubtitle = selectedThreadProject?.title ?? "";
   const terminalToolbarActions = useMemo<ReadonlyArray<TerminalToolbarAction>>(() => {
+    const cursorKeyPrefix = applicationCursorKeys ? "\u001bO" : "\u001b[";
     const modifierActions: ReadonlyArray<TerminalToolbarAction> =
       hostPlatform === "mac"
         ? [
@@ -571,16 +574,16 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       { kind: "send", key: "tab", label: "tab", data: "\t" },
       { kind: "paste", key: "paste", label: "paste" },
       { kind: "clear", key: "clear", label: "clear" },
-      { kind: "send", key: "up", label: "↑", data: "\u001b[A" },
-      { kind: "send", key: "down", label: "↓", data: "\u001b[B" },
-      { kind: "send", key: "left", label: "←", data: "\u001b[D" },
-      { kind: "send", key: "right", label: "→", data: "\u001b[C" },
+      { kind: "send", key: "up", label: "↑", data: `${cursorKeyPrefix}A` },
+      { kind: "send", key: "down", label: "↓", data: `${cursorKeyPrefix}B` },
+      { kind: "send", key: "left", label: "←", data: `${cursorKeyPrefix}D` },
+      { kind: "send", key: "right", label: "→", data: `${cursorKeyPrefix}C` },
       { kind: "send", key: "tilde", label: "~", data: "~" },
       { kind: "send", key: "pipe", label: "|", data: "|" },
       { kind: "send", key: "slash", label: "/", data: "/" },
       { kind: "send", key: "dash", label: "-", data: "-" },
     ];
-  }, [hostPlatform]);
+  }, [applicationCursorKeys, hostPlatform]);
   const keyboardState = useKeyboardState((state) => ({
     height: state.height,
     isVisible: state.isVisible,
@@ -1244,6 +1247,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
                     if (text.trim()) setCapturedOutput(text);
                     else Alert.alert("No terminal output", "There is no visible output to attach.");
                   }}
+                  onApplicationCursorKeysChange={setApplicationCursorKeys}
                   onInput={handleInput}
                   onResize={handleResize}
                   style={{ flex: 1 }}

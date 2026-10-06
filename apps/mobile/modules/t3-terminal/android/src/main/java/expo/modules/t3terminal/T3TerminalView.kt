@@ -25,6 +25,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   private val onResize by EventDispatcher()
   private val onCapture by EventDispatcher()
   private val onOutputApplied by EventDispatcher()
+  private val onCursorKeysChange by EventDispatcher()
   var captureRequest: Double = 0.0
     set(value) {
       if (field == value || value <= 0) return
@@ -54,6 +55,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   // offset `appliedEnd`. 0 means the terminal holds no stream yet.
   private var appliedResetId = 0
   private var appliedEnd = 0
+  private var applicationCursorKeys = false
   private var cols = 0
   private var rows = 0
   private var clearingInput = false
@@ -256,17 +258,11 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       }
     }
     inputView.setOnKeyListener { _, keyCode, event ->
-      if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
       when {
+        event.action != KeyEvent.ACTION_DOWN -> false
+        TerminalHardwareKeys.shouldEncode(keyCode, event.metaState) && sendHardwareKey(event) -> true
         keyCode == KeyEvent.KEYCODE_DEL -> {
           onInput(mapOf("data" to "\u007F"))
-          true
-        }
-        // Hardware keyboard Ctrl+A..Z -> control bytes 0x01..0x1A (Ctrl+C, Ctrl+Z, ...).
-        event.isCtrlPressed && keyCode in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> {
-          onInput(
-            mapOf("data" to (keyCode - KeyEvent.KEYCODE_A + 1).toChar().toString()),
-          )
           true
         }
         else -> false
@@ -294,6 +290,22 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
         }
       },
     )
+  }
+
+  /** Sends a hardware key encoded for the terminal's current modes; false if it has no encoding. */
+  private fun sendHardwareKey(event: KeyEvent): Boolean {
+    if (terminalHandle == 0L) return false
+    val encoded = GhosttyBridge.nativeEncodeKey(
+      terminalHandle,
+      event.keyCode,
+      event.metaState,
+      TerminalHardwareKeys.text(event),
+      TerminalHardwareKeys.unshiftedText(event),
+      event.repeatCount > 0,
+    )
+    if (encoded.isEmpty()) return false
+    onInput(mapOf("data" to String(encoded, Charsets.UTF_8)))
+    return true
   }
 
   @Suppress("ComplexCondition")
@@ -410,6 +422,15 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     }
     renderSnapshot()
     emitOutputApplied()
+    syncCursorKeyMode()
+  }
+
+  // The on-screen arrow keys live in JS, so report DECCKM for them to follow.
+  private fun syncCursorKeyMode() {
+    val enabled = terminalHandle != 0L && GhosttyBridge.nativeApplicationCursorKeys(terminalHandle)
+    if (enabled == applicationCursorKeys) return
+    applicationCursorKeys = enabled
+    onCursorKeysChange(mapOf("application" to enabled))
   }
 
   private fun emitOutputApplied() {

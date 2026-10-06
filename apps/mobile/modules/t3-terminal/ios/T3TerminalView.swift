@@ -23,8 +23,8 @@ private enum GhosttyRuntime {
 }
 
 /// Encodes hardware-keyboard combos that UITextField never surfaces through its
-/// text-editing delegate (control combos, Escape, Tab, arrow keys) into the byte
-/// sequences a terminal expects.
+/// text-editing delegate (control combos, Escape, Tab, arrow and navigation keys,
+/// function keys) into the byte sequences a terminal expects.
 ///
 /// Capture uses UIKeyCommand with `wantsPriorityOverSystemBehavior` rather than
 /// `pressesBegan`: while a text field is first responder, iPadOS routes hardware key
@@ -34,6 +34,27 @@ private enum GhosttyRuntime {
 private enum TerminalHardwareKeyEncoder {
   /// Characters that produce a control byte when combined with Ctrl.
   private static let controlInputs = "abcdefghijklmnopqrstuvwxyz@[\\]^_-? "
+
+  /// Fixed xterm sequences for keys whose encoding does not depend on terminal modes.
+  private static let navigationSequences: [String: String] = [
+    UIKeyCommand.inputHome: "\u{1B}[H",
+    UIKeyCommand.inputEnd: "\u{1B}[F",
+    UIKeyCommand.inputPageUp: "\u{1B}[5~",
+    UIKeyCommand.inputPageDown: "\u{1B}[6~",
+    UIKeyCommand.inputDelete: "\u{1B}[3~",
+    UIKeyCommand.inputF1: "\u{1B}OP",
+    UIKeyCommand.inputF2: "\u{1B}OQ",
+    UIKeyCommand.inputF3: "\u{1B}OR",
+    UIKeyCommand.inputF4: "\u{1B}OS",
+    UIKeyCommand.inputF5: "\u{1B}[15~",
+    UIKeyCommand.inputF6: "\u{1B}[17~",
+    UIKeyCommand.inputF7: "\u{1B}[18~",
+    UIKeyCommand.inputF8: "\u{1B}[19~",
+    UIKeyCommand.inputF9: "\u{1B}[20~",
+    UIKeyCommand.inputF10: "\u{1B}[21~",
+    UIKeyCommand.inputF11: "\u{1B}[23~",
+    UIKeyCommand.inputF12: "\u{1B}[24~",
+  ]
 
   static func makeKeyCommands(action: Selector) -> [UIKeyCommand] {
     var commands: [UIKeyCommand] = []
@@ -45,7 +66,7 @@ private enum TerminalHardwareKeyEncoder {
       UIKeyCommand.inputLeftArrow,
       UIKeyCommand.inputRightArrow,
       "\t",
-    ]
+    ] + navigationSequences.keys
     for input in specialInputs {
       commands.append(makeCommand(input: input, modifierFlags: [], action: action))
     }
@@ -86,7 +107,7 @@ private enum TerminalHardwareKeyEncoder {
     case "\t":
       return modifiers.contains(.shift) ? "\u{1B}[Z" : "\t"
     default:
-      break
+      if let sequence = navigationSequences[input] { return sequence }
     }
 
     guard modifiers.contains(.control) else { return nil }
