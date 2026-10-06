@@ -5,7 +5,7 @@ import { ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { readSourcePage } from "./TaskSources.ts";
 import { WorkStore, layer } from "./WorkStore.ts";
 

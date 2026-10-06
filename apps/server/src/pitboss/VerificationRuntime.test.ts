@@ -8,7 +8,7 @@ import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { ProjectRow, ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
-import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { WorkStore, layer as storeLayer } from "./WorkStore.ts";
 import { VerificationRunner } from "./VerificationRunner.ts";
 import { layer as runtime } from "./VerificationRuntime.ts";

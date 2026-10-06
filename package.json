@@ -55,6 +55,7 @@
     "test:pitboss:mobile": "vp test run apps/mobile/src/features/threads/glados-inbox.test.ts apps/mobile/src/lib/layout.test.ts apps/mobile/plugins/withAndroidTabletOrientation.test.mjs apps/mobile/modules/t3-markdown-text/src/androidSelectableMarkdown.test.ts"
   },
   "devDependencies": {
+    "@coderabbitai/config": "1.1.0",
     "@effect/tsgo": "catalog:",
     "@shadcn/lint": "0.1.5",
     "@types/node": "catalog:",

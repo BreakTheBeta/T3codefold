@@ -26,7 +26,7 @@ import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenanc
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import PitbossMigration from "./FoldMigrations/001_Pitboss.ts";
 import { foldMigrationEntries } from "./FoldMigrations.ts";
-import * as SqlitePersistence from "./Layers/Sqlite.ts";
+import * as SqlitePersistence from "./Sqlite.ts";
 import { migrationManifest, runMigrations } from "./Migrations.ts";
 import OrchestrationV2Migration from "./Migrations/055_OrchestrationV2.ts";
 import { classifyLedger, importFoldDatabase } from "./importFoldDatabase.ts";
