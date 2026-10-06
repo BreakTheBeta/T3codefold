@@ -5411,7 +5411,10 @@ const ProductionTestLayer = Layer.mergeAll(
       Layer.mock(ServerEnvironment.ServerEnvironment)({
         getEnvironmentId: Effect.succeed(EnvironmentId.make("runtime-pitboss-environment")),
       }),
-      Layer.mock(ServerSecretStore.ServerSecretStore)({}),
+      // Secret requests read their salt from the store when the production layer builds.
+      Layer.mock(ServerSecretStore.ServerSecretStore)({
+        getOrCreateRandom: (_name, bytes) => Effect.succeed(new Uint8Array(bytes)),
+      }),
       Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
       Layer.mock(ProviderRegistry.ProviderRegistry)({}),
