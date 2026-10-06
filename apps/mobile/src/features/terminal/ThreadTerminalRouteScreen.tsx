@@ -166,6 +166,8 @@ function TerminalHeader(props: {
 const DEFAULT_TERMINAL_COLS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const TERMINAL_ACCESSORY_HEIGHT = 52;
+/** Matches the web terminal's PTY resize debounce. */
+const TERMINAL_RESIZE_SETTLE_MS = 150;
 const SHOWCASE_ENABLED = process.env.EXPO_PUBLIC_SHOWCASE === "1";
 
 class TerminalClipboardReadError extends Schema.TaggedError<TerminalClipboardReadError>()(
@@ -901,35 +903,67 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       }
 
       setLastGridSize(size);
-      if (!selectedThread || !isRunning) {
-        return;
-      }
-
-      void resizeTerminal({
-        environmentId: selectedThread.environmentId,
-        input: {
-          threadId: selectedThread.id,
-          terminalId,
-          cols: size.cols,
-          rows: size.rows,
-        },
-      });
     },
     [
-      isRunning,
       lastGridSize.cols,
       lastGridSize.rows,
       bufferReplayKey,
       readyBufferReplayKey,
       routeEnvironmentId,
       routeThreadId,
-      resizeTerminal,
       scheduleBufferReplayReady,
-      selectedThread,
       terminalId,
       terminalKey,
     ],
   );
+
+  // The local grid reflows on every measured size, but the PTY only hears the
+  // size once it settles. Each PTY resize makes full-screen programs (agent
+  // CLIs, editors) repaint for that width; resizing per drag or animation frame
+  // stacks those repaints onto a grid that has already moved on. Sending again
+  // whenever the session (re)starts also corrects a PTY attached at a stale size.
+  const sentGridSizeRef = useRef<{
+    readonly key: string;
+    readonly cols: number;
+    readonly rows: number;
+  } | null>(null);
+  const selectedThreadEnvironmentId = selectedThread?.environmentId ?? null;
+  const selectedThreadId = selectedThread?.id ?? null;
+  useEffect(() => {
+    if (selectedThreadEnvironmentId === null || selectedThreadId === null || !isRunning) {
+      sentGridSizeRef.current = null;
+      return;
+    }
+    const sent = sentGridSizeRef.current;
+    if (
+      sent?.key === terminalKey &&
+      sent.cols === lastGridSize.cols &&
+      sent.rows === lastGridSize.rows
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      sentGridSizeRef.current = { key: terminalKey, ...lastGridSize };
+      void resizeTerminal({
+        environmentId: selectedThreadEnvironmentId,
+        input: {
+          threadId: selectedThreadId,
+          terminalId,
+          cols: lastGridSize.cols,
+          rows: lastGridSize.rows,
+        },
+      });
+    }, TERMINAL_RESIZE_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [
+    isRunning,
+    lastGridSize,
+    resizeTerminal,
+    selectedThreadEnvironmentId,
+    selectedThreadId,
+    terminalId,
+    terminalKey,
+  ]);
 
   const handleSelectTerminal = useCallback(
     (nextTerminalId: string) => {
