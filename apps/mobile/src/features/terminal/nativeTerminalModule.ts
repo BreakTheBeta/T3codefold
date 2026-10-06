@@ -3,6 +3,7 @@ import type { NativeSyntheticEvent, ViewProps } from "react-native";
 import { requireNativeView, requireOptionalNativeModule } from "expo";
 
 import { NativeViewResolutionError } from "../../native/nativeViewResolutionError";
+import type { TerminalSurfaceOutput, TerminalSurfaceOutputAck } from "./terminalSurfaceOutput";
 
 const NATIVE_TERMINAL_MODULE_NAME = "T3TerminalSurface";
 
@@ -32,9 +33,10 @@ export interface NativeTerminalSurfaceProps extends ViewProps {
   readonly foregroundColor?: string;
   readonly mutedForegroundColor?: string;
   readonly terminalKey: string;
-  readonly initialBuffer: string;
+  readonly output: TerminalSurfaceOutput;
   readonly fontSize: number;
   readonly onInput?: (event: NativeSyntheticEvent<TerminalInputEvent>) => void;
+  readonly onOutputApplied?: (event: NativeSyntheticEvent<TerminalSurfaceOutputAck>) => void;
   readonly onResize?: (event: NativeSyntheticEvent<TerminalResizeEvent>) => void;
 }
 

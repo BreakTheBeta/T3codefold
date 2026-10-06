@@ -24,6 +24,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   private val onInput by EventDispatcher()
   private val onResize by EventDispatcher()
   private val onCapture by EventDispatcher()
+  private val onOutputApplied by EventDispatcher()
   var captureRequest: Double = 0.0
     set(value) {
       if (field == value || value <= 0) return
@@ -48,7 +49,11 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       onCapture(mapOf("text" to text))
     }
   private var terminalHandle = 0L
-  private var fedBuffer = ""
+
+  // The output stream the terminal holds: reset `appliedResetId` up to UTF-16
+  // offset `appliedEnd`. 0 means the terminal holds no stream yet.
+  private var appliedResetId = 0
+  private var appliedEnd = 0
   private var cols = 0
   private var rows = 0
   private var clearingInput = false
@@ -67,11 +72,10 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       recreateTerminal()
     }
 
-  var initialBuffer: String = ""
+  var output: TerminalOutputWrite? = null
     set(value) {
-      if (field == value) return
       field = value
-      feedPendingBuffer()
+      applyOutput()
     }
 
   var fontSize: Float = 10f
@@ -326,7 +330,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     }
     emitResponse(response)
     onResize(mapOf("cols" to cols, "rows" to rows))
-    feedPendingBuffer()
+    applyOutput()
     renderSnapshot()
   }
 
@@ -343,14 +347,15 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       cursorColorValue,
       paletteColors,
     )
-    fedBuffer = ""
+    appliedResetId = 0
+    appliedEnd = 0
   }
 
   private fun recreateTerminal() {
     if (terminalHandle == 0L) return
     destroyTerminal()
     createTerminal()
-    feedPendingBuffer()
+    applyOutput()
     renderSnapshot()
   }
 
@@ -358,19 +363,44 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     if (terminalHandle == 0L) return
     GhosttyBridge.nativeDestroy(terminalHandle)
     terminalHandle = 0L
-    fedBuffer = ""
+    appliedResetId = 0
+    appliedEnd = 0
     terminalCanvas.resetSelectionState()
   }
 
-  private fun feedPendingBuffer() {
-    if (terminalHandle == 0L || initialBuffer == fedBuffer) return
-    if (!initialBuffer.startsWith(fedBuffer)) {
-      recreateTerminal()
-      if (terminalHandle == 0L) return
-    }
-    val suffix = initialBuffer.substring(fedBuffer.length)
-    if (suffix.isNotEmpty()) {
+  /**
+   * Applies the `output` prop (see terminalSurfaceOutput.ts): a new reset id replays
+   * history into a fresh terminal, otherwise only the part past `appliedEnd` is fed.
+   * Every change is acknowledged so JS can send the next write from there.
+   */
+  private fun applyOutput() {
+    val write = output ?: return
+    if (terminalHandle == 0L) return
+    if (write.resetId != appliedResetId) {
+      // A continuation of a stream this terminal does not hold; the ack asks JS for a reset.
+      if (write.start != 0) {
+        emitOutputApplied()
+        return
+      }
+      if (appliedResetId != 0) {
+        destroyTerminal()
+        createTerminal()
+        if (terminalHandle == 0L) return
+      }
+      // Replayed history must not answer old terminal queries, so drop its replies.
+      GhosttyBridge.nativeFeed(terminalHandle, write.data.toByteArray(Charsets.UTF_8))
+      appliedResetId = write.resetId
+      appliedEnd = write.data.length
+    } else {
+      if (write.start > appliedEnd) {
+        emitOutputApplied()
+        return
+      }
+      val unapplied = appliedEnd - write.start
+      if (unapplied >= write.data.length) return
+      val suffix = write.data.substring(unapplied)
       emitResponse(GhosttyBridge.nativeFeed(terminalHandle, suffix.toByteArray(Charsets.UTF_8)))
+      appliedEnd = write.start + write.data.length
       // New output invalidates an active selection (matches the web drawer);
       // otherwise the copy toolbar drifts out of sync with the grid.
       if (terminalCanvas.hasActiveSelection()) {
@@ -378,8 +408,12 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
         terminalCanvas.resetSelectionState()
       }
     }
-    fedBuffer = initialBuffer
     renderSnapshot()
+    emitOutputApplied()
+  }
+
+  private fun emitOutputApplied() {
+    onOutputApplied(mapOf("resetId" to appliedResetId, "end" to appliedEnd))
   }
 
   private fun renderSnapshot() {

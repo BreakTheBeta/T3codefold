@@ -2,6 +2,17 @@ package expo.modules.t3terminal
 
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
+
+/** One write of remote output; see terminalSurfaceOutput.ts for the contract. */
+class TerminalOutputWrite : Record {
+  @Field val resetId: Int = 0
+
+  @Field val start: Int = 0
+
+  @Field val data: String = ""
+}
 
 class T3TerminalModule : Module() {
   override fun definition() = ModuleDefinition {
@@ -18,8 +29,8 @@ class T3TerminalModule : Module() {
         view.terminalKey = terminalKey
       }
 
-      Prop("initialBuffer") { view: T3TerminalView, initialBuffer: String ->
-        view.initialBuffer = initialBuffer
+      Prop("output") { view: T3TerminalView, output: TerminalOutputWrite ->
+        view.output = output
       }
 
       Prop("fontSize") { view: T3TerminalView, fontSize: Double ->
@@ -57,7 +68,7 @@ class T3TerminalModule : Module() {
       Prop("captureRequest") { view: T3TerminalView, request: Double ->
         view.captureRequest = request
       }
-      Events("onInput", "onResize", "onCapture")
+      Events("onInput", "onResize", "onCapture", "onOutputApplied")
 
       OnViewDestroys { view: T3TerminalView ->
         view.cleanup()
