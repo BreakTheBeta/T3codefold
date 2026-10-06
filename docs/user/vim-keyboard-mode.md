@@ -246,5 +246,21 @@ action.
   keys or press `Esc` to close it before returning to Vim navigation.
 - If you forget a command, focus the conversation and press `?`.
 
-Vim keyboard mode is currently available on web and desktop. Mobile keeps its
-touch-first navigation.
+## Android
+
+On Android with a hardware keyboard, turn on **Settings → Keyboard → Vim
+navigation**. It covers pane and thread navigation, not text editing: keys act
+only while no text field has focus, so typing is never intercepted.
+
+- `Ctrl+w h` / `Ctrl+w l` (or `Ctrl+h` / `Ctrl+l`) move between the sidebar,
+  chat and side pane. `Ctrl+w o` maximizes the side pane, or hides the sidebar
+  from the chat.
+- In the sidebar, `j`/`k` move the thread cursor, `gg`/`G` jump to the ends,
+  and `Enter` opens the thread. Counts such as `5j` work.
+- In the chat, `j`/`k` scroll, `Ctrl+d`/`Ctrl+u` scroll half a screen, and
+  `gg`/`G` jump to the start or end.
+- `i` writes in the composer and `Esc` leaves it. `/` searches threads and
+  `Space` or `:` opens the command palette.
+
+A thin accent marks the focused pane once you start using these keys. iOS keeps
+its touch-first navigation.

@@ -7,6 +7,7 @@ import { type PaneDividerRelease } from "../../lib/foldable-pane-layout";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { WORKSPACE_PANE_REVEAL_TIMING } from "./workspace-pane-animation";
 import { WorkspacePaneDivider } from "./workspace-pane-divider";
+import { VimPaneFocusMarker } from "../keyboard/useWorkspaceVimNavigation";
 
 /**
  * The trailing inspector column: resize divider + reveal.
@@ -85,6 +86,7 @@ export function WorkspaceInspectorPane(props: {
             <InspectorRenderer render={props.renderInspector} />
           </RenderErrorBoundary>
         </Animated.View>
+        <VimPaneFocusMarker region="inspector" />
       </View>
     </>
   );

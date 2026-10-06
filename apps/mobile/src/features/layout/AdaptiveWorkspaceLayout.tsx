@@ -52,6 +52,10 @@ import {
   parseActiveThreadPath,
   useHardwareKeyboardCommand,
 } from "../keyboard/hardwareKeyboardCommands";
+import {
+  useWorkspaceVimNavigation,
+  VimPaneFocusMarker,
+} from "../keyboard/useWorkspaceVimNavigation";
 import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
 import { HomeListOptionsProvider } from "../home/home-list-options";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
@@ -438,6 +442,12 @@ function AdaptiveWorkspaceLayoutContent(props: {
     return true;
   }, [panes.supportsAuxiliaryPane, pathname, navigation, showAuxiliaryPane]);
   useHardwareKeyboardCommand("files", handleOpenFilesCommand);
+  useWorkspaceVimNavigation({
+    usesSplitView: layout.usesSplitView,
+    panes,
+    togglePrimarySidebar,
+    toggleAuxiliaryPaneMaximized,
+  });
   const handleOpenSettings = useCallback(() => {
     navigation.navigate("SettingsSheet", {
       screen: "SettingsContent",
@@ -621,6 +631,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
             style={panes.auxiliaryPaneMaximized ? { width: 0 } : { flex: 1 }}
           >
             {props.children}
+            <VimPaneFocusMarker region="chat" />
           </View>
           <WorkspaceInspectorPane
             pathname={props.pathname}
@@ -682,6 +693,7 @@ function WorkspaceSidebarColumn(props: {
       <Animated.View className="flex-1" style={[{ width: listPaneWidth }, revealStyle]}>
         {props.children(listPaneWidth)}
       </Animated.View>
+      <VimPaneFocusMarker region="sidebar" />
     </View>
   );
 }

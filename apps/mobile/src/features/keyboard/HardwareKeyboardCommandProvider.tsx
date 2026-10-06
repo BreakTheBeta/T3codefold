@@ -1,4 +1,6 @@
+import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation } from "@react-navigation/native";
+import { AsyncResult } from "effect/reactivity";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReference";
 import {
   createContext,
@@ -16,6 +18,7 @@ import {
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
 import { useThreadShell } from "../../state/entities";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import type { GitActionProgress } from "../../state/use-vcs-action-state";
 import { GitActionProgressOverlay } from "../threads/GitActionProgressOverlay";
 import { CommandPalette } from "./CommandPalette";
@@ -27,6 +30,16 @@ import {
   subscribeToHardwareKeyboardCommandRegistrations,
   type HardwareKeyboardCommand,
 } from "./hardwareKeyboardCommands";
+import { dispatchVimKey, useHasVimKeyHandler, useVimEffectHandler } from "./vimNavigationRuntime";
+
+const PALETTE_VIM_EFFECTS = ["commandPalette"] as const;
+
+/** Workspace screens: Home, threads with their files/terminal/review, and pull requests. */
+function isVimWorkspacePath(pathname: string) {
+  return (
+    pathname === "/" || pathname.startsWith("/threads/") || pathname.startsWith("/pull-requests")
+  );
+}
 
 const EMPTY_COPY_FEEDBACK: GitActionProgress = {
   phase: "idle",
@@ -115,6 +128,16 @@ export function HardwareKeyboardCommandProvider({
     return [...commands];
   }, [activeThreadRef, pathname, registrationVersion, navigation]);
 
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const vimNavigationEnabled =
+    AsyncResult.isSuccess(preferencesResult) &&
+    preferencesResult.value.vimNavigationEnabled === true;
+  const hasVimKeyHandler = useHasVimKeyHandler();
+  const vimKeysEnabled =
+    vimNavigationEnabled && hasVimKeyHandler && !paletteOpen && isVimWorkspacePath(pathname);
+  const openPaletteFromVim = useCallback(() => setPaletteOpen(true), []);
+  useVimEffectHandler(PALETTE_VIM_EFFECTS, openPaletteFromVim);
+
   const onCommand = useCallback(
     (command: HardwareKeyboardCommand) => {
       if (command === "commandPalette") {
@@ -185,7 +208,12 @@ export function HardwareKeyboardCommandProvider({
 
   return (
     <CommandPaletteContext value={palette}>
-      <T3KeyboardCommands enabledCommands={enabledCommands} onCommand={onCommand}>
+      <T3KeyboardCommands
+        enabledCommands={enabledCommands}
+        onCommand={onCommand}
+        vimKeysEnabled={vimKeysEnabled}
+        onVimKey={dispatchVimKey}
+      >
         {children}
       </T3KeyboardCommands>
       <GitActionProgressOverlay progress={copyFeedback} onDismiss={dismissCopyFeedback} />

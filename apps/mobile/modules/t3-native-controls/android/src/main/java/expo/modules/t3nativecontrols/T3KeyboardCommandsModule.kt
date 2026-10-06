@@ -24,7 +24,10 @@ class T3KeyboardCommandsModule : Module() {
       Prop("enabledCommands") { view: T3KeyboardCommandsView, commands: List<String> ->
         view.enabledCommands = commands.toSet()
       }
-      Events("onCommand")
+      Prop("vimKeysEnabled") { view: T3KeyboardCommandsView, enabled: Boolean ->
+        view.vimKeysEnabled = enabled
+      }
+      Events("onCommand", "onVimKey")
     }
   }
 }
@@ -83,6 +86,51 @@ internal fun hardwareKeyboardCommandFor(
   }
 }
 
+/**
+ * Views that take raw keys (the terminal's input) set this tag. Plain Ctrl+key chords then
+ * reach them as control characters (Ctrl+B, Ctrl+K, Ctrl+[ ...) instead of app shortcuts;
+ * Meta chords still work as shortcuts.
+ */
+const val RAW_KEYBOARD_VIEW_TAG = "t3-raw-keyboard"
+
+/**
+ * The key Vim navigation sees for a press, or null to leave it alone. Only plain keys and a
+ * few Ctrl chords (window and half-page moves) are taken, and only while no text field has
+ * focus, so typing is never intercepted.
+ */
+internal fun vimKeyFor(
+  keyCode: Int,
+  unicodeChar: Int,
+  ctrl: Boolean,
+  alt: Boolean,
+  meta: Boolean,
+): Pair<String, Boolean>? {
+  if (alt || meta) return null
+  if (ctrl) {
+    return when (keyCode) {
+      KeyEvent.KEYCODE_W -> "w"
+      KeyEvent.KEYCODE_D -> "d"
+      KeyEvent.KEYCODE_U -> "u"
+      KeyEvent.KEYCODE_H -> "h"
+      KeyEvent.KEYCODE_L -> "l"
+      else -> null
+    }?.let { it to true }
+  }
+  val named = when (keyCode) {
+    KeyEvent.KEYCODE_ESCAPE -> "Escape"
+    KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> "Enter"
+    KeyEvent.KEYCODE_DPAD_UP -> "ArrowUp"
+    KeyEvent.KEYCODE_DPAD_DOWN -> "ArrowDown"
+    else -> null
+  }
+  if (named != null) return named to false
+  if (unicodeChar <= 0 || Character.isISOControl(unicodeChar)) return null
+  return String(Character.toChars(unicodeChar)) to false
+}
+
+/** Vim keys that keep firing while held, for continuous movement. */
+private val REPEATING_VIM_KEYS = setOf("j", "k", "ArrowUp", "ArrowDown", "d", "u")
+
 /** Commands that keep firing while their key auto-repeats. */
 private val REPEATING_COMMANDS = setOf("paletteNext", "palettePrevious")
 
@@ -124,22 +172,55 @@ private object T3KeyboardRouter {
       KeyEvent.ACTION_DOWN -> Unit
       else -> return false
     }
+    val focused = root.findFocus()
+    val rawKeyboardFocused = focused?.tag == RAW_KEYBOARD_VIEW_TAG
     val command =
       hardwareKeyboardCommandFor(
         event.keyCode,
         mod = event.isCtrlPressed || event.isMetaPressed,
         shift = event.isShiftPressed,
         alt = event.isAltPressed,
-      ) ?: return false
-    val view =
+      )?.takeUnless {
+        rawKeyboardFocused && event.isCtrlPressed && !event.isMetaPressed && !event.isShiftPressed
+      }
+    val view = command?.let { command ->
       views.asReversed().firstNotNullOfOrNull { reference ->
         reference.get()?.takeIf {
           it.isAttachedToWindow && it.rootView === root && it.enabledCommands.contains(command)
         }
-      } ?: return heldKeyCodes.contains(event.keyCode) && event.repeatCount > 0
-    heldKeyCodes.add(event.keyCode)
-    if (event.repeatCount == 0 || command in REPEATING_COMMANDS) view.emit(command)
-    return true
+      }
+    }
+    if (command != null && view != null) {
+      heldKeyCodes.add(event.keyCode)
+      if (event.repeatCount == 0 || command in REPEATING_COMMANDS) view.emit(command)
+      return true
+    }
+    if (focused?.onCheckIsTextEditor() != true) {
+      val vimKey =
+        vimKeyFor(
+          event.keyCode,
+          event.unicodeChar,
+          ctrl = event.isCtrlPressed,
+          alt = event.isAltPressed,
+          meta = event.isMetaPressed,
+        )
+      val vimView =
+        vimKey?.let {
+          views.asReversed().firstNotNullOfOrNull { reference ->
+            reference.get()?.takeIf {
+              it.isAttachedToWindow && it.rootView === root && it.vimKeysEnabled
+            }
+          }
+        }
+      if (vimKey != null && vimView != null) {
+        heldKeyCodes.add(event.keyCode)
+        if (event.repeatCount == 0 || vimKey.first in REPEATING_VIM_KEYS) {
+          vimView.emitVimKey(vimKey.first, vimKey.second)
+        }
+        return true
+      }
+    }
+    return heldKeyCodes.contains(event.keyCode) && event.repeatCount > 0
   }
 }
 
@@ -173,10 +254,16 @@ class T3KeyboardCommandsView(
   appContext: AppContext
 ) : ExpoView(context, appContext) {
   private val onCommand by EventDispatcher()
+  private val onVimKey by EventDispatcher()
   var enabledCommands = emptySet<String>()
+  var vimKeysEnabled = false
 
   internal fun emit(command: String) {
     onCommand(mapOf("command" to command))
+  }
+
+  internal fun emitVimKey(key: String, ctrl: Boolean) {
+    onVimKey(mapOf("key" to key, "ctrl" to ctrl))
   }
 
   override fun onAttachedToWindow() {

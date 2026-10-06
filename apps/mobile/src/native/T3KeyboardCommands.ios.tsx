@@ -3,6 +3,7 @@ import type { PropsWithChildren } from "react";
 import type { NativeSyntheticEvent, ViewProps } from "react-native";
 
 import type { HardwareKeyboardCommand } from "../features/keyboard/hardwareKeyboardCommands";
+import type { VimKey } from "../features/keyboard/vimNavigation";
 
 interface NativeKeyboardCommandsProps extends ViewProps {
   readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
@@ -17,6 +18,9 @@ export function T3KeyboardCommands(
   props: PropsWithChildren<{
     readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
     readonly onCommand: (command: HardwareKeyboardCommand) => void;
+    /** Vim navigation is Android-only; iOS ignores these. */
+    readonly vimKeysEnabled?: boolean;
+    readonly onVimKey?: (key: VimKey) => void;
   }>,
 ) {
   return (

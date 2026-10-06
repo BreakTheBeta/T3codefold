@@ -82,6 +82,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { VimEffect } from "../keyboard/vimNavigation";
+import { useVimEffectHandler } from "../keyboard/vimNavigationRuntime";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
@@ -307,6 +309,9 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
   }, [threadId, feed]);
 }
 
+const CHAT_VIM_EFFECTS = ["scroll", "scrollToEdge", "focusComposer"] as const;
+/** Pixels one j/k press scrolls the conversation. */
+const VIM_LINE_SCROLL = 56;
 const USER_INPUT_TOGGLE_TIMING = {
   duration: USER_INPUT_TOGGLE_DURATION_MS,
   easing: Easing.out(Easing.cubic),
@@ -1019,6 +1024,36 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       freeze.set(false);
     });
   }, [freeze, scrollMessageToEnd]);
+
+  const handleVimEffect = useCallback(
+    (effect: VimEffect) => {
+      const list = listRef.current;
+      switch (effect.type) {
+        case "focusComposer":
+          if (isProviderSubagent) return false;
+          composerEditorRef.current?.focus();
+          return;
+        case "scrollToEdge":
+          if (effect.edge === "bottom") handleScrollToEnd();
+          else void list?.scrollToOffset({ offset: 0, animated: true });
+          return;
+        case "scroll": {
+          const state = list?.getState();
+          if (!list || !state) return;
+          const step = effect.unit === "line" ? VIM_LINE_SCROLL : state.scrollLength / 2;
+          void list.scrollToOffset({
+            offset: Math.max(0, state.scroll + step * effect.delta),
+            animated: true,
+          });
+          return;
+        }
+        default:
+          return false;
+      }
+    },
+    [handleScrollToEnd, isProviderSubagent],
+  );
+  useVimEffectHandler(CHAT_VIM_EFFECTS, handleVimEffect);
 
   const showScrollToEndButton = contentPresentationKind === "ready" && !endFollowEnabled;
   const { themeAppearance } = useAppearancePreferences();

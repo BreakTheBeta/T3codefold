@@ -80,6 +80,8 @@ export interface Preferences {
   readonly workspaceSidebarVisible?: boolean;
   /** Last resting width of the split-view inspector pane, in dp. */
   readonly workspaceInspectorWidth?: number;
+  /** Vim-style hardware keyboard navigation. Android only, like web's `vimModeEnabled`. */
+  readonly vimNavigationEnabled?: boolean;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -154,6 +156,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListWorkingShelfExpanded?: boolean;
     workspaceSidebarVisible?: boolean;
     workspaceInspectorWidth?: number;
+    vimNavigationEnabled?: boolean;
   } = {};
 
   if (typeof parsed.notificationsEnabled === "boolean") {
@@ -287,6 +290,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListWorkingShelfExpanded === "boolean") {
     preferences.threadListWorkingShelfExpanded = parsed.threadListWorkingShelfExpanded;
+  }
+  if (typeof parsed.vimNavigationEnabled === "boolean") {
+    preferences.vimNavigationEnabled = parsed.vimNavigationEnabled;
   }
   if (typeof parsed.workspaceSidebarVisible === "boolean") {
     preferences.workspaceSidebarVisible = parsed.workspaceSidebarVisible;
