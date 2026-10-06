@@ -622,7 +622,7 @@ function ThreadNavigationSidebarPane(
       workingShelfEnabled,
     ],
   );
-  useThreadJumpShortcuts(listItems, handleSelectThread);
+  useThreadJumpShortcuts(listItems, handleSelectThread, props.selectedThreadKey ?? null);
   const sidebarItemsAreEqual = useCallback(
     (previous: SidebarListItem, item: SidebarListItem): boolean => {
       if (isThreadListV2ListItem(previous) && isThreadListV2ListItem(item)) {
@@ -636,6 +636,7 @@ function ThreadNavigationSidebarPane(
     [],
   );
   const focusSearch = useCallback(() => {
+    // Android renders MaterialThreadListToolbar's search field, which registers its own handler.
     if (Platform.OS === "android") return false;
     const focus = () => {
       if (props.nativeChrome) {

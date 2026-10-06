@@ -7,6 +7,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   Text as NativeText,
   TextInput,
@@ -44,9 +45,11 @@ const PALETTE_COMMANDS: ReadonlyArray<HardwareKeyboardCommand> = [
   "paletteDismiss",
   "paletteNext",
   "palettePrevious",
+  "paletteSelect",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ];
 const ROW_HEIGHT = 50;
+const SHORTCUT_MODIFIER = Platform.OS === "android" ? "Ctrl+" : "⌘";
 
 const ACTION_ICONS: Record<string, AppSymbolName> = {
   newTask: "square.and.pencil",
@@ -122,9 +125,13 @@ function PaletteRow(props: {
       </View>
       {props.index < 9 ? (
         <NativeText
-          className={cn("w-8 shrink-0 text-right text-sm tabular-nums", mutedForegroundClassName)}
+          className={cn(
+            "min-w-8 shrink-0 text-right text-sm tabular-nums",
+            mutedForegroundClassName,
+          )}
         >
-          ⌘{props.index + 1}
+          {SHORTCUT_MODIFIER}
+          {props.index + 1}
         </NativeText>
       ) : null}
     </RowPressable>
@@ -411,7 +418,7 @@ export function CommandPalette(props: {
           ?.key ?? null,
       );
     } else {
-      const item = results[threadJumpIndex(command)];
+      const item = results[command === "paletteSelect" ? selectedIndex : threadJumpIndex(command)];
       if (item) close(item.run);
     }
   }

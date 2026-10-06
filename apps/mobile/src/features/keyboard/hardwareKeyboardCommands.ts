@@ -6,9 +6,12 @@ export type HardwareKeyboardCommand =
   | "voiceMute"
   | "voiceOutputMute"
   | ThreadJumpKeybindingCommand
+  | "thread.previous"
+  | "thread.next"
   | "commandPalette"
   | "paletteNext"
   | "palettePrevious"
+  | "paletteSelect"
   | "paletteDismiss"
   | "newTask"
   | "focusSearch"
