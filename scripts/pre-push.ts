@@ -349,7 +349,16 @@ function main() {
     run(repoRoot, "typecheck", ["run", "--cache", ...filters(plan.typecheck), "typecheck"]);
   }
   if (plan.tests.length > 0) {
-    run(repoRoot, "tests", ["run", "--cache", ...filters(plan.tests), "test"]);
+    // One package at a time: each vitest run already uses every core, and stacking them
+    // starves cold module imports past the test timeout.
+    run(repoRoot, "tests", [
+      "run",
+      "--cache",
+      "--concurrency-limit",
+      "1",
+      ...filters(plan.tests),
+      "test",
+    ]);
   }
   console.log("\npre-push: all checks passed.");
 }
