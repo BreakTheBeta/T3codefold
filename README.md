@@ -23,16 +23,17 @@ Compared with upstream `main` at [1de563c149](https://github.com/pingdotgg/t3cod
 
 ### Android and foldable phones
 
-| Feature                              | What you get                                                                                                                                |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Chat beside workspace tools**      | Keep the conversation visible while using Files, Terminal, or Git on an unfolded phone.                                                     |
-| **Resizable panes**                  | Drag the divider handle to resize; it snaps to the fold. Drag past either end, or tap the handle, to maximize or close the side pane.       |
-| **Fold-aware navigation**            | Tool selection, sidebar controls, and Android Back behavior account for the split workspace. Pane sizes and the sidebar are remembered.     |
-| **Laptop-style keyboard**            | Ctrl shortcuts work anywhere, Return sends from the composer, and optional Vim navigation moves between panes and threads.                  |
-| **Background voice calls**           | Keep talking with the screen locked, end calls from the ongoing notification, and use system speaker or Bluetooth call routing.             |
-| **Shared project colours and icons** | See automatic colours, custom icons, and emoji configured on desktop for projects on the same server.                                       |
-| **Selectable Markdown and links**    | Select and copy across paragraphs, lists, and tables, while keeping response links clickable.                                               |
-| **Agent activity notifications**     | Get local alerts for completed or failed work, approvals, and questions; tap to return to the thread. Requires the app to remain connected. |
+| Feature                              | What you get                                                                                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Chat beside workspace tools**      | Keep chat beside Files, Terminal, or Git in wide Android windows. Tabletop posture separates chat above the fold from the composer below.    |
+| **Resizable panes**                  | Drag the divider to resize or maximize. A separating physical hinge fixes the split; use the pane's maximize button to expand or restore it. |
+| **Fold-aware navigation**            | Split sizes are remembered per posture. Enable optional thumb navigation in **Settings → Organization** to switch recent threads and panes.  |
+| **Laptop-style keyboard**            | Ctrl shortcuts work anywhere, Return sends from the composer, and optional Vim navigation moves between panes and threads.                   |
+| **Background voice calls**           | Keep talking with the screen locked, end calls from the ongoing notification, and use system speaker or Bluetooth call routing.              |
+| **Shared project colours and icons** | See automatic colours, custom icons, and emoji configured on desktop for projects on the same server.                                        |
+| **Native source tools**              | Wrap code, select and copy lines, or attach them to chat. Pinch to resize code, diffs, terminal text, and images.                            |
+| **Selectable Markdown and links**    | Select and copy across paragraphs, lists, and tables, while keeping response links clickable.                                                |
+| **Agent activity notifications**     | Get local alerts for completed or failed work, approvals, and questions; tap to return to the thread. Requires the app to remain connected.  |
 
 ### Fold installation and updates
 

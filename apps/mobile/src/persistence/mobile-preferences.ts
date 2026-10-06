@@ -82,6 +82,8 @@ export interface Preferences {
   readonly workspaceInspectorWidth?: number;
   /** Vim-style hardware keyboard navigation. Android only, like web's `vimModeEnabled`. */
   readonly vimNavigationEnabled?: boolean;
+  readonly workspaceThumbGesturesEnabled?: boolean;
+  readonly workspaceInspectorRatios?: Readonly<Record<string, number>>;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -157,6 +159,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     workspaceSidebarVisible?: boolean;
     workspaceInspectorWidth?: number;
     vimNavigationEnabled?: boolean;
+    workspaceThumbGesturesEnabled?: boolean;
+    workspaceInspectorRatios?: Readonly<Record<string, number>>;
   } = {};
 
   if (typeof parsed.notificationsEnabled === "boolean") {
@@ -303,6 +307,24 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     parsed.workspaceInspectorWidth > 0
   ) {
     preferences.workspaceInspectorWidth = Math.round(parsed.workspaceInspectorWidth);
+  }
+  if (typeof parsed.workspaceThumbGesturesEnabled === "boolean") {
+    preferences.workspaceThumbGesturesEnabled = parsed.workspaceThumbGesturesEnabled;
+  }
+  if (
+    typeof parsed.workspaceInspectorRatios === "object" &&
+    parsed.workspaceInspectorRatios !== null
+  ) {
+    preferences.workspaceInspectorRatios = Object.fromEntries(
+      Object.entries(parsed.workspaceInspectorRatios).filter(
+        ([key, ratio]) =>
+          key.length < 80 &&
+          typeof ratio === "number" &&
+          Number.isFinite(ratio) &&
+          ratio > 0 &&
+          ratio < 1,
+      ),
+    );
   }
   return preferences;
 }

@@ -3,15 +3,21 @@ import { useAtomValue } from "@effect/atom-react";
 import type { ChatAttachment, EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Animated, Platform, Pressable, ScrollView, View } from "react-native";
-import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { useEffect, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Reanimated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
+import Reanimated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 
 import { MaterialButton } from "../../components/MaterialButton";
 import { AndroidSheetHeader } from "../../components/AndroidScreenHeader";
@@ -34,6 +40,8 @@ import {
 } from "./threadQueueControlPresentation";
 import { threadDragGapOffset } from "./threadDragGap";
 
+import { useUIThreadDrag } from "./use-ui-thread-drag";
+
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 const REMOVE_ACTION_WIDTH = 76;
 const THUMBNAIL_LIMIT = 3;
@@ -54,6 +62,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const target = route.params;
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const theme = useUniwindTheme();
   const workflow = useThreadQueueWorkflow(target);
   const threadKey = scopedThreadKey(target.environmentId, target.threadId);
@@ -75,7 +84,12 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     beforeRunId: RunId | null | undefined;
     rows: ReadonlyArray<QueueRowLayout>;
   } | null>(null);
-  const [translation] = useState(() => new Animated.Value(0));
+  const translation = useSharedValue(0);
+  const dragStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translation.value }],
+    zIndex: 1,
+    opacity: 0.85,
+  }));
   const queuedRuns = workflow?.queuedRuns ?? [];
   const order = queuedRuns.map(({ run }) => run.id).join(",");
 
@@ -85,9 +99,9 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
       setDraggedRunId(null);
       setPreviewBeforeRunId(undefined);
       setDragRows(null);
-      translation.setValue(0);
+      translation.set(0);
     }
-  }, [order, translation]);
+  }, [order, window.width, window.height, translation]);
 
   // Nothing left to manage: the sheet closes rather than sitting on an empty
   // list the user has to dismiss themselves.
@@ -237,18 +251,15 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
             lifted={draggedRunId === run.id}
             onLayout={({ nativeEvent }) => rowLayouts.current.set(run.id, nativeEvent.layout)}
           >
-            <Animated.View
+            <Reanimated.View
               className="flex-row items-center border-b border-border bg-sheet"
-              style={
-                draggedRunId === run.id
-                  ? { transform: [{ translateY: translation }], zIndex: 1, opacity: 0.85 }
-                  : undefined
-              }
+              style={draggedRunId === run.id ? dragStyle : undefined}
             >
               {canReorder ? (
                 // Outside the swipeable: two pans on one row would race, and
                 // the handle owns vertical movement while the row owns sideways.
                 <QueueDragHandle
+                  translation={translation}
                   disabled={busyRunId !== null}
                   title={title}
                   canMoveUp={controls.canMoveUp}
@@ -258,7 +269,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                     const rows = queueRows();
                     const beforeRunId = resolveQueueDragBeforeRunId(rows, run.id, 0);
                     drag.current = { runId: run.id, order, beforeRunId, rows };
-                    translation.setValue(0);
+                    translation.set(0);
                     setDragRows(rows);
                     setPreviewBeforeRunId(beforeRunId);
                     setDraggedRunId(run.id);
@@ -267,7 +278,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                   onMove={(y) => {
                     const current = drag.current;
                     if (current?.runId !== run.id || current.order !== order) return;
-                    translation.setValue(y);
+
                     const before = resolveQueueDragBeforeRunId(current.rows, run.id, y);
                     if (current.beforeRunId !== before) {
                       current.beforeRunId = before;
@@ -282,7 +293,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                       setDraggedRunId(null);
                       setPreviewBeforeRunId(undefined);
                       setDragRows(null);
-                      translation.setValue(0);
+                      translation.set(0);
                     };
                     // A remote reorder or a newly started run invalidates this drag.
                     if (!success || started?.order !== order || started.runId !== run.id) {
@@ -307,11 +318,12 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                       source.height !== undefined &&
                       insertion !== undefined
                     ) {
-                      Animated.timing(translation, {
-                        toValue: insertion - source.y - (insertion > source.y ? source.height : 0),
-                        duration: 160,
-                        useNativeDriver: true,
-                      }).start();
+                      translation.set(
+                        withTiming(
+                          insertion - source.y - (insertion > source.y ? source.height : 0),
+                          { duration: 160, reduceMotion: ReduceMotion.System },
+                        ),
+                      );
                     }
                     setPreviewBeforeRunId(before);
                     void move(run.id, before).finally(stop);
@@ -402,7 +414,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                   </Pressable>
                 </ControlPillMenu>
               </QueueRowSwipeable>
-            </Animated.View>
+            </Reanimated.View>
           </QueueShiftedRow>
         );
       })}
@@ -577,6 +589,7 @@ function QueueAttachmentThumbnail(props: {
 }
 
 function QueueDragHandle(props: {
+  translation: SharedValue<number>;
   disabled: boolean;
   title: string;
   canMoveUp: boolean;
@@ -586,22 +599,7 @@ function QueueDragHandle(props: {
   onMove: (y: number) => void;
   onEnd: (y: number, success: boolean) => void;
 }) {
-  const latest = useRef(props);
-  useLayoutEffect(() => {
-    latest.current = props;
-  });
-  const gesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(!props.disabled)
-        .minDistance(0)
-        .shouldCancelWhenOutside(false)
-        .runOnJS(true)
-        .onStart(() => latest.current.onStart())
-        .onUpdate((event) => latest.current.onMove(event.translationY))
-        .onFinalize((event, success) => latest.current.onEnd(event.translationY, success)),
-    [props.disabled],
-  );
+  const gesture = useUIThreadDrag(props);
   return (
     <GestureDetector gesture={gesture}>
       <View

@@ -11,7 +11,8 @@ function clamp(value: number, min: number, max: number): number {
  *
  * The height floor deliberately keeps every current iPhone in the compact shell
  * when it rotates to landscape, while still allowing iPad and foldable-sized
- * windows to adopt the persistent sidebar as they resize.
+ * windows to adopt the persistent sidebar as they resize. Android also accepts
+ * wide, short windows down to 320dp so landscape and multi-window keep usable panes.
  */
 export const SPLIT_LAYOUT_MIN_WIDTH = 720;
 export const SPLIT_LAYOUT_MIN_HEIGHT = 600;
@@ -90,9 +91,15 @@ export function deriveThreadFeedInitialContentInset(input: {
   return { bottom: Math.max(0, input.bottomContentInset) };
 }
 
-export function deriveLayout(input: { readonly width: number; readonly height: number }): Layout {
+export function deriveLayout(input: {
+  readonly width: number;
+  readonly height: number;
+  readonly platform?: string;
+}): Layout {
   const { width, height } = input;
-  const wideEnoughForSplit = width >= SPLIT_LAYOUT_MIN_WIDTH && height >= SPLIT_LAYOUT_MIN_HEIGHT;
+  const wideEnoughForSplit =
+    width >= SPLIT_LAYOUT_MIN_WIDTH &&
+    height >= (input.platform === "android" ? 320 : SPLIT_LAYOUT_MIN_HEIGHT);
 
   if (!wideEnoughForSplit) {
     return {

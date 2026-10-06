@@ -4,9 +4,15 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { sortInboxThreadsByReturn } from "@t3tools/client-runtime/state/thread-inbox";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, FlatList, Modal, Pressable, View } from "react-native";
-import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Reanimated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
+import { FlatList, Modal, Pressable, View, useWindowDimensions } from "react-native";
+import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import Reanimated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import { threadDragGapOffset } from "./threadDragGap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -29,6 +35,8 @@ import {
 } from "./threadOrder";
 import { getThreadListV2OrderedSection, threadListInboxReturns } from "./threadListV2";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
+
+import { useUIThreadDrag } from "./use-ui-thread-drag";
 
 const ROW_HEIGHT = 56;
 const HEADER_HEIGHT = 48;
@@ -81,6 +89,7 @@ function ArrangementRow(props: {
 
 /** Native pan recognition wins over list scrolling only inside the handle. */
 function DragHandle(props: {
+  translation: SharedValue<number>;
   title: string;
   disabled: boolean;
   onStart: () => void;
@@ -92,21 +101,7 @@ function DragHandle(props: {
   canMoveUp: boolean;
   canMoveDown: boolean;
 }) {
-  const latest = useRef(props);
-  latest.current = props;
-  const gesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(!props.disabled)
-        .minDistance(0)
-        .shouldCancelWhenOutside(false)
-        .runOnJS(true)
-        .onStart(() => latest.current.onStart())
-        .onUpdate((event) => latest.current.onMove(event.translationY))
-        .onEnd((event) => latest.current.onMove(event.translationY))
-        .onFinalize((_, success) => latest.current.onEnd(!success)),
-    [props.disabled],
-  );
+  const gesture = useUIThreadDrag({ ...props, onEnd: (_, success) => props.onEnd(!success) });
   return (
     <GestureDetector gesture={gesture}>
       <View
@@ -150,6 +145,7 @@ function DragHandle(props: {
 
 export function ThreadArrangementSheet(props: { onClose: () => void }) {
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const threads = useAtomValue(environmentThreadShells.navigationThreadShellsAtom);
   const configs = useAtomValue(environmentServerConfigsAtom);
   const queuedThreadKeys = useAtomValue(queuedThreadKeysAtom);
@@ -248,7 +244,19 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
   const drag = useRef<Drag | null>(null);
   const frame = useRef<number | null>(null);
   const [preview, setPreview] = useState<Drag | null>(null);
-  const translateY = useRef(new Animated.Value(0)).current;
+  const translation = useSharedValue(0);
+  const previewOrigin = useSharedValue(0);
+  const previewHeight = useSharedValue(0);
+  const previewStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: Math.max(
+          0,
+          Math.min(previewHeight.value - ROW_HEIGHT, previewOrigin.value + translation.value),
+        ),
+      },
+    ],
+  }));
   const latest = useRef({ rows, planners, moveThread });
   latest.current = { rows, planners, moveThread };
 
@@ -263,7 +271,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
     .join("|");
   useEffect(() => {
     stop();
-  }, [orderVersion]);
+  }, [orderVersion, window.width, window.height]);
   useEffect(
     () => () => {
       if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -277,7 +285,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
     current.translation = translation;
     const { height, offset } = geometry.current;
     const y = current.startY + translation;
-    translateY.setValue(Math.max(0, Math.min(height - ROW_HEIGHT, y - ROW_HEIGHT / 2)));
+
     const contentY = Math.max(0, y + offset);
     const target =
       latest.current.rows.find((row) => contentY < row.offset + row.height) ??
@@ -323,6 +331,8 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
       translation: 0,
       destination: null,
     };
+    previewOrigin.set(drag.current.startY - ROW_HEIGHT / 2);
+    previewHeight.set(geometry.current.height);
     setPreview({ ...drag.current });
     update(0);
     let last = performance.now();
@@ -333,6 +343,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
       const dt = Math.min(timestamp - last, 32);
       last = timestamp;
       const bounds = geometry.current;
+      current.translation = translation.get();
       const y = current.startY + current.translation;
       const speed =
         y < 48
@@ -475,6 +486,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
                           {thread.title}
                         </Text>
                         <DragHandle
+                          translation={translation}
                           title={thread.title}
                           disabled={
                             dropBusy ||
@@ -536,10 +548,10 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
               }}
             />
             {visiblePreview ? (
-              <Animated.View
+              <Reanimated.View
                 pointerEvents="none"
                 className="absolute left-5 right-5 justify-center rounded-xl border border-border bg-screen px-4"
-                style={{ top: 0, height: ROW_HEIGHT, transform: [{ translateY }] }}
+                style={[{ top: 0, height: ROW_HEIGHT }, previewStyle]}
               >
                 <Text
                   numberOfLines={visiblePreview.destination?.section ? 1 : 2}
@@ -555,7 +567,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
                     )}
                   </Text>
                 ) : null}
-              </Animated.View>
+              </Reanimated.View>
             ) : null}
           </View>
         </View>

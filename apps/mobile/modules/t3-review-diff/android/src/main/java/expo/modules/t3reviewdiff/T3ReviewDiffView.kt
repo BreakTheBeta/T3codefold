@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewGroup
@@ -31,6 +32,8 @@ class T3ReviewDiffView(context: Context, appContext: AppContext) : ExpoView(cont
   private val onToggleViewedFile by EventDispatcher()
   private val onPressLine by EventDispatcher()
   private val onToggleComment by EventDispatcher()
+  private val onAttachSelection by EventDispatcher()
+  private val onFontScaleCommit by EventDispatcher()
   private var rows: List<DiffRow> = emptyList()
   private var visibleRows: List<DiffRow> = emptyList()
   private var collapsedFileIds: Set<String> = emptySet()
@@ -55,7 +58,52 @@ class T3ReviewDiffView(context: Context, appContext: AppContext) : ExpoView(cont
   private var lastTouchY = 0f
   private var velocityTracker: VelocityTracker? = null
 
+  private var pinching = false
+  private var pinchScale = 1f
+  private val resetPinchPreview = Runnable {
+    canvasView.scaleX = 1f
+    canvasView.scaleY = 1f
+  }
+  private fun clearPinchPreview() {
+    removeCallbacks(resetPinchPreview)
+    resetPinchPreview.run()
+  }
+
+  override fun onDetachedFromWindow() {
+    pinching = false
+    dragAxis = null
+    verticalScroller.forceFinished(true)
+    horizontalScroller.forceFinished(true)
+    velocityTracker?.recycle()
+    velocityTracker = null
+    clearPinchPreview()
+    parent?.requestDisallowInterceptTouchEvent(false)
+    super.onDetachedFromWindow()
+  }
+
+  private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+    override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+      clearPinchPreview()
+      parent?.requestDisallowInterceptTouchEvent(true)
+      pinching = true
+      pinchScale = 1f
+      verticalScroller.forceFinished(true)
+      horizontalScroller.forceFinished(true)
+      return true
+    }
+    override fun onScale(detector: ScaleGestureDetector): Boolean {
+      val fontDp = canvasView.style.codeFontSizePx / resources.displayMetrics.scaledDensity
+      pinchScale = (pinchScale * detector.scaleFactor).coerceIn(8f / fontDp, 18f / fontDp)
+      canvasView.pivotX = detector.focusX
+      canvasView.pivotY = detector.focusY
+      canvasView.scaleX = pinchScale
+      canvasView.scaleY = pinchScale
+      return true
+    }
+  })
+
   init {
+    canvasView.onAttachSelection = { start, end -> onAttachSelection(mapOf("startIndex" to start, "endIndex" to end)) }
     canvasView.onRowTap = { row, gesture, target -> handleRowTap(row, gesture, target) }
     canvasView.onVisibleRowsChanged = { first, last ->
       onDebug(
@@ -122,7 +170,12 @@ class T3ReviewDiffView(context: Context, appContext: AppContext) : ExpoView(cont
     canvasView.theme = DiffTheme.fromJson(value, canvasView.theme)
   }
 
+  fun setTextSelectable(value: Boolean) { canvasView.textSelectable = value }
+
+  fun setCanAttachSelection(value: Boolean) { canvasView.selection.canAttach = value }
+
   fun setStyleJson(value: String) {
+    clearPinchPreview()
     canvasView.style = DiffStyle.fromJson(value, canvasView.style, resources.displayMetrics.density)
   }
 
@@ -189,6 +242,8 @@ class T3ReviewDiffView(context: Context, appContext: AppContext) : ExpoView(cont
   }
 
   fun cleanup() {
+    clearPinchPreview()
+    canvasView.selection.clear()
     payloadDecodeExecutor.shutdownNow()
   }
 
@@ -204,6 +259,7 @@ class T3ReviewDiffView(context: Context, appContext: AppContext) : ExpoView(cont
 
   @Suppress("NestedBlockDepth", "ReturnCount")
   override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+    if (canvasView.selection.dragging) return false
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
         verticalScroller.forceFinished(true)
@@ -237,6 +293,34 @@ class T3ReviewDiffView(context: Context, appContext: AppContext) : ExpoView(cont
   }
 
   override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+    val wasPinching = pinching
+    scaleDetector.onTouchEvent(event)
+    if (!wasPinching && pinching) {
+      val cancel = MotionEvent.obtain(event)
+      cancel.action = MotionEvent.ACTION_CANCEL
+      super.dispatchTouchEvent(cancel)
+      cancel.recycle()
+    }
+    if (pinching) {
+      if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+        val currentFont = canvasView.style.codeFontSizePx / resources.displayMetrics.scaledDensity
+        val changed = kotlin.math.round(currentFont * pinchScale) != kotlin.math.round(currentFont)
+        if (event.actionMasked == MotionEvent.ACTION_UP && changed) {
+          onFontScaleCommit(mapOf("scale" to pinchScale))
+          // Hold the preview until React delivers the committed typography. A bounded
+          // fallback also clears it if the receiving screen disappears or rejects it.
+          postDelayed(resetPinchPreview, 250)
+        } else {
+          clearPinchPreview()
+        }
+        pinching = false
+        dragAxis = null
+        velocityTracker?.recycle()
+        velocityTracker = null
+        parent?.requestDisallowInterceptTouchEvent(false)
+      }
+      return true
+    }
     if (event.actionMasked == MotionEvent.ACTION_DOWN) {
       velocityTracker?.recycle()
       velocityTracker = VelocityTracker.obtain()
@@ -446,6 +530,7 @@ internal data class DiffRow(
   val additions: Int,
   val deletions: Int,
   val text: String,
+  val selectionContent: String? = null,
   val content: String,
   val change: String,
   val oldLineNumber: Int?,
@@ -663,6 +748,10 @@ private class DiffCanvasView(context: Context) : View(context) {
       override fun onDown(event: MotionEvent): Boolean = true
 
       override fun onSingleTapUp(event: MotionEvent): Boolean {
+        if (textSelectable) {
+          selection.clear()
+          return true
+        }
         rowHitAt(event.y)?.let { hit ->
           val target = if (
             hit.row.kind == "file" &&
@@ -683,11 +772,27 @@ private class DiffCanvasView(context: Context) : View(context) {
       }
 
       override fun onLongPress(event: MotionEvent) {
+        if (textSelectable) {
+          selection.begin(event.y)
+          return
+        }
         rowHitAt(event.y)?.row
           ?.takeIf { it.kind == "line" }
           ?.let { onRowTap?.invoke(it, "longPress", RowTapTarget.ROW) }
       }
     },
+  )
+  var textSelectable = false
+  var onAttachSelection: ((Int, Int) -> Unit)? = null
+  val selection = SourceLineSelection(
+    this,
+    { y -> rowIndexAt(verticalOffset + y.toInt()) },
+    { index -> rowTop(index) - verticalOffset },
+    { index -> rowOffsets.getOrElse(index + 1) { rowOffsets.last() } - verticalOffset },
+    { rows.size },
+    { index -> rows.getOrNull(index)?.let { it.selectionContent ?: it.content } ?: "" },
+    { delta -> scrollByVertical(delta) },
+    { start, end -> onAttachSelection?.invoke(start, end) },
   )
   private var rowOffsets = intArrayOf(0)
 
@@ -698,6 +803,7 @@ private class DiffCanvasView(context: Context) : View(context) {
   private var lastVisibleRange: Pair<Int, Int>? = null
   var rows: List<DiffRow> = emptyList()
     set(value) {
+      selection.clear()
       field = value
       headerPathOffsetsByFileId.keys.retainAll(
         value.asSequence().filter { it.kind == "file" }.map { it.resolvedFileId }.toSet(),
@@ -789,12 +895,19 @@ private class DiffCanvasView(context: Context) : View(context) {
         rowOffsets[index + 1] - verticalOffset,
       )
     }
+    selection.drawHandles(canvas, theme.hunkText)
     drawStickyFileHeader(canvas, first)
     drawHorizontalScrollIndicator(canvas)
     emitVisibleRange()
   }
 
-  override fun onTouchEvent(event: MotionEvent): Boolean = gestureDetector.onTouchEvent(event)
+  override fun onDetachedFromWindow() {
+    selection.clear()
+    super.onDetachedFromWindow()
+  }
+
+  override fun onTouchEvent(event: MotionEvent): Boolean =
+    selection.onTouch(event) || gestureDetector.onTouchEvent(event)
 
   fun rowTop(index: Int): Int = rowOffsets[index.coerceIn(0, max(0, rowOffsets.size - 2))]
 
@@ -1196,7 +1309,7 @@ private class DiffCanvasView(context: Context) : View(context) {
         )
       }
     }
-    val selected = selectedRowIds.contains(row.id)
+    val selected = selectedRowIds.contains(row.id) || (textSelectable && selection.contains(rowIndexAt(verticalOffset + top)))
     if (selected) {
       fill(
         canvas,
@@ -1366,6 +1479,7 @@ private fun parseRows(value: String): List<DiffRow> = try {
       deletions = row.optInt("deletions"),
       text = row.optString("text"),
       content = row.optString("content"),
+      selectionContent = row.optNullableString("selectionContent"),
       change = row.optString("change", "context"),
       oldLineNumber = row.optNullableInt("oldLineNumber"),
       newLineNumber = row.optNullableInt("newLineNumber"),

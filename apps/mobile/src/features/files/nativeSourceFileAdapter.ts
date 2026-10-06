@@ -11,8 +11,10 @@ export const NATIVE_SOURCE_CONTENT_WIDTH = 32_000;
 
 export function createNativeSourceStyle(
   codeSurface: ResolvedMobileCodeSurface,
+  wordWrap = false,
 ): NativeReviewDiffStyle {
   return {
+    wordWrap,
     rowHeight: codeSurface.rowHeight,
     contentWidth: NATIVE_SOURCE_CONTENT_WIDTH,
     changeBarWidth: 0,
@@ -48,6 +50,7 @@ export function buildNativeSourceRows(
     id: nativeSourceRowId(index),
     fileId: SOURCE_FILE_ID,
     content: expandTabs(line),
+    ...(line.includes("\t") ? { selectionContent: line } : {}),
     change: "context",
     newLineNumber: index + 1,
   }));

@@ -1,9 +1,15 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { type WorkspacePaneLayout } from "../../lib/layout";
 import { type PaneDividerRelease } from "../../lib/foldable-pane-layout";
+import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { WORKSPACE_PANE_REVEAL_TIMING } from "./workspace-pane-animation";
 import { WorkspacePaneDivider } from "./workspace-pane-divider";
@@ -18,14 +24,17 @@ import { VimPaneFocusMarker } from "../keyboard/useWorkspaceVimNavigation";
  * column of a UISplitViewController has its own chrome.
  *
  * Widths change in a single layout pass; only the newly shown pane fades in.
- * A hidden pane keeps its content mounted at its last width (clipped to zero)
- * so files keep their scroll position and a terminal never reports a sliver
- * width to its PTY.
+ * A hidden pane keeps its content mounted at its last width in an untouchable
+ * absolute overlay, fading to zero opacity while layout space closes at once.
+ * Files keep their scroll position and terminals never receive a sliver width.
+ * Unregistered route content is released after its exit finishes.
  *
  * Receives the pane layout via props (not the workspace context hook) so this
  * module stays import-cycle-free with AdaptiveWorkspaceLayout.
  */
 export function WorkspaceInspectorPane(props: {
+  readonly topRegionHeight?: number | null;
+  readonly fixedDivider?: boolean;
   readonly pathname: string;
   readonly panes: WorkspacePaneLayout;
   readonly renderInspector?: () => ReactNode;
@@ -41,20 +50,34 @@ export function WorkspaceInspectorPane(props: {
 
   // A route replace remounts the screen that owns the inspector; starting at
   // the current visibility keeps an already-open pane from replaying its reveal.
+  const [retainedInspector, setRetainedInspector] = useState<{ render: () => ReactNode } | null>(
+    props.renderInspector ? { render: props.renderInspector } : null,
+  );
+  if (props.renderInspector && props.renderInspector !== retainedInspector?.render) {
+    setRetainedInspector({ render: props.renderInspector });
+  }
+  const exitGeneration = useRef(0);
+  const finishExit = useCallback((generation: number) => {
+    if (exitGeneration.current === generation) setRetainedInspector(null);
+  }, []);
   const reveal = useSharedValue(visible ? 1 : 0);
-  useEffect(() => {
-    reveal.value = visible ? withTiming(1, WORKSPACE_PANE_REVEAL_TIMING) : 0;
-  }, [reveal, visible]);
+  useLayoutEffect(() => {
+    const generation = ++exitGeneration.current;
+    const releaseRegistration = props.renderInspector === undefined;
+    reveal.value = withTiming(visible ? 1 : 0, WORKSPACE_PANE_REVEAL_TIMING, (finished) => {
+      if (finished && !visible && releaseRegistration) runOnJS(finishExit)(generation);
+    });
+  }, [finishExit, props.renderInspector, reveal, visible]);
   const revealStyle = useAnimatedStyle(() => ({
     opacity: reveal.value,
     transform: [{ translateX: (1 - reveal.value) * 16 }],
   }));
 
-  if (props.renderInspector === undefined || width === null) return null;
+  if (retainedInspector === null || width === null) return null;
 
   return (
     <>
-      {visible && panes.auxiliaryPaneWidthRange !== null ? (
+      {visible && !props.fixedDivider && panes.auxiliaryPaneWidthRange !== null ? (
         <WorkspacePaneDivider
           accessibilityLabel="Resize detail pane"
           width={width}
@@ -66,24 +89,58 @@ export function WorkspaceInspectorPane(props: {
         />
       ) : null}
       <View
-        className="shrink-0 overflow-hidden"
+        className="shrink-0"
         accessibilityElementsHidden={!visible}
         collapsable={false}
         importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
         pointerEvents={visible ? "auto" : "none"}
-        style={{ width: visible ? width : 0 }}
+        style={{
+          width: visible ? width : 0,
+          ...(props.topRegionHeight != null && !panes.auxiliaryPaneMaximized
+            ? { height: props.topRegionHeight }
+            : {}),
+          zIndex: visible ? undefined : 20,
+        }}
       >
         <Animated.View
           className="flex-1"
-          style={[{ width: visible ? width : lastVisibleWidth.current }, revealStyle]}
+          style={[
+            {
+              width: visible ? width : lastVisibleWidth.current,
+              ...(visible
+                ? {}
+                : {
+                    position: "absolute",
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                  }),
+            },
+            revealStyle,
+          ]}
         >
+          {props.fixedDivider ? (
+            <View className="h-12 flex-row items-center justify-end bg-header px-2">
+              <AndroidHeaderIconButton
+                accessibilityLabel={
+                  panes.auxiliaryPaneMaximized ? "Restore detail pane" : "Maximize detail pane"
+                }
+                icon={
+                  panes.auxiliaryPaneMaximized
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right"
+                }
+                onPress={props.onToggleMaximized}
+              />
+            </View>
+          ) : null}
           <RenderErrorBoundary
             resetKeys={[props.pathname]}
             renderFallback={(fallback) => (
               <RenderFailureView {...fallback} title="The inspector couldn't be displayed" />
             )}
           >
-            <InspectorRenderer render={props.renderInspector} />
+            <InspectorRenderer render={retainedInspector.render} />
           </RenderErrorBoundary>
         </Animated.View>
         <VimPaneFocusMarker region="inspector" />

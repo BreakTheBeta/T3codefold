@@ -292,6 +292,8 @@ export interface ThreadFeedProps {
   readonly submittedMessageId: MessageId | null;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly contentTopInset?: number;
+  /** Distance below a tabletop transcript, so the lower-half IME does not lift it. */
+  readonly keyboardOffset?: number;
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
   readonly contentMaxWidth?: number;
@@ -3154,6 +3156,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="none"
             keyboardLiftBehavior="whenAtEnd"
+            keyboardOffset={props.keyboardOffset ?? 0}
             // Seed the list's scroll math with the real viewport before its own
             // onLayout: the empty→filled remount can then tell at mount that
             // short content underflows the viewport and skip programmatic

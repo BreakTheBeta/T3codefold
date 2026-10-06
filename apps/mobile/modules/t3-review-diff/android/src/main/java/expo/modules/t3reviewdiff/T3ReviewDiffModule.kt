@@ -35,6 +35,8 @@ class T3ReviewDiffModule : Module() {
       Prop("styleJson") { view: T3ReviewDiffView, styleJson: String ->
         view.setStyleJson(styleJson)
       }
+      Prop("textSelectable") { view: T3ReviewDiffView, value: Boolean -> view.setTextSelectable(value) }
+      Prop("canAttachSelection") { view: T3ReviewDiffView, value: Boolean -> view.setCanAttachSelection(value) }
       Prop("rowHeight") { view: T3ReviewDiffView, rowHeight: Double ->
         view.setRowHeight(rowHeight.toFloat())
       }
@@ -47,6 +49,8 @@ class T3ReviewDiffModule : Module() {
 
       Events(
         "onDebug",
+        "onAttachSelection",
+        "onFontScaleCommit",
         "onVisibleFileChange",
         "onToggleFile",
         "onToggleViewedFile",

@@ -6,6 +6,8 @@ import android.graphics.Typeface
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -26,6 +28,69 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   private val onCapture by EventDispatcher()
   private val onOutputApplied by EventDispatcher()
   private val onCursorKeysChange by EventDispatcher()
+  private val onFontScaleCommit by EventDispatcher()
+  private var pinching = false
+  private var pinchScale = 1f
+  private val resetPinchPreview = Runnable {
+    terminalCanvas.scaleX = 1f
+    terminalCanvas.scaleY = 1f
+  }
+  private fun clearPinchPreview() {
+    removeCallbacks(resetPinchPreview)
+    resetPinchPreview.run()
+  }
+
+  override fun onDetachedFromWindow() {
+    pinching = false
+    clearPinchPreview()
+    parent?.requestDisallowInterceptTouchEvent(false)
+    super.onDetachedFromWindow()
+  }
+
+  private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+    override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+      clearPinchPreview()
+      parent?.requestDisallowInterceptTouchEvent(true)
+      pinching = true
+      pinchScale = 1f
+      return true
+    }
+    override fun onScale(detector: ScaleGestureDetector): Boolean {
+      pinchScale = (pinchScale * detector.scaleFactor).coerceIn(6f / fontSize, 14f / fontSize)
+      terminalCanvas.pivotX = detector.focusX
+      terminalCanvas.pivotY = detector.focusY
+      terminalCanvas.scaleX = pinchScale
+      terminalCanvas.scaleY = pinchScale
+      return true
+    }
+  })
+  override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+    val wasPinching = pinching
+    scaleDetector.onTouchEvent(event)
+    if (!wasPinching && pinching) {
+      val cancel = MotionEvent.obtain(event)
+      cancel.action = MotionEvent.ACTION_CANCEL
+      super.dispatchTouchEvent(cancel)
+      cancel.recycle()
+    }
+    if (pinching) {
+      if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+        if (event.actionMasked == MotionEvent.ACTION_UP && !(kotlin.math.abs(pinchScale - 1f) < 0.001f)) {
+          onFontScaleCommit(mapOf("scale" to pinchScale))
+          // Hold the preview until React delivers the committed typography. A bounded
+          // fallback also clears it if the receiving screen disappears or rejects it.
+          postDelayed(resetPinchPreview, 250)
+        } else {
+          clearPinchPreview()
+        }
+        pinching = false
+        parent?.requestDisallowInterceptTouchEvent(false)
+      }
+      return true
+    }
+    return super.dispatchTouchEvent(event)
+  }
+
   var captureRequest: Double = 0.0
     set(value) {
       if (field == value || value <= 0) return
@@ -82,6 +147,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
 
   var fontSize: Float = 10f
     set(value) {
+      clearPinchPreview()
       field = value
       terminalCanvas.fontSizeSp = value
       inputView.textSize = max(value, 13f)
@@ -216,6 +282,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   }
 
   fun cleanup() {
+    clearPinchPreview()
     if (isCleanedUp) return
     isCleanedUp = true
     inputView.setOnEditorActionListener(null)

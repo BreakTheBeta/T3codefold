@@ -1,6 +1,13 @@
 import { memo, useMemo, useState } from "react";
 import { getFiletypeFromFileName } from "@pierre/diffs/utils/getFiletypeFromFileName";
-import { ScrollView, StyleSheet, Text as NativeText, View, type ColorValue } from "react-native";
+import {
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text as NativeText,
+  View,
+  type ColorValue,
+} from "react-native";
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -47,7 +54,7 @@ export const ReviewCommentCard = memo(function ReviewCommentCard(props: {
   readonly comment: ReviewInlineComment;
   readonly colors: ReviewCommentColors;
 }) {
-  const { codeSurface, nativeReviewDiffStyle } = useAppearanceCodeSurface();
+  const { codeSurface, nativeReviewDiffStyle, onFontScaleCommit } = useAppearanceCodeSurface();
   const { themeAppearance: appearanceScheme, themeId } = useAppearancePreferences();
   const appTheme = useUniwindTheme();
   const [NativeReviewDiffView] = useState(() => resolveNativeReviewDiffView());
@@ -187,6 +194,7 @@ export const ReviewCommentCard = memo(function ReviewCommentCard(props: {
             style={StyleSheet.absoluteFill}
             appearanceScheme={appearanceScheme}
             contentWidth={NATIVE_REVIEW_DIFF_CONTENT_WIDTH}
+            {...(Platform.OS === "android" ? { onFontScaleCommit } : {})}
             rowHeight={nativeReviewDiffStyle.rowHeight}
             rowsJson={nativeRowsJson}
             tokensJson={nativeTokensJson}
