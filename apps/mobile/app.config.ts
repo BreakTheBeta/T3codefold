@@ -428,7 +428,10 @@ const config: ExpoConfig = {
       {
         android: {
           // Keep the supported floor explicit and covered by native notification tests.
-          minSdkVersion: 24,
+          // Local speech inference and Core Telecom call audio require Android 8+.
+          minSdkVersion: 26,
+          // Moonshine ships these native ABIs; it does not provide 32-bit x86.
+          buildArchs: ["arm64-v8a", "armeabi-v7a", "x86_64"],
           // kotlinx-io uses Kotlin 2.3's return-value checker annotation, while
           // SDK 58 builds with Kotlin 2.2. It has no runtime behavior.
           //

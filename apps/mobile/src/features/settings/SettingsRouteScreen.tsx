@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { VoiceSettings } from "../voice-input/VoiceWorkspaceProvider";
+import { LocalDictationSettings } from "../voice-input/LocalDictationSettings";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -153,6 +154,7 @@ function SettingsIndexSections() {
       </SettingsSection>
 
       <VoiceSettings />
+      <LocalDictationSettings />
 
       <SettingsSection title="Automations">
         <SettingsRow icon="clock" label="Scheduled tasks" target="SettingsScheduledTasks" />

@@ -8,9 +8,12 @@ android {
   defaultConfig {
     minSdkVersion rootProject.ext.minSdkVersion
     targetSdkVersion rootProject.ext.targetSdkVersion
+    consumerProguardFiles 'consumer-rules.pro'
   }
 }
 dependencies {
   implementation project(':expo-modules-core')
   implementation 'androidx.core:core-telecom:1.0.0'
+  implementation 'ai.moonshine:moonshine-voice:0.1.5'
+  testImplementation 'junit:junit:4.13.2'
 }
