@@ -27,7 +27,7 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
-import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { WorkStore, layer as workLayer } from "./WorkStore.ts";
 import { PeerService, layer as peerLayer } from "./PeerService.ts";
 import { layer as routes } from "./PeerHttp.ts";

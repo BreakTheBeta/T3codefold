@@ -478,13 +478,14 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
     // Running against the full snapshot also exercises new migrations on the
     // same data volume the real database would face.
     yield* Console.log("Running migrations on the snapshot...");
-    // Mirror server boot (persistence/Layers/Sqlite.ts): a Fold source is re-imported under
+    // Mirror server boot (persistence/Sqlite.ts): a Fold source is re-imported under
     // the upstream ledger first. The snapshot is disposable, so no backup is kept.
     yield* importFoldDatabase(snapshotPath, { keepBackup: false }).pipe(
       wrapPhase("migrate", snapshotPath),
     );
     const executed = yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
+      // Mirror server boot (persistence/Sqlite.ts).
       yield* sql.unsafe("PRAGMA foreign_keys = ON").unprepared;
       const migrations = yield* runMigrations();
       yield* runFoldMigrations();
