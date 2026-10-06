@@ -647,6 +647,9 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
         ? {
             type: "worktree" as const,
             baseRef: prepareWorktree.baseBranch,
+            ...(prepareWorktree.requireWorktree === undefined
+              ? {}
+              : { requireWorktree: prepareWorktree.requireWorktree }),
             ...(prepareWorktree.branch === undefined ? {} : { branch: prepareWorktree.branch }),
             ...(prepareWorktree.startFromOrigin === undefined
               ? {}

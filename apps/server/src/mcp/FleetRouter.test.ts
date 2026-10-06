@@ -17,6 +17,9 @@ import type { McpInvocationScope } from "./McpInvocationContext.ts";
 
 const localId = EnvironmentId.make("laptop");
 const remoteId = EnvironmentId.make("server");
+// The results are `unknown`, so flipping them would put `unknown` in the error channel.
+const failureOf = <E>(effect: Effect.Effect<unknown, E>) => Effect.flip(Effect.asVoid(effect));
+
 function fixture(remoteFails = false) {
   const remoteCalls: FleetExecuteInput[] = [];
   const dependencies = Layer.mergeAll(
@@ -127,7 +130,7 @@ it.effect("never sends a request for this environment through a client", () => {
   const f = fixture();
   return Effect.gen(function* () {
     const router = yield* FleetRouter;
-    const failure = yield* Effect.flip(
+    const failure = yield* failureOf(
       router.invoke(undefined, { environmentId: localId, operation: "t3_thread_list", input: {} }),
     );
     expect(failure.code).toBe("invalid_request");
@@ -139,7 +142,7 @@ it.effect("surfaces a failed remote route instead of falling back", () => {
   const f = fixture(true);
   return Effect.gen(function* () {
     const router = yield* FleetRouter;
-    const failure = yield* Effect.flip(
+    const failure = yield* failureOf(
       router.invoke(undefined, {
         environmentId: remoteId,
         operation: "t3_thread_send",

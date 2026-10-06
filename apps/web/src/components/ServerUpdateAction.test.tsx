@@ -68,6 +68,9 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
 }
 
+const FOLD_SPEC_0_0_45 =
+  "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v0.0.45/t3-0.0.45.tgz";
+
 describe("ServerUpdateAction", () => {
   beforeEach(() => {
     testState.updateServer.mockReset();
@@ -79,19 +82,19 @@ describe("ServerUpdateAction", () => {
   it.each([
     [
       { kind: "npm-global", prefix: "/opt/node" },
-      "npm install --global --prefix '/opt/node' t3@0.0.45",
+      `npm install --global --prefix '/opt/node' ${FOLD_SPEC_0_0_45}`,
       "Update command copied",
       "then restart t3",
     ],
     [
       { kind: "npx" },
-      "npx t3@0.0.45",
+      `npx --yes --prefer-online --package=${FOLD_SPEC_0_0_45} t3`,
       "Relaunch command copied",
       "This does not update an installed t3 command.",
     ],
     [
       undefined,
-      "npx t3@0.0.45",
+      `npx --yes --prefer-online --package=${FOLD_SPEC_0_0_45} t3`,
       "Relaunch command copied",
       "This does not update an installed t3 command.",
     ],

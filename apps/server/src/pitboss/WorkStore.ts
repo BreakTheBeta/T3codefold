@@ -24,6 +24,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 import {
@@ -83,7 +84,8 @@ export class WorkStore extends Context.Service<
     ) => Effect.Effect<PitbossSnapshot, PitbossError>;
     finishBoardClear: (operationId: string) => Effect.Effect<void, PitbossError>;
     subscribe: () => Stream.Stream<PitbossSnapshot, PitbossError>;
-    changes: Stream.Stream<void>;
+    /** Subscribes now and returns the change signals; subscribe before an initial read so no change is lost. */
+    subscribeChanges: Effect.Effect<Stream.Stream<void>, never, Scope.Scope>;
     effects: () => Effect.Effect<ReadonlyArray<WorkEffect>, PitbossError>;
     /** How many wakes already carried each key, so a repeated obligation can be re-delivered. */
     wakeDeliveries: (
@@ -431,7 +433,7 @@ export const layer = Layer.effect(
             Effect.tap(() => PubSub.publish(notifications, undefined)),
             Effect.mapError(unavailable),
           ),
-      changes: Stream.fromPubSub(notifications),
+      subscribeChanges: PubSub.subscribe(notifications).pipe(Effect.map(Stream.fromSubscription)),
       subscribe: () =>
         Stream.unwrap(
           Effect.gen(function* () {

@@ -273,6 +273,7 @@ const harness = Effect.gen(function* () {
           return { sequence: 1, storedEvents: [] };
         }),
       streamDomainEvents: Stream.never,
+      subscribeDomainEvents: Effect.succeed(Stream.never),
       getThreadProjection: (id) =>
         forbidHistoryReads
           ? Effect.die("Runtime monitoring loaded full history")

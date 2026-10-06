@@ -15,6 +15,8 @@ export const layer = Layer.effectDiscard(
     const projects = yield* ProjectStoreV2;
     const runner = yield* VerificationRunner;
     const lock = yield* Semaphore.make(1);
+    // Subscribe before the first read, so a change landing during startup still wakes the drain.
+    const changes = yield* store.subscribeChanges;
     // Never rerun commands whose completion was lost across a server restart.
     const initial = yield* store.read();
     for (const task of initial.tasks)
@@ -89,7 +91,7 @@ export const layer = Layer.effectDiscard(
         yield* store.recordVerification(task.id, { ...run, state: "completed", receipt });
       }
     }, lock.withPermit);
-    yield* store.changes.pipe(
+    yield* changes.pipe(
       Stream.runForEach(() => drain().pipe(Effect.catchCause(Effect.logWarning))),
       Effect.forkScoped,
     );

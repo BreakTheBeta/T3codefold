@@ -6,7 +6,7 @@ import {
   type ServerSelfUpdateResult,
   WS_METHODS,
 } from "@t3tools/contracts";
-import { foldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
+import { manualFoldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -85,7 +85,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
     if (!supportsFoldUpdates(capabilities)) {
       return yield* new OutdatedHostUpdateError({
         environmentId,
-        message: `${descriptor.label} cannot update itself to Fold. Update it manually with: ${foldServerCommand(input.targetVersion)} service update`,
+        message: `${descriptor.label} cannot update itself to Fold. Update it manually with: ${manualFoldServerCommand(input.targetVersion)} service update`,
       });
     }
 

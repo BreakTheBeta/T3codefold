@@ -19,6 +19,8 @@ const legacyReaders = ["orchestration-v2/legacy/", "persistence/Migrations/"] as
 const legacyReaderFiles: Record<string, string> = {
   // Provider history for settings migration reads V1 thread sessions once at load.
   "serverSettings.ts": "one-time provider history for settings migration",
+  // The one-time Fold database import checks whether the fork copied the PR link table.
+  "persistence/importFoldDatabase.ts": "one-time Fold fork database import",
 };
 const retiredPaths = [
   "orchestration",

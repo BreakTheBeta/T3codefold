@@ -155,3 +155,99 @@ it.effect.each([
       ),
     ),
 );
+
+it.effect("acts on a change that lands while startup is still reading the store", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkStore;
+    const sql = yield* SqlClient.SqlClient;
+    const f = fixture();
+    f.act({ type: "verify", taskId: "task", evidenceId: f.state.tasks[0]!.evidence.at(-1)!.id });
+    for (const [index, entry] of f.history.entries())
+      yield* sql`INSERT INTO pitboss_events (operation_id, request_json, payload_json, created_at) VALUES (${`seed-${index}`}, 'seed', ${entry}, '2026-09-13T00:00:00Z')`;
+    yield* store.rebuild();
+    yield* store.updateAttempt(
+      "task",
+      f.state.tasks[0]!.attempts[0]!.id,
+      "stopped",
+      "Retained files",
+      "/retained-worker",
+    );
+    const setPaused = (paused: boolean) =>
+      Effect.flatMap(store.read(), (state) =>
+        store.command(
+          {
+            commandId: CommandId.make(paused ? "pause" : "resume"),
+            expectedRevision: state.revision,
+            action: { type: "pause", paused },
+          },
+          { type: "user" },
+        ),
+      );
+    yield* setPaused(true);
+    const project = yield* decodeProject({
+      projectId: "project",
+      title: "Fixture",
+      workspaceRoot: "/fixture",
+      defaultModelSelection: null,
+      defaultThreadEnvMode: null,
+      autoPull: false,
+      faviconPath: null,
+      projectIcon: null,
+      scripts: [],
+      createdAt: "2026-09-13T00:00:00Z",
+      updatedAt: "2026-09-13T00:00:00Z",
+      deletedAt: null,
+    });
+    const log: Array<"subscribe" | "read"> = [];
+    let calls = 0;
+    // The first drain reads a paused board; the user resumes right after that read, before the
+    // drain returns. Only a subscription taken before startup reads can observe that resume.
+    const racingStore: WorkStore["Service"] = {
+      ...store,
+      subscribeChanges: Effect.suspend(() => {
+        log.push("subscribe");
+        return store.subscribeChanges;
+      }),
+      read: (actor) =>
+        store.read(actor).pipe(
+          Effect.tap(() => {
+            log.push("read");
+            return log.filter((entry) => entry === "read").length === 2
+              ? setPaused(false)
+              : Effect.void;
+          }),
+        ),
+    };
+    yield* Layer.build(
+      runtime.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(WorkStore, racingStore),
+            Layer.mock(ProjectStoreV2, { get: () => Effect.succeed(Option.some(project)) }),
+            Layer.succeed(VerificationRunner, {
+              run: () =>
+                Effect.sync(() => {
+                  calls++;
+                  return { ...interruptedReceipt("Captured"), verdict: "pass" as const };
+                }),
+            }),
+          ),
+        ),
+      ),
+    );
+    const completed = yield* store.subscribe().pipe(
+      Stream.filter((state) => state.tasks[0]!.verification?.state === "completed"),
+      Stream.runHead,
+    );
+    expect(log[0]).toBe("subscribe");
+    expect(Option.isSome(completed)).toBe(true);
+    expect(calls).toBe(1);
+  }).pipe(
+    Effect.provide(
+      storeLayer.pipe(
+        Layer.provideMerge(SqlitePersistenceMemory),
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
+  ),
+);

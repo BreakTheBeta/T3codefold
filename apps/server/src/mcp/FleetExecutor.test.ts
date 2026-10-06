@@ -28,6 +28,9 @@ const sourceId = EnvironmentId.make("laptop");
 const projectId = ProjectId.make("project");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" };
 
+// The results are `unknown`, so flipping them would put `unknown` in the error channel.
+const failureOf = <E>(effect: Effect.Effect<unknown, E>) => Effect.flip(Effect.asVoid(effect));
+
 function fixture() {
   const scopes: Array<McpInvocationScope> = [];
   const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
@@ -129,7 +132,7 @@ it.effect("refuses a request addressed to another environment", () => {
   const f = fixture();
   return Effect.gen(function* () {
     const executor = yield* FleetExecutor;
-    const result = yield* Effect.flip(
+    const result = yield* failureOf(
       executor.execute(
         fromAgent({ environmentId: sourceId, operation: "t3_thread_list", input: {} }),
       ),
@@ -186,7 +189,7 @@ it.effect("launches through t3_thread_launch, capped by the source's modes", () 
     });
     expect(f.launched[0]?.initialMessage?.senderThreadId).toBeUndefined();
 
-    const escalated = yield* Effect.flip(
+    const escalated = yield* failureOf(
       executor.execute({
         source,
         environmentId: localId,
@@ -195,7 +198,7 @@ it.effect("launches through t3_thread_launch, capped by the source's modes", () 
       }),
     );
     expect(escalated.code).toBe("runtime_mode_escalation_denied");
-    const broadened = yield* Effect.flip(
+    const broadened = yield* failureOf(
       executor.execute({
         source,
         environmentId: localId,
@@ -229,7 +232,7 @@ it.effect("serves an older source's t3_thread_start as a launch", () => {
       modelSelection,
       initialMessage: { text: "Continue the handoff" },
     });
-    const partial = yield* Effect.flip(
+    const partial = yield* failureOf(
       executor.execute(
         fromAgent({
           projectId,

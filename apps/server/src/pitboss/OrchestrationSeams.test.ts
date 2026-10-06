@@ -101,3 +101,16 @@ it.effect("leads managed turns with the attempt's work packet", () =>
     ),
   ),
 );
+
+it.effect("starts managed turns without a packet when the work store cannot be read", () =>
+  Effect.gen(function* () {
+    const preamble = yield* TurnPreamble;
+    expect(yield* preamble.forAttempt(elected, RunAttemptId.make("attempt-1"))).toBeNull();
+  }).pipe(
+    Effect.provide(
+      seams({
+        context: () => Effect.fail(new PitbossError({ code: "unavailable", message: "offline" })),
+      }),
+    ),
+  ),
+);

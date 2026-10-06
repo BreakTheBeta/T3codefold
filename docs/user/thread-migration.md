@@ -33,8 +33,8 @@ the same IDs. In-flight background work and queued GLaDOS actions from the old b
 rather than replayed; start them again if you still need them.
 
 The original database is kept beside the new one as `statev2.fold-backup-<timestamp>.sqlite`.
-The upgrade needs free disk space of about twice the database size, and it takes a few seconds for
-large histories.
+The upgrade needs free disk space of about three times the database size while it runs (the backup
+keeps one copy afterwards), and it can take a minute or more for multi-GB histories.
 
 Stop every other T3 Code or Fold server that uses the same data directory first. If one is still
 running, the server refuses to start with "Stop other T3 Code / Fold servers using this data

@@ -107,6 +107,8 @@ export class FoldDatabaseImportError extends Schema.TaggedError<FoldDatabaseImpo
   }
 }
 
+const isFoldDatabaseImportError = Schema.is(FoldDatabaseImportError);
+
 export interface ImportFoldDatabaseOptions {
   /** Keep the pre-import snapshot as `<name>.fold-backup-<timestamp>.sqlite`. Defaults to true. */
   readonly keepBackup?: boolean | undefined;
@@ -207,13 +209,34 @@ const acquireImportLock = Effect.fn("importFoldDatabase.acquireImportLock")(func
             }),
       ),
       Effect.mapError((cause) =>
-        cause instanceof FoldDatabaseImportError
+        isFoldDatabaseImportError(cause)
           ? cause
           : new FoldDatabaseImportError({ databasePath, reason: "failed", cause }),
       ),
     ),
     () => fs.remove(lockPath, { force: true }).pipe(Effect.ignore),
   );
+});
+
+const BUILD_DIRECTORY_PREFIX = ".fold-import-";
+
+/**
+ * A killed import (SIGKILL, power loss) skips its scoped cleanup and leaves a build directory of
+ * up to twice the database size. Only the import lock holder may call this, so any build
+ * directory left in the state dir belongs to a dead process.
+ */
+const removeAbandonedBuilds = Effect.fn("importFoldDatabase.removeAbandonedBuilds")(function* (
+  directory: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  for (const name of yield* fs.readDirectory(directory)) {
+    if (!name.startsWith(BUILD_DIRECTORY_PREFIX)) continue;
+    yield* Effect.logWarning("Removing an abandoned Fold database upgrade").pipe(
+      Effect.annotateLogs({ path: path.join(directory, name) }),
+    );
+    yield* fs.remove(path.join(directory, name), { recursive: true, force: true });
+  }
 });
 
 /**
@@ -415,12 +438,13 @@ export const importFoldDatabase = Effect.fn("importFoldDatabase")(function* (
 
   const directory = path.dirname(databasePath);
   const failed = (cause: unknown) =>
-    cause instanceof FoldDatabaseImportError
+    isFoldDatabaseImportError(cause)
       ? cause
       : new FoldDatabaseImportError({ databasePath, reason: "failed", cause });
 
   return yield* Effect.gen(function* () {
     yield* acquireImportLock(path.join(directory, ".fold-import.lock"), databasePath);
+    yield* removeAbandonedBuilds(directory);
     // Another process may have finished the import while this one waited for the lock.
     if (!(yield* classify(databasePath))) return skipped;
 
@@ -428,7 +452,7 @@ export const importFoldDatabase = Effect.fn("importFoldDatabase")(function* (
     const { mode } = yield* fs.stat(databasePath);
     const temporaryDirectory = yield* fs.makeTempDirectoryScoped({
       directory,
-      prefix: ".fold-import-",
+      prefix: BUILD_DIRECTORY_PREFIX,
     });
     const snapshotPath = path.join(temporaryDirectory, "source.sqlite");
     const buildPath = path.join(temporaryDirectory, path.basename(databasePath));

@@ -856,7 +856,7 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
   );
 }
 
-const preambleFor = (preamble: Effect.Effect<string | null, unknown>) => {
+const preambleFor = (preamble: Effect.Effect<string | null>) => {
   const calls: Array<readonly [ThreadId, RunAttemptId]> = [];
   return {
     calls,
@@ -895,24 +895,20 @@ effectIt.effect("leads a starting turn with its preamble for this thread and att
   }),
 );
 
-for (const [label, preamble] of [
-  ["without a preamble", Effect.succeed(null)],
-  ["when the preamble cannot be read", Effect.fail("work store unavailable")],
-] as const) {
-  effectIt.effect(`leaves the turn text untouched ${label}`, () =>
-    Effect.gen(function* () {
-      const harness = makeLocalCommandHarness({
-        text: "Ship the dark mode toggle",
-        failReadsAfterRunning: true,
-      });
+effectIt.effect("leaves the turn text untouched without a preamble", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Ship the dark mode toggle",
+      failReadsAfterRunning: true,
+    });
 
-      yield* harness.start.pipe(
-        Effect.provideService(ProviderTurnStart.TurnPreamble, preambleFor(preamble).turnPreamble),
-      );
+    yield* harness.start.pipe(
+      Effect.provideService(
+        ProviderTurnStart.TurnPreamble,
+        preambleFor(Effect.succeed(null)).turnPreamble,
+      ),
+    );
 
-      expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe(
-        "Ship the dark mode toggle",
-      );
-    }),
-  );
-}
+    expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe("Ship the dark mode toggle");
+  }),
+);

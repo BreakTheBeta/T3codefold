@@ -1,4 +1,4 @@
-import { foldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
+import { manualFoldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
 import {
   type EnvironmentId,
   type ServerConfig,
@@ -99,7 +99,7 @@ export class ServerUpdateSourceMismatchError extends Schema.TaggedError<ServerUp
   { targetVersion: Schema.String },
 ) {
   override get message(): string {
-    return `This server updater does not identify itself as Fold. Update it manually with: ${foldServerCommand(this.targetVersion)} service update`;
+    return `This server updater does not identify itself as Fold. Update it manually with: ${manualFoldServerCommand(this.targetVersion)} service update`;
   }
 }
 

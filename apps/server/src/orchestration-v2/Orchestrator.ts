@@ -349,6 +349,14 @@ export interface OrchestratorV2Shape {
     readonly afterSequence?: number;
   }) => Stream.Stream<OrchestrationV2StoredEvent, OrchestratorV2Error>;
   readonly streamDomainEvents: Stream.Stream<OrchestrationV2DomainEvent, OrchestratorV2Error>;
+  /**
+   * The live tail, anchored when this effect runs rather than when the stream is first pulled.
+   * Workers that read state before forking their consumer use it so no event in between is lost.
+   */
+  readonly subscribeDomainEvents: Effect.Effect<
+    Stream.Stream<OrchestrationV2DomainEvent, OrchestratorV2Error>,
+    OrchestratorV2Error
+  >;
 }
 
 export class OrchestratorV2 extends Context.Service<OrchestratorV2, OrchestratorV2Shape>()(
@@ -10454,6 +10462,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ),
     );
 
+  // Live tail only. eventSink.stream() with no cursor replays the whole
+  // store from genesis first; domain-event subscribers (the awareness relay)
+  // react to new activity, and startup replay made them grind through the
+  // entire event history doing per-event work after every boot. The cursor is
+  // read when this effect runs, and the stream replays anything after it.
+  const subscribeDomainEvents = eventSink.latestSequence().pipe(
+    Effect.map((latest) =>
+      eventSink.stream({ afterSequence: latest }).pipe(
+        Stream.map((stored) => stored.event),
+        Stream.mapError((cause) => new OrchestratorDomainEventStreamError({ cause })),
+      ),
+    ),
+    Effect.mapError((cause) => new OrchestratorDomainEventStreamError({ cause })),
+  );
+
   return OrchestratorV2.of({
     resumeQueuedRuns,
     recoverDelegatedTasks,
@@ -10531,23 +10554,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             }),
         ),
       ),
-    // Live tail only. eventSink.stream() with no cursor replays the whole
-    // store from genesis first; domain-event subscribers (the awareness relay)
-    // react to new activity, and startup replay made them grind through the
-    // entire event history doing per-event work after every boot.
-    streamDomainEvents: Stream.unwrap(
-      eventSink
-        .latestSequence()
-        .pipe(Effect.map((latest) => eventSink.stream({ afterSequence: latest }))),
-    ).pipe(
-      Stream.map((stored) => stored.event),
-      Stream.mapError(
-        (cause) =>
-          new OrchestratorDomainEventStreamError({
-            cause,
-          }),
-      ),
-    ),
+    streamDomainEvents: Stream.unwrap(subscribeDomainEvents),
+    subscribeDomainEvents,
   });
 });
 
@@ -10660,6 +10668,11 @@ const layerUnavailable: Layer.Layer<OrchestratorV2> = Layer.succeed(
         }),
       ),
     streamDomainEvents: Stream.fail(
+      new OrchestratorDomainEventStreamError({
+        cause: "Orchestration V2 live runtime is not configured.",
+      }),
+    ),
+    subscribeDomainEvents: Effect.fail(
       new OrchestratorDomainEventStreamError({
         cause: "Orchestration V2 live runtime is not configured.",
       }),

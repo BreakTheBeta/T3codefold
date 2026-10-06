@@ -61,7 +61,16 @@ export const turnPreambleLayer = Layer.effect(
   TurnPreamble,
   Effect.gen(function* () {
     const store = yield* WorkStore;
-    return { forAttempt: (threadId, attemptId) => store.context(threadId, attemptId) };
+    return {
+      // An unreadable packet must not block the turn; it starts without one.
+      forAttempt: (threadId, attemptId) =>
+        store.context(threadId, attemptId).pipe(
+          Effect.tapError((error) =>
+            Effect.logWarning("pitboss turn preamble unavailable", { threadId, attemptId, error }),
+          ),
+          Effect.orElseSucceed(() => null),
+        ),
+    };
   }),
 );
 

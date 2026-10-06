@@ -470,6 +470,30 @@ describe("importFoldDatabase", () => {
     ),
   );
 
+  it.effect("removes the build directory a killed import left behind", () =>
+    withDirectory("t3-fold-import-abandoned-", (directory) =>
+      Effect.gen(function* () {
+        const databasePath = NodePath.join(directory, "statev2.sqlite");
+        yield* seedForkDatabase(databasePath, { ledgerThrough: 69 });
+        // What a SIGKILL mid-build leaves: a stale lock and a half-written build directory.
+        const exited = NodeChildProcess.spawnSync(process.execPath, ["-e", "process.exit(0)"]);
+        NodeFS.writeFileSync(NodePath.join(directory, ".fold-import.lock"), `${exited.pid}\n`);
+        const abandoned = NodePath.join(directory, ".fold-import-killed");
+        NodeFS.mkdirSync(abandoned);
+        NodeFS.writeFileSync(NodePath.join(abandoned, "source.sqlite"), "partial");
+
+        const result = yield* importFoldDatabase(databasePath);
+        assert.isTrue(result.imported);
+        assert.deepEqual(
+          NodeFS.readdirSync(directory)
+            .filter((name) => name.startsWith(".fold-import"))
+            .sort(),
+          [],
+        );
+      }),
+    ),
+  );
+
   it.effect("leaves an unrecognised fork ledger untouched", () =>
     withDirectory("t3-fold-import-unknown-", (directory) =>
       Effect.gen(function* () {

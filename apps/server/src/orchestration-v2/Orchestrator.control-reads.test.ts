@@ -21,6 +21,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Stream from "effect/Stream";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
@@ -623,4 +624,31 @@ it.effect("keeps delegated child pull-request links independent of the parent", 
     assert.deepEqual(parentAfterChildLink.thread.linkedPullRequest, parentPullRequest);
     assert.deepEqual(parentAfterChildLink.thread.pullRequests, parent.thread.pullRequests);
   }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect(
+  "delivers domain events committed after subscribing but before the stream is pulled",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("thread:early-subscriber");
+      // A worker subscribes, reads state, then forks its consumer; nothing in between is lost.
+      const events = yield* orchestrator.subscribeDomainEvents;
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-early-subscriber"),
+        threadId,
+        projectId: ProjectId.make("project:early-subscriber"),
+        title: "Early",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const [first] = yield* events.pipe(Stream.take(1), Stream.runCollect);
+      assert.equal(first?.threadId, threadId);
+    }).pipe(Effect.provide(testLayer)),
 );

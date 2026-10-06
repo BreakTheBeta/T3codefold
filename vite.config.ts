@@ -71,6 +71,9 @@ export default defineConfig({
     ],
     hookTimeout: 60_000,
     testTimeout: 60_000,
+    // React picks its build from NODE_ENV and the production build omits `act`, so an
+    // ambient NODE_ENV=production must not leak into renderer tests.
+    env: { NODE_ENV: "test" },
     setupFiles: [
       NodeURL.fileURLToPath(
         new URL("./packages/shared/src/testing/longTempDir.ts", import.meta.url),

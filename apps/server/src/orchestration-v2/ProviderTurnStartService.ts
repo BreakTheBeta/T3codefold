@@ -67,12 +67,13 @@ const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
 /**
  * Supplies text that leads a provider turn, such as managed-work rules for this thread. It is
  * keyed by attempt so a retried attempt reuses the text it started with. The default adds none.
+ * It never fails: a provider that cannot read its preamble returns null so the turn still starts.
  */
 export class TurnPreamble extends Context.Reference<{
   readonly forAttempt: (
     threadId: ThreadId,
     attemptId: OrchestrationV2RunAttempt["id"],
-  ) => Effect.Effect<string | null, unknown>;
+  ) => Effect.Effect<string | null>;
 }>("t3/orchestration-v2/ProviderTurnStartService/TurnPreamble", {
   defaultValue: () => ({ forAttempt: () => Effect.succeed(null) }),
 }) {}
@@ -972,9 +973,7 @@ export const layer: Layer.Layer<
         message.attachments.length === 0 && message.text.trimStart().startsWith("/")
           ? providerText
           : withTurnPreamble(
-              yield* turnPreamble
-                .forAttempt(projection.thread.id, attempt.id)
-                .pipe(Effect.orElseSucceed(() => null)),
+              yield* turnPreamble.forAttempt(projection.thread.id, attempt.id),
               providerText,
             );
       // Delivered once: this run's provider turn marks the work as told. A

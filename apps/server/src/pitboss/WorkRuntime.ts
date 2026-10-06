@@ -1335,9 +1335,13 @@ export const layer = Layer.effectDiscard(
       }
     }, drainLock.withPermits(1));
     // Subscribe first, then perform recovery. Event receipts, not model polling, drive subsequent work.
+    // Both subscriptions are taken here, before the initial drain reads, so a change during
+    // startup is not lost to a wake fiber that has not started yet.
+    const storeChanges = yield* store.subscribeChanges;
+    const domainEvents = yield* threads.subscribeDomainEvents.pipe(Effect.orDie);
     const wakes = Stream.merge(
-      store.changes,
-      threads.streamDomainEvents.pipe(
+      storeChanges,
+      domainEvents.pipe(
         // A pending permission prompt changes no run, so the request events are the only signal
         // that a worker just became blocked, or just became unblocked.
         Stream.filter(

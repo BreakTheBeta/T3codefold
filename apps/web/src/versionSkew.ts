@@ -8,6 +8,7 @@ import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import {
   foldServerCommand,
   foldServerPackageSpec,
+  isFoldReleaseVersion,
   supportsFoldUpdates,
 } from "@t3tools/shared/foldRelease";
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
@@ -147,15 +148,6 @@ export function manualServerUpdateCommand(
     return `npm install --global --prefix ${prefix} ${foldServerPackageSpec(version)}`;
   }
   return foldServerCommand(version);
-}
-
-function isFoldReleaseVersion(version: string): boolean {
-  try {
-    foldServerPackageSpec(version);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {

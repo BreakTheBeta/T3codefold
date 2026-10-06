@@ -401,6 +401,39 @@ describe("V2 environment commands", () => {
     }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
   );
 
+  it.effect("forwards requireWorktree so a failed worktree launch never falls back to root", () =>
+    Effect.gen(function* () {
+      const launches: OrchestrationV2ThreadLaunchInput[] = [];
+      const supervisor = yield* makeSupervisor({ commands: [], projects: [], launches });
+
+      yield* startThreadTurn({
+        commandId: CommandId.make("launch-required-worktree"),
+        threadId: v2ThreadId,
+        message: {
+          messageId: MessageId.make("message-required-worktree"),
+          role: "user",
+          text: "Only in a worktree",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        bootstrap: {
+          prepareWorktree: {
+            requireWorktree: true,
+            projectCwd: "/workspace/project",
+            baseBranch: "main",
+          },
+        },
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(launches[0]?.workspaceStrategy).toEqual({
+        type: "worktree",
+        baseRef: "main",
+        requireWorktree: true,
+      });
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
   it.effect("uses server-resolved delivery intent without fetching the full projection", () =>
     Effect.gen(function* () {
       const commands: OrchestrationV2Command[] = [];

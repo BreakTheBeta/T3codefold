@@ -23,12 +23,12 @@ are unchanged. Skipping compilation would lose new classes; invalidating every
 consumer for unchanged output makes an ordinary component edit refresh the whole
 app. The fingerprint is recorded only after initialization succeeds.
 
-The [expo-notifications patch](../../patches/expo-notifications@57.0.15.patch) protects
-`NotificationCenterManager`'s delegates and pending responses with a lock. React runtimes can
-register and remove delegates concurrently during reloads or scene startup. Delivery snapshots
-delegates under the lock and invokes them after releasing it. Pending-response replay removes
-only the responses in its snapshot, preserving responses received during callbacks. Changes to
-this native patch require reinstalling dependencies and rebuilding the iOS app.
+expo-notifications 58 guards `NotificationCenterManager`'s delegates and pending responses with
+a lock, so the fork no longer patches it. React runtimes can register and remove delegates
+concurrently during reloads or scene startup. Unlike the old fork patch, which removed only the
+replayed snapshot, 58 clears every pending response once a delegate handles a replay, so a response
+that arrives during that callback is dropped. Reintroduce a patch if that race shows up.
+
 The native modules under `apps/mobile/modules/` are `file:` dependencies, and pnpm
 copies those into its virtual store instead of linking them. Metro bundles the copy,
 so an edit to a module's TypeScript is invisible to a running dev client until
