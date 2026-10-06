@@ -716,7 +716,8 @@ internal class SelectionAwareEditText(context: Context) : EditText(context) {
   }
 
   private fun submitFromKeyboard(event: KeyEvent): Boolean {
-    if (readOnly || !isEnabled) return false
+    // Some on-screen keyboards deliver Return as a key event; it always inserts a newline.
+    if (readOnly || !isEnabled || (event.flags and KeyEvent.FLAG_SOFT_KEYBOARD) != 0) return false
     val alternate =
       composerEnterSubmit(
         sendOnEnter,
