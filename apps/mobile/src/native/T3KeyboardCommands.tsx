@@ -2,7 +2,9 @@ import type { PropsWithChildren } from "react";
 import { View } from "react-native";
 
 import type { HardwareKeyboardCommand } from "../features/keyboard/hardwareKeyboardCommands";
-import type { VimKey } from "../features/keyboard/vimNavigation";
+
+/** A key forwarded for Vim navigation (see features/keyboard/vimNavigation). */
+type VimKey = { readonly key: string; readonly ctrl?: boolean };
 
 export function T3KeyboardCommands(
   props: PropsWithChildren<{

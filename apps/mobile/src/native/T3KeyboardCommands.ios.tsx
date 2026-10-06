@@ -3,7 +3,9 @@ import type { PropsWithChildren } from "react";
 import type { NativeSyntheticEvent, ViewProps } from "react-native";
 
 import type { HardwareKeyboardCommand } from "../features/keyboard/hardwareKeyboardCommands";
-import type { VimKey } from "../features/keyboard/vimNavigation";
+
+/** A key forwarded for Vim navigation (see features/keyboard/vimNavigation). */
+type VimKey = { readonly key: string; readonly ctrl?: boolean };
 
 interface NativeKeyboardCommandsProps extends ViewProps {
   readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
