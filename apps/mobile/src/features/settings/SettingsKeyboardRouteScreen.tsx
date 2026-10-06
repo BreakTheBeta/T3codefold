@@ -14,6 +14,7 @@ import {
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
+import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 
 const ENTER_BEHAVIOR_OPTIONS: ReadonlyArray<{
   readonly behavior: ComposerEnterBehavior;
@@ -28,7 +29,10 @@ const ENTER_BEHAVIOR_OPTIONS: ReadonlyArray<{
   {
     behavior: "newline",
     label: "Insert new line",
-    description: "Return inserts a new line. Command-Return sends the message.",
+    description:
+      Platform.OS === "android"
+        ? "Return inserts a new line. Ctrl-Return sends the message."
+        : "Return inserts a new line. Command-Return sends the message.",
   },
 ];
 
@@ -41,6 +45,9 @@ export function SettingsKeyboardRouteScreen() {
   const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.composerEnterBehavior ?? DEFAULT_COMPOSER_ENTER_BEHAVIOR)
     : null;
+  const vimNavigationEnabled = AsyncResult.isSuccess(preferencesResult)
+    ? preferencesResult.value.vimNavigationEnabled === true
+    : false;
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
@@ -73,6 +80,26 @@ export function SettingsKeyboardRouteScreen() {
         <Text className="px-2 text-sm text-foreground-muted">
           Applies to the composer when a hardware keyboard is connected.
         </Text>
+        {Platform.OS === "android" ? (
+          <>
+            <SettingsSection title="Navigation">
+              <SettingsSwitchRow
+                icon="keyboard"
+                label="Vim navigation"
+                subtitle="Move between panes and threads with Vim keys when no text field is focused."
+                disabled={!preferencesReady}
+                value={vimNavigationEnabled}
+                onValueChange={(enabled) => savePreferences({ vimNavigationEnabled: enabled })}
+              />
+            </SettingsSection>
+            {vimNavigationEnabled ? (
+              <Text className="px-2 text-sm text-foreground-muted">
+                j/k move · gg/G jump · Enter opens · i writes · Esc leaves the composer · Ctrl-w h/l
+                switches pane · Ctrl-w o maximizes · / searches · Space opens commands
+              </Text>
+            ) : null}
+          </>
+        ) : null}
       </ScrollView>
     </View>
   );

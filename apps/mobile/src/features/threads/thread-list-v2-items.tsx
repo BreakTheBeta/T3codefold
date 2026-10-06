@@ -21,7 +21,7 @@ import type { EnvironmentMachineKind } from "@t3tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
-import { Alert, Pressable, useWindowDimensions, View } from "react-native";
+import { Alert, Platform, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
@@ -495,6 +495,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   /** Highlights the thread open in the detail pane (iPad split view). The
       compact Home list never sets it — phones navigate away on select. */
   readonly selected?: boolean;
+  /** Vim navigation's cursor is on this row (hardware keyboard). */
+  readonly keyboardFocused?: boolean;
   /** Override for narrow panes (iPad sidebar); defaults to window width. */
   readonly fullSwipeWidth?: number;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
@@ -1145,6 +1147,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             ) : null}
           </View>
         )}
+        {props.keyboardFocused ? <KeyboardFocusRing /> : null}
       </RowPressable>
     ) : (
       <RowPressable
@@ -1221,6 +1224,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               : timeLabel}
           </Text>
         </View>
+        {props.keyboardFocused ? <KeyboardFocusRing /> : null}
       </RowPressable>
     );
 
@@ -1282,3 +1286,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     </View>
   );
 });
+
+/** Outlines the row under Vim navigation's cursor, following the row's corner radius. */
+function KeyboardFocusRing() {
+  return (
+    <View
+      pointerEvents="none"
+      className={cn(
+        "absolute inset-0 border-2 border-primary",
+        Platform.OS === "android" ? "rounded-[20px]" : "rounded-xl",
+      )}
+    />
+  );
+}

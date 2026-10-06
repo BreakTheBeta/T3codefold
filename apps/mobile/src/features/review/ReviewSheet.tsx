@@ -46,9 +46,9 @@ import { EnvironmentConnectionNotice } from "../connection/EnvironmentConnection
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   useAdaptiveWorkspaceLayout,
-  useAdaptiveWorkspacePaneRole,
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
+import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useReviewCacheForThread } from "./reviewState";
 import {
@@ -450,7 +450,6 @@ type ReviewSheetProps = StaticScreenProps<{
 
 export function ReviewSheet(props: ReviewSheetProps) {
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
-  useAdaptiveWorkspacePaneRole("inspector");
   const { panes, showAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -469,7 +468,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const topContentInset = 0;
 
   useEffect(() => {
-    showAuxiliaryPane("inspector");
+    showAuxiliaryPane();
   }, [environmentId, showAuxiliaryPane, threadId]);
   const {
     error,
@@ -673,6 +672,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const showChangedFilesPane =
     !showConnectionNotice && selectedSection !== null && parsedDiff.kind === "files";
   useRegisterWorkspaceInspector(showChangedFilesPane ? renderInspector : undefined);
+  useFoldWorkspaceAndroidBack();
   // A toggle needs registered content; loading, errors and raw patches have no navigator pane.
   const showChangedFilesToggle = panes.supportsAuxiliaryPane && showChangedFilesPane;
 

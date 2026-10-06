@@ -10,7 +10,7 @@ import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
-import { LegendList } from "@legendapp/list/react-native";
+import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +39,13 @@ import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
+import { moveVimCursor, type VimEffect } from "../keyboard/vimNavigation";
+import {
+  getVimFocus,
+  setVimFocus,
+  useVimEffectHandler,
+  useVimFocus,
+} from "../keyboard/vimNavigationRuntime";
 import { useHomeListOptions } from "../home/home-list-options";
 import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
 import { buildHomeProjectScopes } from "../home/homeThreadList";
@@ -84,6 +91,7 @@ type SidebarListItem =
   | { readonly type: "v2-show-more"; readonly key: string; readonly hiddenCount: number };
 
 const SIDEBAR_STICKY_HEADER_HEIGHT = 106;
+const SIDEBAR_VIM_EFFECTS = ["moveCursor", "cursorToEdge", "openCursor"] as const;
 
 interface ThreadNavigationSidebarProps {
   readonly width: number;
@@ -596,6 +604,43 @@ function ThreadNavigationSidebarPane(
     onScroll: onMaterialFabScroll,
     onScrollBeginDrag: handleScrollBeginDrag,
   });
+  const listRef = useRef<LegendListRef>(null);
+  const handleVimEffect = useCallback(
+    (effect: VimEffect) => {
+      const threads = listItems.flatMap((item) =>
+        item.type === "v2-thread" ? [{ item, thread: item.item.thread }] : [],
+      );
+      const keyOf = (entry: (typeof threads)[number]) =>
+        scopedThreadKey(entry.thread.environmentId, entry.thread.id);
+      const currentKey = getVimFocus().cursorThreadKey ?? props.selectedThreadKey ?? null;
+      const current = threads.find((entry) => keyOf(entry) === currentKey) ?? null;
+      if (effect.type === "openCursor") {
+        if (current !== null) handleSelectThread(current.thread);
+        return;
+      }
+      const target =
+        effect.type === "moveCursor"
+          ? moveVimCursor(threads, current, effect.delta, (a, b) => keyOf(a) === keyOf(b))
+          : effect.type === "cursorToEdge"
+            ? ((effect.edge === "first" ? threads[0] : threads.at(-1)) ?? null)
+            : current;
+      if (target === null) return;
+      setVimFocus({ cursorThreadKey: keyOf(target) });
+      const list = listRef.current;
+      const index = list?.getState().indexByKey(target.item.key);
+      const state = list?.getState();
+      if (list && state && index !== undefined && (index < state.start || index > state.end)) {
+        void list.scrollToItem({ item: target.item, animated: true, viewPosition: 0.5 });
+      }
+    },
+    [handleSelectThread, listItems, props.selectedThreadKey],
+  );
+  useVimEffectHandler(SIDEBAR_VIM_EFFECTS, handleVimEffect);
+  const vimFocus = useVimFocus();
+  const vimCursorThreadKey =
+    vimFocus.region === "sidebar"
+      ? (vimFocus.cursorThreadKey ?? props.selectedThreadKey ?? null)
+      : null;
   // The sticky header's project shells and search maps feed row props, so
   // they have to bust the recycler's memoization — otherwise a row keeps the
   // blank favicon and fallback title it was first rendered with. The minute
@@ -604,6 +649,7 @@ function ThreadNavigationSidebarPane(
   const listExtraData = useMemo(
     () => ({
       selectedThreadKey: props.selectedThreadKey ?? "",
+      vimCursorThreadKey,
       projectByKey,
       projectTitleByProjectKey,
       savedConnectionsById,
@@ -614,6 +660,7 @@ function ThreadNavigationSidebarPane(
     }),
     [
       props.selectedThreadKey,
+      vimCursorThreadKey,
       projectByKey,
       projectTitleByProjectKey,
       savedConnectionsById,
@@ -622,7 +669,7 @@ function ThreadNavigationSidebarPane(
       workingShelfEnabled,
     ],
   );
-  useThreadJumpShortcuts(listItems, handleSelectThread);
+  useThreadJumpShortcuts(listItems, handleSelectThread, props.selectedThreadKey ?? null);
   const sidebarItemsAreEqual = useCallback(
     (previous: SidebarListItem, item: SidebarListItem): boolean => {
       if (isThreadListV2ListItem(previous) && isThreadListV2ListItem(item)) {
@@ -636,6 +683,7 @@ function ThreadNavigationSidebarPane(
     [],
   );
   const focusSearch = useCallback(() => {
+    // Android renders MaterialThreadListToolbar's search field, which registers its own handler.
     if (Platform.OS === "android") return false;
     const focus = () => {
       if (props.nativeChrome) {
@@ -721,6 +769,9 @@ function ThreadNavigationSidebarPane(
               pane="sidebar"
               selected={
                 scopedThreadKey(thread.environmentId, thread.id) === props.selectedThreadKey
+              }
+              keyboardFocused={
+                scopedThreadKey(thread.environmentId, thread.id) === vimCursorThreadKey
               }
               fullSwipeWidth={props.width - 20}
               onSelectThread={handleSelectThread}
@@ -819,6 +870,7 @@ function ThreadNavigationSidebarPane(
       props.searchQuery,
       props.selectedThreadKey,
       props.width,
+      vimCursorThreadKey,
       savedConnectionsById,
       resolveProviderInstance,
       providersByEnvironmentId,
@@ -930,6 +982,7 @@ function ThreadNavigationSidebarPane(
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <GestureDetector gesture={sidebarScrollGesture}>
               <LegendList
+                ref={listRef}
                 ListHeaderComponent={<PitbossPins environments={environments} />}
                 data={listItems}
                 drawDistance={500}
@@ -1000,6 +1053,7 @@ function ThreadNavigationSidebarPane(
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <GestureDetector gesture={sidebarScrollGesture}>
               <LegendList
+                ref={listRef}
                 ListHeaderComponent={<PitbossPins environments={environments} />}
                 data={listItems}
                 drawDistance={500}

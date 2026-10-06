@@ -52,11 +52,7 @@ import { EnvironmentConnectionNotice } from "../connection/EnvironmentConnection
 import { TerminalSurface } from "./NativeTerminalSurface";
 import { getMobileTerminalTheme } from "./terminalTheme";
 import { terminalDebugLog } from "./terminalDebugLog";
-import {
-  getTerminalBufferReplayKey,
-  getTerminalSurfaceReplayBuffer,
-  TERMINAL_BUFFER_REPLAY_STABILITY_DELAY_MS,
-} from "./terminalBufferReplay";
+import { getTerminalBufferReplayKey } from "./terminalBufferReplay";
 import {
   resolveTerminalOpenLocation,
   takePendingTerminalLaunch,
@@ -166,6 +162,8 @@ function TerminalHeader(props: {
 const DEFAULT_TERMINAL_COLS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const TERMINAL_ACCESSORY_HEIGHT = 52;
+/** Matches the web terminal's PTY resize debounce. */
+const TERMINAL_RESIZE_SETTLE_MS = 150;
 const SHOWCASE_ENABLED = process.env.EXPO_PUBLIC_SHOWCASE === "1";
 
 class TerminalClipboardReadError extends Schema.TaggedError<TerminalClipboardReadError>()(
@@ -341,13 +339,12 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   );
   const [keyboardFocusRequest, setKeyboardFocusRequest] = useState(0);
   const [isAccessoryDismissed, setIsAccessoryDismissed] = useState(false);
-  const bufferReplayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstNonEmptyBufferLoggedRef = useRef(false);
-  const lastBufferReplayKeyRef = useRef<string | null>(null);
   const sentInitialInputKeyRef = useRef<string | null>(null);
-  const [readyBufferReplayKey, setReadyBufferReplayKey] = useState<string | null>(null);
   /** Default grid is always valid for attach; onResize refines cols/rows. Requiring a cached size blocked bootstrap for new terminal routes. */
   const [hasMeasuredSurface, setHasMeasuredSurface] = useState(true);
+  // Android reports DECCKM so the toolbar arrows match what the hardware keys send.
+  const [applicationCursorKeys, setApplicationCursorKeys] = useState(false);
   const [pendingModifierState, setPendingModifierState] = useState<{
     readonly terminalId: string;
     readonly value: PendingModifier | null;
@@ -434,14 +431,6 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     () => getTerminalBufferReplayKey({ terminalKey, fontSize }),
     [fontSize, terminalKey],
   );
-  if (lastBufferReplayKeyRef.current === null) {
-    lastBufferReplayKeyRef.current = bufferReplayKey;
-  }
-  const terminalSurfaceBuffer = getTerminalSurfaceReplayBuffer({
-    buffer: terminal.buffer,
-    replayKey: bufferReplayKey,
-    readyReplayKey: readyBufferReplayKey,
-  });
   const isRunning = terminal.status === "running" || terminal.status === "starting";
 
   // When the process ends while this screen is attached (e.g. typing `exit`),
@@ -505,21 +494,17 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   useEffect(() => {
     terminalDebugLog("surface:props", {
       terminalKey,
-      atomBufferLen: terminal.buffer.length,
-      surfaceBufferLen: terminalSurfaceBuffer.length,
+      retainedBytes: terminal.output.retainedBytes,
       replayKey: bufferReplayKey,
-      readyReplayKey: readyBufferReplayKey,
       status: terminal.status,
       version: terminal.version,
     });
   }, [
     bufferReplayKey,
-    readyBufferReplayKey,
-    terminal.buffer.length,
+    terminal.output.retainedBytes,
     terminal.status,
     terminal.version,
     terminalKey,
-    terminalSurfaceBuffer.length,
   ]);
 
   useEffect(() => {
@@ -528,11 +513,11 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       status: terminal.status,
       error: terminal.error,
       summary: terminal.summary?.cwd ?? null,
-      bufferLen: terminal.buffer.length,
+      retainedBytes: terminal.output.retainedBytes,
       version: terminal.version,
     });
   }, [
-    terminal.buffer.length,
+    terminal.output.retainedBytes,
     terminal.error,
     terminal.status,
     terminal.summary?.cwd,
@@ -541,16 +526,17 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   ]);
 
   useEffect(() => {
-    if (terminal.buffer.length === 0 || firstNonEmptyBufferLoggedRef.current) {
+    const firstChunk = terminal.output.chunks[0];
+    if (firstChunk === undefined || firstNonEmptyBufferLoggedRef.current) {
       return;
     }
     firstNonEmptyBufferLoggedRef.current = true;
     terminalDebugLog("session:first-nonempty-buffer", {
       terminalKey,
-      length: terminal.buffer.length,
-      preview: terminal.buffer.slice(0, 160),
+      retainedBytes: terminal.output.retainedBytes,
+      preview: firstChunk.data.slice(0, 160),
     });
-  }, [terminal.buffer, terminal.buffer.length, terminalKey]);
+  }, [terminal.output, terminalKey]);
   const cwd = terminal.summary?.cwd ?? selectedThreadProject?.workspaceRoot ?? null;
   const serverConfigs = useServerConfigs();
   const hostOs =
@@ -570,6 +556,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     pendingModifierState.terminalId === terminalId ? pendingModifierState.value : null;
   const headerSubtitle = selectedThreadProject?.title ?? "";
   const terminalToolbarActions = useMemo<ReadonlyArray<TerminalToolbarAction>>(() => {
+    const cursorKeyPrefix = applicationCursorKeys ? "\u001bO" : "\u001b[";
     const modifierActions: ReadonlyArray<TerminalToolbarAction> =
       hostPlatform === "mac"
         ? [
@@ -587,16 +574,16 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       { kind: "send", key: "tab", label: "tab", data: "\t" },
       { kind: "paste", key: "paste", label: "paste" },
       { kind: "clear", key: "clear", label: "clear" },
-      { kind: "send", key: "up", label: "↑", data: "\u001b[A" },
-      { kind: "send", key: "down", label: "↓", data: "\u001b[B" },
-      { kind: "send", key: "left", label: "←", data: "\u001b[D" },
-      { kind: "send", key: "right", label: "→", data: "\u001b[C" },
+      { kind: "send", key: "up", label: "↑", data: `${cursorKeyPrefix}A` },
+      { kind: "send", key: "down", label: "↓", data: `${cursorKeyPrefix}B` },
+      { kind: "send", key: "left", label: "←", data: `${cursorKeyPrefix}D` },
+      { kind: "send", key: "right", label: "→", data: `${cursorKeyPrefix}C` },
       { kind: "send", key: "tilde", label: "~", data: "~" },
       { kind: "send", key: "pipe", label: "|", data: "|" },
       { kind: "send", key: "slash", label: "/", data: "/" },
       { kind: "send", key: "dash", label: "-", data: "-" },
     ];
-  }, [hostPlatform]);
+  }, [applicationCursorKeys, hostPlatform]);
   const keyboardState = useKeyboardState((state) => ({
     height: state.height,
     isVisible: state.isVisible,
@@ -742,39 +729,6 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     sentInitialInputKeyRef.current = null;
   }, [terminalKey]);
 
-  const clearBufferReplayTimer = useCallback(() => {
-    if (bufferReplayTimerRef.current !== null) {
-      clearTimeout(bufferReplayTimerRef.current);
-      bufferReplayTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleBufferReplayReady = useCallback(() => {
-    clearBufferReplayTimer();
-    const replayKey = bufferReplayKey;
-    terminalDebugLog("replay:schedule-ready", {
-      replayKey,
-      delayMs: TERMINAL_BUFFER_REPLAY_STABILITY_DELAY_MS,
-    });
-    bufferReplayTimerRef.current = setTimeout(() => {
-      bufferReplayTimerRef.current = null;
-      setReadyBufferReplayKey(replayKey);
-      terminalDebugLog("replay:ready", { replayKey });
-    }, TERMINAL_BUFFER_REPLAY_STABILITY_DELAY_MS);
-  }, [bufferReplayKey, clearBufferReplayTimer]);
-
-  useEffect(() => {
-    if (lastBufferReplayKeyRef.current === bufferReplayKey) {
-      return;
-    }
-
-    lastBufferReplayKeyRef.current = bufferReplayKey;
-    clearBufferReplayTimer();
-    setReadyBufferReplayKey(null);
-  }, [bufferReplayKey, clearBufferReplayTimer]);
-
-  useEffect(() => clearBufferReplayTimer, [clearBufferReplayTimer]);
-
   useEffect(() => {
     if (!routeEnvironmentId || !routeThreadId) {
       setLastGridSize({
@@ -883,9 +837,6 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         terminalKey,
       });
       setHasMeasuredSurface(true);
-      if (readyBufferReplayKey !== bufferReplayKey) {
-        scheduleBufferReplayReady();
-      }
       if (routeEnvironmentId && routeThreadId) {
         cacheTerminalGridSize(
           {
@@ -901,35 +852,64 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       }
 
       setLastGridSize(size);
-      if (!selectedThread || !isRunning) {
-        return;
-      }
-
-      void resizeTerminal({
-        environmentId: selectedThread.environmentId,
-        input: {
-          threadId: selectedThread.id,
-          terminalId,
-          cols: size.cols,
-          rows: size.rows,
-        },
-      });
     },
     [
-      isRunning,
       lastGridSize.cols,
       lastGridSize.rows,
-      bufferReplayKey,
-      readyBufferReplayKey,
       routeEnvironmentId,
       routeThreadId,
-      resizeTerminal,
-      scheduleBufferReplayReady,
-      selectedThread,
       terminalId,
       terminalKey,
     ],
   );
+
+  // The local grid reflows on every measured size, but the PTY only hears the
+  // size once it settles. Each PTY resize makes full-screen programs (agent
+  // CLIs, editors) repaint for that width; resizing per drag or animation frame
+  // stacks those repaints onto a grid that has already moved on. Sending again
+  // whenever the session (re)starts also corrects a PTY attached at a stale size.
+  const sentGridSizeRef = useRef<{
+    readonly key: string;
+    readonly cols: number;
+    readonly rows: number;
+  } | null>(null);
+  const selectedThreadEnvironmentId = selectedThread?.environmentId ?? null;
+  const selectedThreadId = selectedThread?.id ?? null;
+  useEffect(() => {
+    if (selectedThreadEnvironmentId === null || selectedThreadId === null || !isRunning) {
+      sentGridSizeRef.current = null;
+      return;
+    }
+    const sent = sentGridSizeRef.current;
+    if (
+      sent?.key === terminalKey &&
+      sent.cols === lastGridSize.cols &&
+      sent.rows === lastGridSize.rows
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      sentGridSizeRef.current = { key: terminalKey, ...lastGridSize };
+      void resizeTerminal({
+        environmentId: selectedThreadEnvironmentId,
+        input: {
+          threadId: selectedThreadId,
+          terminalId,
+          cols: lastGridSize.cols,
+          rows: lastGridSize.rows,
+        },
+      });
+    }, TERMINAL_RESIZE_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [
+    isRunning,
+    lastGridSize,
+    resizeTerminal,
+    selectedThreadEnvironmentId,
+    selectedThreadId,
+    terminalId,
+    terminalKey,
+  ]);
 
   const handleSelectTerminal = useCallback(
     (nextTerminalId: string) => {
@@ -1257,7 +1237,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
                 />
                 <TerminalSurface
                   autoFocus={terminalAutoFocus}
-                  buffer={terminalSurfaceBuffer}
+                  output={terminal.output}
+                  replayKey={bufferReplayKey}
                   fontSize={fontSize}
                   isRunning={isRunning}
                   keyboardFocusRequest={keyboardFocusRequest}
@@ -1266,6 +1247,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
                     if (text.trim()) setCapturedOutput(text);
                     else Alert.alert("No terminal output", "There is no visible output to attach.");
                   }}
+                  onApplicationCursorKeysChange={setApplicationCursorKeys}
                   onInput={handleInput}
                   onResize={handleResize}
                   style={{ flex: 1 }}

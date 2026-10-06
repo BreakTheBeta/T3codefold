@@ -24,6 +24,8 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   private val onInput by EventDispatcher()
   private val onResize by EventDispatcher()
   private val onCapture by EventDispatcher()
+  private val onOutputApplied by EventDispatcher()
+  private val onCursorKeysChange by EventDispatcher()
   var captureRequest: Double = 0.0
     set(value) {
       if (field == value || value <= 0) return
@@ -48,7 +50,12 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       onCapture(mapOf("text" to text))
     }
   private var terminalHandle = 0L
-  private var fedBuffer = ""
+
+  // The output stream the terminal holds: reset `appliedResetId` up to UTF-16
+  // offset `appliedEnd`. 0 means the terminal holds no stream yet.
+  private var appliedResetId = 0
+  private var appliedEnd = 0
+  private var applicationCursorKeys = false
   private var cols = 0
   private var rows = 0
   private var clearingInput = false
@@ -67,11 +74,10 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       recreateTerminal()
     }
 
-  var initialBuffer: String = ""
+  var output: TerminalOutputWrite? = null
     set(value) {
-      if (field == value) return
       field = value
-      feedPendingBuffer()
+      applyOutput()
     }
 
   var fontSize: Float = 10f
@@ -221,6 +227,9 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   }
 
   private fun configureInputView() {
+    // The app's hardware-shortcut router (t3-native-controls) leaves plain Ctrl chords to a
+    // focused view with this tag, so Ctrl+B/K/F/N/[ reach the shell instead of app shortcuts.
+    inputView.tag = "t3-raw-keyboard"
     inputView.setSingleLine(true)
     inputView.setTextColor(Color.TRANSPARENT)
     inputView.setHintTextColor(Color.TRANSPARENT)
@@ -238,6 +247,11 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
     inputView.setPadding(0, 0, 0, 0)
     inputView.setOnEditorActionListener { _, actionId, event ->
+      // A single-line EditText moves focus to the next view on an unconsumed hardware
+      // Enter key-up, which would leave the terminal deaf to the next keys.
+      if (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP) {
+        return@setOnEditorActionListener true
+      }
       val isKeyUp = event?.action == KeyEvent.ACTION_UP
       val isImeSend = actionId == EditorInfo.IME_ACTION_SEND && !isKeyUp
       val isHardwareEnter = event?.keyCode == KeyEvent.KEYCODE_ENTER &&
@@ -252,17 +266,11 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       }
     }
     inputView.setOnKeyListener { _, keyCode, event ->
-      if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
       when {
+        event.action != KeyEvent.ACTION_DOWN -> false
+        TerminalHardwareKeys.shouldEncode(keyCode, event.metaState) && sendHardwareKey(event) -> true
         keyCode == KeyEvent.KEYCODE_DEL -> {
           onInput(mapOf("data" to "\u007F"))
-          true
-        }
-        // Hardware keyboard Ctrl+A..Z -> control bytes 0x01..0x1A (Ctrl+C, Ctrl+Z, ...).
-        event.isCtrlPressed && keyCode in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> {
-          onInput(
-            mapOf("data" to (keyCode - KeyEvent.KEYCODE_A + 1).toChar().toString()),
-          )
           true
         }
         else -> false
@@ -290,6 +298,22 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
         }
       },
     )
+  }
+
+  /** Sends a hardware key encoded for the terminal's current modes; false if it has no encoding. */
+  private fun sendHardwareKey(event: KeyEvent): Boolean {
+    if (terminalHandle == 0L) return false
+    val encoded = GhosttyBridge.nativeEncodeKey(
+      terminalHandle,
+      event.keyCode,
+      event.metaState,
+      TerminalHardwareKeys.text(event),
+      TerminalHardwareKeys.unshiftedText(event),
+      event.repeatCount > 0,
+    )
+    if (encoded.isEmpty()) return false
+    onInput(mapOf("data" to String(encoded, Charsets.UTF_8)))
+    return true
   }
 
   @Suppress("ComplexCondition")
@@ -326,7 +350,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     }
     emitResponse(response)
     onResize(mapOf("cols" to cols, "rows" to rows))
-    feedPendingBuffer()
+    applyOutput()
     renderSnapshot()
   }
 
@@ -343,14 +367,15 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       cursorColorValue,
       paletteColors,
     )
-    fedBuffer = ""
+    appliedResetId = 0
+    appliedEnd = 0
   }
 
   private fun recreateTerminal() {
     if (terminalHandle == 0L) return
     destroyTerminal()
     createTerminal()
-    feedPendingBuffer()
+    applyOutput()
     renderSnapshot()
   }
 
@@ -358,19 +383,44 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     if (terminalHandle == 0L) return
     GhosttyBridge.nativeDestroy(terminalHandle)
     terminalHandle = 0L
-    fedBuffer = ""
+    appliedResetId = 0
+    appliedEnd = 0
     terminalCanvas.resetSelectionState()
   }
 
-  private fun feedPendingBuffer() {
-    if (terminalHandle == 0L || initialBuffer == fedBuffer) return
-    if (!initialBuffer.startsWith(fedBuffer)) {
-      recreateTerminal()
-      if (terminalHandle == 0L) return
-    }
-    val suffix = initialBuffer.substring(fedBuffer.length)
-    if (suffix.isNotEmpty()) {
+  /**
+   * Applies the `output` prop (see terminalSurfaceOutput.ts): a new reset id replays
+   * history into a fresh terminal, otherwise only the part past `appliedEnd` is fed.
+   * Every change is acknowledged so JS can send the next write from there.
+   */
+  private fun applyOutput() {
+    val write = output ?: return
+    if (terminalHandle == 0L) return
+    if (write.resetId != appliedResetId) {
+      // A continuation of a stream this terminal does not hold; the ack asks JS for a reset.
+      if (write.start != 0) {
+        emitOutputApplied()
+        return
+      }
+      if (appliedResetId != 0) {
+        destroyTerminal()
+        createTerminal()
+        if (terminalHandle == 0L) return
+      }
+      // Replayed history must not answer old terminal queries, so drop its replies.
+      GhosttyBridge.nativeFeed(terminalHandle, write.data.toByteArray(Charsets.UTF_8))
+      appliedResetId = write.resetId
+      appliedEnd = write.data.length
+    } else {
+      if (write.start > appliedEnd) {
+        emitOutputApplied()
+        return
+      }
+      val unapplied = appliedEnd - write.start
+      if (unapplied >= write.data.length) return
+      val suffix = write.data.substring(unapplied)
       emitResponse(GhosttyBridge.nativeFeed(terminalHandle, suffix.toByteArray(Charsets.UTF_8)))
+      appliedEnd = write.start + write.data.length
       // New output invalidates an active selection (matches the web drawer);
       // otherwise the copy toolbar drifts out of sync with the grid.
       if (terminalCanvas.hasActiveSelection()) {
@@ -378,8 +428,21 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
         terminalCanvas.resetSelectionState()
       }
     }
-    fedBuffer = initialBuffer
     renderSnapshot()
+    emitOutputApplied()
+    syncCursorKeyMode()
+  }
+
+  // The on-screen arrow keys live in JS, so report DECCKM for them to follow.
+  private fun syncCursorKeyMode() {
+    val enabled = terminalHandle != 0L && GhosttyBridge.nativeApplicationCursorKeys(terminalHandle)
+    if (enabled == applicationCursorKeys) return
+    applicationCursorKeys = enabled
+    onCursorKeysChange(mapOf("application" to enabled))
+  }
+
+  private fun emitOutputApplied() {
+    onOutputApplied(mapOf("resetId" to appliedResetId, "end" to appliedEnd))
   }
 
   private fun renderSnapshot() {

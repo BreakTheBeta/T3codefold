@@ -1,5 +1,12 @@
 import ExpoModulesCore
 
+/// One write of remote output; see terminalSurfaceOutput.ts for the contract.
+struct TerminalOutputWrite: Record {
+  @Field var resetId: Int = 0
+  @Field var start: Int = 0
+  @Field var data: String = ""
+}
+
 public class T3TerminalModule: Module {
   public func definition() -> ModuleDefinition {
     Name("T3TerminalSurface")
@@ -7,7 +14,7 @@ public class T3TerminalModule: Module {
     // Bumped when native hardware-keyboard handling changes; surfaced in the JS debug
     // logs so a stale native binary is distinguishable from a broken key pipeline.
     Constants([
-      "hardwareKeyRevision": 3,
+      "hardwareKeyRevision": 4,
     ])
 
     View(T3TerminalView.self) {
@@ -15,8 +22,8 @@ public class T3TerminalModule: Module {
         view.terminalKey = terminalKey
       }
 
-      Prop("initialBuffer") { (view: T3TerminalView, initialBuffer: String) in
-        view.initialBuffer = initialBuffer
+      Prop("output") { (view: T3TerminalView, output: TerminalOutputWrite) in
+        view.output = output
       }
 
       Prop("fontSize") { (view: T3TerminalView, fontSize: Double) in
@@ -54,7 +61,7 @@ public class T3TerminalModule: Module {
       Prop("captureRequest") { (view: T3TerminalView, request: Double) in
         view.captureRequest = request
       }
-      Events("onInput", "onResize", "onCapture")
+      Events("onInput", "onResize", "onCapture", "onOutputApplied")
     }
   }
 }

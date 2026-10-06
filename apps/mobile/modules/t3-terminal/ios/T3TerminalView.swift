@@ -23,8 +23,8 @@ private enum GhosttyRuntime {
 }
 
 /// Encodes hardware-keyboard combos that UITextField never surfaces through its
-/// text-editing delegate (control combos, Escape, Tab, arrow keys) into the byte
-/// sequences a terminal expects.
+/// text-editing delegate (control combos, Escape, Tab, arrow and navigation keys,
+/// function keys) into the byte sequences a terminal expects.
 ///
 /// Capture uses UIKeyCommand with `wantsPriorityOverSystemBehavior` rather than
 /// `pressesBegan`: while a text field is first responder, iPadOS routes hardware key
@@ -34,6 +34,27 @@ private enum GhosttyRuntime {
 private enum TerminalHardwareKeyEncoder {
   /// Characters that produce a control byte when combined with Ctrl.
   private static let controlInputs = "abcdefghijklmnopqrstuvwxyz@[\\]^_-? "
+
+  /// Fixed xterm sequences for keys whose encoding does not depend on terminal modes.
+  private static let navigationSequences: [String: String] = [
+    UIKeyCommand.inputHome: "\u{1B}[H",
+    UIKeyCommand.inputEnd: "\u{1B}[F",
+    UIKeyCommand.inputPageUp: "\u{1B}[5~",
+    UIKeyCommand.inputPageDown: "\u{1B}[6~",
+    UIKeyCommand.inputDelete: "\u{1B}[3~",
+    UIKeyCommand.inputF1: "\u{1B}OP",
+    UIKeyCommand.inputF2: "\u{1B}OQ",
+    UIKeyCommand.inputF3: "\u{1B}OR",
+    UIKeyCommand.inputF4: "\u{1B}OS",
+    UIKeyCommand.inputF5: "\u{1B}[15~",
+    UIKeyCommand.inputF6: "\u{1B}[17~",
+    UIKeyCommand.inputF7: "\u{1B}[18~",
+    UIKeyCommand.inputF8: "\u{1B}[19~",
+    UIKeyCommand.inputF9: "\u{1B}[20~",
+    UIKeyCommand.inputF10: "\u{1B}[21~",
+    UIKeyCommand.inputF11: "\u{1B}[23~",
+    UIKeyCommand.inputF12: "\u{1B}[24~",
+  ]
 
   static func makeKeyCommands(action: Selector) -> [UIKeyCommand] {
     var commands: [UIKeyCommand] = []
@@ -45,7 +66,7 @@ private enum TerminalHardwareKeyEncoder {
       UIKeyCommand.inputLeftArrow,
       UIKeyCommand.inputRightArrow,
       "\t",
-    ]
+    ] + navigationSequences.keys
     for input in specialInputs {
       commands.append(makeCommand(input: input, modifierFlags: [], action: action))
     }
@@ -86,7 +107,7 @@ private enum TerminalHardwareKeyEncoder {
     case "\t":
       return modifiers.contains(.shift) ? "\u{1B}[Z" : "\t"
     default:
-      break
+      if let sequence = navigationSequences[input] { return sequence }
     }
 
     guard modifiers.contains(.control) else { return nil }
@@ -204,7 +225,10 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
   private var lastViewportSize: CGSize = .zero
   private var lastContentScale: CGFloat = 0
   private var lastReportedGrid: (cols: Int, rows: Int)?
-  private var lastAppliedBuffer = ""
+  // The output stream the surface holds: reset `appliedResetId` up to UTF-16
+  // offset `appliedEnd`. 0 means the surface holds no stream yet.
+  private var appliedResetId = 0
+  private var appliedEnd = 0
   private var pendingVerticalScrollPoints: CGFloat = 0
   private var app: ghostty_app_t?
   private var surface: ghostty_surface_t?
@@ -216,6 +240,7 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
   let onInput = EventDispatcher()
   let onResize = EventDispatcher()
   let onCapture = EventDispatcher()
+  let onOutputApplied = EventDispatcher()
   var captureRequest: Double = 0 {
     didSet {
       guard captureRequest > 0, captureRequest != oldValue else { return }
@@ -251,9 +276,9 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
     }
   }
 
-  var initialBuffer: String = "" {
+  var output: TerminalOutputWrite? {
     didSet {
-      applyRemoteBuffer(initialBuffer)
+      applyOutput()
     }
   }
 
@@ -527,12 +552,13 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
     ghostty_surface_set_color_scheme(createdSurface, appearance.ghosttyColorScheme)
     setupWriteCallback()
     resizeSurface()
-    feedBuffer(initialBuffer)
+    applyOutput()
   }
 
   private func resetSurface() {
     destroySurface()
-    lastAppliedBuffer = ""
+    appliedResetId = 0
+    appliedEnd = 0
     lastViewportSize = .zero
     lastContentScale = 0
     lastReportedGrid = nil
@@ -557,33 +583,48 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
     app = nil
   }
 
-  private func applyRemoteBuffer(_ buffer: String) {
+  /// Applies the `output` prop (see terminalSurfaceOutput.ts): a new reset id replays
+  /// history into a fresh surface, otherwise only the part past `appliedEnd` is fed.
+  /// Every change is acknowledged so JS can send the next write from there.
+  private func applyOutput() {
+    guard let write = output else { return }
     guard surface != nil else {
       createSurfaceIfPossible()
       return
     }
 
-    if buffer.isEmpty {
-      feedData(Data("\u{1B}[3J\u{1B}[H\u{1B}[2J".utf8))
-      lastAppliedBuffer = ""
-      return
+    let utf16 = write.data.utf16
+    if write.resetId != appliedResetId {
+      // A continuation of a stream this surface does not hold; the ack asks JS for a reset.
+      guard write.start == 0 else {
+        emitOutputApplied()
+        return
+      }
+      if appliedResetId != 0 {
+        // The new surface applies this write once it exists.
+        resetSurface()
+        createSurfaceIfPossible()
+        return
+      }
+      feedData(Data(write.data.utf8))
+      appliedResetId = write.resetId
+      appliedEnd = utf16.count
+    } else {
+      guard write.start <= appliedEnd else {
+        emitOutputApplied()
+        return
+      }
+      let unapplied = appliedEnd - write.start
+      guard unapplied < utf16.count else { return }
+      let suffixStart = utf16.index(utf16.startIndex, offsetBy: unapplied)
+      feedData(Data(write.data[suffixStart...].utf8))
+      appliedEnd = write.start + utf16.count
     }
-
-    if buffer.hasPrefix(lastAppliedBuffer) {
-      let suffix = String(buffer.dropFirst(lastAppliedBuffer.count))
-      feedData(Data(suffix.utf8))
-      lastAppliedBuffer = buffer
-      return
-    }
-
-    resetSurface()
-    createSurfaceIfPossible()
+    emitOutputApplied()
   }
 
-  private func feedBuffer(_ buffer: String) {
-    guard !buffer.isEmpty else { return }
-    feedData(Data(buffer.utf8))
-    lastAppliedBuffer = buffer
+  private func emitOutputApplied() {
+    onOutputApplied(["resetId": appliedResetId, "end": appliedEnd])
   }
 
   private func feedData(_ data: Data) {

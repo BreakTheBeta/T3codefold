@@ -76,6 +76,12 @@ export interface Preferences {
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
   readonly threadListWorkingShelfExpanded?: boolean;
+  /** Split-view thread sidebar shown beside threads; absent shows it. */
+  readonly workspaceSidebarVisible?: boolean;
+  /** Last resting width of the split-view inspector pane, in dp. */
+  readonly workspaceInspectorWidth?: number;
+  /** Vim-style hardware keyboard navigation. Android only, like web's `vimModeEnabled`. */
+  readonly vimNavigationEnabled?: boolean;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -148,6 +154,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
     threadListWorkingShelfExpanded?: boolean;
+    workspaceSidebarVisible?: boolean;
+    workspaceInspectorWidth?: number;
+    vimNavigationEnabled?: boolean;
   } = {};
 
   if (typeof parsed.notificationsEnabled === "boolean") {
@@ -281,6 +290,19 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListWorkingShelfExpanded === "boolean") {
     preferences.threadListWorkingShelfExpanded = parsed.threadListWorkingShelfExpanded;
+  }
+  if (typeof parsed.vimNavigationEnabled === "boolean") {
+    preferences.vimNavigationEnabled = parsed.vimNavigationEnabled;
+  }
+  if (typeof parsed.workspaceSidebarVisible === "boolean") {
+    preferences.workspaceSidebarVisible = parsed.workspaceSidebarVisible;
+  }
+  if (
+    typeof parsed.workspaceInspectorWidth === "number" &&
+    Number.isFinite(parsed.workspaceInspectorWidth) &&
+    parsed.workspaceInspectorWidth > 0
+  ) {
+    preferences.workspaceInspectorWidth = Math.round(parsed.workspaceInspectorWidth);
   }
   return preferences;
 }

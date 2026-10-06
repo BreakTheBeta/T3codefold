@@ -26,7 +26,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { makeRawThreadShell, makeThreadShellFixture } from "../../test-fixtures";
-import { threadJumpTarget } from "../keyboard/threadKeyboardShortcuts";
+import { adjacentThreadTarget, threadJumpTarget } from "../keyboard/threadKeyboardShortcuts";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
@@ -1134,6 +1134,39 @@ describe("buildThreadListV2ListItems", () => {
     expect(threadJumpTarget(items, "thread.jump.1")?.id).toBe("active");
     expect(threadJumpTarget(items, "thread.jump.2")?.id).toBe("settled");
     expect(threadJumpTarget(items, "thread.jump.3")).toBeNull();
+  });
+
+  it("steps between rendered threads without wrapping", () => {
+    const layout = buildThreadListV2Items({
+      threads: [
+        makeThread({ id: ThreadId.make("first"), title: "first" }),
+        makeThread({
+          id: ThreadId.make("settled"),
+          title: "settled",
+          settledOverride: "settled",
+          settledAt: NOW,
+        }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    const items = buildThreadListV2ListItems({
+      items: layout.items,
+      pendingTasks: [makePendingTask("queued")],
+      settledCount: layout.settledCount,
+      settledShelfHeaderIndex: layout.settledShelfHeaderIndex,
+    });
+    const first = `${environmentId}:first`;
+    const settled = `${environmentId}:settled`;
+
+    expect(adjacentThreadTarget(items, first, "next")?.id).toBe("settled");
+    expect(adjacentThreadTarget(items, settled, "previous")?.id).toBe("first");
+    expect(adjacentThreadTarget(items, settled, "next")).toBeNull();
+    expect(adjacentThreadTarget(items, first, "previous")).toBeNull();
+    expect(adjacentThreadTarget(items, null, "next")?.id).toBe("first");
+    expect(adjacentThreadTarget(items, null, "previous")?.id).toBe("settled");
+    expect(adjacentThreadTarget(items, `${environmentId}:missing`, "next")).toBeNull();
   });
 });
 

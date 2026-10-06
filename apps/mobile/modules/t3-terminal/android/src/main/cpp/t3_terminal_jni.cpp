@@ -1,3 +1,5 @@
+#include <android/input.h>
+#include <android/keycodes.h>
 #include <jni.h>
 
 #include <algorithm>
@@ -31,6 +33,8 @@ struct Session {
   GhosttyRenderState render_state = nullptr;
   GhosttyRenderStateRowIterator row_iterator = nullptr;
   GhosttyRenderStateRowCells row_cells = nullptr;
+  GhosttyKeyEncoder key_encoder = nullptr;
+  GhosttyKeyEvent key_event = nullptr;
   std::vector<uint8_t> responses;
   std::mutex mutex;
 };
@@ -158,6 +162,8 @@ void ApplyTheme(Session* session, jint foreground, jint background, jint cursor,
 
 void FreeSession(Session* session) {
   if (session == nullptr) return;
+  ghostty_key_event_free(session->key_event);
+  ghostty_key_encoder_free(session->key_encoder);
   ghostty_render_state_row_cells_free(session->row_cells);
   ghostty_render_state_row_iterator_free(session->row_iterator);
   ghostty_render_state_free(session->render_state);
@@ -195,6 +201,77 @@ uint16_t StyleFlags(const GhosttyStyle& style, bool selected) {
   return flags;
 }
 
+// Android key codes for the physical keys Ghostty encodes; letters, digits and
+// F-keys are contiguous in both enums.
+GhosttyKey KeyFromAndroid(jint key_code) {
+  if (key_code >= AKEYCODE_A && key_code <= AKEYCODE_Z) {
+    return static_cast<GhosttyKey>(GHOSTTY_KEY_A + (key_code - AKEYCODE_A));
+  }
+  if (key_code >= AKEYCODE_0 && key_code <= AKEYCODE_9) {
+    return static_cast<GhosttyKey>(GHOSTTY_KEY_DIGIT_0 + (key_code - AKEYCODE_0));
+  }
+  if (key_code >= AKEYCODE_F1 && key_code <= AKEYCODE_F12) {
+    return static_cast<GhosttyKey>(GHOSTTY_KEY_F1 + (key_code - AKEYCODE_F1));
+  }
+  switch (key_code) {
+    case AKEYCODE_ESCAPE: return GHOSTTY_KEY_ESCAPE;
+    case AKEYCODE_TAB: return GHOSTTY_KEY_TAB;
+    case AKEYCODE_ENTER: return GHOSTTY_KEY_ENTER;
+    case AKEYCODE_NUMPAD_ENTER: return GHOSTTY_KEY_NUMPAD_ENTER;
+    case AKEYCODE_DEL: return GHOSTTY_KEY_BACKSPACE;
+    case AKEYCODE_FORWARD_DEL: return GHOSTTY_KEY_DELETE;
+    case AKEYCODE_INSERT: return GHOSTTY_KEY_INSERT;
+    case AKEYCODE_MOVE_HOME: return GHOSTTY_KEY_HOME;
+    case AKEYCODE_MOVE_END: return GHOSTTY_KEY_END;
+    case AKEYCODE_PAGE_UP: return GHOSTTY_KEY_PAGE_UP;
+    case AKEYCODE_PAGE_DOWN: return GHOSTTY_KEY_PAGE_DOWN;
+    case AKEYCODE_DPAD_UP: return GHOSTTY_KEY_ARROW_UP;
+    case AKEYCODE_DPAD_DOWN: return GHOSTTY_KEY_ARROW_DOWN;
+    case AKEYCODE_DPAD_LEFT: return GHOSTTY_KEY_ARROW_LEFT;
+    case AKEYCODE_DPAD_RIGHT: return GHOSTTY_KEY_ARROW_RIGHT;
+    case AKEYCODE_SPACE: return GHOSTTY_KEY_SPACE;
+    case AKEYCODE_GRAVE: return GHOSTTY_KEY_BACKQUOTE;
+    case AKEYCODE_MINUS: return GHOSTTY_KEY_MINUS;
+    case AKEYCODE_EQUALS: return GHOSTTY_KEY_EQUAL;
+    case AKEYCODE_LEFT_BRACKET: return GHOSTTY_KEY_BRACKET_LEFT;
+    case AKEYCODE_RIGHT_BRACKET: return GHOSTTY_KEY_BRACKET_RIGHT;
+    case AKEYCODE_BACKSLASH: return GHOSTTY_KEY_BACKSLASH;
+    case AKEYCODE_SEMICOLON: return GHOSTTY_KEY_SEMICOLON;
+    case AKEYCODE_APOSTROPHE: return GHOSTTY_KEY_QUOTE;
+    case AKEYCODE_COMMA: return GHOSTTY_KEY_COMMA;
+    case AKEYCODE_PERIOD: return GHOSTTY_KEY_PERIOD;
+    case AKEYCODE_SLASH: return GHOSTTY_KEY_SLASH;
+    default: return GHOSTTY_KEY_UNIDENTIFIED;
+  }
+}
+
+GhosttyMods ModsFromAndroid(jint meta_state) {
+  const auto meta = static_cast<uint32_t>(meta_state);
+  const auto right_only = [meta](uint32_t left, uint32_t right) {
+    return (meta & right) != 0 && (meta & left) == 0;
+  };
+  GhosttyMods mods = 0;
+  if (meta & AMETA_SHIFT_ON) {
+    mods |= GHOSTTY_MODS_SHIFT;
+    if (right_only(AMETA_SHIFT_LEFT_ON, AMETA_SHIFT_RIGHT_ON)) mods |= GHOSTTY_MODS_SHIFT_SIDE;
+  }
+  if (meta & AMETA_CTRL_ON) {
+    mods |= GHOSTTY_MODS_CTRL;
+    if (right_only(AMETA_CTRL_LEFT_ON, AMETA_CTRL_RIGHT_ON)) mods |= GHOSTTY_MODS_CTRL_SIDE;
+  }
+  if (meta & AMETA_ALT_ON) {
+    mods |= GHOSTTY_MODS_ALT;
+    if (right_only(AMETA_ALT_LEFT_ON, AMETA_ALT_RIGHT_ON)) mods |= GHOSTTY_MODS_ALT_SIDE;
+  }
+  if (meta & AMETA_META_ON) {
+    mods |= GHOSTTY_MODS_SUPER;
+    if (right_only(AMETA_META_LEFT_ON, AMETA_META_RIGHT_ON)) mods |= GHOSTTY_MODS_SUPER_SIDE;
+  }
+  if (meta & AMETA_CAPS_LOCK_ON) mods |= GHOSTTY_MODS_CAPS_LOCK;
+  if (meta & AMETA_NUM_LOCK_ON) mods |= GHOSTTY_MODS_NUM_LOCK;
+  return mods;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -210,7 +287,9 @@ Java_expo_modules_t3terminal_GhosttyBridge_nativeCreate(
   if (ghostty_terminal_new(nullptr, &session->terminal, options) != GHOSTTY_SUCCESS ||
       ghostty_render_state_new(nullptr, &session->render_state) != GHOSTTY_SUCCESS ||
       ghostty_render_state_row_iterator_new(nullptr, &session->row_iterator) != GHOSTTY_SUCCESS ||
-      ghostty_render_state_row_cells_new(nullptr, &session->row_cells) != GHOSTTY_SUCCESS) {
+      ghostty_render_state_row_cells_new(nullptr, &session->row_cells) != GHOSTTY_SUCCESS ||
+      ghostty_key_encoder_new(nullptr, &session->key_encoder) != GHOSTTY_SUCCESS ||
+      ghostty_key_event_new(nullptr, &session->key_event) != GHOSTTY_SUCCESS) {
     FreeSession(session);
     return 0;
   }
@@ -243,6 +322,70 @@ Java_expo_modules_t3terminal_GhosttyBridge_nativeFeed(JNIEnv* env, jclass, jlong
     ghostty_terminal_vt_write(session->terminal, bytes.data(), bytes.size());
   }
   return ToJavaBytes(env, DrainResponses(session));
+}
+
+// Encodes a hardware key press with the terminal's current modes (cursor key
+// application mode, Kitty keyboard flags, ...). `text` is the key's character
+// without Ctrl/Alt applied, 0 for none. Returns no bytes for keys Ghostty does
+// not encode.
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_expo_modules_t3terminal_GhosttyBridge_nativeEncodeKey(JNIEnv* env, jclass, jlong handle,
+                                                            jint key_code, jint meta_state,
+                                                            jint text, jint unshifted,
+                                                            jboolean repeat) {
+  auto* session = FromHandle(handle);
+  const auto key = KeyFromAndroid(key_code);
+  if (session == nullptr || key == GHOSTTY_KEY_UNIDENTIFIED) return env->NewByteArray(0);
+  std::lock_guard<std::mutex> lock(session->mutex);
+  const auto mods = ModsFromAndroid(meta_state);
+  std::vector<uint8_t> utf8;
+  // Ghostty derives control sequences from the key itself, never from C0/DEL text.
+  if (text >= 0x20 && text != 0x7F) AppendUtf8(&utf8, static_cast<uint32_t>(text));
+
+  ghostty_key_encoder_setopt_from_terminal(session->key_encoder, session->terminal);
+  auto* event = session->key_event;
+  ghostty_key_event_set_action(event,
+                               repeat ? GHOSTTY_KEY_ACTION_REPEAT : GHOSTTY_KEY_ACTION_PRESS);
+  ghostty_key_event_set_key(event, key);
+  ghostty_key_event_set_mods(event, mods);
+  // Shift is consumed when it only selected the character, as on web.
+  const bool shift_consumed = !utf8.empty() && (mods & GHOSTTY_MODS_SHIFT) != 0 &&
+                              (mods & (GHOSTTY_MODS_CTRL | GHOSTTY_MODS_ALT |
+                                       GHOSTTY_MODS_SUPER)) == 0;
+  ghostty_key_event_set_consumed_mods(event, shift_consumed ? GHOSTTY_MODS_SHIFT : 0);
+  ghostty_key_event_set_composing(event, false);
+  ghostty_key_event_set_unshifted_codepoint(event,
+                                            unshifted > 0 ? static_cast<uint32_t>(unshifted) : 0);
+  ghostty_key_event_set_utf8(event,
+                             utf8.empty() ? nullptr : reinterpret_cast<const char*>(utf8.data()),
+                             utf8.size());
+
+  std::vector<char> output(64);
+  size_t written = 0;
+  auto result = ghostty_key_encoder_encode(session->key_encoder, event, output.data(),
+                                           output.size(), &written);
+  if (result == GHOSTTY_OUT_OF_SPACE) {
+    output.resize(written);
+    result = ghostty_key_encoder_encode(session->key_encoder, event, output.data(),
+                                        output.size(), &written);
+  }
+  ghostty_key_event_set_utf8(event, nullptr, 0);
+  if (result != GHOSTTY_SUCCESS) return env->NewByteArray(0);
+  return ToJavaBytes(env, std::vector<uint8_t>(output.begin(), output.begin() + written));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_expo_modules_t3terminal_GhosttyBridge_nativeApplicationCursorKeys(JNIEnv*, jclass,
+                                                                        jlong handle) {
+  auto* session = FromHandle(handle);
+  if (session == nullptr) return JNI_FALSE;
+  std::lock_guard<std::mutex> lock(session->mutex);
+  bool enabled = false;
+  return ghostty_terminal_mode_get(session->terminal, GHOSTTY_MODE_DECCKM, &enabled) ==
+                 GHOSTTY_SUCCESS &&
+                 enabled
+             ? JNI_TRUE
+             : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL

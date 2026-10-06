@@ -40,5 +40,6 @@ info so the ABI check can detect drift without a second pin.
 Restoring scrollback must not send terminal replies to the current shell. Historical
 device queries can otherwise provoke fresh replies that appear as junk at the
 prompt. The server strips query/response traffic from retained history, and the
-[web renderer](../../apps/web/src/terminal/ghostty/core.ts) detaches its PTY writer
-during replay. Preserve both protections when changing retention or renderer code.
+[web renderer](../../apps/web/src/terminal/ghostty/core.ts) and the
+[Android view](../../apps/mobile/modules/t3-terminal/android/src/main/java/expo/modules/t3terminal/T3TerminalView.kt)
+drop PTY replies during replay. Preserve both protections when changing retention or renderer code.
