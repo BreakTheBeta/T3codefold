@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { constrainFoldablePaneWidth, resolvePaneDividerRelease } from "./foldable-pane-layout";
+import {
+  constrainFoldablePaneWidth,
+  deriveHingeSnapWidths,
+  resolvePaneDividerRelease,
+} from "./foldable-pane-layout";
 
 describe("constrainFoldablePaneWidth", () => {
   it("lets either pane become compact in an unfolded workspace", () => {
@@ -53,5 +57,34 @@ describe("resolvePaneDividerRelease", () => {
     expect(
       resolvePaneDividerRelease({ startWidth: 300, translationX: -10, range, snapWidths: [400] }),
     ).toEqual({ kind: "resize", width: 310 });
+  });
+});
+
+describe("deriveHingeSnapWidths", () => {
+  it("places the divider on a vertical fold", () => {
+    expect(
+      deriveHingeSnapWidths({
+        hinges: [{ left: 420, right: 420, orientation: "vertical" }],
+        windowWidth: 840,
+        trailingInset: 0,
+      }),
+    ).toEqual([420]);
+    expect(
+      deriveHingeSnapWidths({
+        hinges: [{ left: 400, right: 440, orientation: "vertical" }],
+        windowWidth: 900,
+        trailingInset: 24,
+      }),
+    ).toEqual([456]);
+  });
+
+  it("ignores horizontal (tabletop) folds", () => {
+    expect(
+      deriveHingeSnapWidths({
+        hinges: [{ left: 0, right: 840, orientation: "horizontal" }],
+        windowWidth: 840,
+        trailingInset: 0,
+      }),
+    ).toEqual([]);
   });
 });

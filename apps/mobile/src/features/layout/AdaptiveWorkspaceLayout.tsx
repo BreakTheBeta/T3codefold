@@ -34,7 +34,8 @@ import {
   type Layout,
   type WorkspacePaneLayout,
 } from "../../lib/layout";
-import type { PaneDividerRelease } from "../../lib/foldable-pane-layout";
+import { deriveHingeSnapWidths, type PaneDividerRelease } from "../../lib/foldable-pane-layout";
+import { useWindowPosture } from "../../native/T3WindowPosture";
 import {
   resolveThreadSelectionNavigationAction,
   shouldRestorePrimarySidebar,
@@ -236,6 +237,16 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const leadingInset = layout.usesSplitView ? safeAreaInsets.left : 0;
   const trailingInset = layout.usesSplitView ? safeAreaInsets.right : 0;
   const width = Math.max(0, window.width - leadingInset - trailingInset);
+  const posture = useWindowPosture();
+  const hingeSnapWidths = useMemo(
+    () =>
+      deriveHingeSnapWidths({
+        hinges: posture.hinges,
+        windowWidth: window.width,
+        trailingInset,
+      }),
+    [posture.hinges, trailingInset, window.width],
+  );
 
   const [primarySidebarPreferredVisible, setPrimarySidebarPreferredVisibleState] = useState(
     props.initialPreferences.workspaceSidebarVisible ?? true,
@@ -298,6 +309,8 @@ function AdaptiveWorkspaceLayoutContent(props: {
     };
   }, []);
 
+  // Until the user picks a width, an unfolded display splits at its fold.
+  const inspectorRestingWidth = inspectorPreferredWidth ?? hingeSnapWidths[0];
   const panes = useMemo(
     () =>
       deriveWorkspacePaneLayout({
@@ -307,14 +320,14 @@ function AdaptiveWorkspaceLayoutContent(props: {
         auxiliaryPanePreferredVisible: inspectorPreferredVisible,
         auxiliaryPaneRegistered: workspaceInspector !== null,
         auxiliaryPaneMaximized: inspectorMaximized,
-        ...(inspectorPreferredWidth !== null
-          ? { auxiliaryPanePreferredWidth: inspectorPreferredWidth }
+        ...(inspectorRestingWidth !== undefined
+          ? { auxiliaryPanePreferredWidth: inspectorRestingWidth }
           : {}),
       }),
     [
       inspectorMaximized,
       inspectorPreferredVisible,
-      inspectorPreferredWidth,
+      inspectorRestingWidth,
       layout,
       showPrimarySidebar,
       width,
@@ -613,6 +626,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
             pathname={props.pathname}
             panes={panes}
             renderInspector={workspaceInspector?.render}
+            snapWidths={hingeSnapWidths}
             onDividerRelease={handleDividerRelease}
             onToggleMaximized={toggleAuxiliaryPaneMaximized}
           />

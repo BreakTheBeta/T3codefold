@@ -56,3 +56,24 @@ export function resolvePaneDividerRelease(input: {
     );
   return { kind: "resize", width: snap ?? width };
 }
+
+/**
+ * Trailing-pane widths that put the divider on a vertical fold, so chat and
+ * the inspector each own one half of an unfolded display.
+ */
+export function deriveHingeSnapWidths(input: {
+  readonly hinges: ReadonlyArray<{
+    readonly left: number;
+    readonly right: number;
+    readonly orientation: "vertical" | "horizontal";
+  }>;
+  readonly windowWidth: number;
+  readonly trailingInset: number;
+}): ReadonlyArray<number> {
+  return input.hinges
+    .filter((hinge) => hinge.orientation === "vertical")
+    .map((hinge) =>
+      Math.round(input.windowWidth - input.trailingInset - (hinge.left + hinge.right) / 2),
+    )
+    .filter((width) => width > 0);
+}
