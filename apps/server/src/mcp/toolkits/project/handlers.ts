@@ -163,7 +163,7 @@ export const launchThread = (input: typeof ThreadLaunchParameters.Type, tool: st
     ),
   );
 
-export const ProjectHandlersLive = ProjectToolkit.toLayer({
+export const layer = ProjectToolkit.toLayer({
   t3_thread_launch: (input) => launchThread(input, "t3_thread_launch"),
   t3_project_list: (input) =>
     Effect.gen(function* () {

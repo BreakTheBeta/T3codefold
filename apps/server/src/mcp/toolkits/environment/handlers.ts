@@ -45,7 +45,7 @@ const access = (writable = false) =>
       });
     return { ...context, descriptor, settings: yield* Settings.ServerSettingsService };
   });
-export const EnvironmentHandlersLive = EnvironmentToolkit.toLayer({
+export const layer = EnvironmentToolkit.toLayer({
   t3_environment_list: () =>
     Effect.gen(function* () {
       yield* readCaller();

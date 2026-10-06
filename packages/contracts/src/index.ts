@@ -65,3 +65,4 @@ export * from "./fleet.ts";
 export * from "./pitboss.ts";
 export * from "./pitbossPeer.ts";
 export * from "./worktreeSetup.ts";
+export * from "./secretRequest.ts";

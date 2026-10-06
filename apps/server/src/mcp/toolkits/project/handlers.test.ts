@@ -22,7 +22,7 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import { FleetRouter } from "../../FleetRouter.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
-import { ProjectHandlersLive } from "./handlers.ts";
+import * as ProjectHandlers from "./handlers.ts";
 import { ProjectToolkit } from "./tools.ts";
 
 it.effect("attributes a launched thread's first message to the calling thread", () =>
@@ -43,7 +43,7 @@ it.effect("attributes a launched thread's first message to the calling thread", 
       deletedAt: null,
     } as OrchestrationV2ThreadShell;
     let launchedSender: ThreadId | undefined;
-    const dependencies = Layer.mergeAll(
+    const layerDependencies = Layer.mergeAll(
       NodeCrypto.layer,
       Layer.mock(FleetRouter)({}),
       Layer.mock(FleetRouter)({}),
@@ -83,11 +83,11 @@ it.effect("attributes a launched thread's first message to the calling thread", 
       ),
     );
     const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+      Effect.provide(ProjectHandlers.layer.pipe(Layer.provide(layerDependencies))),
     );
     const result = yield* toolkit
       .handle("t3_thread_launch", { title: "Audit", message: "Review the change" })
-      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(layerDependencies));
     expect(result.at(-1)?.result).toMatchObject({ projectId, modelSelection });
     expect(launchedSender).toBe(sourceThreadId);
   }),
@@ -111,7 +111,7 @@ it.effect("launches a scratch thread into the Scratch project", () =>
       deletedAt: null,
     } as OrchestrationV2ThreadShell;
     const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
-    const dependencies = Layer.mergeAll(
+    const layerDependencies = Layer.mergeAll(
       NodeCrypto.layer,
       Layer.mock(FleetRouter)({}),
       Layer.mock(FleetRouter)({}),
@@ -154,12 +154,12 @@ it.effect("launches a scratch thread into the Scratch project", () =>
       ),
     );
     const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+      Effect.provide(ProjectHandlers.layer.pipe(Layer.provide(layerDependencies))),
     );
     const handle = (params: Parameters<typeof toolkit.handle<"t3_thread_launch">>[1]) =>
       toolkit
         .handle("t3_thread_launch", params)
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(layerDependencies));
 
     const result = yield* handle({ title: "Notes", scratch: true, message: "Draft a list" });
     expect(result.at(-1)?.result).toMatchObject({ projectId: scratchProjectId });
@@ -205,7 +205,7 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
       updatedAt: "2026-10-01T00:00:00.000Z",
       deletedAt: null,
     };
-    const dependencies = Layer.mergeAll(
+    const layerDependencies = Layer.mergeAll(
       NodeCrypto.layer,
       Layer.mock(FleetRouter)({}),
       Layer.mock(FleetRouter)({}),
@@ -254,12 +254,12 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
       ),
     );
     const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+      Effect.provide(ProjectHandlers.layer.pipe(Layer.provide(layerDependencies))),
     );
     const handle = (params: Parameters<typeof toolkit.handle<"t3_project_create">>[1]) =>
       toolkit
         .handle("t3_project_create", params)
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(layerDependencies));
 
     const result = yield* handle({ title: "Pinball Stats" });
     expect(result.at(-1)?.result).toMatchObject({
@@ -291,7 +291,7 @@ const clientLaunchHarness = (input: {
 }) => {
   const projectId = ProjectId.make("project:client-target");
   const modelSelection = { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus" };
-  const dependencies = Layer.mergeAll(
+  const layerDependencies = Layer.mergeAll(
     NodeCrypto.layer,
     Layer.mock(FleetRouter)({}),
     Layer.succeed(McpInvocationContext.McpInvocationContext, {
@@ -338,7 +338,7 @@ const clientLaunchHarness = (input: {
       Layer.provide(NodeServices.layer),
     ),
   );
-  return { projectId, modelSelection, dependencies };
+  return { projectId, modelSelection, dependencies: layerDependencies };
 };
 
 it.effect("a client launches at its ceiling with the project's default model", () =>
@@ -349,7 +349,7 @@ it.effect("a client launches at its ceiling with the project's default model", (
       launched,
     });
     const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+      Effect.provide(ProjectHandlers.layer.pipe(Layer.provide(dependencies))),
     );
     const handle = (params: Parameters<typeof toolkit.handle<"t3_thread_launch">>[1]) =>
       toolkit
@@ -380,7 +380,7 @@ it.effect(
         launched,
       });
       const toolkit = yield* ProjectToolkit.pipe(
-        Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+        Effect.provide(ProjectHandlers.layer.pipe(Layer.provide(dependencies))),
       );
       const launch = (clientRequestId?: string) =>
         toolkit
@@ -472,7 +472,7 @@ it.effect("keeps elected GLaDOS from launching threads outside the work ledger",
       ),
     );
     const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+      Effect.provide(ProjectHandlers.layer.pipe(Layer.provide(dependencies))),
     );
     const result = yield* toolkit
       .handle("t3_thread_launch", { title: "Side quest", message: "Work" })

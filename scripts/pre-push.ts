@@ -349,8 +349,7 @@ function main() {
     run(repoRoot, "typecheck", ["run", "--cache", ...filters(plan.typecheck), "typecheck"]);
   }
   if (plan.tests.length > 0) {
-    // One package at a time: each vitest run already uses every core, and stacking them
-    // starves cold module imports past the test timeout.
+    // One package at a time, so suites do not compete for cores.
     run(repoRoot, "tests", [
       "run",
       "--cache",
@@ -358,6 +357,9 @@ function main() {
       "1",
       ...filters(plan.tests),
       "test",
+      // Workers share one Vite transform server; past half the cores, cold imports queue up
+      // behind each other and trip hook timeouts in large suites such as web's.
+      "--maxWorkers=50%",
     ]);
   }
   console.log("\npre-push: all checks passed.");

@@ -1359,7 +1359,7 @@ export const makeCodexAppServerSpawnCommand = Effect.fn(
   });
 });
 
-const makeCodexAppServerClientFactoryCommandLayer = (
+const layerCodexAppServerClientFactoryCommand = (
   options: CodexClient.CodexAppServerClientOptions & {
     readonly command: string;
     readonly args?: ReadonlyArray<string>;
@@ -1475,7 +1475,7 @@ function isSensitiveCodexProtocolKey(key: string): boolean {
   );
 }
 
-export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
+export const layerAppServerClientFactory: Layer.Layer<
   CodexAppServerClientFactory,
   never,
   ChildProcessSpawner.ChildProcessSpawner | ProviderEventLoggers
@@ -3229,11 +3229,16 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 driver: CODEX_PROVIDER,
                 node: artifacts.node,
               });
-              yield* emitProviderEvent({
-                type: "message.updated",
-                driver: CODEX_PROVIDER,
-                message: artifacts.message,
-              });
+              // Clients render streaming text from the turn item, so the
+              // message only carries the final text. flushTurn completes every
+              // buffered item when a turn ends, interrupted or not.
+              if (update.completed) {
+                yield* emitProviderEvent({
+                  type: "message.updated",
+                  driver: CODEX_PROVIDER,
+                  message: artifacts.message,
+                });
+              }
               yield* emitProviderEvent({
                 type: "turn_item.updated",
                 driver: CODEX_PROVIDER,
