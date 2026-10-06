@@ -135,6 +135,23 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
+## Voice input on Android
+
+Tap the composer's microphone to dictate English directly on your phone. First use
+downloads an open-weight Moonshine speech model; later dictation works offline.
+Completed phrases appear in your draft as you speak. Confirm to finish the last
+phrase, then review and send. There is no fixed recording or silence timeout.
+Canceling or moving the app to the background stops capture while keeping phrases
+already inserted. Audio is never uploaded or saved as a recording.
+
+Open **Settings → On-device dictation → Speech model & microphone** to select
+Tiny, Small, or Medium, change the microphone, or remove downloaded models. Small
+is recommended; choose Tiny if recognition cannot keep up. Bluetooth headset mode
+uses call audio without making a phone call. Pair your Meta Ray-Bans, enable
+**Calls** in Android Bluetooth settings, and grant microphone and Nearby devices
+access. If the headset route fails, dictation stops instead of using the phone mic.
+End other voice calls first. Phone mode explicitly uses the handset microphone.
+
 ## Voice input on iPhone
 
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,

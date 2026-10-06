@@ -23,6 +23,7 @@ import { AppState, Platform } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
+import { getLocalDictationBackend } from "../../native/localDictation";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
   VOICE_RECORDING_LIMIT_SECONDS,
@@ -32,6 +33,7 @@ import {
 import { createLazyVoiceRecorder, type LazyVoiceRecorder } from "./lazyVoiceRecorder";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
+import { StreamingVoiceInputSession } from "./streamingVoiceInputSession";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 const VOICE_METERING_INTERVAL_MS = 80;
@@ -114,7 +116,8 @@ function useVoiceInputRuntime() {
   const elapsedSecondsRef = useRef(0);
   const audioLevelsRef = useRef(Array<number>(VOICE_WAVEFORM_SAMPLE_COUNT).fill(0));
   const audioLevels = useSharedValue(audioLevelsRef.current);
-  const sessionRef = useRef<VoiceInputSession | null>(null);
+  const localDictation = getLocalDictationBackend();
+  const sessionRef = useRef<VoiceInputSession | StreamingVoiceInputSession | null>(null);
   const recorderRef = useRef<LazyVoiceRecorder<RecorderState> | null>(null);
 
   if (!sessionRef.current || !recorderRef.current) {
@@ -131,23 +134,26 @@ function useVoiceInputRuntime() {
       },
     });
     recorderRef.current = recorder;
-    sessionRef.current = new VoiceInputSession({
-      recorder,
-      getTranscriber: getLocalVoiceTranscriber,
-      requestPermission: async () => {
-        const permission = await requestRecordingPermissionsAsync();
-        return { granted: permission.granted, canAskAgain: permission.canAskAgain };
-      },
-      configureRecording: configureVoiceRecordingAudio,
-      releaseRecording: releaseVoiceRecordingAudio,
-      deleteRecording: (uri) => new File(uri).delete(),
-      onStateChange: (nextState) =>
-        setState({
-          state: nextState,
-          ownerKey: sessionRef.current?.ownerKey ?? null,
-          label: sessionRef.current?.label ?? null,
-        }),
-    });
+    const onStateChange = (nextState: VoiceInputState) =>
+      setState({
+        state: nextState,
+        ownerKey: sessionRef.current?.ownerKey ?? null,
+        label: sessionRef.current?.label ?? null,
+      });
+    sessionRef.current = localDictation
+      ? new StreamingVoiceInputSession(localDictation, onStateChange)
+      : new VoiceInputSession({
+          recorder,
+          getTranscriber: getLocalVoiceTranscriber,
+          requestPermission: async () => {
+            const permission = await requestRecordingPermissionsAsync();
+            return { granted: permission.granted, canAskAgain: permission.canAskAgain };
+          },
+          configureRecording: configureVoiceRecordingAudio,
+          releaseRecording: releaseVoiceRecordingAudio,
+          deleteRecording: (uri) => new File(uri).delete(),
+          onStateChange,
+        });
   }
 
   const session = sessionRef.current;
@@ -200,7 +206,7 @@ function useVoiceInputRuntime() {
 
     const sampleRecording = () => {
       if (controller.currentState.phase !== "recording") return;
-      const status = recorder.getStatus();
+      const status = localDictation?.getStatus() ?? recorder.getStatus();
       if (!status?.isRecording) return;
 
       const level = normalizeVoiceInputDecibels(status.metering);
@@ -211,10 +217,10 @@ function useVoiceInputRuntime() {
         audioLevels.value = nextLevels;
       }
 
-      const nextElapsedSeconds = Math.min(
-        VOICE_RECORDING_LIMIT_SECONDS,
-        Math.max(0, Math.floor(status.durationMillis / 1_000)),
-      );
+      const seconds = Math.max(0, Math.floor(status.durationMillis / 1_000));
+      const nextElapsedSeconds = localDictation
+        ? seconds
+        : Math.min(VOICE_RECORDING_LIMIT_SECONDS, seconds);
       if (nextElapsedSeconds !== elapsedSecondsRef.current) {
         elapsedSecondsRef.current = nextElapsedSeconds;
         setElapsedSeconds(nextElapsedSeconds);
@@ -224,7 +230,7 @@ function useVoiceInputRuntime() {
     sampleRecording();
     const intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
     return () => clearInterval(intervalId);
-  }, [audioLevels, controller, recorder, state.phase]);
+  }, [audioLevels, controller, localDictation, recorder, state.phase]);
 
   const stop = useCallback(() => controller.stop(), [controller]);
   const cancel = useCallback(() => controller.cancel(), [controller]);
@@ -233,7 +239,10 @@ function useVoiceInputRuntime() {
     // Store screenshots show the dictation button even on simulators, whose
     // on-device transcription is unavailable.
     isAvailable:
-      !liveCallActive && (getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null),
+      !liveCallActive &&
+      (localDictation !== null ||
+        getLocalVoiceTranscriber() !== null ||
+        getNativeShowcaseScene() !== null),
     state,
     audioLevels,
     elapsedSeconds,

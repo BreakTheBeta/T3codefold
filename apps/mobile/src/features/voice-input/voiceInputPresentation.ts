@@ -38,7 +38,7 @@ export function resolveVoiceComposerPresentation(
         trailingAction: "confirm",
         showsSend: false,
         statusKind: "active",
-        statusLabel: "Preparing",
+        statusLabel: state.status ?? "Preparing",
         confirmationEnabled: false,
       };
     case "recording": {

@@ -10,6 +10,7 @@ export type VoiceInputState = {
   readonly phase: VoiceInputPhase;
   readonly error: string | null;
   readonly errorAction: "retry" | "settings" | null;
+  readonly status?: string;
 };
 
 export function voiceInputBlocksSubmission(state: VoiceInputState): boolean {
