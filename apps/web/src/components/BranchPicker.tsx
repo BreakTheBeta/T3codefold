@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { MiddleTruncate } from "./ui/middle-truncate";
 import { cn } from "../lib/utils";
 import { shouldLoadNextBranchPageAfterScroll } from "../state/paginatedBranches";
 import { RefreshIcon } from "./ui/refresh-icon";
@@ -26,7 +27,6 @@ import {
   ComboboxStatus,
 } from "./ui/combobox";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { MiddleTruncate } from "./ui/middle-truncate";
 
 /** Shared composer picker UI. The caller owns selection and any checkout mutations. */
 export function BranchPicker({
@@ -38,6 +38,7 @@ export function BranchPicker({
   onQueryChange,
   open,
   onOpenChange,
+  onSelectItem,
   hasNextPage,
   isFetchingNextPage,
   onLoadNext,
@@ -45,7 +46,6 @@ export function BranchPicker({
   originControl,
   popupProps,
   renderItem,
-  onSelectItem,
   getItemType,
   children,
 }: {
@@ -57,6 +57,7 @@ export function BranchPicker({
   onQueryChange: (value: string) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSelectItem: (value: string) => void;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   onLoadNext: () => void;
@@ -64,17 +65,13 @@ export function BranchPicker({
   originControl?: { checked: boolean; onCheckedChange: (checked: boolean) => void } | undefined;
   popupProps: Omit<ComponentProps<typeof ComboboxPopup>, "children">;
   renderItem: (value: string, index: number) => ReactNode;
-  /** Activates an item; Enter in the search field routes here too. */
-  onSelectItem: (value: string) => void;
   getItemType?: ((value: string) => string) | undefined;
   children: ReactNode;
 }) {
+  const highlightedValueRef = useRef<string | null>(null);
   const startFromOriginSwitchId = useId();
   const branchListScrollElementRef = useRef<HTMLElement | null>(null);
   const previousBranchListScrollTopRef = useRef<number | null>(null);
-  // Tracks the highlighted picker value so Enter can activate it even when the
-  // virtualized row is not mounted (Base UI Enter clicks the mounted element).
-  const highlightedValueRef = useRef<string | null>(null);
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       previousBranchListScrollTopRef.current = null;
@@ -183,13 +180,10 @@ export function BranchPicker({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) {
+            if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229)
               return;
-            }
             const highlightedValue = highlightedValueRef.current;
-            if (highlightedValue === null || !filteredItems.includes(highlightedValue)) {
-              return;
-            }
+            if (highlightedValue === null || !filteredItems.includes(highlightedValue)) return;
             (
               event as typeof event & { preventBaseUIHandler?: () => void }
             ).preventBaseUIHandler?.();
@@ -202,7 +196,7 @@ export function BranchPicker({
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <ComboboxEmpty>No refs found.</ComboboxEmpty>
           <div className="relative min-h-0 w-full max-h-56 flex-1 overflow-hidden">
-            <ComboboxListVirtualized>
+            <ComboboxListVirtualized className="size-full min-w-0">
               <LegendList<string>
                 ref={branchListRef}
                 data={filteredItems}
@@ -239,7 +233,7 @@ export function BranchPicker({
                     className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
                   >
                     <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
-                      <RefreshIcon aria-hidden="true" size="xs" className="shrink-0" />
+                      <RefreshIcon aria-hidden="true" className="size-3 shrink-0" />
                       <span className="truncate">Start from origin</span>
                     </span>
                     <Switch
@@ -252,7 +246,7 @@ export function BranchPicker({
                   </label>
                 }
               />
-              <TooltipPopup side="top">
+              <TooltipPopup side="top" className="max-w-72 whitespace-normal">
                 Creates the worktree from the latest matching branch on origin instead of your local
                 branch.
               </TooltipPopup>
@@ -269,12 +263,14 @@ export function BranchPickerRefItem({
   branch: refName,
   projectCwd: activeProjectCwd,
   index,
+  value,
   onClick,
   onContextMenu,
 }: {
   branch: VcsRef;
   projectCwd: string | null;
   index: number;
+  value?: string;
   onClick: ComponentProps<typeof ComboboxItem>["onClick"];
   onContextMenu?: ComponentProps<typeof ComboboxItem>["onContextMenu"];
 }) {
@@ -295,14 +291,13 @@ export function BranchPickerRefItem({
       hideIndicator
       key={itemValue}
       index={index}
-      value={itemValue}
-      className="pe-1.5"
+      value={value ?? itemValue}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >
       <div className="flex w-full min-w-0 items-center justify-between gap-2">
         <MiddleTruncate value={itemValue} className="flex-1" />
-        {badge && <span className="shrink-0 text-[10px] text-muted-foreground/45">{badge}</span>}
+        {badge && <span className="shrink-0 text-3xs text-muted-foreground/45">{badge}</span>}
       </div>
     </ComboboxItem>
   );

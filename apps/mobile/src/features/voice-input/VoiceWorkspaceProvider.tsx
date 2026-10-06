@@ -12,7 +12,7 @@ import {
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import * as SecureStore from "expo-secure-store";
 import { Platform, View, Pressable, ScrollView } from "react-native";
 import { AppText as Text } from "../../components/AppText";
@@ -31,7 +31,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { threadEnvironment } from "../../state/threads";
+import { realtimeVoiceEnvironment } from "../../state/realtime-voice";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useThreadShells, useServerConfigs } from "../../state/entities";
 import { uuidv4 } from "../../lib/uuid";
@@ -39,6 +39,8 @@ import { voiceAudio } from "./voiceAudio";
 import { createNativeVoiceMedia } from "./codexVoiceMedia";
 import { mediaDevices } from "react-native-webrtc";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { voiceInputBlocksSubmission } from "@t3tools/client-runtime/voice-input";
+import { useGlobalVoiceInput } from "./VoiceInputProvider";
 type VoiceAudioControls = {
   speaker: boolean;
   audioRoute: string;
@@ -79,19 +81,31 @@ export function useVoiceWorkspace() {
 export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState({ speaker: false, audioRoute: "Phone" });
   const [audioError, setAudioError] = useState<string | null>(null);
-  const start = useAtomCommand(threadEnvironment.startRealtimeVoice, { reportFailure: false });
-  const stop = useAtomCommand(threadEnvironment.stopRealtimeVoice, { reportFailure: false });
-  const list = useAtomCommand(threadEnvironment.listRealtimeVoices, { reportFailure: false });
-  const context = useAtomCommand(threadEnvironment.appendRealtimeVoiceContext, {
+  // Dictation and a live call share the microphone; whichever started first keeps it.
+  const { session: dictationSession, setLiveCallActive } = useGlobalVoiceInput();
+  const start = useAtomCommand(realtimeVoiceEnvironment.startRealtimeVoice, {
     reportFailure: false,
   });
+  const stop = useAtomCommand(realtimeVoiceEnvironment.stopRealtimeVoice, { reportFailure: false });
+  const list = useAtomCommand(realtimeVoiceEnvironment.listRealtimeVoices, {
+    reportFailure: false,
+  });
+  const context = useAtomCommand(realtimeVoiceEnvironment.appendRealtimeVoiceContext, {
+    reportFailure: false,
+  });
+  const nativeMedia = useMemo(
+    () => createNativeVoiceMedia((speaker, audioRoute) => setRoute({ speaker, audioRoute })),
+    [],
+  );
   const workspace = useMemo(
     () =>
       new VoiceWorkspace({
         createCallId: uuidv4,
-        openMedia: createNativeVoiceMedia((speaker, audioRoute) =>
-          setRoute({ speaker, audioRoute }),
-        ),
+        openMedia: (handlers, preferences) => {
+          if (voiceInputBlocksSubmission(dictationSession.controller.currentState))
+            throw new Error("Finish dictation before starting a voice call.");
+          return nativeMedia(handlers, preferences);
+        },
         startRemote: async (target, sdp, callId, voice) =>
           unwrap(
             await start({
@@ -126,7 +140,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
           void SecureStore.setItemAsync(preferenceKey, JSON.stringify(preferences)).catch(() => {});
         },
       }),
-    [start, stop, list, context],
+    [dictationSession, nativeMedia, start, stop, list, context],
   );
   useEffect(() => {
     let mounted = true;
@@ -179,6 +193,11 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
     }, [workspace]),
   );
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot);
+  const callActive = state.voice.status !== "idle" && state.voice.status !== "error";
+  useEffect(() => {
+    setLiveCallActive(callActive);
+  }, [setLiveCallActive, callActive]);
+  useEffect(() => () => setLiveCallActive(false), [setLiveCallActive]);
   const shells = useThreadShells();
   const configs = useServerConfigs();
   const targets = useMemo(
@@ -211,7 +230,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
       workspace.hasVoiceEvents &&
       state.voice.status !== "idle" &&
       state.voice.status !== "error"
-      ? threadEnvironment.realtimeVoiceEvents({
+      ? realtimeVoiceEnvironment.realtimeVoiceEvents({
           environmentId: state.target.environmentId,
           input: { threadId: state.target.threadId },
         })

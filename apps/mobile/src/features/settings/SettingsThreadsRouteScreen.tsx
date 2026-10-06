@@ -1,7 +1,7 @@
 import { AutoSettleDaysField } from "./components/AutoSettleDaysField";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -45,7 +45,8 @@ export function SettingsThreadsRouteScreen() {
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         >
           <AutoSettleSettingsRows />
-          <PlanModeSection />
+          <BetaSettingsSection />
+          <LegacySettingsSection />
         </ScrollView>
       </SettingsScreen>
     </>
@@ -57,7 +58,7 @@ const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_SERVER_SETTINGS.sidebarAutoSettleAfterD
 /**
  * Mobile edits auto-settle defaults across selected capable targets.
  */
-export function AutoSettleSettingsRows() {
+function AutoSettleSettingsRows() {
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
   const projectSelected = selectedProjectKey !== null;
@@ -239,12 +240,46 @@ export function AutoSettleSettingsRows() {
   );
 }
 
-/** Device-local: restores the Build/Plan control in the composer. */
-export function PlanModeSection() {
+/**
+ * Device-local beta toggles, the counterpart of web's Working section (beta)
+ * in Settings → General.
+ */
+function BetaSettingsSection() {
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const workingShelfEnabled =
+    AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled === true;
+
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Beta">
+        <SettingsSwitchRow
+          icon="bolt.circle"
+          label="Working section"
+          value={workingShelfEnabled}
+          onValueChange={(value) => savePreferences({ workingShelfEnabled: value })}
+        />
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        Fold working and monitoring threads into a Working section. They return to the top of the
+        list when they need you. While this is on, active threads are ordered by time and cannot be
+        moved.
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Device-local legacy toggles. Mobile has no client-settings sync, so this is
+ * the counterpart of web's Settings → General → Legacy features backed by
+ * mobile preferences.
+ */
+function LegacySettingsSection() {
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const preferences = useAtomValue(mobilePreferencesAtom);
   const planModeEnabled =
     AsyncResult.isSuccess(preferences) && preferences.value.planModeEnabled === true;
+
   return (
     <View className="gap-3">
       <SettingsSection title="Legacy">
@@ -256,7 +291,8 @@ export function PlanModeSection() {
         />
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
-        Restores the Build/Plan control. Otherwise every task runs in Build mode.
+        Opt into retired interfaces kept for compatibility. Plan Mode restores the Build/Plan
+        control; otherwise every task runs in Build mode.
       </Text>
     </View>
   );

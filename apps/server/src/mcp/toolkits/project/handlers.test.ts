@@ -1,193 +1,485 @@
+import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
-  OrchestratorMcpCapabilitiesResult,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
   type OrchestrationV2ThreadShell,
+  type Project as ProjectRecord,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
-import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
-import type { Tool } from "effect/unstable/ai";
 
+import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as ServerConfig from "../../../config.ts";
+import * as Project from "../../../project/ProjectService.ts";
+import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
+import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import { FleetRouter } from "../../FleetRouter.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
-import { OrchestratorMcpService } from "../../OrchestratorMcpService.ts";
-import { ThreadManagementService } from "../../../orchestration-v2/ThreadManagementService.ts";
-import * as ProjectService from "../../../project/ProjectService.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { ProjectHandlersLive } from "./handlers.ts";
 import { ProjectToolkit } from "./tools.ts";
 
-const environmentId = EnvironmentId.make("environment-project-toolkit");
-const threadId = ThreadId.make("thread-project-toolkit");
-const scope = {
-  environmentId,
-  threadId,
-  providerSessionId: "session-project-toolkit",
-  providerInstanceId: ProviderInstanceId.make("codex"),
-  capabilities: new Set(["orchestration"] as const),
-  issuedAt: 0,
-};
-const project = (id: string) => ({
-  id: ProjectId.make(id),
-  title: id,
-  workspaceRoot: `/workspace/${id}`,
-  defaultModelSelection: null,
-  scripts: [],
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
-  deletedAt: null,
-});
-const caller = {
-  id: threadId,
-  projectId: ProjectId.make("one"),
-  title: "Caller",
-  providerInstanceId: ProviderInstanceId.make("codex"),
-  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
-  runtimeMode: "full-access",
-  interactionMode: "default",
-  branch: null,
-  worktreePath: null,
-  createdBy: "user",
-  creationSource: "web",
-  activeProviderThreadId: null,
-  lineage: { rootThreadId: threadId, parentThreadId: null, relationshipToParent: null },
-  forkedFrom: null,
-  latestRunId: null,
-  activeRunId: null,
-  status: "idle",
-  pendingRuntimeRequest: null,
-  latestVisibleMessage: null,
-  latestUserMessageAt: null,
-  hasActionableProposedPlan: false,
-  pendingBackgroundTasks: [],
-  providerInstanceHistory: [],
-  itemCount: 0,
-  visibleItemCount: 0,
-  createdAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
-  updatedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
-  archivedAt: null,
-  settledOverride: null,
-  settledAt: null,
-  deletedAt: null,
-} satisfies OrchestrationV2ThreadShell;
-
-const baseDependencies = Layer.mergeAll(
-  Layer.mock(FleetRouter)({}),
-  Layer.mock(ThreadManagementService)({
-    getThreadShell: () => Effect.succeed(caller),
-  }),
-  Layer.mock(ProjectService.ProjectService)({
-    snapshot: Effect.succeed({
-      projects: [project("one"), project("two")],
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    }),
-  }),
-  Layer.mock(OrchestratorMcpService)({
-    capabilities: () =>
-      Effect.succeed({
-        parentThreadId: threadId,
-        inheritedProviderInstanceId: ProviderInstanceId.make("codex"),
-        inheritedModel: "gpt-5",
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        providers: [],
-        features: {
-          appOwnedSubagents: true,
-          asyncPolling: true,
-          cancellation: true,
-          batchThreadCreation: true,
-          threadManagement: true,
-          incrementalThreadRead: true,
-          scheduledTasks: true,
-          maxBatchThreads: 10,
-        },
-      } satisfies OrchestratorMcpCapabilitiesResult),
-  }),
-);
-
-const callWith = (
-  dependencies: Layer.Layer<
-    ThreadManagementService | ProjectService.ProjectService | OrchestratorMcpService | FleetRouter
-  >,
-) =>
+it.effect("attributes a launched thread's first message to the calling thread", () =>
   Effect.gen(function* () {
+    const sourceThreadId = ThreadId.make("source-thread");
+    const projectId = ProjectId.make("project");
+    const providerInstanceId = ProviderInstanceId.make("codex");
+    const modelSelection = { instanceId: providerInstanceId, model: "gpt-5" };
+    const caller = {
+      id: sourceThreadId,
+      projectId,
+      providerInstanceId,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      activeRunId: "active-run",
+      archivedAt: null,
+      deletedAt: null,
+    } as OrchestrationV2ThreadShell;
+    let launchedSender: ThreadId | undefined;
+    const dependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Layer.mock(FleetRouter)({}),
+      Layer.mock(FleetRouter)({}),
+      Layer.succeed(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment"),
+        requestNamespace: "session",
+        thread: {
+          threadId: sourceThreadId,
+          providerSessionId: "session",
+          providerInstanceId,
+        },
+        client: undefined,
+        issuedAt: 0,
+        capabilities: new Set(["orchestration" as const]),
+      }),
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: () => Effect.succeed(caller),
+      }),
+      Layer.mock(ThreadLaunch.ThreadLaunchService)({
+        launch: (input) => {
+          launchedSender = input.initialMessage?.senderThreadId;
+          return Effect.succeed({
+            threadId: input.threadId,
+            projection: {
+              thread: { id: input.threadId, projectId, modelSelection },
+              runs: [],
+            },
+            resumed: false,
+          } as unknown as ThreadLaunch.ThreadLaunchResult);
+        },
+      }),
+      Layer.mock(Project.ProjectService)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
+      NodeServices.layer,
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-source-link-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    );
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
     );
-    return (input: Parameters<typeof toolkit.handle<"t3_project_list">>[1]) =>
-      toolkit.handle("t3_project_list", input).pipe(
-        Stream.unwrap,
-        Stream.runCollect,
-        Effect.map(
-          (chunk) =>
-            chunk.at(-1)!.result as Tool.Success<typeof ProjectToolkit.tools.t3_project_list>,
-        ),
-        Effect.provideService(McpInvocationContext, scope),
-        Effect.provide(dependencies),
-      );
-  });
+    const result = yield* toolkit
+      .handle("t3_thread_launch", { title: "Audit", message: "Review the change" })
+      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+    expect(result.at(-1)?.result).toMatchObject({ projectId, modelSelection });
+    expect(launchedSender).toBe(sourceThreadId);
+  }),
+);
 
-describe("project toolkit project listing", () => {
-  it.effect("keeps local project rows paginated", () =>
-    Effect.gen(function* () {
-      const call = yield* callWith(baseDependencies);
-      expect(yield* call({ cursor: 1, limit: 1 })).toEqual({
-        environmentId,
-        projects: [{ ...project("two"), projectId: ProjectId.make("two") }],
-        nextCursor: null,
-      });
+it.effect("launches a scratch thread into the Scratch project", () =>
+  Effect.gen(function* () {
+    const sourceThreadId = ThreadId.make("source-thread");
+    const scratchProjectId = ProjectId.make("project:scratch");
+    const providerInstanceId = ProviderInstanceId.make("codex");
+    const modelSelection = { instanceId: providerInstanceId, model: "gpt-5" };
+    const caller = {
+      id: sourceThreadId,
+      projectId: ProjectId.make("project:caller"),
+      providerInstanceId,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      activeRunId: "active-run",
+      archivedAt: null,
+      deletedAt: null,
+    } as OrchestrationV2ThreadShell;
+    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+    const dependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Layer.mock(FleetRouter)({}),
+      Layer.mock(FleetRouter)({}),
+      Layer.succeed(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment"),
+        requestNamespace: "session",
+        thread: {
+          threadId: sourceThreadId,
+          providerSessionId: "session",
+          providerInstanceId,
+        },
+        client: undefined,
+        issuedAt: 0,
+        capabilities: new Set(["orchestration" as const]),
+      }),
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: () => Effect.succeed(caller),
+      }),
+      Layer.mock(ThreadLaunch.ThreadLaunchService)({
+        launch: (input) => {
+          launched.push(input);
+          return Effect.succeed({
+            threadId: input.threadId,
+            projection: {
+              thread: { id: input.threadId, projectId: input.projectId, modelSelection },
+              runs: [],
+            },
+            resumed: false,
+          } as unknown as ThreadLaunch.ThreadLaunchResult);
+        },
+      }),
+      Layer.mock(Project.ProjectService)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        ensureScratchProject: Effect.succeed({ projectId: scratchProjectId }),
+      }),
+      NodeServices.layer,
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-scratch-launch-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    );
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+    );
+    const handle = (params: Parameters<typeof toolkit.handle<"t3_thread_launch">>[1]) =>
+      toolkit
+        .handle("t3_thread_launch", params)
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+
+    const result = yield* handle({ title: "Notes", scratch: true, message: "Draft a list" });
+    expect(result.at(-1)?.result).toMatchObject({ projectId: scratchProjectId });
+    expect(launched.map((input) => [input.projectId, input.workspaceStrategy])).toEqual([
+      [scratchProjectId, { type: "root" }],
+    ]);
+
+    const rejected = yield* handle({
+      title: "Notes",
+      scratch: true,
+      projectId: caller.projectId,
+    });
+    expect(rejected.at(-1)?.result).toMatchObject({ code: "invalid_request" });
+    expect(launched).toHaveLength(1);
+  }),
+);
+
+it.effect("starts a project from just a title when workspaceRoot is omitted", () =>
+  Effect.gen(function* () {
+    const sourceThreadId = ThreadId.make("source-thread");
+    const createdProjectId = ProjectId.make("project:named");
+    const providerInstanceId = ProviderInstanceId.make("codex");
+    const caller = {
+      id: sourceThreadId,
+      projectId: ProjectId.make("project:caller"),
+      providerInstanceId,
+      modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      activeRunId: "active-run",
+      archivedAt: null,
+      deletedAt: null,
+    } as OrchestrationV2ThreadShell;
+    const named: Array<string> = [];
+    const registered: Array<string> = [];
+    const createdProject = {
+      id: createdProjectId,
+      title: "Pinball Stats",
+      workspaceRoot: "/projects/pinball-stats",
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+      deletedAt: null,
+    };
+    const dependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Layer.mock(FleetRouter)({}),
+      Layer.mock(FleetRouter)({}),
+      Layer.succeed(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment"),
+        requestNamespace: "session",
+        thread: {
+          threadId: sourceThreadId,
+          providerSessionId: "session",
+          providerInstanceId,
+        },
+        client: undefined,
+        issuedAt: 0,
+        capabilities: new Set(["orchestration" as const]),
+      }),
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: () => Effect.succeed(caller),
+      }),
+      Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
+      Layer.mock(Project.ProjectService)({
+        create: (input) =>
+          Effect.sync(() => {
+            registered.push(input.workspaceRoot);
+            return { ...createdProject, id: input.projectId, workspaceRoot: input.workspaceRoot };
+          }),
+        getById: (projectId) =>
+          Effect.succeed(
+            projectId === createdProjectId ? Option.some(createdProject) : Option.none(),
+          ),
+      }),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        createNamedProject: (input) =>
+          Effect.sync(() => {
+            named.push(input.name);
+            return {
+              projectId: createdProjectId,
+              workspaceRoot: createdProject.workspaceRoot,
+              commitError: "Git has no name or email on this machine.",
+            };
+          }),
+      }),
+      NodeServices.layer,
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-named-project-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    );
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+    );
+    const handle = (params: Parameters<typeof toolkit.handle<"t3_project_create">>[1]) =>
+      toolkit
+        .handle("t3_project_create", params)
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+
+    const result = yield* handle({ title: "Pinball Stats" });
+    expect(result.at(-1)?.result).toMatchObject({
+      id: createdProjectId,
+      workspaceRoot: "/projects/pinball-stats",
+      commitError: "Git has no name or email on this machine.",
+    });
+    expect(named).toEqual(["Pinball Stats"]);
+
+    // A path still registers that folder, and never makes a named project.
+    yield* handle({ title: "Existing", workspaceRoot: "/work/existing" });
+    expect(registered).toEqual(["/work/existing"]);
+
+    // Fields this mode cannot apply are rejected, not dropped.
+    for (const extra of [
+      { scripts: [] },
+      { defaultModelSelection: { instanceId: providerInstanceId, model: "gpt-5" } },
+    ]) {
+      const rejected = yield* handle({ title: "Configured", ...extra });
+      expect(rejected.at(-1)?.result).toMatchObject({ code: "invalid_request" });
+    }
+    expect(named).toEqual(["Pinball Stats"]);
+  }),
+);
+
+const clientLaunchHarness = (input: {
+  readonly runtimeModeCeiling: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
+  readonly launched: Array<ThreadLaunch.ThreadLaunchInput>;
+}) => {
+  const projectId = ProjectId.make("project:client-target");
+  const modelSelection = { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus" };
+  const dependencies = Layer.mergeAll(
+    NodeCrypto.layer,
+    Layer.mock(FleetRouter)({}),
+    Layer.succeed(McpInvocationContext.McpInvocationContext, {
+      environmentId: EnvironmentId.make("environment"),
+      requestNamespace: "client:session-1",
+      thread: undefined,
+      client: {
+        sessionId: "session-1",
+        label: "Claude Code",
+        runtimeModeCeiling: input.runtimeModeCeiling,
+      },
+      issuedAt: 0,
+      capabilities: new Set(["orchestration" as const]),
     }),
-  );
-
-  it.effect("routes remote listings with policy and paginates the fleet result", () =>
-    Effect.gen(function* () {
-      const remote = EnvironmentId.make("environment-remote");
-      let routed: { input: unknown; threadId: unknown; policy: unknown } | undefined;
-      const dependencies = Layer.merge(
-        baseDependencies,
-        Layer.mock(FleetRouter)({
-          invoke: (input, threadId, policy) =>
-            Effect.sync(() => {
-              routed = { input, threadId, policy };
-              return {
-                environmentId: remote,
-                projects: [
-                  {
-                    projectId: ProjectId.make("remote-one"),
-                    title: "Remote one",
-                    workspaceRoot: "/remote/one",
-                  },
-                  {
-                    projectId: ProjectId.make("remote-two"),
-                    title: "Remote two",
-                    workspaceRoot: "/remote/two",
-                  },
-                ],
-              };
-            }),
-        }),
-      );
-      const call = yield* callWith(dependencies);
-      expect(yield* call({ environmentId: remote, cursor: 1, limit: 1 })).toEqual({
-        environmentId: remote,
-        projects: [
-          {
-            projectId: ProjectId.make("remote-two"),
-            title: "Remote two",
-            workspaceRoot: "/remote/two",
+    Layer.mock(ThreadManagement.ThreadManagementService)({}),
+    Layer.mock(ThreadLaunch.ThreadLaunchService)({
+      launch: (launch) => {
+        input.launched.push(launch);
+        return Effect.succeed({
+          threadId: launch.threadId,
+          projection: {
+            thread: {
+              id: launch.threadId,
+              projectId: launch.projectId,
+              modelSelection: launch.modelSelection,
+            },
+            runs: [],
           },
-        ],
-        nextCursor: null,
-      });
-      expect(routed).toMatchObject({
-        input: { environmentId: remote, operation: "t3_project_list" },
-        threadId,
-        policy: { runtimeMode: "full-access", interactionMode: "default" },
-      });
+          resumed: false,
+        } as unknown as ThreadLaunch.ThreadLaunchResult);
+      },
     }),
+    Layer.mock(Project.ProjectService)({
+      getById: (id) =>
+        Effect.succeed(
+          id === projectId
+            ? Option.some({ id, defaultModelSelection: modelSelection } as unknown as ProjectRecord)
+            : Option.none(),
+        ),
+    }),
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
+    NodeServices.layer,
+    ServerConfig.layerTest(process.cwd(), { prefix: "t3-client-launch-" }).pipe(
+      Layer.provide(NodeServices.layer),
+    ),
   );
-});
+  return { projectId, modelSelection, dependencies };
+};
+
+it.effect("a client launches at its ceiling with the project's default model", () =>
+  Effect.gen(function* () {
+    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+    const { projectId, modelSelection, dependencies } = clientLaunchHarness({
+      runtimeModeCeiling: "auto-accept-edits",
+      launched,
+    });
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+    );
+    const handle = (params: Parameters<typeof toolkit.handle<"t3_thread_launch">>[1]) =>
+      toolkit
+        .handle("t3_thread_launch", params)
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+
+    const result = yield* handle({ title: "Fix", projectId, message: "Fix the bug" });
+    expect(result.at(-1)?.result).toMatchObject({ projectId, modelSelection });
+    expect(launched[0]?.runtimeMode).toBe("auto-accept-edits");
+    expect(launched[0]?.initialMessage?.senderThreadId).toBeUndefined();
+
+    const escalated = yield* handle({ title: "Fix", projectId, runtimeMode: "full-access" });
+    expect(escalated.at(-1)?.result).toMatchObject({ code: "runtime_mode_escalation_denied" });
+
+    const untargeted = yield* handle({ title: "Fix" });
+    expect(untargeted.at(-1)?.result).toMatchObject({ code: "target_required" });
+    expect(launched).toHaveLength(1);
+  }),
+);
+
+it.effect(
+  "a clientRequestId makes a retried launch reuse its command, thread and message ids",
+  () =>
+    Effect.gen(function* () {
+      const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+      const { projectId, dependencies } = clientLaunchHarness({
+        runtimeModeCeiling: "full-access",
+        launched,
+      });
+      const toolkit = yield* ProjectToolkit.pipe(
+        Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+      );
+      const launch = (clientRequestId?: string) =>
+        toolkit
+          .handle("t3_thread_launch", {
+            title: "Fix",
+            projectId,
+            message: "Fix the bug",
+            ...(clientRequestId === undefined ? {} : { clientRequestId }),
+          })
+          .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+
+      yield* launch("handoff-1");
+      yield* launch("handoff-1");
+      yield* launch("handoff-2");
+      yield* launch();
+      yield* launch();
+      const ids = launched.map((input) => [
+        input.commandId,
+        input.threadId,
+        input.initialMessage?.messageId,
+      ]);
+      expect(ids[0]).toEqual(ids[1]);
+      expect(ids[0]?.[0]).toBe("command:mcp:client%3Asession-1:launch:handoff-1");
+      expect(ids[0]?.[1]).toBe(ids[0]?.[0]);
+      expect(ids[0]?.[2]).toBe(ids[0]?.[0]);
+      expect(ids[2]?.[0]).not.toBe(ids[0]?.[0]);
+      expect(ids[3]?.[0]).not.toBe(ids[4]?.[0]);
+    }),
+);
+
+it.effect("keeps elected GLaDOS from launching threads outside the work ledger", () =>
+  Effect.gen(function* () {
+    const sourceThreadId = ThreadId.make("glados-thread");
+    const projectId = ProjectId.make("project");
+    const providerInstanceId = ProviderInstanceId.make("codex");
+    const caller = {
+      id: sourceThreadId,
+      projectId,
+      providerInstanceId,
+      modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      activeRunId: "active-run",
+      archivedAt: null,
+      deletedAt: null,
+    } as OrchestrationV2ThreadShell;
+    const dependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Layer.mock(FleetRouter)({}),
+      Layer.mock(WorkStore)({
+        read: () =>
+          Effect.succeed({
+            revision: 1,
+            role: {
+              threadId: sourceThreadId,
+              projectId,
+              generation: 1,
+              paused: false,
+              brief: {
+                priorities: "Ship",
+                quality: "Prove behavior",
+                projectIds: [projectId],
+                maxWorkers: 1,
+                maxAttempts: 1,
+                workerModel: { instanceId: providerInstanceId, model: "gpt-5" },
+              },
+            },
+            tasks: [],
+            messages: [],
+          }),
+      }),
+      Layer.succeed(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment"),
+        requestNamespace: "session",
+        thread: { threadId: sourceThreadId, providerSessionId: "session", providerInstanceId },
+        client: undefined,
+        issuedAt: 0,
+        capabilities: new Set(["orchestration" as const]),
+      }),
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: () => Effect.succeed(caller),
+      }),
+      Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
+      Layer.mock(Project.ProjectService)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
+      NodeServices.layer,
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-glados-launch-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    );
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+    );
+    const result = yield* toolkit
+      .handle("t3_thread_launch", { title: "Side quest", message: "Work" })
+      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+    expect(result.at(-1)?.result).toMatchObject({
+      code: "orchestration_error",
+      message: expect.stringContaining("work_command"),
+    });
+  }),
+);

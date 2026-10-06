@@ -5,6 +5,7 @@ import {
   type OrchestrationV2ProviderCapabilities,
   type ProviderSetupError,
 } from "@t3tools/contracts";
+import type { SelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
@@ -33,7 +34,6 @@ import {
   makeAntigravityUserInputResponse,
   normalizeAntigravityToolCall,
 } from "../../provider/acp/AntigravityProtocol.ts";
-import type { AcpSessionRuntimeStartResult } from "../../provider/acp/AcpSessionRuntime.ts";
 import type { IdAllocatorV2 } from "../IdAllocator.ts";
 import {
   AcpProviderCapabilitiesV2,
@@ -64,6 +64,7 @@ const AntigravityProviderCapabilitiesV2 = {
 export interface AntigravityAdapterV2Options {
   readonly instanceId: ProviderInstanceId;
   readonly crypto: Crypto.Crypto;
+  readonly selfInvocation: SelfInvocation;
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly idAllocator: IdAllocatorV2["Service"];
@@ -81,7 +82,7 @@ export interface AntigravityAdapterV2Options {
   /** Model to select for the provider default alias, from the manifest. */
   readonly defaultModel: Effect.Effect<string | undefined>;
   readonly onSessionStarted?: (
-    started: AcpSessionRuntimeStartResult,
+    started: AcpSessionRuntime.AcpSessionRuntimeStartResult,
     cwd: string,
   ) => Effect.Effect<void>;
   readonly onSessionEvent?: AcpAdapterV2Flavor["onSessionEvent"];
@@ -120,38 +121,28 @@ const extractAntigravitySubagentUpdate: NonNullable<AcpAdapterV2Flavor["extractS
 export function makeAntigravityAcpAdapterFlavor(
   options: AntigravityAdapterV2Options,
 ): AcpAdapterV2Flavor {
+  // The attachments dir grant lets the agent read pasted files at the paths
+  // the turn text references. It is a leaf directory of uploads. A session
+  // without a workspace gets no workspace root rather than the server's cwd.
+  const antigravityClientFileRoots = (cwd: string | null) =>
+    cwd === null
+      ? [options.serverConfig.attachmentsDir]
+      : [cwd, options.serverConfig.attachmentsDir];
   const makeRuntime = (input: AcpAdapterV2RuntimeInput) =>
     Effect.gen(function* () {
       // AcpAdapterV2 owns the runtime scope; sign-in and sign-out stop the
-      // process by closing it, and the adapter respawns on the next turn.
-      const scope = yield* Effect.scope;
-      // The attachments dir grant lets the agent read pasted files at the
-      // paths the turn text references. It is a leaf directory of uploads.
-      const allowedRoots = [input.cwd, options.serverConfig.attachmentsDir];
-      const runtime = yield* options.withProcess(
-        Scope.close(scope, Exit.void),
-        options.makeRuntime({
-          ...input,
-          clientFileSystem: true,
-          additionalDirectories: [options.serverConfig.attachmentsDir],
-        }),
-      );
-      yield* runtime.handleReadTextFile((request) =>
-        readAntigravityClientTextFile({
-          fileSystem: options.fileSystem,
-          path: options.path,
-          allowedRoots,
-          request,
-        }),
-      );
-      yield* runtime.handleWriteTextFile((request) =>
-        writeAntigravityClientTextFile({
-          fileSystem: options.fileSystem,
-          path: options.path,
-          allowedRoots,
-          request,
-        }),
-      );
+      // process by closing a child of it, and the adapter respawns on the next turn.
+      const scope = yield* Scope.fork(yield* Effect.scope);
+      const runtime = yield* options
+        .withProcess(
+          Scope.close(scope, Exit.void),
+          options.makeRuntime({
+            ...input,
+            clientFileSystem: true,
+            additionalDirectories: [options.serverConfig.attachmentsDir],
+          }),
+        )
+        .pipe(Effect.provideService(Scope.Scope, scope));
       return {
         ...runtime,
         start: () =>
@@ -194,6 +185,22 @@ export function makeAntigravityAcpAdapterFlavor(
         });
       }),
     sessionModeForPolicy: (policy) => antigravityPermissionMode(policy.runtimeMode),
+    clientFileSystem: {
+      readTextFile: (request, cwd) =>
+        readAntigravityClientTextFile({
+          fileSystem: options.fileSystem,
+          path: options.path,
+          allowedRoots: antigravityClientFileRoots(cwd),
+          request,
+        }),
+      writeTextFile: (request, cwd) =>
+        writeAntigravityClientTextFile({
+          fileSystem: options.fileSystem,
+          path: options.path,
+          allowedRoots: antigravityClientFileRoots(cwd),
+          request,
+        }),
+    },
     approvalOptions: antigravityApprovalOptions,
     extractPermissionQuestion: (request) => {
       const question = extractAntigravityUserInputQuestion(request);
@@ -227,6 +234,7 @@ export function makeAntigravityAdapterV2(options: AntigravityAdapterV2Options) {
     fileSystem: options.fileSystem,
     idAllocator: options.idAllocator,
     serverConfig: options.serverConfig,
+    selfInvocation: options.selfInvocation,
     ...(options.nativeLogging === undefined ? {} : { nativeLogging: options.nativeLogging }),
     ...(options.continuationRequests === undefined
       ? {}

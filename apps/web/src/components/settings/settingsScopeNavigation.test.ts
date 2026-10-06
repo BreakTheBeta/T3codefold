@@ -34,10 +34,11 @@ function createSettingsRouter(initialEntry = "/settings/general") {
   });
   const general = createRoute({ getParentRoute: () => settings, path: "general" });
   const projects = createRoute({ getParentRoute: () => settings, path: "projects" });
-  const git = createRoute({ getParentRoute: () => settings, path: "git" });
-  const agents = createRoute({
+  const integrations = createRoute({ getParentRoute: () => settings, path: "integrations" });
+  const sourceControl = createRoute({ getParentRoute: () => settings, path: "source-control" });
+  const providers = createRoute({
     getParentRoute: () => settings,
-    path: "agents",
+    path: "providers",
     validateSearch: (raw: Record<string, unknown>) => ({
       ...(typeof raw.environmentId === "string" && raw.environmentId.trim()
         ? { environmentId: EnvironmentId.make(raw.environmentId) }
@@ -47,9 +48,9 @@ function createSettingsRouter(initialEntry = "/settings/general") {
         : {}),
     }),
   });
-  const tools = createRoute({
+  const scheduledTasks = createRoute({
     getParentRoute: () => settings,
-    path: "tools",
+    path: "scheduled-tasks",
     validateSearch: validateScheduledTasksSearch,
   });
   const legacyProject = createRoute({
@@ -65,7 +66,14 @@ function createSettingsRouter(initialEntry = "/settings/general") {
   });
   return createRouter({
     routeTree: root.addChildren([
-      settings.addChildren([general, projects, tools, git, agents]),
+      settings.addChildren([
+        general,
+        projects,
+        integrations,
+        sourceControl,
+        providers,
+        scheduledTasks,
+      ]),
       legacyProject,
     ]),
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
@@ -102,17 +110,22 @@ describe("settings scope navigation", () => {
   it("preserves the checkout through category and settings-search navigation", async () => {
     const router = createSettingsRouter();
     await router.navigate({ to: "/settings/general", search: checkoutSearch, hash: "new-threads" });
-    await router.navigate({ to: "/settings/tools", hash: "", replace: true });
+    await router.navigate({ to: "/settings/integrations", hash: "", replace: true });
     expect(router.state.location.search).toEqual(checkoutSearch);
     expect(router.state.location.hash).toBe("");
-    await router.navigate({ to: "/settings/git", hash: "source-control-writing-style" });
+    await router.navigate({ to: "/settings/source-control", hash: "source-control-writing-style" });
     expect(router.state.location.search).toEqual(checkoutSearch);
     expect(router.state.location.hash).toBe("source-control-writing-style");
     await router.navigate({ to: "/settings/projects", hash: "project-defaults" });
     expect(router.state.location.search).toEqual(checkoutSearch);
   });
 
-  it.each(["/settings/projects", "/settings/tools", "/settings/git"] as const)(
+  it.each([
+    "/settings/projects",
+    "/settings/integrations",
+    "/settings/source-control",
+    "/settings/scheduled-tasks",
+  ] as const)(
     "keeps %s when regrouping or selecting a target from the shared settings layout",
     async (to) => {
       const router = createSettingsRouter();
@@ -162,7 +175,7 @@ describe("settings scope navigation", () => {
     const router = createSettingsRouter();
     await router.navigate({ to: "/settings/general", search: checkoutSearch });
     await router.navigate({
-      to: "/settings/agents",
+      to: "/settings/providers",
       search: {
         environmentId: EnvironmentId.make("provider-server"),
         instanceId: ProviderInstanceId.make("codex-work"),
@@ -179,7 +192,7 @@ describe("settings scope navigation", () => {
 
   it("preserves the environment from an initially loaded legacy provider URL", async () => {
     const router = createSettingsRouter(
-      "/settings/agents?environmentId=provider-server&instanceId=codex-work",
+      "/settings/providers?environmentId=provider-server&instanceId=codex-work",
     );
     await router.load();
     await router.navigate({ to: "/settings/general" });
@@ -225,7 +238,7 @@ describe("settings scope navigation", () => {
     const reloaded = createSettingsRouter(checkoutHref);
     await reloaded.load();
     expect(reloaded.state.location.search).toEqual(checkoutSearch);
-    await reloaded.navigate({ to: "/settings/tools", hash: "agent-browser-access" });
+    await reloaded.navigate({ to: "/settings/integrations", hash: "agent-browser-access" });
     expect(reloaded.state.location.search).toEqual(checkoutSearch);
   });
 
@@ -256,7 +269,7 @@ describe("scheduled task scope navigation", () => {
   it("opens a task link on its owning environment, then clears the task when changing filters", async () => {
     const router = createSettingsRouter();
     await router.navigate({
-      to: "/settings/tools",
+      to: "/settings/scheduled-tasks",
       search: {
         environmentId: EnvironmentId.make("remote-server"),
         taskId: ScheduledTaskId.make("task-1"),
@@ -278,7 +291,7 @@ describe("scheduled task scope navigation", () => {
   it("keeps the project and checkout filters when entering scheduled tasks", async () => {
     const router = createSettingsRouter();
     await router.navigate({ to: "/settings/projects", search: checkoutSearch });
-    await router.navigate({ to: "/settings/tools" });
+    await router.navigate({ to: "/settings/scheduled-tasks" });
     expect(router.state.matches.at(-1)?.search).toEqual(checkoutSearch);
   });
 });

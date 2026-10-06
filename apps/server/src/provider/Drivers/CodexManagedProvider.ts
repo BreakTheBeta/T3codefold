@@ -2,12 +2,13 @@ import { ProviderDriverKind, TextGenerationError, type CodexSettings } from "@t3
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import { makeCodexTextGeneration } from "../../textGeneration/CodexTextGeneration.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { chatGptModels } from "../CodexChatGptModels.ts";
 import { makeCodexManagedRuntime } from "../CodexManagedRuntime.ts";
 import { ProviderDriverError } from "../Errors.ts";
+import { createCodexAdapterV2 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import {
   checkCodexProviderStatus,
   makePendingCodexProvider,
@@ -18,8 +19,7 @@ import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment
 import { type ProviderDriverCreateInput, type ProviderInstance } from "../ProviderDriver.ts";
 import { codexContinuationIdentity } from "./CodexHomeLayout.ts";
 import { withInstanceIdentity } from "./instanceIdentity.ts";
-import { HttpClient } from "effect/unstable/http";
-import { createCodexAdapterV2 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import { HttpClient } from "effect/http";
 const DRIVER = ProviderDriverKind.make("codex");
 
 export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(function* (
@@ -209,22 +209,31 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
   yield* runtime.auth.controller.subscribe("managed-codex-snapshot").pipe(
     // Disconnect also publishes idle when a saved account has no active sign-in flow.
     Stream.filter((state) => ["idle", "succeeded", "failed", "cancelled"].includes(state.phase)),
-    Stream.runForEach(() => snapshot.refresh.pipe(Effect.asVoid)),
+    // Sign-out closes the scope of an in-flight probe, which fails that refresh
+    // with an interrupt. Keep listening so the sign-out's own idle still refreshes.
+    Stream.runForEach(() => snapshot.refresh.pipe(Effect.ignoreCause({ log: true }))),
     Effect.forkScoped,
   );
   const resolveRuntime = runtime.auth.controller.withAccess!(runtime.resolve);
+  // Launch settings resolve per session from the signed-in token. The registry
+  // already wraps openSession in withAccess, so resolve without re-entering it.
+  // Token rotation respawns inside that same session scope. Revoking stops this
+  // provider's sessions, so it runs detached from the session that reported it.
   const orchestrationAdapter = yield* createCodexAdapterV2(input, {
-    managed: {
-      resolve: resolveRuntime,
-      onConnectionRevoked: runtime.auth.revoke.pipe(Effect.ignore),
-    },
+    onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+    resolveRuntime: runtime.resolve,
+    onConnectionRevoked: runtime.auth.revoke.pipe(
+      Effect.ignoreCause({ log: true }),
+      Effect.forkDetach,
+      Effect.asVoid,
+    ),
   }).pipe(
     Effect.mapError(
       (cause) =>
         new ProviderDriverError({
           driver: DRIVER,
           instanceId,
-          detail: "Failed to build the managed Codex orchestration adapter.",
+          detail: "Failed to build Codex orchestration adapter.",
           cause,
         }),
     ),

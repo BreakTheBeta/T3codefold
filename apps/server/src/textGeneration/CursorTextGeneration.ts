@@ -7,8 +7,12 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { type CursorSettings, type ModelSelection } from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import {
+  type CursorSettings,
+  type ModelSelection,
+  type ProviderSetupError,
+} from "@t3tools/contracts";
+import { formatGeneratedBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
 import { TextGenerationError } from "@t3tools/contracts";
@@ -25,6 +29,7 @@ import {
   sanitizeThreadTitle,
 } from "./TextGenerationUtils.ts";
 import { cursorSdkModelSelection } from "../provider/cursorSdkModel.ts";
+import type { CursorAuth } from "../provider/CursorAuth.ts";
 
 const CURSOR_TIMEOUT_MS = 180_000;
 
@@ -47,12 +52,32 @@ function cursorSdkResultDetail(result: RunResult): string {
 }
 
 /**
+ * The SDK throws this when `sandboxOptions.enabled` is set and local sandboxing
+ * is unavailable. That happens on hosts that cannot launch `cursorsandbox`, and
+ * also after an unsandboxed run caches "unsupported" for the process.
+ */
+function cursorSandboxUnsupported(cause: unknown): boolean {
+  const seen = new Set<object>();
+  let current = cause;
+  while (typeof current === "object" && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Error && current.message.includes("sandboxing is not supported")) {
+      return true;
+    }
+    current = Reflect.get(current, "cause");
+  }
+  return false;
+}
+
+/**
  * Build a Cursor text-generation closure bound to a specific `CursorSettings`
  * payload. See `makeCodexAdapter` for the overall per-instance rationale.
  */
 export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(function* (
   cursorSettings: CursorSettings,
   environment?: NodeJS.ProcessEnv,
+  resolveApiKey?: Effect.Effect<string, ProviderSetupError>,
+  withAccess?: CursorAuth["withAccess"],
 ) {
   const fs = yield* FileSystem.FileSystem;
   const resolvedEnvironment = environment ?? process.env;
@@ -66,11 +91,13 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         });
       }
 
-      const apiKey = resolvedEnvironment.CURSOR_API_KEY?.trim();
+      const apiKey = resolveApiKey
+        ? yield* resolveApiKey
+        : resolvedEnvironment.CURSOR_API_KEY?.trim();
       if (!apiKey) {
         return yield* new TextGenerationError({
           operation,
-          detail: "Cursor API key is required. Add CURSOR_API_KEY in provider settings.",
+          detail: "Sign in with Cursor or add CURSOR_API_KEY in provider settings.",
         });
       }
 
@@ -112,14 +139,30 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
           enableAgentRetries: true,
         },
       } satisfies AgentOptions;
+      const createCursorAgent = (sandboxEnabled: boolean) =>
+        Effect.tryPromise((signal) =>
+          Agent.create(
+            sandboxEnabled
+              ? agentOptions
+              : {
+                  ...agentOptions,
+                  local: {
+                    ...agentOptions.local,
+                    sandboxOptions: { enabled: false },
+                  },
+                },
+          ).then((agent) => {
+            if (signal.aborted) agent.close();
+            return agent;
+          }),
+        );
 
       const request = Effect.gen(function* () {
+        // Prefer the sandbox. When the SDK refuses it, the empty temp directory
+        // and empty setting sources still keep this run off the user's project.
         const agent = yield* Effect.acquireRelease(
-          Effect.tryPromise((signal) =>
-            Agent.create(agentOptions).then((agent) => {
-              if (signal.aborted) agent.close();
-              return agent;
-            }),
+          createCursorAgent(true).pipe(
+            Effect.catchIf(cursorSandboxUnsupported, () => createCursorAgent(false)),
           ),
           (agent) =>
             Effect.tryPromise(() => agent[Symbol.asyncDispose]()).pipe(
@@ -182,6 +225,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         }),
       );
     }).pipe(
+      (effect) => (withAccess ? withAccess(effect) : effect),
       Effect.scoped,
       Effect.mapError((cause) =>
         isTextGenerationError(cause)
@@ -250,6 +294,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       const { prompt, outputSchema } = buildBranchNamePrompt({
         message: input.message,
         attachments: input.attachments,
+        naming: input.naming,
       });
 
       const generated = yield* runCursorJson({
@@ -260,7 +305,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       });
 
       return {
-        branch: sanitizeBranchFragment(generated.branch),
+        branch: formatGeneratedBranchName(generated.branch, input.naming),
       };
     });
 

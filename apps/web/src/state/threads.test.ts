@@ -1,4 +1,3 @@
-// @ts-nocheck -- Exercises the legacy session-shaped fixture; V2 runtime coverage lives in client-runtime.
 import {
   EMPTY_ENVIRONMENT_THREAD_STATE,
   type EnvironmentThreadState,
@@ -12,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import { makeThreadProjectionFixture } from "../test-fixtures";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createRunningThreadKeepAliveAtom } from "./threads";
@@ -21,12 +20,11 @@ const LOCAL = EnvironmentId.make("local");
 const REMOTE = EnvironmentId.make("remote");
 
 type Status = "running" | "starting" | "idle";
-// The keep-alive follows `activeRunId`; only a thread with a run in flight has one.
 function shell(id: string, status: Status | null) {
-  return {
-    id: ThreadId.make(id),
-    activeRunId: status === "running" || status === "starting" ? RunId.make(`run-${id}`) : null,
-  } satisfies Pick<OrchestrationV2ThreadShell, "id" | "activeRunId">;
+  return { id: ThreadId.make(id), status: status ?? "idle" } satisfies Pick<
+    OrchestrationV2ThreadShell,
+    "id" | "status"
+  >;
 }
 function detail(id: string, status: Status, overrides: Partial<EnvironmentThreadState> = {}) {
   const projection = makeThreadProjectionFixture();

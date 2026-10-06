@@ -3,8 +3,6 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
-  EventId,
-  type OrchestrationThreadActivity,
   UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -26,8 +24,6 @@ import {
   paceOf,
   providersWithLimits,
   remainingPercent,
-  CHATGPT_USAGE_LIMIT_MESSAGE,
-  isChatGptUsageLimitError,
   usesChatGptSharing,
 } from "./usageLimits.ts";
 
@@ -1207,10 +1203,5 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
-  });
-  it("only gives the ChatGPT usage limit failure a management action", () => {
-    expect(isChatGptUsageLimitError(CHATGPT_USAGE_LIMIT_MESSAGE)).toBe(true);
-    expect(isChatGptUsageLimitError("A different failure")).toBe(false);
-    expect(isChatGptUsageLimitError(null)).toBe(false);
   });
 });

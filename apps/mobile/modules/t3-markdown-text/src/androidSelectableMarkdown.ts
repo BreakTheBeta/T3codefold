@@ -2,6 +2,7 @@ import { parseMarkdownWithOptions, type MarkdownNode } from "react-native-nitro-
 
 import {
   nativeMarkdownDocumentRuns,
+  nativeMarkdownWithAuthoredWindowsPaths,
   nativeMarkdownWithPreservedSoftBreaks,
   type NativeMarkdownTextRun,
 } from "./nativeMarkdownText";
@@ -21,11 +22,11 @@ export function androidSelectableMarkdownContent(
   readonly hasImage: boolean;
   readonly runs: ReadonlyArray<NativeMarkdownTextRun>;
 } {
-  const parsed = parseMarkdownWithOptions(markdown, {
-    gfm: true,
-    html: true,
-    math: false,
-  });
+  // Same parse as the rich renderer, so Windows paths keep their authored backslashes.
+  const parsed = nativeMarkdownWithAuthoredWindowsPaths(
+    parseMarkdownWithOptions(markdown, { gfm: true, html: true, math: false }),
+    markdown,
+  );
   const document = options.preserveSoftBreaks
     ? nativeMarkdownWithPreservedSoftBreaks(parsed)
     : parsed;

@@ -69,11 +69,16 @@ describe("KeybindingsSettings.logic", () => {
       "usage.period.month",
       "usage.period.quarter",
     ];
-    const bindings = DEFAULT_RESOLVED_KEYBINDINGS.toReversed();
-    expect(buildKeybindingRows(bindings, "usage").map((row) => row.command)).toEqual(expected);
-    expect(
-      buildKeybindingCommandOptions(bindings).filter((command) => command.startsWith("usage.")),
-    ).toEqual(expected);
+    // The order must not depend on the order of the configured bindings.
+    for (const bindings of [
+      DEFAULT_RESOLVED_KEYBINDINGS,
+      DEFAULT_RESOLVED_KEYBINDINGS.toReversed(),
+    ]) {
+      expect(buildKeybindingRows(bindings, "usage").map((row) => row.command)).toEqual(expected);
+      expect(
+        buildKeybindingCommandOptions(bindings).filter((command) => command.startsWith("usage.")),
+      ).toEqual(expected);
+    }
   });
 
   it("builds searchable rows with readable key and when values", () => {
@@ -123,6 +128,31 @@ describe("KeybindingsSettings.logic", () => {
         "Win32",
       ),
     ).toBe("mod+shift+k");
+  });
+
+  it.each([
+    ["k", "KeyK", "k"],
+    ["Tab", "Tab", "tab"],
+    ["F5", "F5", "f5"],
+  ])("captures %s without a modifier", (key, code, expected) => {
+    const noModifiers = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false };
+    expect(keybindingFromKeyboardEvent({ key, code, ...noModifiers }, "MacIntel")).toBe(expected);
+  });
+
+  it("waits for a key when only a modifier is pressed", () => {
+    expect(
+      keybindingFromKeyboardEvent(
+        {
+          key: "Meta",
+          code: "MetaLeft",
+          metaKey: true,
+          ctrlKey: false,
+          altKey: false,
+          shiftKey: false,
+        },
+        "MacIntel",
+      ),
+    ).toBeNull();
   });
 
   it.each([
@@ -273,14 +303,17 @@ describe("KeybindingsSettings.logic", () => {
         "chat.new",
         "threadPanel.toggle",
         "rightPanel.toggleMaximized",
+        "composer.cycleHost",
         "thread.stop",
         "usage.open",
         "script.setup-db.run",
       ]),
     );
-    expect(DEFAULT_RESOLVED_KEYBINDINGS.some((binding) => binding.command === "thread.stop")).toBe(
-      false,
-    );
+    for (const command of ["thread.stop", "composer.cycleHost"]) {
+      expect(DEFAULT_RESOLVED_KEYBINDINGS.some((binding) => binding.command === command)).toBe(
+        false,
+      );
+    }
   });
 
   it("reports unknown when variables without rejecting parseable expressions", () => {

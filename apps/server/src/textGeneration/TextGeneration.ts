@@ -1,4 +1,3 @@
-import * as Option from "effect/Option";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -143,9 +142,7 @@ const resolveInstance = (
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
-  const sourceControl = yield* Effect.serviceOption(
-    SourceControlProviderRegistry.SourceControlProviderRegistry,
-  );
+  const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   return TextGeneration.of({
     generateCommitMessage: (input) =>
       resolveInstance(registry, "generateCommitMessage", input.modelSelection.instanceId).pipe(
@@ -165,14 +162,12 @@ export const make = Effect.gen(function* () {
           Effect.gen(function* () {
             const linkedContext =
               input.linkedContext ??
-              (Option.isNone(sourceControl)
-                ? undefined
-                : yield* ThreadTitleLinks.resolveThreadTitleLinks(input).pipe(
-                    Effect.provideService(
-                      SourceControlProviderRegistry.SourceControlProviderRegistry,
-                      sourceControl.value,
-                    ),
-                  ));
+              (yield* ThreadTitleLinks.resolveThreadTitleLinks(input).pipe(
+                Effect.provideService(
+                  SourceControlProviderRegistry.SourceControlProviderRegistry,
+                  sourceControl,
+                ),
+              ));
             return yield* textGeneration.generateThreadTitle({ ...input, linkedContext });
           }),
         ),

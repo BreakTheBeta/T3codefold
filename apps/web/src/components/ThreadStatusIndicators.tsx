@@ -4,6 +4,7 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
+
 import { pullRequestDetailToVcsStatus } from "@t3tools/client-runtime/state/pull-requests";
 import {
   resolveEnvironmentMachineKind,
@@ -12,13 +13,10 @@ import {
   type ThreadPullRequestLink,
   type VcsStatusResult,
 } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
-import { useRender } from "@base-ui/react/use-render";
+import { Atom } from "effect/reactivity";
 import { FolderGit2Icon, TerminalIcon } from "lucide-react";
-import { useCallback, useMemo, type MouseEvent, type ReactElement } from "react";
+import { useCallback, useMemo } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { Button, InlineButton } from "./ui/button";
-import { cn } from "../lib/utils";
 import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject } from "../state/entities";
@@ -28,6 +26,11 @@ import {
   visibleThreadPullRequests,
   type ThreadPullRequestBadge,
 } from "@t3tools/shared/threadPullRequests";
+import { useRender } from "@base-ui/react/use-render";
+import { type ReactNode, type AnimationEvent, type MouseEvent, type ReactElement } from "react";
+import { cn } from "../lib/utils";
+
+import { parseChangeRequestUrl } from "../lib/openPullRequestLink";
 import { useEnvironmentQuery } from "../state/query";
 import { linkedPullRequestDetailAtom, useSharedPullRequestSummary } from "../state/pullRequests";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
@@ -44,7 +47,6 @@ import {
 
 import type { SidebarThreadSummary } from "../types";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
-import { parseChangeRequestUrl } from "../lib/openPullRequestLink";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { pullRequestListLines } from "./pullRequest/pullRequestListLines";
 import {
@@ -240,10 +242,12 @@ export function ThreadPullRequestBadgeControl({
       render={render}
       presentation={presentation}
       opensList={badge !== null && (badge.kind === "stack" || badge.others > 0)}
-      pullRequests={pullRequests}
       url={url}
+      number={number}
+      status={status}
+      pullRequests={pullRequests}
       onOpenList={onOpenList}
-      onOpenPullRequest={(event) => onOpenPullRequest(event, url)}
+      onOpenPullRequest={onOpenPullRequest}
     />
   );
 }
@@ -252,20 +256,23 @@ function PullRequestBadge({
   render,
   presentation,
   opensList,
-  pullRequests,
   url,
+  number,
+  status,
+  pullRequests,
   onOpenList,
   onOpenPullRequest,
 }: {
   render: ReactElement<{ render?: useRender.RenderProp }>;
   presentation: NonNullable<ReturnType<typeof resolveThreadPullRequestBadgePresentation>>;
   opensList: boolean;
-  pullRequests: ReadonlyArray<ThreadPullRequestLink>;
   url: string | undefined;
+  number: number | undefined;
+  status: PrStatusIndicator | null;
+  pullRequests: ReadonlyArray<ThreadPullRequestLink>;
   onOpenList: () => void;
-  onOpenPullRequest: (event: MouseEvent<HTMLElement>) => void;
+  onOpenPullRequest: (event: MouseEvent<HTMLElement>, url?: string) => void;
 }) {
-  const showList = opensList || pullRequests.length > 1;
   const onClick = opensList
     ? (event: MouseEvent<HTMLElement>) => {
         event.preventDefault();
@@ -303,21 +310,26 @@ function PullRequestBadge({
       </TooltipTrigger>
       <TooltipPopup
         side="top"
-        variant={showList ? "glass" : "default"}
-        className={
-          showList
-            ? "pointer-events-auto w-80 max-w-[calc(100vw-2rem)] text-left whitespace-normal"
-            : undefined
-        }
+        sideOffset={0}
+        variant="glass"
+        className="pointer-events-auto w-80 max-w-[calc(100vw-2rem)] text-left whitespace-normal"
       >
-        {showList ? (
+        {visibleThreadPullRequests(pullRequests).length > 0 ? (
           <ThreadPullRequestsMiniList
             pullRequests={pullRequests}
             onOpenPullRequest={onOpenPullRequest}
           />
-        ) : (
-          presentation.label
-        )}
+        ) : number !== undefined && url !== undefined ? (
+          <ul className="flex flex-col gap-1">
+            <ThreadPullRequestMiniListItem
+              number={number}
+              url={url}
+              title={status?.tooltipTitle ?? presentation.label}
+              presentation={presentation}
+              onOpenPullRequest={onOpenPullRequest}
+            />
+          </ul>
+        ) : null}
       </TooltipPopup>
     </Tooltip>
   );
@@ -348,53 +360,74 @@ export function ThreadPullRequestsMiniList({
           snapshot === null
             ? null
             : resolvePullRequestState({ state: snapshot.state, isDraft: snapshot.isDraft });
-        const content = (
-          <>
-            {presentation ? (
-              <presentation.Icon
-                aria-hidden
-                className={cn("size-3 shrink-0", presentation.toneClassName)}
-              />
-            ) : (
-              <PullRequestGlyph.pullRequest
-                aria-hidden
-                className="size-3 shrink-0 stroke-muted-foreground"
-              />
-            )}
-            <span className="shrink-0 font-mono tabular-nums">#{line.link.number}</span>
-            <span className="min-w-0 truncate text-foreground/75">
-              {snapshot?.title ?? line.link.repository}
-            </span>
+        return (
+          <ThreadPullRequestMiniListItem
+            key={`${line.link.host}/${line.link.repository}#${line.link.number}`}
+            number={line.link.number}
+            url={line.link.url}
+            title={snapshot?.title ?? line.link.repository}
+            presentation={presentation}
+            depth={line.depth}
+            onOpenPullRequest={onOpenPullRequest}
+          >
             {line.stack ? (
-              <span className="ml-auto shrink-0 pl-1 text-[10px]">
+              <span className="ml-auto shrink-0 pl-1 text-3xs">
                 {line.stack.kind === "native" ? "stack" : "chain"} · {line.stack.size}
               </span>
             ) : null}
-          </>
-        );
-        return (
-          <li
-            key={`${line.link.host}/${line.link.repository}#${line.link.number}`}
-            style={{ paddingLeft: `${Math.min(line.depth, 3) * 0.75}rem` }}
-          >
-            {onOpenPullRequest ? (
-              <a
-                href={line.link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex min-w-0 items-center gap-2 rounded-sm px-1 py-1 hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => onOpenPullRequest(event, line.link.url)}
-              >
-                {content}
-              </a>
-            ) : (
-              <div className="flex min-w-0 items-center gap-2">{content}</div>
-            )}
-          </li>
+          </ThreadPullRequestMiniListItem>
         );
       })}
     </ul>
+  );
+}
+
+function ThreadPullRequestMiniListItem({
+  number,
+  url,
+  title,
+  presentation,
+  depth = 0,
+  onOpenPullRequest,
+  children,
+}: {
+  number: number;
+  url: string;
+  title: string;
+  presentation: Pick<ThreadPullRequestBadgePresentation, "Icon" | "toneClassName"> | null;
+  depth?: number;
+  onOpenPullRequest?: ((event: MouseEvent<HTMLAnchorElement>, url: string) => void) | undefined;
+  children?: ReactNode;
+}) {
+  const Icon = presentation?.Icon ?? PullRequestGlyph.pullRequest;
+  const content = (
+    <>
+      <Icon
+        aria-hidden
+        className={cn("size-3 shrink-0", presentation?.toneClassName ?? "stroke-muted-foreground")}
+      />
+      <span className="shrink-0 font-mono tabular-nums">#{number}</span>
+      <span className="min-w-0 truncate text-foreground/75">{title}</span>
+      {children}
+    </>
+  );
+  return (
+    <li style={{ paddingLeft: `${Math.min(depth, 3) * 0.75}rem` }}>
+      {onOpenPullRequest ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex min-w-0 items-center gap-2 rounded-sm px-1 py-1 hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => onOpenPullRequest(event, url)}
+        >
+          {content}
+        </a>
+      ) : (
+        <div className="flex min-w-0 items-center gap-2">{content}</div>
+      )}
+    </li>
   );
 }
 
@@ -518,7 +551,7 @@ export function threadChangeRequestSnapshotsEqual(
   );
 }
 
-function setThreadChangeRequestSnapshot(
+export function setThreadChangeRequestSnapshot(
   threadKey: string,
   snapshot: ThreadChangeRequestSnapshot | null,
 ): void {
@@ -736,6 +769,17 @@ export function terminalStatusFromRunningIds(
   };
 }
 
+/** Align newly started pulses with the document clock without a timer or frame loop. */
+export function synchronizeTerminalPulse(event: AnimationEvent<SVGSVGElement>) {
+  if (event.animationName !== "status-pulse") return;
+
+  for (const animation of event.currentTarget.getAnimations()) {
+    if ("animationName" in animation && animation.animationName === "status-pulse") {
+      animation.startTime = 0;
+    }
+  }
+}
+
 export function ThreadWorktreeIndicator({
   thread,
 }: {
@@ -783,6 +827,7 @@ export function ThreadStatusLabel({
         <TooltipTrigger
           render={
             <span
+              role="img"
               aria-label={status.label}
               className={`inline-flex size-3.5 shrink-0 items-center justify-center ${status.colorClass}`}
             />
@@ -804,8 +849,9 @@ export function ThreadStatusLabel({
       <TooltipTrigger
         render={
           <span
+            role="img"
             aria-label={status.label}
-            className={`inline-flex items-center gap-1 text-[10px] ${status.colorClass}`}
+            className={`inline-flex items-center gap-1 text-3xs ${status.colorClass}`}
           />
         }
       >
@@ -888,6 +934,7 @@ export function ThreadRowLeadingStatus({
       lastVisitedAt,
     },
   });
+
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
   const pendingLink =
     pr === null && supportsMultiplePullRequests
@@ -967,7 +1014,8 @@ export function ThreadRowTrailingStatus({ thread }: { thread: SidebarThreadSumma
             }
           >
             <TerminalIcon
-              className={`size-3 ${terminalStatus.pulse ? "animate-status-pulse" : ""}`}
+              className={`size-3 ${terminalStatus.pulse ? "motion-safe:animate-status-pulse" : ""}`}
+              onAnimationStart={synchronizeTerminalPulse}
             />
           </TooltipTrigger>
           <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>

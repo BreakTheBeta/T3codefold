@@ -5,6 +5,7 @@ import {
   setMcpProviderSession,
   clearMcpProviderSession,
   withAgentDeviceEnvironment,
+  workCliEnvironment,
 } from "./McpProviderSession.ts";
 
 describe("device CLI environment", () => {
@@ -35,9 +36,9 @@ describe("device CLI environment", () => {
   });
 });
 
-describe("combined thread tooling environment", () => {
-  it("keeps work authority thread-local while adding the device shim", () => {
-    const threadId = ThreadId.make("combined-environment-test");
+describe("work CLI environment", () => {
+  it("gives only the owning thread its work credential, without the device shim", () => {
+    const threadId = ThreadId.make("work-environment-test");
     setMcpProviderSession({
       threadId,
       environmentId: EnvironmentId.make("fixture-env"),
@@ -56,17 +57,16 @@ describe("combined thread tooling environment", () => {
       expect(
         providerSessionEnvironment({ PATH: "/usr/bin", PROVIDER_KEY: "fixture" }, threadId),
       ).toEqual({
-        PATH: "/device/bin:/usr/bin",
+        PATH: "/usr/bin",
         PROVIDER_KEY: "fixture",
-        AGENT_DEVICE_DAEMON_AUTH_TOKEN: "fixture-device",
         T3_WORK_ENDPOINT: "http://localhost:9000/mcp",
         T3_WORK_AUTHORIZATION: "Bearer fixture-work",
       });
-      expect(providerSessionEnvironment({ PATH: "/usr/bin" }, ThreadId.make("unrelated"))).toEqual({
-        PATH: "/usr/bin",
-      });
+      const unrelated = { PATH: "/usr/bin" };
+      expect(providerSessionEnvironment(unrelated, ThreadId.make("unrelated"))).toBe(unrelated);
     } finally {
       clearMcpProviderSession(threadId);
     }
+    expect(workCliEnvironment(threadId)).toEqual({});
   });
 });

@@ -16,8 +16,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   clampCollapsedComposerCursor,
   collapseExpandedComposerCursor,
-  composerStateAtPromptEnd,
   composerSubmissionIntentForKey,
+  composerStateAtPromptEnd,
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
@@ -129,10 +129,18 @@ describe("composerSubmissionIntentForKey", () => {
           ...input,
           platform,
           sendShortcut,
+          event: { ...modEnter, altKey: true },
+        }),
+      ).toBe("background");
+      expect(
+        composerSubmissionIntentForKey({
+          ...input,
+          platform,
+          sendShortcut,
           isDraftThread: true,
           event: modEnter,
         }),
-      ).toBe("foreground");
+      ).toBe("background");
       expect(
         composerSubmissionIntentForKey({ ...running, event: { ...enter, shiftKey: true } }),
       ).toBeNull();

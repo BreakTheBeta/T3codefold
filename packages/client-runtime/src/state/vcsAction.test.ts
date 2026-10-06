@@ -1,6 +1,7 @@
 import {
   EnvironmentId,
   ThreadId,
+  ProjectId,
   WS_METHODS,
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
@@ -14,7 +15,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
 import {
   AVAILABLE_CONNECTION_STATE,
@@ -584,7 +585,6 @@ describe("vcsActionState", () => {
           generation: 1,
         };
         const targetKey = { environmentId, cwd };
-        const rpcInputs: GitRunStackedActionInput[] = [];
         const successfulActionId = "invalidate-success";
         const failedActionId = "invalidate-failure";
         const interruptedActionId = "invalidate-interrupted";
@@ -597,6 +597,7 @@ describe("vcsActionState", () => {
           targetKey,
           interruptedActionId,
         );
+        const rpcInputs = new Array<GitRunStackedActionInput>();
         const client = {
           [WS_METHODS.gitRunStackedAction]: (input: GitRunStackedActionInput) =>
             (rpcInputs.push(input), input.actionId === successfulTransportActionId)
@@ -663,11 +664,13 @@ describe("vcsActionState", () => {
 
         expect(registry.get(state).revision).toBe(0);
         const threadId = ThreadId.make("thread-stacked-action");
+        const projectId = ProjectId.make("project-stacked-action");
         const successfulResult = yield* Effect.promise(() =>
           manager.runStackedAction(targetKey).run(registry, {
             actionId: successfulActionId,
             action,
             threadId,
+            projectId,
           }),
         );
 
@@ -677,7 +680,7 @@ describe("vcsActionState", () => {
         expect(removed).toEqual([`${environmentId}:*`]);
         // The server links a created pull request to this thread, so the id must ride along.
         expect(rpcInputs).toEqual([
-          { actionId: successfulTransportActionId, cwd, action, threadId },
+          { actionId: successfulTransportActionId, cwd, action, threadId, projectId },
         ]);
 
         const failedResult = yield* Effect.promise(() =>

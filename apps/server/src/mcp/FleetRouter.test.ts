@@ -1,6 +1,7 @@
 import { it } from "@effect/vitest";
 import {
   EnvironmentId,
+  ProviderInstanceId,
   ThreadId,
   OrchestratorMcpFailure,
   type FleetExecuteInput,
@@ -11,13 +12,15 @@ import * as Layer from "effect/Layer";
 import { expect } from "vite-plus/test";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { FleetBroker } from "./FleetBroker.ts";
-import { FleetThreadService } from "./FleetThreadService.ts";
 import { FleetRouter, layer } from "./FleetRouter.ts";
+import type { McpInvocationScope } from "./McpInvocationContext.ts";
 
 const localId = EnvironmentId.make("laptop");
 const remoteId = EnvironmentId.make("server");
+// The results are `unknown`, so flipping them would put `unknown` in the error channel.
+const failureOf = <E>(effect: Effect.Effect<unknown, E>) => Effect.flip(Effect.asVoid(effect));
+
 function fixture(remoteFails = false) {
-  const localCalls: FleetExecuteInput[] = [];
   const remoteCalls: FleetExecuteInput[] = [];
   const dependencies = Layer.mergeAll(
     Layer.succeed(ServerEnvironment, {
@@ -48,16 +51,22 @@ function fixture(remoteFails = false) {
         }),
       respond: () => Effect.die("unused"),
     }),
-    Layer.succeed(FleetThreadService, {
-      execute: (request) =>
-        Effect.sync(() => {
-          localCalls.push(request);
-          return { routed: "local" };
-        }),
-    }),
   );
-  return { localCalls, remoteCalls, layer: layer.pipe(Layer.provide(dependencies)) };
+  return { remoteCalls, layer: layer.pipe(Layer.provide(dependencies)) };
 }
+
+const threadScope = (threadId: ThreadId): McpInvocationScope => ({
+  environmentId: localId,
+  capabilities: new Set(["orchestration"]),
+  issuedAt: 0,
+  requestNamespace: "session",
+  thread: {
+    threadId,
+    providerSessionId: "session",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  client: undefined,
+});
 
 it.effect(
   "uses the authoritative local descriptor once, plus connected remote environments",
@@ -74,39 +83,24 @@ it.effect(
     }).pipe(Effect.provide(f.layer));
   },
 );
-it.effect("defaults CLI requests to local execution and stamps the source server", () => {
-  const f = fixture();
-  return Effect.gen(function* () {
-    const router = yield* FleetRouter;
-    expect(yield* router.invoke({ operation: "t3_thread_list", input: {} })).toEqual({
-      routed: "local",
-    });
-    expect(f.localCalls).toEqual([
-      {
-        operation: "t3_thread_list",
-        input: {},
-        environmentId: localId,
-        source: { environmentId: localId, threadId: null },
-      },
-    ]);
-    expect(f.remoteCalls).toEqual([]);
-  }).pipe(Effect.provide(f.layer));
-});
-it.effect("forwards agent source and policy only to the exact selected environment", () => {
+
+it.effect("forwards the calling thread and its limits to the selected environment", () => {
   const f = fixture();
   return Effect.gen(function* () {
     const router = yield* FleetRouter;
     const threadId = ThreadId.make("source-thread");
-    const input = { prompt: "continue", runtimeMode: "full-access", clientRequestId: "retry-key" };
+    const input = { title: "Handoff", message: "continue", clientRequestId: "retry-key" };
     yield* router.invoke(
-      { environmentId: remoteId, operation: "t3_thread_start", input },
-      threadId,
-      { runtimeMode: "approval-required", interactionMode: "plan" },
+      {
+        scope: threadScope(threadId),
+        limits: { runtimeMode: "approval-required", interactionMode: "plan" },
+      },
+      { environmentId: remoteId, operation: "t3_thread_launch", input },
     );
     expect(f.remoteCalls).toEqual([
       {
         environmentId: remoteId,
-        operation: "t3_thread_start",
+        operation: "t3_thread_launch",
         input,
         source: {
           environmentId: localId,
@@ -116,48 +110,46 @@ it.effect("forwards agent source and policy only to the exact selected environme
         },
       },
     ]);
-    expect(f.localCalls).toEqual([]);
   }).pipe(Effect.provide(f.layer));
 });
-it.effect("never falls back to local execution when a remote route fails", () => {
+
+it.effect("stamps CLI requests with no source thread and no limits", () => {
+  const f = fixture();
+  return Effect.gen(function* () {
+    const router = yield* FleetRouter;
+    yield* router.invoke(undefined, {
+      environmentId: remoteId,
+      operation: "t3_thread_list",
+      input: {},
+    });
+    expect(f.remoteCalls[0]?.source).toEqual({ environmentId: localId, threadId: null });
+  }).pipe(Effect.provide(f.layer));
+});
+
+it.effect("never sends a request for this environment through a client", () => {
+  const f = fixture();
+  return Effect.gen(function* () {
+    const router = yield* FleetRouter;
+    const failure = yield* failureOf(
+      router.invoke(undefined, { environmentId: localId, operation: "t3_thread_list", input: {} }),
+    );
+    expect(failure.code).toBe("invalid_request");
+    expect(f.remoteCalls).toEqual([]);
+  }).pipe(Effect.provide(f.layer));
+});
+
+it.effect("surfaces a failed remote route instead of falling back", () => {
   const f = fixture(true);
   return Effect.gen(function* () {
     const router = yield* FleetRouter;
-    const result = yield* Effect.result(
-      router.invoke({
+    const failure = yield* failureOf(
+      router.invoke(undefined, {
         environmentId: remoteId,
         operation: "t3_thread_send",
         input: { threadId: "remote-thread", message: "continue" },
       }),
     );
-    expect(result._tag === "Failure" && result.failure.message).toBe("Remote disconnected");
+    expect(failure.message).toBe("Remote disconnected");
     expect(f.remoteCalls).toHaveLength(1);
-    expect(f.localCalls).toEqual([]);
   }).pipe(Effect.provide(f.layer));
 });
-it.effect(
-  "explicit local selection retains provider policy without involving the client bridge",
-  () => {
-    const f = fixture();
-    return Effect.gen(function* () {
-      const router = yield* FleetRouter;
-      const threadId = ThreadId.make("source-thread");
-      yield* router.invoke(
-        {
-          environmentId: localId,
-          operation: "t3_thread_read",
-          input: { threadId: "target-thread" },
-        },
-        threadId,
-        { runtimeMode: "approval-required", interactionMode: "default" },
-      );
-      expect(f.localCalls[0]?.source).toEqual({
-        environmentId: localId,
-        threadId,
-        runtimeMode: "approval-required",
-        interactionMode: "default",
-      });
-      expect(f.remoteCalls).toEqual([]);
-    }).pipe(Effect.provide(f.layer));
-  },
-);

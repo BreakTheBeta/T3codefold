@@ -2,6 +2,7 @@ import type {
   EnvironmentId,
   OrchestrationV2DomainEvent,
   OrchestrationV2ThreadShell,
+  OrchestrationV2TurnItem,
   Project,
   ThreadId,
 } from "@t3tools/contracts";
@@ -11,6 +12,7 @@ import {
   type RelayAgentActivityState,
 } from "@t3tools/contracts/relay";
 import { projectThreadAwarenessV2 } from "@t3tools/shared/agentAwareness";
+import { turnItemUpdateCanEndBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import {
@@ -30,10 +32,10 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpApiClient from "effect/http-api/HttpApiClient";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
@@ -64,6 +66,15 @@ function eventThreadId(event: OrchestrationV2DomainEvent): ThreadId {
   return event.threadId;
 }
 
+// The filter takes loosely typed events; a turn-item payload carries both fields.
+function isTurnItemPayload(
+  payload: unknown,
+): payload is Pick<OrchestrationV2TurnItem, "type" | "status"> {
+  return (
+    typeof payload === "object" && payload !== null && "type" in payload && "status" in payload
+  );
+}
+
 export function shouldPublishAgentAwarenessEvent(
   event: Pick<OrchestrationV2DomainEvent, "type"> & { readonly payload?: unknown },
 ): boolean {
@@ -76,8 +87,10 @@ export function shouldPublishAgentAwarenessEvent(
   ) {
     return false;
   }
-  // projectThreadAwarenessV2 reads thread metadata, run status, and pending requests.
-  // Message bodies and tool progress cannot change the published activity.
+  // projectThreadAwarenessV2 reads thread metadata, run status, pending requests,
+  // and pending background work (a finished subagent, a cleared roster, or an
+  // ended background item can release a held completion). Message bodies and
+  // tool progress cannot change the published activity.
   switch (event.type) {
     case "thread.created":
     case "thread.archived":
@@ -90,32 +103,33 @@ export function shouldPublishAgentAwarenessEvent(
     case "run.created":
     case "run.updated":
     case "runtime-request.updated":
+    case "subagent.updated":
+    case "provider-thread.updated":
       return true;
     case "thread.settled":
     case "thread.unsettled":
     case "thread.snoozed":
     case "thread.unsnoozed":
+    case "thread.auto-settle-set":
     case "thread.pinned":
     case "thread.unpinned":
     case "thread.pin-reordered":
-    case "thread.pull-request-synced":
     case "thread.active-reordered":
     case "thread.visited":
     case "thread.marked-unread":
     case "thread.runtime-mode-updated":
     case "thread.interaction-mode-updated":
-    case "thread.auto-settle-updated":
+    case "run.background-work-cancelled":
     case "run-attempt.created":
     case "run-attempt.updated":
     case "node.updated":
-    case "subagent.updated":
     case "provider-session.attached":
     case "provider-session.updated":
     case "provider-session.detached":
-    case "provider-thread.updated":
     case "provider-turn.updated":
-    case "message.updated":
     case "turn-item.updated":
+      return isTurnItemPayload(event.payload) && turnItemUpdateCanEndBackgroundWork(event.payload);
+    case "message.updated":
     case "plan.updated":
     case "checkpoint-scope.created":
     case "checkpoint.captured":
@@ -317,8 +331,7 @@ function resolveAgentAwarenessRelayPublishSnapshot(input: {
 
 function terminalWorkSinceStart(thread: OrchestrationV2ThreadShell, startedAt: number): boolean {
   return (
-    thread.latestRunCompletedAt !== null &&
-    thread.latestRunCompletedAt !== undefined &&
+    thread.latestRunCompletedAt != null &&
     DateTime.toEpochMillis(thread.latestRunCompletedAt) > startedAt
   );
 }
@@ -509,6 +522,16 @@ export const make = Effect.gen(function* () {
     // domain event, so materializing the full shell here would make the cost
     // of one thread's activity proportional to how many threads exist.
     const threadShell = yield* threads.getThreadShell(threadId);
+    if (
+      threadShell?.lineage.relationshipToParent === "subagent" &&
+      !(yield* Ref.get(publishedStateByThreadRef)).has(threadId)
+    ) {
+      // Subagents never project activity, so the relay holds no row to clear.
+      // Their events would otherwise publish a tombstone each, and every
+      // publish re-delivers the user's aggregate. Checked before the archive
+      // filter so archiving one stays quiet too.
+      return;
+    }
     const thread =
       threadShell === null || threadShell.archivedAt !== null
         ? Option.none<OrchestrationV2ThreadShell>()

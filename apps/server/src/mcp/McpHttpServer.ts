@@ -11,8 +11,8 @@ import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import type * as Types from "effect/Types";
-import { McpProtocol, McpSchema, McpServer, Tool } from "effect/unstable/ai";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { McpProtocol, McpSchema, McpServer, Tool } from "effect/ai";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { PreviewAutomationError } from "@t3tools/contracts";
 
 import packageJson from "../../package.json" with { type: "json" };
@@ -35,6 +35,8 @@ import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import { OrchestratorToolkitHandlersLive } from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
+import { WorkToolkitHandlersLive } from "./toolkits/work/handlers.ts";
+import { WorkToolkit } from "./toolkits/work/tools.ts";
 import {
   PreviewSnapshotToolkitHandlersLive,
   PreviewStandardToolkitHandlersLive,
@@ -666,6 +668,11 @@ export const OrchestratorToolkitRegistrationLive = McpServer.toolkit(Orchestrato
   Layer.provide(ThreadMetadataMcpService.layer),
 );
 
+/** Pitboss work tools; each call checks the orchestration capability and a thread caller. */
+export const WorkToolkitRegistrationLive = McpServer.toolkit(WorkToolkit).pipe(
+  Layer.provide(WorkToolkitHandlersLive),
+);
+
 export const ThreadToolkitRegistrationLive = McpServer.toolkit(ThreadToolkit).pipe(
   Layer.provide(ThreadToolkitHandlersLive),
 );
@@ -718,6 +725,7 @@ const McpTransportLive = McpServer.layerHttp({
 export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   OrchestratorToolkitRegistrationLive,
+  WorkToolkitRegistrationLive,
   ThreadToolkitRegistrationLive,
   AttachmentRegistrationLive,
   ProjectRegistrationLive,

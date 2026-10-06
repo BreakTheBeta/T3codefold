@@ -16,15 +16,12 @@ export function resolveThreadReferenceCopyTarget(input: {
   readonly openPanelPullRequestUrl?: string | null | undefined;
   readonly pullRequests?: ReadonlyArray<ThreadPullRequestLink> | undefined;
   readonly linkedPullRequestUrl?: string | null;
-  readonly detectedPullRequestUrl?: string | null;
 }): ThreadReferenceCopyTarget | null {
   if (input.openPanelPullRequestUrl === null) return null;
-  const nativePullRequestUrl = resolveThreadCurrentPullRequestLink(input.pullRequests ?? [])?.url;
   const pullRequestUrl =
     input.openPanelPullRequestUrl ??
-    nativePullRequestUrl ??
-    input.linkedPullRequestUrl ??
-    input.detectedPullRequestUrl;
+    resolveThreadCurrentPullRequestLink(input.pullRequests ?? [])?.url ??
+    input.linkedPullRequestUrl;
   return pullRequestUrl
     ? {
         kind: "pull-request",

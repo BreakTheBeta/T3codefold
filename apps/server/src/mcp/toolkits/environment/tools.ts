@@ -2,17 +2,19 @@ import {
   BackgroundActivityProfile,
   BackgroundActivityProfileSelection,
   ExecutionEnvironmentDescriptor,
+  FleetEnvironmentList,
   OrchestratorMcpFailure,
   ServerSettings,
   ServerSettingsPatch,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/unstable/ai";
-import { ServerEnvironment } from "../../../environment/ServerEnvironment.ts";
-import { ThreadCommandExecutor } from "../../../orchestration-v2/ThreadCommandExecutor.ts";
-import { ThreadManagementService } from "../../../orchestration-v2/ThreadManagementService.ts";
-import { ServerSettingsService } from "../../../serverSettings.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import { Tool, Toolkit } from "effect/ai";
+import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
+import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as Settings from "../../../serverSettings.ts";
+import { FleetRouter } from "../../FleetRouter.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const PreferenceFields = {
   defaultThreadEnvMode: ServerSettings.fields.defaultThreadEnvMode,
@@ -30,11 +32,11 @@ const shared = {
   failure: OrchestratorMcpFailure,
   failureMode: "return" as const,
   dependencies: [
-    McpInvocationContext,
-    ThreadManagementService,
-    ServerEnvironment,
-    ServerSettingsService,
-    ThreadCommandExecutor,
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagementService.ThreadManagementService,
+    ServerEnvironment.ServerEnvironment,
+    Settings.ServerSettingsService,
+    ThreadCommandExecutor.ThreadCommandExecutor,
   ],
 };
 const EnvironmentReadTool = Tool.make("t3_environment_read", {
@@ -64,4 +66,24 @@ const EnvironmentPreferencesTool = Tool.make("t3_environment_preferences_update"
   }),
   success: Schema.Struct(PreferenceFields),
 }).annotate(Tool.Destructive, true);
-export const EnvironmentToolkit = Toolkit.make(EnvironmentReadTool, EnvironmentPreferencesTool);
+const EnvironmentListTool = Tool.make("t3_environment_list", {
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  description:
+    "List this environment and the environments reachable through connected T3 clients. Pass a listed environmentId to orchestrator_capabilities, t3_project_list, t3_thread_launch and the t3_thread list/read/send/wait tools to act there.",
+  success: FleetEnvironmentList,
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagementService.ThreadManagementService,
+    FleetRouter,
+  ],
+})
+  .annotate(Tool.Title, "List T3 environments")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true);
+export const EnvironmentToolkit = Toolkit.make(
+  EnvironmentReadTool,
+  EnvironmentPreferencesTool,
+  EnvironmentListTool,
+);

@@ -20,8 +20,8 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import { request } from "../rpc/client.ts";
 import type { ConnectionCatalogEntry } from "./catalog.ts";
-import { EnvironmentRegistry } from "./registry.ts";
-import { EnvironmentSupervisor } from "./supervisor.ts";
+import * as EnvironmentRegistry from "./registry.ts";
+import * as EnvironmentSupervisor from "./supervisor.ts";
 
 const isOrchestratorMcpFailure = Schema.is(OrchestratorMcpFailure);
 
@@ -57,13 +57,13 @@ export function relayFleetInvocations<E, ExecuteError, RespondError, R>(
   return Effect.scoped(
     Effect.gen(function* () {
       // Match the broker's pending bound so waits never block the partition reader.
-      const [ordinary, waits] = yield* Stream.partition(
+      const [waits, ordinary] = yield* Stream.partition(
         invocations,
         (invocation) =>
           invocation.request.operation === "t3_thread_wait"
             ? Result.succeed(invocation)
             : Result.fail(invocation),
-        { bufferSize: 64 },
+        { capacity: 64 },
       );
       yield* Effect.all(
         [
@@ -102,12 +102,15 @@ export function connectFleetLease<E, ExecuteError, RespondError, R>(options: {
 
 /** One foreground client connects existing authenticated environments; no credentials leave it. */
 export const startFleetBridge = Effect.gen(function* () {
-  const registry = yield* EnvironmentRegistry;
+  const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
   const crypto = yield* Crypto.Crypto;
   const clientId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
   const descriptors = yield* SubscriptionRef.make<ReadonlyArray<FleetEnvironment>>([]);
   const parentScope = yield* Scope.Scope;
-  const children = new Map<EnvironmentId, { entry: ConnectionCatalogEntry; scope: Scope.Scope }>();
+  const children = new Map<
+    EnvironmentId,
+    { entry: ConnectionCatalogEntry; scope: Scope.Closeable }
+  >();
 
   const advertise = (environment: FleetEnvironment, connected: boolean) =>
     SubscriptionRef.update(descriptors, (current) => {
@@ -121,7 +124,7 @@ export const startFleetBridge = Effect.gen(function* () {
     registry.run(
       entry.target.environmentId,
       Effect.gen(function* () {
-        const supervisor = yield* EnvironmentSupervisor;
+        const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
         const environment: FleetEnvironment = {
           environmentId: entry.target.environmentId,
           label: entry.target.label,

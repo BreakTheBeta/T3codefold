@@ -1,13 +1,11 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
-/** Old settings URL; its content moved to /settings/tools. */
+import { SnapShotSettings } from "../components/settings/SnapShotSettings";
+
+function SettingsSnapShotRoute() {
+  return <SnapShotSettings />;
+}
+
 export const Route = createFileRoute("/settings/snap-shot")({
-  beforeLoad: ({ location }) => {
-    throw redirect({
-      to: "/settings/tools",
-      search: true,
-      hash: location.hash || "snap-shot",
-      replace: true,
-    });
-  },
+  component: SettingsSnapShotRoute,
 });

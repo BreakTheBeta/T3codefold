@@ -128,13 +128,21 @@ describe("orchestrator MCP contracts", () => {
     expect(request.threads[1]?.target?.driverKind).toBe("claudeAgent");
   });
 
-  it("decodes project-scoped thread orchestration requests", () => {
+  it("decodes fleet-routed requests and the t3_thread_start alias", () => {
     expect(
       decodeThreadStartInput({
+        environmentId: "environment-b",
         prompt: "Run the first loop iteration.",
         clientRequestId: "start-loop-1",
-      }).prompt,
-    ).toBe("Run the first loop iteration.");
+      }),
+    ).toMatchObject({ environmentId: "environment-b", clientRequestId: "start-loop-1" });
+    expect(
+      decodeThreadReadInput({ environmentId: "environment-b", threadId: "thread-1" }).environmentId,
+    ).toBe("environment-b");
+    expect(decodeThreadListInput({}).environmentId).toBeUndefined();
+  });
+
+  it("decodes project-scoped thread orchestration requests", () => {
     expect(
       decodeThreadListInput({
         statuses: ["running", "completed"],

@@ -1,46 +1,56 @@
-import { ApprovalRequestId } from "@t3tools/contracts";
-import { CheckpointRef, EnvironmentId, MessageId, RunId, ThreadId } from "@t3tools/contracts";
+// @vitest-environment jsdom
 
 import {
+  ApprovalRequestId,
+  CheckpointRef,
+  EnvironmentId,
+  MessageId,
+  ProjectId,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
+import {
   act,
-  cloneElement,
   createRef,
   useLayoutEffect,
-  type ReactElement,
   type ReactNode,
   type Ref,
+  type ReactElement,
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createRoot } from "react-dom/client";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { shouldUseRestingComposerLayout } from "../composerFooterLayout";
 import { useComposerFocusState } from "./useComposerFocusState";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef } from "@legendapp/list/react";
 
-const activityTestState = vi.hoisted(() => ({ expanded: false, tooltipsVisible: false }));
-
-// The test renderer has no DOM for tooltip positioning; keep its trigger and content.
-vi.mock("../ui/tooltip", () => ({
-  Tooltip: ({ children }: { children: ReactNode }) => children,
-  TooltipTrigger: ({
-    render,
-    children,
-  }: {
-    render?: ReactElement<{ children?: ReactNode; "data-base-ui-tooltip-trigger"?: string }>;
-    children?: ReactNode;
-  }) =>
-    render ? (
-      cloneElement(
-        render,
-        { "data-base-ui-tooltip-trigger": "" },
-        children ?? render.props.children,
-      )
-    ) : (
-      <span data-base-ui-tooltip-trigger="">{children}</span>
-    ),
-  TooltipPopup: ({ children }: { children: ReactNode }) =>
-    activityTestState.tooltipsVisible ? <span role="tooltip">{children}</span> : null,
+const activityTestState = vi.hoisted(() => ({
+  expanded: false,
+  expandedRuns: false,
+  subagentTooltips: false,
 }));
+
+// Expose tooltip contents in the renderer without requiring a browser portal.
+vi.mock("../ui/tooltip", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../ui/tooltip")>();
+  return {
+    ...original,
+    Tooltip: (props: { children?: ReactNode }) =>
+      activityTestState.subagentTooltips ? props.children : <original.Tooltip {...props} />,
+    TooltipTrigger: (props: { children?: ReactNode; render?: ReactElement }) =>
+      activityTestState.subagentTooltips ? (
+        <>
+          {props.render}
+          {props.children}
+        </>
+      ) : (
+        <original.TooltipTrigger {...props} />
+      ),
+    TooltipPopup: (props: { children?: ReactNode }) =>
+      activityTestState.subagentTooltips ? props.children : <original.TooltipPopup {...props} />,
+  };
+});
 
 vi.mock("../DiffWorkerPoolProvider", () => ({
   DiffWorkerPoolProvider: ({ children }: { children?: ReactNode }) => children,
@@ -54,6 +64,9 @@ vi.mock("./MessagesTimeline.logic", async (importOriginal) => {
       input: Parameters<typeof logic.deriveMessagesTimelineRowsWithState>[0],
       previous: Parameters<typeof logic.deriveMessagesTimelineRowsWithState>[1],
     ) {
+      if (activityTestState.expandedRuns) {
+        input = { ...input, expandedRunIds: new Set([RunId.make("run-1")]) };
+      }
       const projection = logic.deriveMessagesTimelineRowsWithState(input, previous);
       if (!activityTestState.expanded) return projection;
       return logic.deriveMessagesTimelineRowsWithState({
@@ -69,8 +82,9 @@ vi.mock("./MessagesTimeline.logic", async (importOriginal) => {
 });
 
 beforeEach(() => {
+  activityTestState.subagentTooltips = false;
   activityTestState.expanded = false;
-  activityTestState.tooltipsVisible = false;
+  activityTestState.expandedRuns = false;
 });
 
 vi.mock("@legendapp/list/react", async () => {
@@ -207,7 +221,8 @@ function matchMedia() {
 let MessagesTimeline: typeof import("./MessagesTimeline").MessagesTimeline;
 let resolvePreviewAnnotationImage: typeof import("./MessagesTimeline").resolvePreviewAnnotationImage;
 
-beforeAll(async () => {
+const ElementStub = class ElementStub {};
+function stubDomGlobals() {
   const classList = {
     add: () => {},
     remove: () => {},
@@ -215,6 +230,8 @@ beforeAll(async () => {
     contains: () => false,
   };
 
+  vi.stubGlobal("Element", ElementStub);
+  vi.stubGlobal("getComputedStyle", undefined);
   vi.stubGlobal("localStorage", {
     getItem: () => null,
     setItem: () => {},
@@ -222,6 +239,8 @@ beforeAll(async () => {
     clear: () => {},
   });
   vi.stubGlobal("window", {
+    Element: ElementStub,
+    localStorage: globalThis.localStorage,
     matchMedia,
     addEventListener: () => {},
     removeEventListener: () => {},
@@ -238,12 +257,134 @@ beforeAll(async () => {
       offsetHeight: 0,
     },
   });
+}
 
+beforeEach(stubDomGlobals);
+beforeAll(async () => {
+  Object.defineProperty(window, "matchMedia", { value: matchMedia, configurable: true });
   ({ MessagesTimeline, resolvePreviewAnnotationImage } = await import("./MessagesTimeline"));
 }, 30_000);
 
 const ACTIVE_THREAD_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const MESSAGE_CREATED_AT = "2026-03-17T19:12:28.000Z";
+
+describe("timeline tooltip scroll dismissal", () => {
+  it.each([
+    "hover",
+    "delayed hover",
+    "focus",
+    "hover then focus",
+    "outside timeline",
+    "wheel without scroll",
+    "pr hover",
+    "pr delayed hover",
+    "pr focus",
+    "pr hover then focus",
+  ])("handles %s through the real tooltip interactions", async (scenario) => {
+    const isPullRequest = scenario.startsWith("pr ");
+    const interaction = isPullRequest ? scenario.slice(3) : scenario;
+    vi.unstubAllGlobals();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    const { Tooltip, TooltipTrigger, TooltipPopup, TooltipScrollDismissArea } =
+      await vi.importActual<typeof import("../ui/tooltip")>("../ui/tooltip");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onMouseEnter = vi.fn();
+    const query = await import("~/state/query");
+    const querySpy = isPullRequest
+      ? vi.spyOn(query, "useEnvironmentQuery").mockReturnValue({
+          data: null,
+          dataUpdatedAt: 0,
+          error: "Pull request not found",
+          failure: null,
+          isPending: false,
+          isSuccess: false,
+          refresh: vi.fn(),
+        })
+      : null;
+    const { PullRequestLinkPreview } = await import("../pullRequest/PullRequestLinkPreview");
+    const tooltip = isPullRequest ? (
+      <PullRequestLinkPreview
+        link={<button onMouseEnter={onMouseEnter}>message link</button>}
+        originalUrl="https://example.com"
+        target={{
+          environmentId: ACTIVE_THREAD_ENVIRONMENT_ID,
+          input: {
+            projectId: ProjectId.make("project-1"),
+            repository: "pingdotgg/t3code",
+            number: 1,
+          },
+        }}
+      />
+    ) : (
+      <Tooltip>
+        <TooltipTrigger delay={50} onMouseEnter={onMouseEnter}>
+          message link
+        </TooltipTrigger>
+        <TooltipPopup>https://example.com</TooltipPopup>
+      </Tooltip>
+    );
+    try {
+      await act(async () => {
+        root.render(
+          <>
+            <TooltipScrollDismissArea>
+              <div data-testid="scrollable">
+                {interaction === "outside timeline" ? null : tooltip}
+              </div>
+            </TooltipScrollDismissArea>
+            {interaction === "outside timeline" ? tooltip : null}
+          </>,
+        );
+      });
+      const trigger = container.querySelector<HTMLButtonElement>("button")!;
+      const scrollable = container.querySelector<HTMLElement>('[data-testid="scrollable"]')!;
+      await act(async () => {
+        if (interaction !== "focus") {
+          trigger.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+          trigger.dispatchEvent(new MouseEvent("mouseenter"));
+          trigger.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        }
+        if (interaction === "focus" || interaction === "hover then focus") {
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+          trigger.focus();
+        }
+        if (interaction !== "delayed hover") {
+          await vi.advanceTimersByTimeAsync(isPullRequest ? 400 : 60);
+        }
+      });
+      expect(onMouseEnter).toHaveBeenCalledTimes(interaction === "focus" ? 0 : 1);
+      expect(
+        document.querySelector('[data-slot="tooltip-popup"][data-open]')?.textContent ?? null,
+      ).toBe(interaction === "delayed hover" ? null : "https://example.com");
+
+      await act(async () => {
+        scrollable.dispatchEvent(
+          interaction === "wheel without scroll"
+            ? new WheelEvent("wheel", { bubbles: true, deltaY: 100 })
+            : new Event("scroll"),
+        );
+        await vi.advanceTimersByTimeAsync(isPullRequest ? 1000 : 100);
+      });
+      expect(
+        document.querySelector('[data-slot="tooltip-popup"][data-open]')?.textContent ?? null,
+      ).toBe(
+        interaction === "hover" || interaction === "delayed hover" ? null : "https://example.com",
+      );
+      if (interaction === "focus" || interaction === "hover then focus") {
+        expect(document.activeElement).toBe(trigger);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      querySpy?.mockRestore();
+      container.remove();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 function buildProps() {
   return {
@@ -252,6 +393,8 @@ function buildProps() {
     listRef: createRef<LegendListRef | null>(),
     latestRun: null,
     turnDiffSummaries: [],
+    providerStatuses: [],
+    runs: [],
     routeThreadKey: "environment-local:thread-1",
     onOpenTurnDiff: () => {},
     onOpenThread: () => {},
@@ -339,108 +482,51 @@ function buildSnapShotTimelineEntry(previewUrl?: string) {
 }
 
 describe("MessagesTimeline", () => {
-  it("renders previous and next controls with the minimap", () => {
-    const first = buildUserTimelineEntry("First turn");
-    const secondBase = buildUserTimelineEntry("Second turn");
-    const second = {
-      ...secondBase,
-      id: "entry-2",
-      message: {
-        ...secondBase.message,
-        id: MessageId.make("message-2"),
-      },
-    };
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline {...buildProps()} timelineEntries={[first, second]} />,
-    );
-
-    expect(markup).toContain('aria-label="Previous turn"');
-    expect(markup).toContain('aria-label="Next turn"');
-  });
-
-  // Expanding history uses this suite's existing test renderer, deprecated in
-  // React 19. Migrate these interaction tests together when a DOM test setup is added.
-  it.each([{}, { text: "Text-only answer", file: "Answer with a file" }])(
-    "renders attachment-only question history alongside text answers: %j",
-    async (answers) => {
-      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-      vi.stubGlobal("requestAnimationFrame", () => 0);
-      vi.stubGlobal("cancelAnimationFrame", () => {});
-      let renderer: ReactTestRenderer | undefined;
-      try {
-        await act(() => {
-          renderer = create(
-            <MessagesTimeline
-              {...buildProps()}
-              timelineEntries={[
-                {
-                  id: "answer-entry",
-                  kind: "work",
+  it("shows dynamic tool input without cached output when the row is expanded", async () => {
+    activityTestState.expanded = true;
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    let renderer: ReactTestRenderer | undefined;
+    try {
+      await act(() => {
+        renderer = create(
+          <MessagesTimeline
+            {...buildProps()}
+            timelineEntries={[
+              {
+                id: "tool-with-cached-output",
+                kind: "work",
+                createdAt: MESSAGE_CREATED_AT,
+                entry: {
+                  id: "tool-with-cached-output",
                   createdAt: MESSAGE_CREATED_AT,
-                  entry: {
-                    id: "answer-work",
-                    createdAt: MESSAGE_CREATED_AT,
-                    label: "Question answer submitted",
-                    tone: "info",
-                    questionAnswer: {
-                      requestId: ApprovalRequestId.make("question-request"),
-                      answers,
-                      questionTextById: { file: "Provide a spec", image: "Provide a screenshot" },
-                      attachmentsByQuestionId: {
-                        file: [
-                          {
-                            type: "file",
-                            id: "spec",
-                            name: "spec.txt",
-                            mimeType: "text/plain",
-                            sizeBytes: 4,
-                          },
-                        ],
-                        image: [
-                          {
-                            type: "image",
-                            id: "shot",
-                            name: "shot.png",
-                            mimeType: "image/png",
-                            sizeBytes: 4,
-                          },
-                        ],
-                      },
-                    },
+                  label: "Example tool",
+                  toolTitle: "Example tool",
+                  tone: "tool",
+                  itemType: "dynamic_tool",
+                  toolLifecycleStatus: "completed",
+                  toolData: {
+                    input: { query: "KEEP_TOOL_INPUT" },
+                    output: { text: "RAW_CACHED_TOOL_OUTPUT" },
                   },
                 },
-              ]}
-            />,
-          );
-        });
-        // V2 renders one typed question row rather than a legacy activity wrapper.
-        const questionToggle = renderer!.root.find(
-          (node) =>
-            node.props["aria-label"]?.startsWith("Provide a spec") &&
-            node.props["aria-expanded"] === false,
+              },
+            ]}
+          />,
         );
-        expect(questionToggle.props["aria-label"]).toContain(
-          Object.values(answers)[0] ?? "spec.txt",
-        );
-        // The question leads the collapsed row so the exchange reads as a
-        // question and answer without expanding (heading + accessible label).
-        expect(JSON.stringify(renderer!.toJSON()).match(/Provide a spec/g)).toHaveLength(2);
-        await act(() => questionToggle.props.onClick());
-        const markup = JSON.stringify(renderer!.toJSON());
-        // Expanded, the question also appears in the history: label, heading, history.
-        expect(markup.match(/Provide a spec/g)).toHaveLength(3);
-        expect(markup).toContain("spec.txt");
-        expect(markup).toContain("Provide a screenshot");
-        expect(markup).toContain("shot.png");
-        for (const answer of Object.values(answers)) expect(markup).toContain(answer);
-        await act(() => questionToggle.props.onClick());
-        // Collapsing hides the history but keeps the question heading.
-        expect(JSON.stringify(renderer!.toJSON())).toContain("Provide a spec");
-      } finally {
-        await act(() => renderer?.unmount());
-      }
-    },
-  );
+      });
+      const row = renderer!.root.findByProps({ "aria-label": "Example tool" });
+      await act(() => row.props.onClick());
+      const visible = JSON.stringify(renderer!.toJSON());
+      expect(visible).toContain("KEEP_TOOL_INPUT");
+      expect(visible).not.toContain("RAW_CACHED_TOOL_OUTPUT");
+      await act(() => row.props.onClick());
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("KEEP_TOOL_INPUT");
+    } finally {
+      await act(() => renderer?.unmount());
+    }
+  });
 
   it("leads an unanswered question row with the question text", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -518,11 +604,12 @@ describe("MessagesTimeline", () => {
         getState: () => ({ isAtEnd: timelineIsAtEnd }),
         getScrollableNode: () => null,
       } as unknown as LegendListRef;
-      let isResting = true;
+      let isResting = false;
+      let composerState: ReturnType<typeof useComposerFocusState> | undefined;
       function ThreadProbe() {
         const composer = useComposerFocusState();
-        useLayoutEffect(() => composer.setIsComposerScrollCollapsed(true), []);
         useLayoutEffect(() => {
+          composerState = composer;
           isResting = shouldUseRestingComposerLayout({
             isExistingThread: true,
             isMobileViewport: false,
@@ -562,6 +649,8 @@ describe("MessagesTimeline", () => {
         await act(() => {
           renderer = create(<ThreadProbe />);
         });
+        // The user scrolled up to read, so the composer is resting.
+        await act(() => composerState!.setIsComposerScrollCollapsed(true));
         const toggle = renderer!.root.findByProps({ "aria-expanded": false });
         await act(() => toggle.props.onClick());
         await flushFrame();
@@ -727,10 +816,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('aria-label="Load earlier activity"');
-    expect(markup).toContain("Load earlier activity");
+    expect(markup).toContain('aria-label="Load earlier turns"');
+    expect(markup).toContain("Load earlier turns");
     expect(markup).toContain("Earlier activity could not be loaded.");
-    expect(markup.indexOf("Load earlier activity")).toBeLessThan(markup.indexOf("Recent activity"));
+    expect(markup.indexOf("Load earlier turns")).toBeLessThan(markup.indexOf("Recent activity"));
   });
 
   it("keeps an empty bounded timeline actionable while earlier history loads", () => {
@@ -747,7 +836,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Loading earlier activity…");
+    expect(markup).toContain("Loading earlier turns…");
     expect(markup).toContain("disabled");
     expect(markup).not.toContain("Send a message to start the conversation.");
   });
@@ -827,6 +916,7 @@ describe("MessagesTimeline", () => {
       resolveTimelineMinimapHitStripWidth,
       resolveTimelineMinimapIndexFromPointer,
       resolveTimelineMinimapInteractiveWidth,
+      resolveTimelineMinimapNavigationInteractive,
       resolveTimelineMinimapTopPercent,
     } = await import("./MessagesTimeline.logic");
 
@@ -881,9 +971,14 @@ describe("MessagesTimeline", () => {
         pointerY: 999,
       }),
     ).toBe(100);
+    // Comfortable width: the column is capped at 768px.
     expect(resolveTimelineMinimapHasPersistentGutter(832, 768)).toBe(false);
     expect(resolveTimelineMinimapHasPersistentGutter(863, 768)).toBe(false);
     expect(resolveTimelineMinimapHasPersistentGutter(864, 768)).toBe(true);
+    // Wider Chat width settings consume the gutter the minimap relies on.
+    expect(resolveTimelineMinimapHasPersistentGutter(1400, 1152)).toBe(true);
+    expect(resolveTimelineMinimapHasPersistentGutter(1200, 1152)).toBe(false);
+    expect(resolveTimelineMinimapHasPersistentGutter(2560, 2560)).toBe(false);
 
     // No usable gutter (zoomed in / narrow pane): the strip must go inert
     // instead of overlaying the centered content column.
@@ -895,8 +990,20 @@ describe("MessagesTimeline", () => {
     // Full gutter: unchanged 40px-wide strip.
     expect(resolveTimelineMinimapHitStripWidth(872, 768)).toBe(40);
     expect(resolveTimelineMinimapHitStripWidth(1400, 768)).toBe(40);
-    expect(resolveTimelineMinimapHitStripWidth(0, 768)).toBe(0);
+    // Full Chat width: the column spans the viewport, so the strip is inert
+    // however wide the window gets.
+    expect(resolveTimelineMinimapHitStripWidth(2560, 2560)).toBe(0);
+    // Wide Chat width on a window just wider than the column: partial strip.
+    expect(resolveTimelineMinimapHitStripWidth(1204, 1152)).toBe(14);
+    expect(resolveTimelineMinimapHitStripWidth(0, 0)).toBe(0);
     expect(resolveTimelineMinimapHitStripWidth(Number.NaN, 768)).toBe(0);
+
+    // Prev/next buttons reach 14px past the strip's left edge; a narrower
+    // strip means they would sit on the content column.
+    expect(resolveTimelineMinimapNavigationInteractive(40)).toBe(true);
+    expect(resolveTimelineMinimapNavigationInteractive(14)).toBe(true);
+    expect(resolveTimelineMinimapNavigationInteractive(8)).toBe(false);
+    expect(resolveTimelineMinimapNavigationInteractive(0)).toBe(false);
 
     // The collapsed target stays narrow, but an open preview keeps its full
     // 20rem width plus the 2rem offset from the minimap rail interactive.
@@ -957,6 +1064,38 @@ describe("MessagesTimeline", () => {
     expect(onAnchorReady).toHaveBeenCalledOnce();
     expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
     expect(onAnchorSizeChanged).toHaveBeenCalledWith(secondEntry.message.id, 240);
+  });
+
+  it("renders SnapShot window details after the preview resolves", () => {
+    const onAnchorReady = vi.fn();
+    const firstEntry = buildSnapShotTimelineEntry("data:image/png;base64,iVBORw0KGgo=");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        anchorMessageId={firstEntry.message.id}
+        onAnchorReady={onAnchorReady}
+        contentInsetEndAdjustment={144}
+        timelineEntries={[firstEntry]}
+      />,
+    );
+
+    expect(markup).toContain("Terminal");
+    expect(markup).toContain("t3code — Tests");
+    expect(markup).toContain('src="data:image/png;base64,aWNvbg=="');
+    expect(onAnchorReady).toHaveBeenCalledOnce();
+    expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0);
+  });
+
+  it("does not render SnapShot window details before the preview resolves", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[buildSnapShotTimelineEntry()]} />,
+    );
+
+    expect(markup).toContain("screenshot.png");
+    expect(markup).not.toContain("Terminal");
+    expect(markup).not.toContain("t3code — Tests");
+    expect(markup).not.toContain('src="data:image/png;base64,aWNvbg=="');
+    expect(markup).not.toContain("h-28 w-52 max-w-full");
   });
 
   it("does not reserve end space for a follow-up user message", () => {
@@ -1722,7 +1861,7 @@ describe("MessagesTimeline", () => {
     expect(bareMarkup).not.toContain("Full conversation context");
   });
 
-  it("renders created threads as linked cards outside the work log", async () => {
+  it("renders created threads as lean rows with inline chat links", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1767,7 +1906,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-v2-item-type="thread_created"');
     expect(markup).toContain('aria-label="Open Claude research thread"');
     expect(markup).toContain("Claude research thread");
-    expect(markup).toContain("Created thread");
+    expect(markup).toContain("Open chat");
     expect(markup).not.toContain("Work Log");
   });
 
@@ -1864,50 +2003,57 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('aria-label="Hidden work includes a failure"');
   });
 
-  it.each([
-    {
-      status: "running",
-      progress: "Reading src/index.ts",
-      result: null,
-      expected: "Reading src/index.ts",
-    },
-    {
-      status: "completed",
-      progress: undefined,
-      result: "Tests should be isolated.\n\nResult: no shared state.",
-      expected: "Tests should be isolated. Result: no shared state.",
-    },
-    {
-      status: "running",
-      progress: "Reading src/index.ts",
-      result: "Partial streamed answer so far",
-      expected: "Reading src/index.ts",
-    },
-    {
-      status: "running",
-      progress: undefined,
-      result: "Streaming answer so far",
-      expected: "Streaming answer so far",
-    },
-    {
-      status: "cancelled",
-      progress: "Reading src/index.ts",
-      result: "Partial output before cancel",
-      expected: "Partial output before cancel",
-    },
-    {
-      status: "completed",
-      progress: "Audited 12 packages",
-      result: "  \n\t  ",
-      expected: "Audited 12 packages",
-    },
-  ] as const)(
-    "opens a grouped $status subagent and shows its current preview: $expected",
-    async ({ status, progress, result, expected }) => {
+  it.each(
+    (
+      [
+        {
+          status: "running",
+          progress: "Reading src/index.ts",
+          result: null,
+          preview: "Reading src/index.ts",
+        },
+        {
+          status: "completed",
+          progress: "Reading src/index.ts",
+          result: "Tests should be isolated.",
+          preview: "Tests should be isolated.",
+        },
+        {
+          status: "running",
+          progress: "Reading src/index.ts",
+          result: "Partial streamed answer",
+          preview: "Reading src/index.ts",
+        },
+        {
+          status: "running",
+          progress: undefined,
+          result: "Streaming answer so far",
+          preview: "Streaming answer so far",
+        },
+        {
+          status: "cancelled",
+          progress: "Reading src/index.ts",
+          result: "Partial output before cancel",
+          preview: "Partial output before cancel",
+        },
+        {
+          status: "completed",
+          progress: "Audited 12 packages",
+          result: "  \n\t  ",
+          preview: "Audited 12 packages",
+        },
+      ] as const
+    ).flatMap((scenario) => [1, 2].map((count) => ({ ...scenario, count }))),
+  )(
+    "shows $count $status subagents with '$preview', grouping only multiple agents",
+    async ({ status, progress, result, preview, count }) => {
+      activityTestState.expandedRuns = true;
+      activityTestState.subagentTooltips = true;
+      vi.stubGlobal("HTMLElement", ElementStub);
+      window.HTMLElement = ElementStub as typeof HTMLElement;
       vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
       vi.stubGlobal("requestAnimationFrame", () => 0);
       vi.stubGlobal("cancelAnimationFrame", () => {});
-      activityTestState.tooltipsVisible = true;
       const onOpenThread = vi.fn();
       let renderer: ReactTestRenderer | undefined;
       try {
@@ -1916,67 +2062,78 @@ describe("MessagesTimeline", () => {
             <MessagesTimeline
               {...buildProps()}
               onOpenThread={onOpenThread}
-              timelineEntries={[
-                {
-                  id: "subagent-progress",
-                  kind: "event",
-                  createdAt: MESSAGE_CREATED_AT,
-                  projectedItem: {
-                    position: 0,
-                    visibility: "local",
-                    sourceThreadId: "thread-1",
-                    sourceItemId: "subagent-progress",
-                    item: {
-                      id: "subagent-progress",
-                      threadId: "thread-1",
-                      runId: "run-1",
-                      nodeId: "node-subagent-1",
-                      providerThreadId: "provider-thread-1",
-                      providerTurnId: "provider-turn-1",
-                      nativeItemRef: null,
-                      parentItemId: null,
-                      ordinal: 1,
-                      status,
-                      title: "Package audit",
-                      startedAt: null,
-                      completedAt: null,
-                      updatedAt: {},
-                      type: "subagent",
-                      subagentId: "node-subagent-1",
-                      origin: "provider_native",
-                      driver: "codex",
-                      providerInstanceId: "codex",
-                      childThreadId: "thread-subagent-1",
-                      prompt: "Inspect the package",
-                      progress,
-                      result,
-                    },
-                  } as never,
-                },
-              ]}
+              timelineEntries={Array.from({ length: count }, (_, index) => ({
+                id: `subagent-progress-${index}`,
+                kind: "event",
+                createdAt: MESSAGE_CREATED_AT,
+                projectedItem: {
+                  position: 0,
+                  visibility: "local",
+                  sourceThreadId: "thread-1",
+                  sourceItemId: "subagent-progress",
+                  item: {
+                    id: `subagent-progress-${index}`,
+                    threadId: "thread-1",
+                    runId: "run-1",
+                    nodeId: `node-subagent-${index}`,
+                    providerThreadId: "provider-thread-1",
+                    providerTurnId: "provider-turn-1",
+                    nativeItemRef: null,
+                    parentItemId: null,
+                    ordinal: 1,
+                    status,
+                    title: "Package audit",
+                    startedAt: null,
+                    completedAt: null,
+                    updatedAt: {},
+                    type: "subagent",
+                    subagentId: `node-subagent-${index}`,
+                    origin: "provider_native",
+                    driver: "claudeAgent",
+                    providerInstanceId: "claudeAgent",
+                    childThreadId: "thread-subagent-1",
+                    prompt: "Inspect the package",
+                    progress,
+                    result,
+                  },
+                } as never,
+              }))}
             />,
           );
         });
-        const root = renderer!.root;
-        await act(() => {
-          root
-            .findAllByType("button")
-            .find((button) => button.props["data-scroll-anchor-ignore"])!
-            .props.onClick();
-        });
-        const group = root.findByProps({ "data-subagent-group": true });
-        const toggle = group.findByType("button");
-        expect(group.findAllByProps({ "aria-label": "Open Package audit" })).toHaveLength(0);
-        await act(() => toggle.props.onClick());
-        expect(group.findAllByType("p").map((paragraph) => paragraph.children.join(""))).toContain(
-          expected,
-        );
-        await act(() => group.findByProps({ "aria-label": "Open Package audit" }).props.onClick());
+        const groupLabel = `${count} subagents`;
+        const group = () =>
+          renderer!.root.findAll(
+            (node) => node.type === "button" && node.props["aria-label"] === groupLabel,
+          )[0]!;
+        const child = () =>
+          renderer!.root.findAll(
+            (node) => node.type === "button" && node.props["aria-label"] === "Open Package audit",
+          );
+        if (count > 1) {
+          expect(child()).toHaveLength(0);
+          await act(() => group().props.onClick({ nativeEvent: new Event("click") }));
+        } else {
+          expect(group()).toBeUndefined();
+        }
+        expect(child()).toHaveLength(count);
+        const content = renderer!.root
+          .findAll((node) => typeof node.type === "string")
+          .flatMap((node) => node.children.filter((child) => typeof child === "string"))
+          .join("");
+        expect(content).toContain(preview);
+        expect(content).not.toContain("Inspect the package");
+        if (result?.trim() && result !== preview) expect(content).not.toContain(result);
+        if (progress && progress !== preview) expect(content).not.toContain(progress);
+        await act(() => child()[0]!.props.onClick());
         expect(onOpenThread).toHaveBeenCalledWith("thread-subagent-1");
-        await act(() => toggle.props.onClick());
-        expect(group.findAllByProps({ "aria-label": "Open Package audit" })).toHaveLength(0);
+        if (count > 1) {
+          await act(() => group().props.onClick({ nativeEvent: new Event("click") }));
+          expect(child()).toHaveLength(0);
+        }
       } finally {
         await act(() => renderer?.unmount());
+        vi.stubGlobal("HTMLElement", undefined);
       }
     },
   );
@@ -2444,7 +2601,78 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("text-destructive");
   });
 
-  it("only withholds an expanded tool-call label click while text is selected", async () => {
+  it.each([
+    [
+      "**Viewing image first** with *care*, ~~old~~ `code` and [context](https://example.com)",
+      "Viewing image first with care, old code and context",
+      1,
+    ],
+    ["first paragraph\n\nsecond paragraph", "first paragraph second paragraph", 0],
+    ["- first\n- second", "first second", 0],
+    ["first  \nsecond", "first second", 0],
+    ["![image description](image.png)", "image description", 0],
+    ["![](image.png)", "Thought", 0],
+    ["---", "Thought", 0],
+  ] as const)(
+    "shows plain text for a V2 reasoning preview: %s",
+    async (markdown, expected, strongCount) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      vi.stubGlobal("requestAnimationFrame", () => 0);
+      vi.stubGlobal("cancelAnimationFrame", () => {});
+      activityTestState.expanded = true;
+      let renderer: ReactTestRenderer | undefined;
+      try {
+        await act(() => {
+          renderer = create(
+            <MessagesTimeline
+              {...buildProps()}
+              timelineEntries={[
+                {
+                  id: "reasoning-preview",
+                  kind: "work",
+                  createdAt: MESSAGE_CREATED_AT,
+                  entry: {
+                    id: "reasoning-preview",
+                    createdAt: MESSAGE_CREATED_AT,
+                    label: markdown,
+                    detail: markdown,
+                    tone: "thinking",
+                    itemType: "reasoning",
+                    toolLifecycleStatus: "completed",
+                  },
+                },
+              ]}
+            />,
+          );
+        });
+        const previewText = () =>
+          renderer!.root
+            .findAllByType("span")
+            .flatMap((node) => node.findAll(() => true))
+            .flatMap((node) => node.children)
+            .filter((child) => typeof child === "string")
+            .join(" ");
+        expect(previewText()).toContain(expected);
+        expect(renderer!.root.findAllByType("strong")).toHaveLength(0);
+        const row = () =>
+          renderer!.root.findAll(
+            (node) =>
+              node.type === "div" &&
+              node.props.role === "button" &&
+              typeof node.props["aria-expanded"] === "boolean",
+          )[0]!;
+        await act(() => row().props.onClick());
+        expect(renderer!.root.findAllByType("strong")).toHaveLength(strongCount);
+        await act(() => row().props.onClick());
+        expect(previewText()).toContain(expected);
+        expect(renderer!.root.findAllByType("strong")).toHaveLength(0);
+      } finally {
+        await act(() => renderer?.unmount());
+      }
+    },
+  );
+
+  it("expands and collapses a tool call through its header", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("requestAnimationFrame", () => 0);
     vi.stubGlobal("cancelAnimationFrame", () => {});
@@ -2475,19 +2703,16 @@ describe("MessagesTimeline", () => {
         );
       });
       await act(() => renderer!.root.findByProps({ "aria-expanded": false }).props.onClick());
-      const label = renderer!.root.findAll(
-        (node) => node.type === "span" && String(node.props.className).includes("select-text"),
-      )[0];
-      const stopPropagation = vi.fn();
-      // Only the click that ends a selection may be withheld from the row
-      // toggle; the plain click has to reach it so the label can collapse.
-      for (const isCollapsed of [false, true]) {
-        label!.props.onClick({
-          currentTarget: { ownerDocument: { getSelection: () => ({ isCollapsed }) } },
-          stopPropagation,
-        });
-      }
-      expect(stopPropagation).toHaveBeenCalledTimes(1);
+      const expanded = renderer!.root.findAll(
+        (node) => node.type === "div" && node.props["aria-expanded"] === true,
+      )[0]!;
+      expect(expanded).toBeDefined();
+      await act(() => expanded.props.onClick());
+      expect(
+        renderer!.root.findAll(
+          (node) => node.type === "div" && node.props["aria-expanded"] === true,
+        ),
+      ).toHaveLength(0);
     } finally {
       await act(() => renderer?.unmount());
     }

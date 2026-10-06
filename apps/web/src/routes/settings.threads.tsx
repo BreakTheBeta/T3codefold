@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { ThreadsSettingsPanel } from "../components/settings/SettingsPanels";
-
+/** Old Fold settings URL; its content lives at /settings/archived again. */
 export const Route = createFileRoute("/settings/threads")({
-  component: ThreadsSettingsPanel,
+  beforeLoad: ({ location }) => {
+    throw redirect({ to: "/settings/archived", search: {}, hash: location.hash, replace: true });
+  },
 });

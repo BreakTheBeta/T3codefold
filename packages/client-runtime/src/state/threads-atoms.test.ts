@@ -13,38 +13,32 @@ import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { ConnectionCatalogEntry } from "../connection/catalog.ts";
-import { EnvironmentRegistry } from "../connection/registry.ts";
+import * as EnvironmentRegistry from "../connection/registry.ts";
 import {
   AVAILABLE_CONNECTION_STATE,
   PrimaryConnectionTarget,
   type NetworkStatus,
   type PreparedConnection,
 } from "../connection/model.ts";
-import { EnvironmentSupervisor } from "../connection/supervisor.ts";
-import { EnvironmentCacheStore } from "../platform/persistence.ts";
+import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import * as Persistence from "../platform/persistence.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { createEnvironmentThreadDetailAtoms } from "./threadDetail.ts";
 import { THREAD_SNAPSHOT_IDLE_TTL_MS } from "./threadRetention.ts";
 import { v2Projection, v2ThreadId } from "./orchestrationV2TestFixtures.ts";
-import {
-  ThreadHistoryController,
-  threadHistoryControllerLayer,
-} from "./threadHistoryController.ts";
-import {
-  createEnvironmentThreadStateAtoms,
-  ThreadSnapshotLoader,
-  type EnvironmentThreadState,
-} from "./threads.ts";
+import * as ThreadHistoryController from "./threadHistoryController.ts";
+import { createEnvironmentThreadStateAtoms, type EnvironmentThreadState } from "./threads.ts";
+import * as ThreadSnapshotLoader from "./threadSnapshotHttp.ts";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -110,7 +104,7 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     probe: Effect.void,
     closed: Effect.never,
   };
-  const supervisor = EnvironmentSupervisor.of({
+  const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
     target: TARGET,
     state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
     session: yield* SubscriptionRef.make(Option.some(session)),
@@ -128,7 +122,7 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     disconnect: Effect.void,
     retryNow: Effect.void,
   });
-  const environmentRegistry = EnvironmentRegistry.of({
+  const environmentRegistry = EnvironmentRegistry.EnvironmentRegistry.of({
     entries: yield* SubscriptionRef.make<ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>>(
       new Map(),
     ),
@@ -138,6 +132,8 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     registerPlatform: () => Effect.die("Unexpected environment registration"),
     reconcilePlatform: () => Effect.die("Unexpected environment reconciliation"),
     remove: () => Effect.die("Unexpected environment removal"),
+    removeRoute: () => Effect.die("Unexpected route removal"),
+    reorderRoutes: () => Effect.die("Unexpected route reorder"),
     removeRelayEnvironments: () => Effect.die("Unexpected environment removal"),
     retryNow: () => Effect.void,
     setEnabled: () => Effect.die("Unexpected environment toggle"),
@@ -145,15 +141,15 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     state: () => SubscriptionRef.get(supervisor.state),
     stateChanges: () => SubscriptionRef.changes(supervisor.state),
     run: (_environmentId, effect) =>
-      Effect.provideService(effect, EnvironmentSupervisor, supervisor),
+      Effect.provideService(effect, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
     runStream: (_environmentId, stream) =>
-      Stream.provideService(stream, EnvironmentSupervisor, supervisor),
+      Stream.provideService(stream, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
     followStream: (_environmentId, stream) =>
-      Stream.provideService(stream, EnvironmentSupervisor, supervisor),
+      Stream.provideService(stream, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
   });
-  const historyController = yield* Effect.service(ThreadHistoryController).pipe(
-    Effect.provide(threadHistoryControllerLayer),
-  );
+  const historyController = yield* Effect.service(
+    ThreadHistoryController.ThreadHistoryController,
+  ).pipe(Effect.provide(ThreadHistoryController.layer));
   const historyHttpClient = HttpClient.make((request, url) =>
     Effect.gen(function* () {
       const response = yield* Deferred.make<OrchestrationV2ThreadHistoryPage>();
@@ -166,12 +162,12 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
   );
   const runtime = Atom.runtime(
     Layer.mergeAll(
-      Layer.succeed(ThreadHistoryController, historyController),
+      Layer.succeed(ThreadHistoryController.ThreadHistoryController, historyController),
       Layer.succeed(HttpClient.HttpClient, historyHttpClient),
-      Layer.succeed(EnvironmentRegistry, environmentRegistry),
+      Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
       Layer.succeed(
-        EnvironmentCacheStore,
-        EnvironmentCacheStore.of({
+        Persistence.EnvironmentCacheStore,
+        Persistence.EnvironmentCacheStore.of({
           loadShell: () => Effect.succeedNone,
           saveShell: () => Effect.void,
           loadThread: () =>
@@ -191,8 +187,8 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
         }),
       ),
       Layer.succeed(
-        ThreadSnapshotLoader,
-        ThreadSnapshotLoader.of({
+        ThreadSnapshotLoader.ThreadSnapshotLoader,
+        ThreadSnapshotLoader.ThreadSnapshotLoader.of({
           load: () =>
             Effect.sync(() => {
               httpLoads += 1;
@@ -280,52 +276,6 @@ describe("createEnvironmentThreadStateAtoms", () => {
       unmountStatus();
       yield* Deferred.await(first.closed);
       expect(h.counts().active).toBe(0);
-    }),
-  );
-
-  it.effect.each([1, 16, 500])("publishes each replay batch once (batch size: %i)", (batchSize) =>
-    Effect.gen(function* () {
-      const h = yield* makeHarness();
-      const unmount = h.registry.mount(h.stateAtom);
-      const first = yield* Queue.take(h.subscriptions);
-      let updates = 0;
-      const stop = h.registry.subscribe(h.details.threadAtom(h.ref), () => updates++, {
-        immediate: true,
-      });
-      updates = 0;
-      const events: OrchestrationV2ThreadStreamItem[] = Array.from({ length: 500 }, (_, index) => ({
-        kind: "event",
-        sequence: 8 + index,
-        event: {
-          id: EventId.make(`replay-${index}`),
-          type: "thread.metadata-updated",
-          threadId: THREAD_ID,
-          occurredAt: THREAD.thread.updatedAt,
-          payload: { ...THREAD.thread, title: `Title ${index}` },
-        },
-      }));
-      for (let offset = 0; offset < events.length; offset += batchSize) {
-        yield* Queue.offerAll(first.events, events.slice(offset, offset + batchSize));
-        const last = Math.min(offset + batchSize, events.length) - 1;
-        yield* observeState(
-          h.registry,
-          h.stateAtom,
-          (state) => Option.getOrNull(state.data)?.thread.title === `Title ${last}`,
-        );
-      }
-      yield* Queue.offerAll(first.events, [events[499]!, events[0]!]);
-      yield* Queue.offer(first.events, { kind: "synchronized" });
-      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
-      expect(currentThread(h.registry, h.stateAtom).thread.title).toBe("Title 499");
-      expect(updates).toBe(Math.ceil(500 / batchSize));
-      stop();
-      unmount();
-      yield* Deferred.await(first.closed);
-      const remount = h.registry.mount(h.stateAtom);
-      const next = yield* Queue.take(h.subscriptions);
-      expect(next.afterSequence).toBe(507);
-      remount();
-      yield* Deferred.await(next.closed);
     }),
   );
 

@@ -5,8 +5,8 @@ import type {
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { makeThreadShellFixture } from "../../test-fixtures";
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
+import { makeThreadShellFixture } from "../../test-fixtures";
 
 function makeProject(
   input: Partial<EnvironmentProject> & Pick<EnvironmentProject, "environmentId" | "id" | "title">,

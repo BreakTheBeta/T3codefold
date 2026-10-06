@@ -14,6 +14,7 @@ import type {
   RunId,
   RuntimeMode,
   ScheduledTaskId,
+  ThreadId,
 } from "@t3tools/contracts";
 import type {
   EnvironmentProject,
@@ -78,7 +79,7 @@ export function isVideoAttachment(attachment: ChatFileAttachment): boolean {
   return videoMimeType(attachment) !== null;
 }
 
-function isBrowserPreviewAttachment(attachment: ChatFileAttachment): boolean {
+export function isBrowserPreviewAttachment(attachment: ChatFileAttachment): boolean {
   const mimeType = attachment.mimeType.split(";", 1)[0]?.trim().toLowerCase();
   return (
     /\.(?:html?|pdf)$/i.test(attachment.name) ||
@@ -88,7 +89,7 @@ function isBrowserPreviewAttachment(attachment: ChatFileAttachment): boolean {
 }
 
 export interface ChatMessage {
-  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
+  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
   readonly id: MessageId;
   readonly role: "user" | "assistant" | "system";
   readonly text: string;
@@ -98,6 +99,7 @@ export interface ChatMessage {
   readonly createdBy?: OrchestrationV2Actor;
   readonly creationSource?: OrchestrationV2CreationSource;
   readonly scheduledTaskId?: ScheduledTaskId;
+  readonly senderThreadId?: ThreadId;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly inputIntent?: OrchestrationV2UserMessageInputIntent | undefined;

@@ -1,4 +1,8 @@
-import { UserInputAttachments } from "./chatAttachment.ts";
+import {
+  ChatImageAttachment,
+  ChatFileAttachment,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+} from "./chatAttachment.ts";
 import * as Schema from "effect/Schema";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -26,22 +30,6 @@ export const RuntimeMode = Schema.Literals([
 ]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
-
-const runtimeModeRank = (mode: RuntimeMode) => {
-  switch (mode) {
-    case "approval-required":
-      return 0;
-    case "auto-accept-edits":
-      return 1;
-    case "auto":
-      return 2;
-    case "full-access":
-      return 3;
-  }
-};
-
-export const isRuntimeModeBroaderThan = (mode: RuntimeMode, boundary: RuntimeMode) =>
-  runtimeModeRank(mode) > runtimeModeRank(boundary);
 
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
@@ -79,7 +67,13 @@ export type ProviderApprovalOption = typeof ProviderApprovalOption.Type;
 export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unknown);
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 
-export { UserInputAttachments } from "./chatAttachment.ts";
+export const UserInputAttachments = Schema.Record(
+  Schema.String,
+  Schema.Array(Schema.Union([ChatImageAttachment, ChatFileAttachment])).pipe(
+    Schema.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS)),
+  ),
+);
+export type UserInputAttachments = typeof UserInputAttachments.Type;
 
 export const UserInputAttachmentAnswerPayload = Schema.Struct({
   requestId: TrimmedNonEmptyString,

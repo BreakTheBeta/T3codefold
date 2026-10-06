@@ -154,8 +154,20 @@ export function newLintErrors(
 
 const ZERO_SHA = /^0+$/;
 
+/** Splits long file lists so a large push stays under the OS argument-length limit. */
+function chunks<A>(items: ReadonlyArray<A>, size = 400): Array<ReadonlyArray<A>> {
+  const out: Array<ReadonlyArray<A>> = [];
+  for (let index = 0; index < items.length; index += size)
+    out.push(items.slice(index, index + size));
+  return out;
+}
+
 function git(repoRoot: string, args: ReadonlyArray<string>) {
-  return NodeChildProcess.execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
+  return NodeChildProcess.execFileSync("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 1024,
+  }).trim();
 }
 
 function gitSucceeds(repoRoot: string, args: ReadonlyArray<string>) {
@@ -223,25 +235,36 @@ function lintAddedLines(
   files: ReadonlyArray<string>,
 ) {
   console.log("\npre-push: lint (changed lines)");
-  const result = NodeChildProcess.spawnSync(
-    NodePath.join(repoRoot, "node_modules", ".bin", "vp"),
-    ["lint", "--format", "json", ...files],
-    { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-  );
-  let diagnostics: ReadonlyArray<LintDiagnostic>;
-  try {
-    diagnostics = (JSON.parse(result.stdout) as { diagnostics: ReadonlyArray<LintDiagnostic> })
-      .diagnostics;
-  } catch {
-    console.error(result.stdout, result.stderr);
-    console.error(
-      "\npre-push: lint did not run. Fix it, or bypass once with git push --no-verify.",
+  const diagnostics: Array<LintDiagnostic> = [];
+  const added = new Map<string, Set<number>>();
+  for (const batch of chunks(files)) {
+    const result = NodeChildProcess.spawnSync(
+      NodePath.join(repoRoot, "node_modules", ".bin", "vp"),
+      ["lint", "--format", "json", ...batch],
+      { cwd: repoRoot, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
     );
-    process.exit(1);
+    try {
+      diagnostics.push(
+        // A batch of only ignored files prints a notice before the JSON report.
+        ...(
+          JSON.parse(result.stdout.slice(result.stdout.indexOf("{"))) as {
+            diagnostics: ReadonlyArray<LintDiagnostic>;
+          }
+        ).diagnostics,
+      );
+    } catch {
+      console.error(result.error?.message ?? "", result.stdout, result.stderr);
+      console.error(
+        "\npre-push: lint did not run. Fix it, or bypass once with git push --no-verify.",
+      );
+      process.exit(1);
+    }
+    for (const [file, lines] of parseAddedLines(
+      git(repoRoot, ["diff", "-U0", `${base}...${head}`, "--", ...batch]),
+    )) {
+      added.set(file, lines);
+    }
   }
-  const added = parseAddedLines(
-    git(repoRoot, ["diff", "-U0", `${base}...${head}`, "--", ...files]),
-  );
   const errors = newLintErrors(diagnostics, added);
   for (const error of errors) {
     console.error(
@@ -316,12 +339,9 @@ function main() {
     NodeFS.existsSync(NodePath.join(repoRoot, file)),
   );
   if (existingLintFiles.length > 0) {
-    run(repoRoot, "format", [
-      "fmt",
-      "--check",
-      "--no-error-on-unmatched-pattern",
-      ...existingLintFiles,
-    ]);
+    for (const batch of chunks(existingLintFiles)) {
+      run(repoRoot, "format", ["fmt", "--check", "--no-error-on-unmatched-pattern", ...batch]);
+    }
     lintAddedLines(repoRoot, base!, head, existingLintFiles);
   }
   const filters = (names: ReadonlyArray<string>) => names.flatMap((name) => ["--filter", name]);
@@ -329,7 +349,16 @@ function main() {
     run(repoRoot, "typecheck", ["run", "--cache", ...filters(plan.typecheck), "typecheck"]);
   }
   if (plan.tests.length > 0) {
-    run(repoRoot, "tests", ["run", "--cache", ...filters(plan.tests), "test"]);
+    // One package at a time: each vitest run already uses every core, and stacking them
+    // starves cold module imports past the test timeout.
+    run(repoRoot, "tests", [
+      "run",
+      "--cache",
+      "--concurrency-limit",
+      "1",
+      ...filters(plan.tests),
+      "test",
+    ]);
   }
   console.log("\npre-push: all checks passed.");
 }

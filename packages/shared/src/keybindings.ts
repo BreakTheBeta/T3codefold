@@ -52,13 +52,24 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "alt+arrowup", command: "thread.editQueuedMessage", when: "composerFocus" },
   { key: "mod+enter", command: "composer.sendAlternate", when: "composerFocus && turnRunning" },
   {
+    key: "mod+enter",
+    command: "composer.sendBackground",
+    when: "composerFocus && draftThreadRoute",
+  },
+  {
     key: "mod+alt+enter",
     command: "composer.sendBackground",
     when: "composerFocus && draftThreadRoute",
   },
+  {
+    key: "mod+alt+enter",
+    command: "composer.sendAndNewThread",
+    when: "composerFocus && !draftThreadRoute",
+  },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+  { key: "mod+alt+n", command: "chat.newWithoutProject", when: "!terminalFocus" },
   { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
   { key: "mod+shift+h", command: "composer.host", when: "!terminalFocus" },
   { key: "mod+shift+e", command: "composer.effort", when: "!terminalFocus" },
@@ -343,6 +354,7 @@ export function keybindingsForVoiceClient(
     ? keybindings
     : keybindings.filter((binding) => !binding.command.startsWith("voice."));
 }
+
 /** Older hosts do not know the voice shortcuts. Host bindings retain precedence. */
 export function withDefaultVoiceKeybindings(
   keybindings: ResolvedKeybindingsConfig,

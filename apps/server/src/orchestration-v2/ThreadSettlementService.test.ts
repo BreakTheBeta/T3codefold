@@ -3,14 +3,18 @@ import * as DateTime from "effect/DateTime";
 import {
   DEFAULT_SERVER_SETTINGS,
   ProjectId,
+  EventId,
   ProviderInstanceId,
+  ProviderSessionId,
   ThreadId,
   type OrchestrationProjectShell,
+  type OrchestrationV2AppThread,
   type OrchestrationV2Command,
+  type OrchestrationV2DomainEvent,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ThreadShell,
   type PullRequestSummary,
-  type ServerSettings,
+  type ServerSettings as ContractServerSettings,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
@@ -25,25 +29,15 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
-import { GitManager, type GitBranchPullRequest } from "../git/GitManager.ts";
-import {
-  PullRequestService,
-  type PullRequestMergeEvent,
-} from "../pullRequest/PullRequestService.ts";
-import { ServerActivation } from "../serverActivation.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { OrchestratorV2, type OrchestratorV2Shape } from "./Orchestrator.ts";
-import { ProjectionStoreV2 } from "./ProjectionStore.ts";
+import * as GitManager from "../git/GitManager.ts";
+import * as PullRequestService from "../pullRequest/PullRequestService.ts";
+import * as ServerActivation from "../serverActivation.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as TerminalManager from "../terminal/Manager.ts";
+import * as ProjectStore from "./ProjectStore.ts";
+import * as Orchestrator from "./Orchestrator.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ThreadSettlementService from "./ThreadSettlementService.ts";
-
-import {
-  autoSettlementSettingsKey,
-  isAutoSettlementCandidate,
-  QUEUED_TURN_START_GRACE_MS,
-  resolveAutoSettlementAt,
-  threadHasQueuedTurnStart,
-} from "./ThreadSettlementService.ts";
 
 const NOW_MS = Date.parse("2026-06-10T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -52,7 +46,12 @@ function at(offsetMs: number): DateTime.Utc {
   return DateTime.makeUnsafe(NOW_MS + offsetMs);
 }
 
-function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): OrchestrationV2ThreadShell {
+type SettlementShell = OrchestrationV2ThreadShell &
+  Pick<ProjectionStore.ProjectionSettlementCandidate, "latestUserAuthoredMessageAt">;
+
+// A fixture's user message is one the user wrote unless the test sets
+// latestUserAuthoredMessageAt on its own.
+function shell(overrides: Partial<SettlementShell> = {}): SettlementShell {
   return {
     id: ThreadId.make("thread-1"),
     projectId: ProjectId.make("project-1"),
@@ -89,6 +88,7 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     latestRunStartedAt: null,
     latestRunCompletedAt: null,
     latestUserMessageAt: null,
+    latestUserAuthoredMessageAt: overrides.latestUserMessageAt ?? null,
     createdAt: at(-30 * DAY_MS),
     updatedAt: at(-10 * DAY_MS),
     archivedAt: null,
@@ -103,14 +103,39 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
 
 describe("isAutoSettlementCandidate", () => {
   it("excludes overridden, pinned, blocked, and working threads", () => {
-    expect(isAutoSettlementCandidate(shell(), NOW_MS)).toBe(true);
-    expect(isAutoSettlementCandidate(shell({ archivedAt: at(-1) }), NOW_MS)).toBe(false);
-    expect(isAutoSettlementCandidate(shell({ settledOverride: "settled" }), NOW_MS)).toBe(false);
-    expect(isAutoSettlementCandidate(shell({ settledOverride: "active" }), NOW_MS)).toBe(false);
-    expect(isAutoSettlementCandidate(shell({ pinnedAt: at(-1) }), NOW_MS)).toBe(false);
-    expect(isAutoSettlementCandidate(shell({ activityRunStatus: "running" }), NOW_MS)).toBe(false);
+    expect(ThreadSettlementService.isAutoSettlementCandidate(shell(), NOW_MS)).toBe(true);
     expect(
-      isAutoSettlementCandidate(
+      ThreadSettlementService.isAutoSettlementCandidate(shell({ archivedAt: at(-1) }), NOW_MS),
+    ).toBe(false);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ settledOverride: "settled" }),
+        NOW_MS,
+      ),
+    ).toBe(false);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ settledOverride: "active" }),
+        NOW_MS,
+      ),
+    ).toBe(false);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(shell({ pinnedAt: at(-1) }), NOW_MS),
+    ).toBe(false);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ autoSettleDisabledAt: at(-1) }),
+        NOW_MS,
+      ),
+    ).toBe(false);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ activityRunStatus: "running" }),
+        NOW_MS,
+      ),
+    ).toBe(false);
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
         shell({
           pendingRuntimeRequest: { kind: "approval" } as never,
         }),
@@ -118,11 +143,24 @@ describe("isAutoSettlementCandidate", () => {
       ),
     ).toBe(false);
     expect(
-      isAutoSettlementCandidate(
-        shell({ pendingBackgroundTasks: [{ label: "task" }] as never }),
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ pendingBackgroundTasks: [{ taskId: "review", kind: "subagent" }] }),
         NOW_MS,
       ),
     ).toBe(false);
+  });
+
+  it("settles a thread whose only background work is a command left running", () => {
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({
+          pendingBackgroundTasks: [
+            { taskId: "dev", kind: "command", description: "vp run dev --share" },
+          ],
+        }),
+        NOW_MS,
+      ),
+    ).toBe(true);
   });
 
   it("keeps snoozed threads parked until they wake early on error or completion", () => {
@@ -130,51 +168,54 @@ describe("isAutoSettlementCandidate", () => {
       snoozedUntil: at(60 * 60 * 1_000),
       snoozedAt: at(-60 * 60 * 1_000),
     });
-    expect(isAutoSettlementCandidate(snoozed, NOW_MS)).toBe(false);
+    expect(ThreadSettlementService.isAutoSettlementCandidate(snoozed, NOW_MS)).toBe(false);
     expect(
-      isAutoSettlementCandidate(
+      ThreadSettlementService.isAutoSettlementCandidate(
         shell({ ...snoozed, status: "failed", latestRunCompletedAt: at(-30 * 60 * 1_000) }),
         NOW_MS,
       ),
     ).toBe(true);
     expect(
-      isAutoSettlementCandidate(
+      ThreadSettlementService.isAutoSettlementCandidate(
         shell({ ...snoozed, latestRunCompletedAt: at(-30 * 60 * 1_000) }),
         NOW_MS,
       ),
     ).toBe(true);
     expect(
-      isAutoSettlementCandidate(
+      ThreadSettlementService.isAutoSettlementCandidate(
         shell({ ...snoozed, status: "failed", latestRunCompletedAt: at(-2 * 60 * 60 * 1_000) }),
         NOW_MS,
       ),
     ).toBe(false);
     expect(
-      isAutoSettlementCandidate(
+      ThreadSettlementService.isAutoSettlementCandidate(
         shell({ ...snoozed, status: "failed", latestRunCompletedAt: snoozed.snoozedAt }),
         NOW_MS,
       ),
     ).toBe(false);
     expect(
-      isAutoSettlementCandidate(
+      ThreadSettlementService.isAutoSettlementCandidate(
         shell({ ...snoozed, status: "failed", latestRunCompletedAt: null }),
         NOW_MS,
       ),
     ).toBe(false);
     // Expired snooze is no longer a park.
-    expect(isAutoSettlementCandidate(shell({ ...snoozed, snoozedUntil: at(-1) }), NOW_MS)).toBe(
-      true,
-    );
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ ...snoozed, snoozedUntil: at(-1) }),
+        NOW_MS,
+      ),
+    ).toBe(true);
   });
 });
 
 describe("threadHasQueuedTurnStart", () => {
   it("holds a fresh unadopted user message inside the grace window only", () => {
     const fresh = shell({ latestUserMessageAt: at(-1_000) });
-    expect(threadHasQueuedTurnStart(fresh, NOW_MS)).toBe(true);
+    expect(ThreadSettlementService.threadHasQueuedTurnStart(fresh, NOW_MS)).toBe(true);
     // Adoption stamps the run with the message time, clearing the hold.
     expect(
-      threadHasQueuedTurnStart(
+      ThreadSettlementService.threadHasQueuedTurnStart(
         shell({
           latestUserMessageAt: at(-1_000),
           latestRunId: "run-1" as never,
@@ -185,21 +226,21 @@ describe("threadHasQueuedTurnStart", () => {
     ).toBe(false);
     // Outside the grace window the stale message no longer blocks.
     expect(
-      threadHasQueuedTurnStart(
-        shell({ latestUserMessageAt: at(-QUEUED_TURN_START_GRACE_MS - 1) }),
+      ThreadSettlementService.threadHasQueuedTurnStart(
+        shell({ latestUserMessageAt: at(-ThreadSettlementService.QUEUED_TURN_START_GRACE_MS - 1) }),
         NOW_MS,
       ),
     ).toBe(false);
     // Client clocks ahead of the server must not extend the hold.
     expect(
-      threadHasQueuedTurnStart(
-        shell({ latestUserMessageAt: at(QUEUED_TURN_START_GRACE_MS + 1) }),
+      ThreadSettlementService.threadHasQueuedTurnStart(
+        shell({ latestUserMessageAt: at(ThreadSettlementService.QUEUED_TURN_START_GRACE_MS + 1) }),
         NOW_MS,
       ),
     ).toBe(false);
     // A failed start clears the hold immediately.
     expect(
-      threadHasQueuedTurnStart(
+      ThreadSettlementService.threadHasQueuedTurnStart(
         shell({ latestUserMessageAt: at(-1_000), status: "failed" }),
         NOW_MS,
       ),
@@ -222,10 +263,16 @@ describe("resolveAutoSettlementAt", () => {
       autoSettleAfterDays: 2,
       autoSettleOnMerge: true,
     };
-    expect(resolveAutoSettlementAt(input)).toEqual(at(-3 * DAY_MS));
-    expect(resolveAutoSettlementAt({ ...input, autoSettleAfterDays: 5 })).toBeNull();
-    expect(resolveAutoSettlementAt({ ...input, autoSettleAfterDays: null })).toBeNull();
-    expect(resolveAutoSettlementAt({ ...input, thread: shell() })).toBeNull();
+    expect(ThreadSettlementService.resolveAutoSettlementAt(input)).toEqual(at(-3 * DAY_MS));
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({ ...input, autoSettleAfterDays: 5 }),
+    ).toBeNull();
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({ ...input, autoSettleAfterDays: null }),
+    ).toBeNull();
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({ ...input, thread: shell() }),
+    ).toBeNull();
   });
 
   it("settles on merge only after the user's last action and preserves the activity time", () => {
@@ -243,23 +290,50 @@ describe("resolveAutoSettlementAt", () => {
       autoSettleAfterDays: null,
       autoSettleOnMerge: true,
     };
-    expect(resolveAutoSettlementAt(input)).toEqual(at(-90 * 60 * 1_000));
-    expect(resolveAutoSettlementAt({ ...input, autoSettleOnMerge: false })).toBeNull();
+    expect(ThreadSettlementService.resolveAutoSettlementAt(input)).toEqual(at(-90 * 60 * 1_000));
     expect(
-      resolveAutoSettlementAt({
+      ThreadSettlementService.resolveAutoSettlementAt({ ...input, autoSettleOnMerge: false }),
+    ).toBeNull();
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({
         ...input,
         pullRequest: { state: "merged", mergedAt: DateTime.formatIso(at(-3 * 60 * 60 * 1_000)) },
       }),
     ).toBeNull();
     // A thread without messages still has a stable timestamp when its PR closes.
     expect(
-      resolveAutoSettlementAt({
+      ThreadSettlementService.resolveAutoSettlementAt({
         ...input,
         thread: shell(),
         pullRequest: { state: "closed", closedAt: DateTime.formatIso(at(-1)) },
         autoSettleOnMerge: false,
       }),
     ).toEqual(shell().createdAt);
+  });
+
+  it("settles on merge after agent-started runs, but not after the user writes again", () => {
+    // A background command stopped after the merge and its notification
+    // started a run. Only the user's own messages hold a merged thread open.
+    const woken = shell({
+      latestUserMessageAt: at(-30 * 60 * 1_000),
+      latestUserAuthoredMessageAt: at(-2 * 60 * 60 * 1_000),
+      latestRunRequestedAt: at(-30 * 60 * 1_000),
+      latestRunCompletedAt: at(-29 * 60 * 1_000),
+    });
+    const input = {
+      thread: woken,
+      pullRequest: { state: "merged" as const, mergedAt: DateTime.formatIso(at(-60 * 60 * 1_000)) },
+      nowMs: NOW_MS,
+      autoSettleAfterDays: null,
+      autoSettleOnMerge: true,
+    };
+    expect(ThreadSettlementService.resolveAutoSettlementAt(input)).toEqual(at(-29 * 60 * 1_000));
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({
+        ...input,
+        thread: { ...woken, latestUserAuthoredMessageAt: at(-30 * 60 * 1_000) },
+      }),
+    ).toBeNull();
   });
 
   it("settles inactive threads even when their pull request remains open", () => {
@@ -270,10 +344,12 @@ describe("resolveAutoSettlementAt", () => {
       autoSettleAfterDays: 2,
       autoSettleOnMerge: true,
     };
-    expect(resolveAutoSettlementAt(input)).toEqual(at(-30 * DAY_MS));
-    expect(resolveAutoSettlementAt({ ...input, autoSettleAfterDays: null })).toBeNull();
+    expect(ThreadSettlementService.resolveAutoSettlementAt(input)).toEqual(at(-30 * DAY_MS));
     expect(
-      resolveAutoSettlementAt({
+      ThreadSettlementService.resolveAutoSettlementAt({ ...input, autoSettleAfterDays: null }),
+    ).toBeNull();
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({
         ...input,
         thread: shell({ latestUserMessageAt: at(-DAY_MS) }),
       }),
@@ -287,11 +363,11 @@ const LINKED_PROJECT_ID = ProjectId.make("linked-settlement-project");
 
 describe("autoSettlementSettingsKey", () => {
   it("distinguishes a project that inherits the threshold from one that disables it", () => {
-    const inherits = autoSettlementSettingsKey({
+    const inherits = ThreadSettlementService.autoSettlementSettingsKey({
       ...DEFAULT_SERVER_SETTINGS,
       projectSettingsOverrides: { [PROJECT_ID]: { sidebarAutoSettleOnMerge: true } },
     });
-    const never = autoSettlementSettingsKey({
+    const never = ThreadSettlementService.autoSettlementSettingsKey({
       ...DEFAULT_SERVER_SETTINGS,
       projectSettingsOverrides: {
         [PROJECT_ID]: { sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: null },
@@ -301,11 +377,11 @@ describe("autoSettlementSettingsKey", () => {
   });
 
   it("ignores project overrides that do not touch settlement", () => {
-    const base = autoSettlementSettingsKey({
+    const base = ThreadSettlementService.autoSettlementSettingsKey({
       ...DEFAULT_SERVER_SETTINGS,
       projectSettingsOverrides: { [PROJECT_ID]: { sidebarAutoSettleOnMerge: false } },
     });
-    const unrelated = autoSettlementSettingsKey({
+    const unrelated = ThreadSettlementService.autoSettlementSettingsKey({
       ...DEFAULT_SERVER_SETTINGS,
       projectSettingsOverrides: {
         [LINKED_PROJECT_ID]: { defaultThreadEnvMode: "worktree" },
@@ -338,10 +414,7 @@ function makeProject(
   };
 }
 
-function makeThread(
-  id: string,
-  overrides: Partial<OrchestrationV2ThreadShell> = {},
-): OrchestrationV2ThreadShell {
+function makeThread(id: string, overrides: Partial<SettlementShell> = {}): SettlementShell {
   return shell({
     id: ThreadId.make(id),
     projectId: PROJECT_ID,
@@ -353,10 +426,14 @@ function makeThread(
   });
 }
 
+type SettlementSnapshot = Omit<OrchestrationV2ShellSnapshot, "threads"> & {
+  readonly threads: ReadonlyArray<SettlementShell>;
+};
+
 function makeSnapshot(
-  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  threads: ReadonlyArray<SettlementShell>,
   projects: ReadonlyArray<OrchestrationProjectShell> = [makeProject()],
-): OrchestrationV2ShellSnapshot {
+): SettlementSnapshot {
   return {
     schemaVersion: 1,
     snapshotSequence: 1,
@@ -399,16 +476,18 @@ function makeBranchPullRequest(state: "open" | "closed" | "merged") {
     updatedAt: NOW,
     closedAt: state === "closed" ? NOW : null,
     mergedAt: state === "merged" ? NOW : null,
-  } satisfies GitBranchPullRequest;
+  } satisfies GitManager.GitBranchPullRequest;
 }
 
 interface HarnessOptions {
-  readonly snapshot: OrchestrationV2ShellSnapshot;
-  readonly settings?: ServerSettings;
-  readonly branchPullRequest?: GitManager["Service"]["branchPullRequest"];
-  readonly pullRequestSummary?: PullRequestService["Service"]["summary"];
+  readonly snapshot: SettlementSnapshot;
+  readonly settings?: ContractServerSettings;
+  readonly branchPullRequest?: GitManager.GitManager["Service"]["branchPullRequest"];
+  readonly pullRequestSummary?: PullRequestService.PullRequestService["Service"]["summary"];
   readonly existingWorktreePaths?: ReadonlyArray<string>;
   readonly onDispatch?: (command: AutoSettleCommand) => Effect.Effect<void>;
+  /** Threads `getThread` returns when a `thread.settled` event is handled. */
+  readonly currentThreads?: ReadonlyArray<OrchestrationV2AppThread>;
 }
 
 const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options: HarnessOptions) {
@@ -416,9 +495,10 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const snapshots = yield* Ref.make(options.snapshot);
   const snapshotReadCount = yield* Ref.make(0);
   const snapshotReads = yield* Queue.unbounded<number>();
+  const candidateReads = yield* Ref.make<ReadonlyArray<string | undefined>>([]);
   const settings = yield* Ref.make(options.settings ?? DEFAULT_SERVER_SETTINGS);
-  const settingsChanges = yield* PubSub.unbounded<ServerSettings>();
-  const mergedPullRequests = yield* PubSub.unbounded<PullRequestMergeEvent>();
+  const settingsChanges = yield* PubSub.unbounded<ContractServerSettings>();
+  const mergedPullRequests = yield* PubSub.unbounded<PullRequestService.PullRequestMergeEvent>();
   const commands = yield* Ref.make<ReadonlyArray<AutoSettleCommand>>([]);
   const branchCalls = yield* Ref.make<
     ReadonlyArray<{ readonly cwd: string; readonly branch: string }>
@@ -432,6 +512,8 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   >([]);
   const summaryRecovery = yield* Ref.make<ReadonlyArray<boolean | undefined>>([]);
   const invalidatedCwds = yield* Ref.make<ReadonlyArray<string>>([]);
+  const domainEvents = yield* PubSub.unbounded<OrchestrationV2DomainEvent>();
+  const closedIdle = yield* Queue.unbounded<{ readonly threadId: string }>();
 
   const updateSettings = (patch: ServerSettingsPatch) =>
     Effect.gen(function* () {
@@ -441,11 +523,14 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       return next;
     });
 
-  const branchPullRequest: GitManager["Service"]["branchPullRequest"] = (input) =>
+  const branchPullRequest: GitManager.GitManager["Service"]["branchPullRequest"] = (input) =>
     Ref.update(branchCalls, (calls) => [...calls, input]).pipe(
       Effect.andThen(options.branchPullRequest?.(input) ?? Effect.succeed(null)),
     );
-  const pullRequestSummary: PullRequestService["Service"]["summary"] = (input, readOptions) =>
+  const pullRequestSummary: PullRequestService.PullRequestService["Service"]["summary"] = (
+    input,
+    readOptions,
+  ) =>
     Effect.gen(function* () {
       yield* Ref.update(summaryCalls, (calls) => [...calls, input]);
       yield* Ref.update(summaryRecovery, (values) => [
@@ -463,7 +548,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       );
     });
 
-  const dispatch: OrchestratorV2Shape["dispatch"] = (command) => {
+  const dispatch: Orchestrator.OrchestratorV2Shape["dispatch"] = (command) => {
     if (command.type !== "thread.auto-settle") {
       return Effect.die(new Error(`Unexpected command: ${command.type}`));
     }
@@ -473,7 +558,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     );
   };
 
-  const serverSettings = ServerSettingsService.of({
+  const serverSettings = ServerSettings.ServerSettingsService.of({
     start: Effect.void,
     ready: Effect.void,
     getSettings: Ref.get(settings),
@@ -487,34 +572,47 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   });
 
   const dependencies = Layer.mergeAll(
-    Layer.mock(ProjectionSnapshotQuery)({
-      getProjectShellsWithoutEnrichment: () =>
-        Ref.get(snapshots).pipe(Effect.map((snapshot) => snapshot.projects)),
+    Layer.mock(ProjectStore.ProjectStoreV2)({
+      listShells: () => Ref.get(snapshots).pipe(Effect.map((snapshot) => snapshot.projects)),
     }),
-    Layer.mock(ProjectionStoreV2)({
-      getSettlementCandidates: () =>
-        Ref.updateAndGet(snapshotReadCount, (count) => count + 1).pipe(
+    Layer.mock(ProjectionStore.ProjectionStoreV2)({
+      getSettlementCandidates: (threadId) =>
+        Ref.update(candidateReads, (reads) => [...reads, threadId]).pipe(
+          Effect.andThen(Ref.updateAndGet(snapshotReadCount, (count) => count + 1)),
           Effect.tap((count) => Queue.offer(snapshotReads, count)),
           Effect.andThen(Ref.get(snapshots)),
-          Effect.map((snapshot) => snapshot.threads),
+          Effect.map((snapshot) =>
+            threadId === undefined
+              ? snapshot.threads
+              : snapshot.threads.filter((thread) => thread.id === threadId),
+          ),
         ),
+      getThread: (threadId) => {
+        const thread = options.currentThreads?.find((candidate) => candidate.id === threadId);
+        return thread
+          ? Effect.succeed(thread)
+          : Effect.die(new Error(`Unexpected thread read: ${threadId}`));
+      },
     }),
-    Layer.mock(OrchestratorV2)({
-      streamDomainEvents: Stream.empty,
+    Layer.mock(Orchestrator.OrchestratorV2)({
+      streamDomainEvents: Stream.fromPubSub(domainEvents),
       dispatch,
     }),
-    Layer.mock(GitManager)({
+    Layer.mock(TerminalManager.TerminalManager)({
+      closeIdle: (input) => Queue.offer(closedIdle, input).pipe(Effect.asVoid),
+    }),
+    Layer.mock(GitManager.GitManager)({
       branchPullRequest,
       invalidateStatus: (cwd) => Ref.update(invalidatedCwds, (cwds) => [...cwds, cwd]),
     }),
-    Layer.mock(PullRequestService)({
+    Layer.mock(PullRequestService.PullRequestService)({
       summary: pullRequestSummary,
       subscribeMerges: PubSub.subscribe(mergedPullRequests).pipe(
         Effect.map((subscription) => Stream.fromSubscription(subscription)),
       ),
     }),
-    Layer.succeed(ServerSettingsService, serverSettings),
-    Layer.succeed(ServerActivation, Deferred.await(activation)),
+    Layer.succeed(ServerSettings.ServerSettingsService, serverSettings),
+    Layer.succeed(ServerActivation.ServerActivation, Deferred.await(activation)),
     Layer.succeed(Crypto.Crypto, testCrypto),
     FileSystem.layerNoop({
       exists: (path) => Effect.succeed(options.existingWorktreePaths?.includes(path) ?? false),
@@ -526,11 +624,14 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     snapshots,
     snapshotReadCount,
     snapshotReads,
+    candidateReads,
     commands,
     branchCalls,
     summaryCalls,
     summaryRecovery,
     invalidatedCwds,
+    closedIdle,
+    publishEvent: (event: OrchestrationV2DomainEvent) => PubSub.publish(domainEvents, event),
     updateSettings,
     publishMerge: PubSub.publish(mergedPullRequests, {
       projectId: PROJECT_ID,
@@ -554,6 +655,49 @@ const startHarness = Effect.fn("startThreadSettlementHarness")(function* (
 });
 
 describe("ThreadSettlementServiceV2 worker", () => {
+  it.effect("settles a merged pull request stored only in the thread links", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("merged-link", {
+          pullRequests: [
+            {
+              host: "example.test",
+              repository: "owner/repository",
+              number: 42,
+              url: "https://example.test/owner/repository/pull/42",
+              source: "manual",
+              linkedAt: "2026-08-20T00:00:00.000Z",
+              snapshot: {
+                state: "merged",
+                title: "Pull request",
+                headBranch: "feature",
+                baseBranch: "main",
+                isDraft: false,
+                updatedAt: NOW,
+                syncedAt: NOW,
+                mergedAt: NOW,
+              },
+              stack: null,
+            },
+          ],
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: null },
+        });
+
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual([
+            thread.id,
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
   it.effect("settles only the project opted in while environment settlement is disabled", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -601,6 +745,50 @@ describe("ThreadSettlementServiceV2 worker", () => {
           expect(commands).toHaveLength(1);
           expect(commands[0]?.settledAt).toEqual(thread.latestRunCompletedAt);
           expect(commands[0]?.snapshotAt).toEqual(thread.updatedAt);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("skips the branch recheck when a terminal link would settle nothing", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const previous = {
+          projectId: PROJECT_ID,
+          repository: "owner/repository",
+          number: 1,
+          url: "https://example.test/owner/repository/pull/1",
+        };
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot(
+            [
+              makeThread("resumed-manual", {
+                branch: "main",
+                linkedPullRequest: previous,
+                latestUserMessageAt: DateTime.makeUnsafe("2026-08-28T00:00:00.000Z"),
+              }),
+            ],
+            [makeProject()],
+          ),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleAfterDays: null,
+            sidebarAutoSettleOnMerge: true,
+          },
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("open")),
+          pullRequestSummary: (input) =>
+            Effect.succeed({
+              ...makePullRequestSummary({ ...input, state: "merged" }),
+              mergedAt: "2026-08-27T00:00:00.000Z",
+            }),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          assert.deepStrictEqual(yield* Ref.get(fixture.commands), []);
+          assert.strictEqual((yield* Ref.get(fixture.summaryCalls)).length, 1);
+          assert.deepStrictEqual(yield* Ref.get(fixture.branchCalls), []);
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),
@@ -818,73 +1006,119 @@ describe("ThreadSettlementServiceV2 worker", () => {
   );
 });
 
-function pullRequestLink(input: {
-  readonly number: number;
-  readonly state: "open" | "closed" | "merged" | null;
-  readonly terminalAt?: string;
-}) {
-  return {
-    host: "github.com",
-    repository: "owner/repository",
-    number: input.number,
-    url: `https://example.test/owner/repository/pull/${input.number}`,
-    source: "stack" as const,
-    linkedAt: "2026-06-01T00:00:00.000Z",
-    snapshot:
-      input.state === null
-        ? null
-        : {
-            state: input.state,
-            title: "Pull request",
-            headBranch: `feature-${input.number}`,
-            baseBranch: "main",
-            isDraft: false,
-            updatedAt: input.terminalAt ?? NOW,
-            syncedAt: NOW,
-            ...(input.state === "merged" ? { mergedAt: input.terminalAt ?? NOW } : {}),
-            ...(input.state === "closed" ? { closedAt: input.terminalAt ?? NOW } : {}),
-          },
-    stack: null,
+describe("ThreadSettlementServiceV2 terminals", () => {
+  const appThread = (
+    id: string,
+    settledOverride: OrchestrationV2AppThread["settledOverride"],
+  ): OrchestrationV2AppThread => {
+    const threadId = ThreadId.make(id);
+    return {
+      createdBy: "user",
+      creationSource: "web",
+      id: threadId,
+      projectId: PROJECT_ID,
+      title: id,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      activeProviderThreadId: null,
+      lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+      forkedFrom: null,
+      createdAt: DateTime.makeUnsafe(NOW),
+      updatedAt: DateTime.makeUnsafe(NOW),
+      archivedAt: null,
+      settledOverride,
+      settledAt: settledOverride === "settled" ? DateTime.makeUnsafe(NOW) : null,
+      lastVisitedAt: null,
+      deletedAt: null,
+    };
   };
-}
-
-describe("resolveAutoSettlementAt", () => {
-  it("keeps an open or unsynced stack link from being settled by age or branch state", () => {
-    const base = shell({
-      latestRunCompletedAt: at(-10 * DAY_MS),
-      latestUserMessageAt: at(-10 * DAY_MS),
-    });
-    for (const state of ["open", null] as const) {
-      assert.isNull(
-        resolveAutoSettlementAt({
-          thread: { ...base, pullRequests: [pullRequestLink({ number: 42, state })] },
-          pullRequest: { state: "closed", closedAt: NOW },
-          nowMs: NOW_MS,
-          autoSettleAfterDays: 1,
-          autoSettleOnMerge: true,
-        }),
-      );
-    }
+  const settledEvent = (thread: OrchestrationV2AppThread): OrchestrationV2DomainEvent => ({
+    type: "thread.settled",
+    id: EventId.make(`event:settled:${thread.id}`),
+    threadId: thread.id,
+    occurredAt: DateTime.makeUnsafe(NOW),
+    payload: thread,
   });
 
-  it("uses the latest terminal stack snapshot and preserves the last activity settlement time", () => {
-    const thread = shell({
-      latestUserMessageAt: at(-5 * DAY_MS),
-      latestRunCompletedAt: at(-2 * DAY_MS),
-      pullRequests: [
-        pullRequestLink({ number: 41, state: "closed", terminalAt: "2026-06-06T00:00:00.000Z" }),
-        pullRequestLink({ number: 42, state: "merged", terminalAt: "2026-06-09T00:00:00.000Z" }),
-      ],
-    });
-    assert.deepEqual(
-      resolveAutoSettlementAt({
-        thread,
-        pullRequest: null,
-        nowMs: NOW_MS,
-        autoSettleAfterDays: null,
-        autoSettleOnMerge: true,
+  it.effect("closes the thread's idle terminals when it settles", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = appThread("settled-thread", "settled");
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([]),
+          currentThreads: [thread],
+        });
+
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          yield* fixture.publishEvent(settledEvent(thread));
+          assert.deepStrictEqual(yield* Queue.take(fixture.closedIdle), { threadId: thread.id });
+        }).pipe(Effect.provide(fixture.layer));
       }),
-      thread.latestRunCompletedAt,
-    );
-  });
+    ),
+  );
+
+  it.effect("keeps the terminals of a thread re-engaged before the event ran", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const settled = appThread("reengaged-thread", "settled");
+        const reengaged = appThread("reengaged-thread", "active");
+        const marker = appThread("marker-thread", "settled");
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([]),
+          currentThreads: [reengaged, marker],
+        });
+
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          yield* fixture.publishEvent(settledEvent(settled));
+          // Events run in order, so the first close belongs to the later
+          // event only if the re-engaged thread was skipped.
+          yield* fixture.publishEvent(settledEvent(marker));
+          assert.deepStrictEqual(yield* Queue.take(fixture.closedIdle), { threadId: marker.id });
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+});
+
+describe("ThreadSettlementServiceV2 single-thread sweeps", () => {
+  it.effect("a finished run reads only its own thread's settlement candidate", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const finished = makeThread("finished-run");
+        const other = makeThread("other-thread");
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([finished, other]),
+          settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: 3 },
+        });
+
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          yield* Ref.set(fixture.candidateReads, []);
+          yield* fixture.publishEvent({
+            type: "provider-session.detached",
+            id: EventId.make("event:detached"),
+            threadId: finished.id,
+            occurredAt: DateTime.makeUnsafe(NOW),
+            payload: {
+              providerSessionId: ProviderSessionId.make("provider-session:finished"),
+              detachedAt: DateTime.makeUnsafe(NOW),
+            },
+          });
+          yield* Queue.take(fixture.snapshotReads);
+          yield* service.drain;
+          assert.deepStrictEqual(yield* Ref.get(fixture.candidateReads), [finished.id]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
 });

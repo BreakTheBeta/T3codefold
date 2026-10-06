@@ -12,7 +12,7 @@
 import {
   ProjectIconColor,
   type OrchestrationProjectShell,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 
 import {
@@ -56,7 +56,7 @@ export function projectSplatterColor(
   return colors[index] ?? "blue";
 }
 
-type ScopedThread = Pick<OrchestrationThreadShell, "projectId" | "pullRequests"> & {
+type ScopedThread = Pick<OrchestrationV2ThreadShell, "projectId" | "pullRequests"> & {
   readonly environmentId: string;
 };
 type ScopedProject = Pick<OrchestrationProjectShell, "id" | "title" | "projectIcon"> & {
@@ -76,7 +76,7 @@ export function collectMergedPullRequests(
   const merges = new Map<string, MergedPullRequest>();
   let colors: Map<string, ProjectIconColor> | null = null;
   for (const thread of threads) {
-    for (const link of thread.pullRequests) {
+    for (const link of thread.pullRequests ?? []) {
       const mergedAt = link.snapshot?.state === "merged" ? link.snapshot.mergedAt : null;
       if (!mergedAt || link.source === "stack-dismissed") continue;
       const key = `${link.host}/${link.repository}#${link.number}`.toLowerCase();

@@ -20,15 +20,15 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
-import { EffectOutboxV2, layer as effectOutboxLayer } from "./EffectOutbox.ts";
-import { ProjectionStoreV2, layer as projectionStoreLayer } from "./ProjectionStore.ts";
+import * as EffectOutbox from "./EffectOutbox.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 import { restartContinuationRun } from "./RestartContinuation.ts";
 
-const TestLayer = Layer.mergeAll(projectionStoreLayer, effectOutboxLayer).pipe(
+const TestLayer = Layer.mergeAll(ProjectionStore.layer, EffectOutbox.layer).pipe(
   Layer.provideMerge(SqlitePersistenceMemory),
 );
 const providerInstanceId = ProviderInstanceId.make("codex");
@@ -39,7 +39,7 @@ const createThread = Effect.fn(function* (
   name: string,
   overrides: Partial<OrchestrationV2AppThread> = {},
 ) {
-  const projections = yield* ProjectionStoreV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
   const threadId = ThreadId.make(`thread:recovery:${name}`);
   const thread: OrchestrationV2AppThread = {
@@ -81,7 +81,7 @@ const createRun = Effect.fn(function* (
   status: OrchestrationV2Run["status"],
   overrides: Partial<OrchestrationV2Run> = {},
 ) {
-  const projections = yield* ProjectionStoreV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
   const ordinal = overrides.ordinal ?? 1;
   const runId = RunId.make(`run:${threadId}:${ordinal}`);
@@ -115,8 +115,8 @@ const createRun = Effect.fn(function* (
 
 it.effect("selects unfinished recovery work without reading settled thread histories", () =>
   Effect.gen(function* () {
-    const projections = yield* ProjectionStoreV2;
-    const outbox = yield* EffectOutboxV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const outbox = yield* EffectOutbox.EffectOutboxV2;
     const sql = yield* SqlClient.SqlClient;
     const now = yield* DateTime.now;
     for (let index = 0; index < 600; index += 1) {
@@ -226,7 +226,7 @@ it.effect("selects unfinished recovery work without reading settled thread histo
 
 it.effect("recovers terminal subagent results until their cross-thread transfer exists", () =>
   Effect.gen(function* () {
-    const projections = yield* ProjectionStoreV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
     const sql = yield* SqlClient.SqlClient;
     const now = yield* DateTime.now;
     const parent = yield* createThread("subagent-parent");
@@ -288,7 +288,7 @@ it.effect("recovers terminal subagent results until their cross-thread transfer 
 
 it.effect("includes shared sessions and provider-owned background rosters in recovery", () =>
   Effect.gen(function* () {
-    const projections = yield* ProjectionStoreV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
     const now = yield* DateTime.now;
     const first = yield* createThread("shared-first");
     const second = yield* createThread("shared-second", { archivedAt: now });
@@ -339,7 +339,9 @@ it.effect("includes shared sessions and provider-owned background rosters in rec
         forkedFrom: null,
         createdAt: now,
         updatedAt: now,
-        pendingBackgroundTasks: [{ taskId: "background", description: "Still running" }],
+        pendingBackgroundTasks: [
+          { taskId: "background", description: "Still running", kind: "command" },
+        ],
       },
     });
     const prepared = yield* createThread("prepared-continuation");
@@ -418,9 +420,76 @@ it.effect("includes shared sessions and provider-owned background rosters in rec
   }).pipe(Effect.provide(TestLayer)),
 );
 
+it.effect("reads the run that owns a background roster, not a queued or resumed one", () =>
+  Effect.gen(function* () {
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const now = yield* DateTime.now;
+    const withRoster = Effect.fn(function* (threadId: ThreadId) {
+      yield* projections.apply({
+        id: EventId.make(`event:${threadId}:roster`),
+        type: "provider-thread.updated",
+        threadId,
+        driver,
+        providerInstanceId,
+        occurredAt: now,
+        payload: {
+          id: ProviderThreadId.make(`provider-thread:${threadId}`),
+          appThreadId: threadId,
+          ownerNodeId: null,
+          driver,
+          providerInstanceId,
+          providerSessionId: null,
+          nativeThreadRef: null,
+          nativeConversationHeadRef: null,
+          status: "idle",
+          firstRunOrdinal: null,
+          lastRunOrdinal: null,
+          handoffIds: [],
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+          pendingBackgroundTasks: [
+            { taskId: "background", description: "Still running", kind: "command" },
+          ],
+        },
+      });
+    });
+    const runIds = (threadId: ThreadId) =>
+      projections
+        .getRuntimeRecoveryProjection(threadId)
+        .pipe(Effect.map((state) => state.runs.map((run) => run.id)));
+    // Settled with background work left, then a queued follow-up.
+    const settled = yield* createThread("roster-before-queue");
+    const settledRun = yield* createRun(settled, "completed", {
+      providerThreadId: ProviderThreadId.make(`provider-thread:${settled}`),
+    });
+    const queuedRun = yield* createRun(settled, "queued", { ordinal: 2, completedAt: null });
+    yield* withRoster(settled);
+    assert.deepEqual(yield* runIds(settled), [settledRun, queuedRun]);
+    // A resumed queued run (ordinal 1) ended after a continuation (ordinal 2).
+    const resumed = yield* createThread("roster-after-resume");
+    const resumedRun = yield* createRun(resumed, "completed", {
+      providerThreadId: ProviderThreadId.make(`provider-thread:${resumed}`),
+      completedAt: DateTime.makeUnsafe("2026-10-03T10:05:00.000Z"),
+    });
+    const continuationRun = yield* createRun(resumed, "completed", {
+      providerThreadId: ProviderThreadId.make(`provider-thread:${resumed}`),
+      ordinal: 2,
+      completedAt: DateTime.makeUnsafe("2026-10-03T10:00:00.000Z"),
+    });
+    yield* withRoster(resumed);
+    assert.deepEqual(yield* runIds(resumed), [resumedRun, continuationRun]);
+    // Without a roster, settled history is not read.
+    const quiet = yield* createThread("no-roster-before-queue");
+    yield* createRun(quiet, "completed");
+    const quietQueued = yield* createRun(quiet, "queued", { ordinal: 2, completedAt: null });
+    assert.deepEqual(yield* runIds(quiet), [quietQueued]);
+  }).pipe(Effect.provide(TestLayer)),
+);
+
 it.effect("marks fork descendants unreadable when their source is missing or corrupt", () =>
   Effect.gen(function* () {
-    const projections = yield* ProjectionStoreV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
     const sql = yield* SqlClient.SqlClient;
     const source = yield* createThread("source");
     const sourceRun = yield* createRun(source, "completed");

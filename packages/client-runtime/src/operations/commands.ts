@@ -1,5 +1,4 @@
-import { remapComposerContextAttachments } from "@t3tools/shared/composerContextAttachments";
-import type { UserInputAttachments } from "@t3tools/contracts";
+import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import {
   type ThreadLinkedPullRequest,
   CommandId,
@@ -24,7 +23,6 @@ import {
   type RuntimeMode,
   type RuntimeRequestId,
   type ThreadId,
-  type ThreadPullRequestLinkSource,
   type ThreadEnvMode,
   type UploadChatAttachment,
 } from "@t3tools/contracts";
@@ -87,10 +85,6 @@ export type ArchiveThreadInput = ThreadCommandInput;
 export type UnarchiveThreadInput = ThreadCommandInput;
 export type SettleThreadInput = ThreadCommandInput;
 
-export interface SetThreadAutoSettleInput extends ThreadCommandInput {
-  readonly enabled: boolean;
-}
-
 export interface UnsettleThreadInput extends ThreadCommandInput {
   readonly reason: "user";
 }
@@ -127,6 +121,7 @@ export interface VisitThreadInput extends ThreadCommandInput {
 export type MarkThreadUnreadInput = ThreadCommandInput;
 
 export interface UpdateThreadMetadataInput extends ThreadCommandInput {
+  readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecoveryUpdate | null;
   readonly title?: string;
   readonly modelSelection?: ModelSelection;
   readonly branch?: string | null;
@@ -135,20 +130,6 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly regenerateTitle?: boolean;
   /** Link (object) or unlink (null) a pull request (#8160). */
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
-}
-
-export interface LinkThreadPullRequestInput extends ThreadCommandInput {
-  readonly host: string;
-  readonly repository: string;
-  readonly number: number;
-  readonly url: string;
-  readonly source: ThreadPullRequestLinkSource;
-}
-
-export interface UnlinkThreadPullRequestInput extends ThreadCommandInput {
-  readonly host: string;
-  readonly repository: string;
-  readonly number: number;
 }
 
 export interface SetThreadRuntimeModeInput extends ThreadCommandInput {
@@ -182,12 +163,13 @@ interface StartThreadBootstrap {
 }
 
 export interface StartThreadTurnInput extends ThreadCommandInput {
+  readonly manualContinuationOfRunId?: RunId;
   readonly message: {
     readonly messageId: MessageId;
     readonly role: "user";
-    readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
     readonly text: string;
     readonly attachments: ReadonlyArray<ChatAttachment | UploadChatAttachment>;
+    readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
   };
   readonly modelSelection?: ModelSelection;
   readonly titleSeed?: string;
@@ -212,7 +194,7 @@ export interface RespondToThreadApprovalInput extends ThreadCommandInput {
 export interface RespondToThreadUserInputInput extends ThreadCommandInput {
   readonly requestId: RuntimeRequestId;
   readonly answers: ProviderUserInputAnswers;
-  readonly attachmentsByQuestionId?: UserInputAttachments;
+  readonly attachmentsByQuestionId?: import("@t3tools/contracts").UserInputAttachments;
 }
 
 export interface DismissThreadUserInputInput extends ThreadCommandInput {
@@ -255,10 +237,13 @@ export interface CancelQueuedRunInput extends ThreadCommandInput {
   readonly runId: RunId;
 }
 
+export interface RetryWorkspacePreparationInput extends ThreadCommandInput {
+  readonly runId: RunId;
+}
+
 export interface EditQueuedRunInput extends ThreadCommandInput {
   readonly runId: RunId;
   readonly text: string;
-  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
   /**
    * Full replacement attachment list for the queued message. Omitted =
    * text-only edit that leaves attachments untouched. `dataUrl` entries are
@@ -462,17 +447,6 @@ export const settleThread = Effect.fn("EnvironmentCommands.settleThread")(functi
   return yield* simpleThreadCommand("thread.settle", input);
 });
 
-export const setThreadAutoSettle = Effect.fn("EnvironmentCommands.setThreadAutoSettle")(function* (
-  input: SetThreadAutoSettleInput,
-) {
-  return yield* dispatch({
-    type: "thread.auto-settle.set",
-    commandId: yield* allocateCommandId(input),
-    threadId: input.threadId,
-    enabled: input.enabled,
-  });
-});
-
 export const pinThread = Effect.fn("EnvironmentCommands.pinThread")(function* (
   input: PinThreadInput,
 ) {
@@ -482,6 +456,20 @@ export const pinThread = Effect.fn("EnvironmentCommands.pinThread")(function* (
     commandId,
     threadId: input.threadId,
     ...(input.orderKey === undefined ? {} : { orderKey: input.orderKey }),
+  });
+});
+
+export interface SetThreadAutoSettleInput extends ThreadCommandInput {
+  readonly enabled: boolean;
+}
+export const setThreadAutoSettle = Effect.fn("EnvironmentCommands.setThreadAutoSettle")(function* (
+  input: SetThreadAutoSettleInput,
+) {
+  return yield* dispatch({
+    type: "thread.auto-settle.set",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    enabled: input.enabled,
   });
 });
 
@@ -577,10 +565,12 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.branch !== undefined ||
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
-      input.linkedPullRequest !== undefined
+      input.linkedPullRequest !== undefined ||
+      input.limitRecovery !== undefined
     ) {
       result = yield* dispatch({
         type: "thread.metadata.update",
+        ...(input.limitRecovery === undefined ? {} : { limitRecovery: input.limitRecovery }),
         commandId,
         threadId: input.threadId,
         ...(input.title === undefined ? {} : { title: input.title }),
@@ -607,28 +597,6 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       });
     }
     return result ?? { sequence: 0 };
-  },
-);
-
-export const linkThreadPullRequest = Effect.fn("EnvironmentCommands.linkThreadPullRequest")(
-  function* (input: LinkThreadPullRequestInput) {
-    const commandId = yield* allocateCommandId(input);
-    return yield* dispatch({
-      ...input,
-      type: "thread.pull-request.link",
-      commandId,
-    });
-  },
-);
-
-export const unlinkThreadPullRequest = Effect.fn("EnvironmentCommands.unlinkThreadPullRequest")(
-  function* (input: UnlinkThreadPullRequestInput) {
-    const commandId = yield* allocateCommandId(input);
-    return yield* dispatch({
-      ...input,
-      type: "thread.pull-request.unlink",
-      commandId,
-    });
   },
 );
 
@@ -665,7 +633,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
   );
   const context = remapComposerContextAttachments(
     input.message.context,
-    input.message.attachments ?? [],
+    input.message.attachments,
     attachments,
   );
   const bootstrap = input.bootstrap?.createThread;
@@ -714,7 +682,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       initialMessage: {
         messageId: input.message.messageId,
         text: input.message.text,
-        ...(context === undefined ? {} : { context }),
+        ...(context ? { context } : {}),
         attachments,
       },
     });
@@ -729,8 +697,11 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       creationSource: input.creationSource ?? "web",
       threadId: input.threadId,
       messageId: input.message.messageId,
+      ...(input.manualContinuationOfRunId === undefined
+        ? {}
+        : { manualContinuationOfRunId: input.manualContinuationOfRunId }),
       text: input.message.text,
-      ...(context === undefined ? {} : { context }),
+      ...(context ? { context } : {}),
       attachments,
       ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
       ...(input.sourceProposedPlan === undefined
@@ -791,7 +762,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
     threadId: input.threadId,
     messageId: input.message.messageId,
     text: input.message.text,
-    ...(context === undefined ? {} : { context }),
+    ...(context ? { context } : {}),
     attachments,
     ...(shouldSendTitleSeed ? { titleSeed: input.titleSeed } : {}),
     ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
@@ -837,6 +808,7 @@ export const interruptThreadTurn = Effect.fn("EnvironmentCommands.interruptThrea
     commandId: yield* allocateCommandId(input),
     threadId: input.threadId,
     runId,
+    holdQueue: true,
   });
 });
 
@@ -1017,6 +989,17 @@ export const cancelQueuedRun = Effect.fn("EnvironmentCommands.cancelQueuedRun")(
   });
 });
 
+export const retryWorkspacePreparation = Effect.fn("EnvironmentCommands.retryWorkspacePreparation")(
+  function* (input: RetryWorkspacePreparationInput) {
+    return yield* dispatch({
+      type: "prepared-run.retry",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      runId: input.runId,
+    });
+  },
+);
+
 export const editQueuedRun = Effect.fn("EnvironmentCommands.editQueuedRun")(function* (
   input: EditQueuedRunInput,
 ) {
@@ -1030,15 +1013,6 @@ export const editQueuedRun = Effect.fn("EnvironmentCommands.editQueuedRun")(func
     threadId: input.threadId,
     runId: input.runId,
     text: input.text,
-    ...(input.context === undefined
-      ? {}
-      : {
-          context: remapComposerContextAttachments(
-            input.context,
-            input.edit?.attachments ?? [],
-            attachments ?? [],
-          ),
-        }),
     ...(attachments === undefined ? {} : { attachments }),
     ...(input.edit?.context && attachments
       ? {
@@ -1051,3 +1025,46 @@ export const editQueuedRun = Effect.fn("EnvironmentCommands.editQueuedRun")(func
       : {}),
   });
 });
+
+export type LinkThreadPullRequestInput = Omit<
+  Extract<OrchestrationV2Command, { type: "thread.pull-request.link" }>,
+  "type" | "commandId"
+> &
+  CommandMetadata;
+export type UnlinkThreadPullRequestInput = Omit<
+  Extract<OrchestrationV2Command, { type: "thread.pull-request.unlink" }>,
+  "type" | "commandId"
+> &
+  CommandMetadata;
+export const linkThreadPullRequest = Effect.fn("EnvironmentCommands.linkThreadPullRequest")(
+  function* (input: LinkThreadPullRequestInput) {
+    return yield* dispatch({
+      ...input,
+      type: "thread.pull-request.link",
+      commandId: yield* allocateCommandId(input),
+    });
+  },
+);
+export type WatchThreadPullRequestInput = Omit<
+  Extract<OrchestrationV2Command, { type: "thread.pull-request.watch" }>,
+  "type" | "commandId"
+> &
+  CommandMetadata;
+export const watchThreadPullRequest = Effect.fn("EnvironmentCommands.watchThreadPullRequest")(
+  function* (input: WatchThreadPullRequestInput) {
+    return yield* dispatch({
+      ...input,
+      type: "thread.pull-request.watch",
+      commandId: yield* allocateCommandId(input),
+    });
+  },
+);
+export const unlinkThreadPullRequest = Effect.fn("EnvironmentCommands.unlinkThreadPullRequest")(
+  function* (input: UnlinkThreadPullRequestInput) {
+    return yield* dispatch({
+      ...input,
+      type: "thread.pull-request.unlink",
+      commandId: yield* allocateCommandId(input),
+    });
+  },
+);

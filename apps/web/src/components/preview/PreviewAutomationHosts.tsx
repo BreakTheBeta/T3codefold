@@ -22,7 +22,7 @@ import {
 } from "@t3tools/contracts";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useShallow } from "zustand/react/shallow";
 
 import {
@@ -91,6 +91,7 @@ import {
   resolvePreviewAutomationTarget,
 } from "./previewAutomationTarget";
 import { resolveHostWaitBudgetMs, waitForHostReadiness } from "./previewAutomationHostBudget";
+import { runPreviewClickKeepingHostFocus } from "./previewClickFocus";
 import { isPreviewViewportReady } from "./previewViewportReadiness";
 import { shouldRollbackPreviewViewport } from "./previewViewportRollback";
 
@@ -133,6 +134,9 @@ const waitForDesktopOverlay = async (
   });
 };
 
+// Fold renders desktop tabs as native views (HostedBrowserView), so the tagged
+// element is a stream surface rather than a <webview> and the desktop reports
+// the page viewport.
 const findPreviewWebview = (tabId: string): Element | null =>
   Array.from(document.querySelectorAll("[data-preview-tab]")).find(
     (candidate) => candidate.getAttribute("data-preview-tab") === tabId,
@@ -672,9 +676,11 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             return await withPreviewAutomationFocus(async (trackWebview) => {
               const ready = await requireReadyTab();
               trackWebview(ready.runtimeTabId);
-              return await ready.bridge.automation.click(
-                ready.runtimeTabId,
-                request.input as Parameters<typeof ready.bridge.automation.click>[1],
+              return await runPreviewClickKeepingHostFocus(ready.runtimeTabId, () =>
+                ready.bridge.automation.click(
+                  ready.runtimeTabId,
+                  request.input as Parameters<typeof ready.bridge.automation.click>[1],
+                ),
               );
             });
           }

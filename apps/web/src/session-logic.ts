@@ -15,6 +15,12 @@ import {
 } from "@t3tools/contracts";
 import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-log/tool-presentation";
 import {
+  classifyToolActivity,
+  collectToolFilePaths,
+  formatReadToolLabel,
+  formatSearchToolLabel,
+} from "@t3tools/shared/toolActivity";
+import {
   contextCompactionLabel,
   workEntryIndicatesToolFailure,
 } from "@t3tools/client-runtime/work-log/presentation";
@@ -24,6 +30,7 @@ import type {
   ThreadPendingUserInput,
 } from "@t3tools/client-runtime/state/thread-requests";
 import type { ThreadRunSummary, ThreadRuntimeSummary } from "@t3tools/client-runtime/state/shell";
+import { threadRuntimeHasInterruptibleRun } from "@t3tools/client-runtime/state/thread-execution";
 import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/turn-item-presentation";
 
 import {
@@ -142,7 +149,6 @@ export type TimelineEntry = (
 
 export function workLogEntryIsToolLike(entry: WorkLogEntry): boolean {
   return (
-    entry.questionAnswer !== undefined ||
     entry.tone === "tool" ||
     entry.tone === "thinking" ||
     entry.tone === "error" ||
@@ -361,7 +367,10 @@ export function providerErrorPresentation(
 ): { readonly label: string; readonly detail: string } {
   if (item.retry === undefined) {
     return {
-      label: item.title?.trim() || "Provider error",
+      label:
+        item.failure.class === "usage_limit"
+          ? "Usage limit reached"
+          : item.title?.trim() || "Provider error",
       detail: item.failure.message,
     };
   }
@@ -375,7 +384,7 @@ export function providerErrorPresentation(
       : item.status === "completed"
         ? `Provider recovered (${progress} retries)`
         : item.status === "failed"
-          ? `Provider error after ${progress} retries`
+          ? `${item.failure.class === "usage_limit" ? "Usage limit reached" : "Provider error"} after ${progress} retries`
           : `Provider retry stopped (${progress})`;
   const retryDelay =
     item.status === "running" && item.retry.retryDelayMs !== null && item.retry.retryDelayMs > 0
@@ -400,9 +409,6 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
     itemType: item.type,
     toolLifecycleStatus: projectedWorkEntryStatus(item),
     structuredPayload: item,
-    ...(item.type === "user_input_request" && item.questionAnswer
-      ? { questionAnswer: item.questionAnswer }
-      : {}),
     projectedItem: row,
     ...extractToolActivityPresentation(item),
   } as const;
@@ -451,7 +457,7 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
     case "file_search":
       return {
         ...common,
-        label: title ?? "Searched files",
+        label: title ?? formatSearchToolLabel(item) ?? "Searched files",
         ...(item.pattern ? { detail: item.pattern } : {}),
         toolTitle: title ?? "File search",
         toolData: item,
@@ -482,17 +488,33 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
       return {
         ...common,
         ...presentation,
-        ...(item.retry === undefined ? { sourceActivityKind: "runtime.error" } : {}),
+        ...(item.failure.class === "usage_limit" && item.status !== "completed"
+          ? { sourceActivityKind: "runtime.warning" }
+          : item.retry === undefined
+            ? { sourceActivityKind: "runtime.error" }
+            : {}),
         toolData: item,
       };
     }
-    case "dynamic_tool":
+    case "dynamic_tool": {
+      const classified = classifyToolActivity({
+        itemType: "dynamic_tool_call",
+        data: { toolName: item.toolName ?? undefined, input: item.input },
+      });
+      const [readPath] = collectToolFilePaths({ input: item.input });
       return {
         ...common,
-        label: title ?? item.toolName ?? "Tool call",
+        label:
+          title ??
+          (classified === "read"
+            ? formatReadToolLabel(readPath ?? "")
+            : classified === "search"
+              ? (formatSearchToolLabel({ input: item.input }) ?? item.toolName ?? "Tool call")
+              : (item.toolName ?? "Tool call")),
         toolTitle: title ?? item.toolName ?? "Tool",
         toolData: { input: item.input, output: item.output },
       };
+    }
     case "approval_request":
       return {
         ...common,
@@ -606,9 +628,7 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
         id: item.messageId,
         role: item.type === "user_message" ? "user" : "assistant",
         text: item.text,
-        ...(item.type === "user_message" && item.context !== undefined
-          ? { context: item.context }
-          : {}),
+        ...(item.type === "user_message" && item.context ? { context: item.context } : {}),
         ...((item.attachments?.length ?? 0) > 0
           ? {
               attachments: (item.attachments ?? []).map((attachment) => {
@@ -623,6 +643,7 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
           ? {
               createdBy: item.createdBy,
               creationSource: item.creationSource,
+              ...(item.senderThreadId !== undefined ? { senderThreadId: item.senderThreadId } : {}),
               ...(item.scheduledTaskId !== undefined
                 ? { scheduledTaskId: item.scheduledTaskId }
                 : {}),
@@ -991,6 +1012,22 @@ export function derivePhase(runtime: ThreadRuntimeSummary | null): SessionPhase 
     return "connecting";
   if (runtime.status === "running" || runtime.status === "waiting") return "running";
   return "ready";
+}
+
+/**
+ * Whether web and desktop offer Stop for the active thread. The server settles
+ * a preparing or starting run on `run.interrupt` (Orchestrator.dispatchRunInterrupt),
+ * so Stop must not wait for the phase to reach "running". A queued thread offers
+ * Stop only while an earlier run is still interruptible; Stop targets that run.
+ */
+export function deriveCanInterruptRunningThread(
+  hasActiveThread: boolean,
+  runtime: ThreadRuntimeSummary | null,
+): boolean {
+  return (
+    hasActiveThread &&
+    (derivePhase(runtime) === "running" || threadRuntimeHasInterruptibleRun(runtime))
+  );
 }
 
 export type { TurnDiffSummary };

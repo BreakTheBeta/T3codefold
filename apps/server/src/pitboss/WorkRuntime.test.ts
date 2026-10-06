@@ -35,6 +35,7 @@ import {
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
 import {
   ThreadManagementService,
+  ThreadManagementThreadArchivedError,
   ThreadManagementProjectionLoadError,
 } from "../orchestration-v2/ThreadManagementService.ts";
 import { ThreadLaunchService, ThreadLaunchError } from "../orchestration-v2/ThreadLaunchService.ts";
@@ -163,6 +164,7 @@ const harness = Effect.gen(function* () {
   const sendAttempts: string[] = [];
   let failNextSend = false;
   let failAllSends = false;
+  let archivedSends = false;
   const interrupted: ThreadId[] = [];
   const dispatched: Array<{ readonly type: string; readonly threadId?: ThreadId }> = [];
   let failSettlement = false;
@@ -170,6 +172,24 @@ const harness = Effect.gen(function* () {
   let deferInterrupt = false;
   let interruptTimesOut = false;
   const failLaunch = new Set<ThreadId>();
+  const loadProjection = (input: {
+    readonly projectId: ProjectId;
+    readonly threadId: ThreadId;
+  }) => {
+    const p = projections.get(input.threadId);
+    return p
+      ? Effect.succeed(p)
+      : Effect.fail(
+          new ThreadManagementProjectionLoadError({
+            projectId: input.projectId,
+            threadId: input.threadId,
+            cause: new OrchestratorProjectionError({
+              threadId: input.threadId,
+              cause: new ProjectionStoreThreadNotFoundError({ threadId: input.threadId }),
+            }),
+          }),
+        );
+  };
   const command = (action: PitbossAction) =>
     Effect.gen(function* () {
       const state = yield* store.read();
@@ -253,6 +273,7 @@ const harness = Effect.gen(function* () {
           return { sequence: 1, storedEvents: [] };
         }),
       streamDomainEvents: Stream.never,
+      subscribeDomainEvents: Effect.succeed(Stream.never),
       getThreadProjection: (id) =>
         forbidHistoryReads
           ? Effect.die("Runtime monitoring loaded full history")
@@ -301,23 +322,15 @@ const harness = Effect.gen(function* () {
         }),
       getProjectThread: (input) => {
         if (forbidHistoryReads) return Effect.die("Runtime monitoring loaded full history");
-        const p = projections.get(input.threadId);
-        return p
-          ? Effect.succeed(p)
-          : Effect.fail(
-              new ThreadManagementProjectionLoadError({
-                projectId: input.projectId,
-                threadId: input.threadId,
-                cause: new OrchestratorProjectionError({
-                  threadId: input.threadId,
-                  cause: new ProjectionStoreThreadNotFoundError({ threadId: input.threadId }),
-                }),
-              }),
-            );
+        return loadProjection(input);
       },
+      // Record reads skip the transcript, so they stay allowed under forbidHistoryReads.
+      getProjectThreadRecords: (input) => loadProjection(input),
       sendToThread: (input) =>
         Effect.gen(function* () {
           sendAttempts.push(input.commandId);
+          if (archivedSends)
+            return yield* new ThreadManagementThreadArchivedError({ threadId: input.threadId });
           if (failAllSends || failNextSend) {
             failNextSend = false;
             return yield* new OrchestratorProjectionError({
@@ -387,6 +400,9 @@ const harness = Effect.gen(function* () {
     },
     failAllSends: () => {
       failAllSends = true;
+    },
+    archiveSendTargets: () => {
+      archivedSends = true;
     },
     interrupted,
     dispatched,
@@ -1706,6 +1722,29 @@ it.effect(
       expect((yield* h.store.read()).revision).toBe(revision);
     }).pipe(Effect.provide(services)),
 );
+it.effect("finishes a wake whose recipient thread was archived instead of retrying it", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* h.command({
+      type: "create",
+      taskId: "archived-wake",
+      projectId: a,
+      title: "Archived wake",
+      outcome: "Deliver one actionable wake",
+      criteria: "One delivery",
+      verifyCommand: "",
+      priority: 1,
+      dependencies: [],
+      workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+    });
+    h.archiveSendTargets();
+    yield* h.drain();
+    expect(h.sendAttempts).toHaveLength(1);
+    expect((yield* h.store.effects()).filter((effect) => effect.kind === "wake")).toEqual([]);
+    yield* h.drain();
+    expect(h.sendAttempts).toHaveLength(1);
+  }).pipe(Effect.provide(services)),
+);
 it.effect("delivers a ready obligation after capacity is temporarily unavailable", () =>
   Effect.gen(function* () {
     const h = yield* harness;
@@ -2048,24 +2087,22 @@ it.effect("queued lead dispatch stays durable while paused and starts once on re
   }).pipe(Effect.provide(services)),
 );
 
-for (const hasPreparingRun of [false, true]) {
-  it.effect(
-    `replays an unfinished original lead launch with existing thread (preparing=${hasPreparingRun})`,
-    () =>
-      Effect.gen(function* () {
-        const h = yield* harness;
-        const lead = yield* h.lead("partial", a);
-        h.projections.set(lead.threadId, {
-          ...projection(lead.threadId, a),
-          runs: hasPreparingRun ? [{ ...running(lead.threadId), status: "preparing" }] : [],
-        });
-        yield* h.drain();
-        expect(h.launched).toEqual([lead.threadId]);
-        expect(h.sent).not.toContain(lead.threadId);
-        expect((yield* h.store.effects()).filter((e) => e.kind === "create-lead")).toEqual([]);
-      }).pipe(Effect.provide(services)),
-  );
-}
+it.effect.each([false, true])(
+  "replays an unfinished original lead launch with existing thread (preparing=%s)",
+  (hasPreparingRun) =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const lead = yield* h.lead("partial", a);
+      h.projections.set(lead.threadId, {
+        ...projection(lead.threadId, a),
+        runs: hasPreparingRun ? [{ ...running(lead.threadId), status: "preparing" }] : [],
+      });
+      yield* h.drain();
+      expect(h.launched).toEqual([lead.threadId]);
+      expect(h.sent).not.toContain(lead.threadId);
+      expect((yield* h.store.effects()).filter((e) => e.kind === "create-lead")).toEqual([]);
+    }).pipe(Effect.provide(services)),
+);
 
 it.effect(
   "a user decision stops only its writer while the runtime launches unrelated work and survives replay",

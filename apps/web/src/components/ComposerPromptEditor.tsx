@@ -1,18 +1,19 @@
 import { ComposerPromptEditorTiptap } from "./ComposerPromptEditorTiptap";
-import { ComposerPromptEditorLexical } from "./ComposerPromptEditorLexical";
-import type { ComposerPromptEditorProps as TiptapProps } from "./ComposerPromptEditorTiptap";
-import type { ComposerPromptEditorProps as LexicalProps } from "./ComposerPromptEditorLexical";
+import type { ComposerPromptEditorProps } from "./ComposerPromptEditorTiptap";
+
 export type {
   ComposerCitationCommentRequest,
   ComposerPromptEditorHandle,
+  ComposerPromptEditorProps,
 } from "./ComposerPromptEditorTiptap";
-export type ComposerPromptEditorProps = TiptapProps &
-  Pick<LexicalProps, "vimModeEnabled" | "onVimModeDisplayChange">;
+export type { ComposerVimModeDisplay } from "./ComposerPromptEditorTiptapVim";
+
+/**
+ * The composer editor. Tiptap in both modes: the `richTextEnabled` setting
+ * toggles Markdown styling, never the engine. Plain mode renders every
+ * marker as a literal character and serializes byte-identically.
+ * `vimModeEnabled` adds modal Vim editing to the same engine.
+ */
 export function ComposerPromptEditor(props: ComposerPromptEditorProps) {
-  return props.vimModeEnabled ? (
-    <ComposerPromptEditorLexical {...props} />
-  ) : (
-    <ComposerPromptEditorTiptap {...props} />
-  );
+  return <ComposerPromptEditorTiptap {...props} />;
 }
-export type { ComposerVimModeDisplay } from "./ComposerPromptEditorLexical";

@@ -2,16 +2,10 @@ import * as Schema from "effect/Schema";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Result from "effect/Result";
-import {
-  SourceControlProviderError,
-  type ChangeRequest,
-  type ChangeRequestState,
-} from "@t3tools/contracts";
+import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contracts";
 
 import * as GitHubCli from "./GitHubCli.ts";
 import { findAuthenticatedGitHubAccount, parseGitHubAuthStatus } from "./gitHubAuthStatus.ts";
-import { decodeGitHubPullRequestListJson } from "./gitHubPullRequests.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
   combinedAuthOutput,
@@ -152,60 +146,29 @@ export const make = Effect.gen(function* () {
           );
       }
 
-      const stateArg: ChangeRequestState | "all" = input.state;
       return github
-        .execute({
+        .listPullRequestsByHead({
           cwd: input.cwd,
+          ...(input.repository === undefined ? {} : { repository: input.repository }),
+          headSelector: input.headSelector,
+          state: input.state,
+          limit: input.limit ?? 20,
           ...(input.context === undefined
             ? {}
             : { rateLimitHost: new URL(input.context.provider.baseUrl).host }),
-          args: [
-            "pr",
-            "list",
-            ...(input.repository === undefined ? [] : ["--repo", input.repository]),
-            "--head",
-            input.headSelector,
-            "--state",
-            stateArg,
-            "--limit",
-            String(input.limit ?? 20),
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
         })
         .pipe(
-          Effect.flatMap((result) => {
-            const raw = result.stdout.trim();
-            if (raw.length === 0) {
-              return Effect.succeed([]);
-            }
-            return Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
-              Effect.flatMap((decoded) =>
-                Result.isSuccess(decoded)
-                  ? Effect.succeed(
-                      decoded.success.map((item) => {
-                        const { updatedAt, ...summary } = item;
-                        return {
-                          ...toChangeRequest({
-                            ...summary,
-                            ...(Option.isSome(updatedAt)
-                              ? { updatedAt: DateTime.formatIso(updatedAt.value) }
-                              : {}),
-                          }),
-                          updatedAt,
-                        };
-                      }),
-                    )
-                  : Effect.fail(
-                      new GitHubCli.GitHubChangeRequestListDecodeError({
-                        command: "gh",
-                        cwd: input.cwd,
-                        cause: decoded.failure,
-                      }),
-                    ),
-              ),
-            );
-          }),
+          Effect.map((items) =>
+            items.map(({ updatedAt, ...summary }) => ({
+              ...toChangeRequest({
+                ...summary,
+                ...(Option.isSome(updatedAt)
+                  ? { updatedAt: DateTime.formatIso(updatedAt.value) }
+                  : {}),
+              }),
+              updatedAt,
+            })),
+          ),
           Effect.mapError(
             (error) =>
               new SourceControlProviderError({
@@ -300,6 +263,7 @@ export const make = Effect.gen(function* () {
           ),
         ),
     createChangeRequest: (input) => {
+      // GitHub publication must name its repository; gh's inferred default can be a parent.
       const repository = input.target?.repository?.trim();
       if (!repository) {
         return Effect.fail(
@@ -384,7 +348,6 @@ export const make = Effect.gen(function* () {
       github
         .getDefaultBranch({
           ...input,
-          ...(input.repository === undefined ? {} : { repository: input.repository }),
           ...(input.context === undefined
             ? {}
             : { rateLimitHost: new URL(input.context.provider.baseUrl).host }),

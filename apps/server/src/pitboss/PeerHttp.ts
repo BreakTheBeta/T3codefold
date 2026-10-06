@@ -2,7 +2,7 @@ import { PitbossPeerEnvelope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { PeerService } from "./PeerService.ts";
 
 const decodeEnvelope = Schema.decodeUnknownEffect(PitbossPeerEnvelope);

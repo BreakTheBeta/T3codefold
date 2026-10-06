@@ -29,6 +29,7 @@ function renderPendingActions(isRunning: boolean) {
         isComplete: true,
       },
       isRunning,
+      canInterrupt: isRunning,
       showPlanFollowUpPrompt: false,
       promptHasText: false,
       isSendBusy: false,
@@ -44,34 +45,13 @@ function renderPendingActions(isRunning: boolean) {
   );
 }
 
-function renderRunningActions(hasSendableContent: boolean, followUpBehavior: "queue" | "steer") {
-  return renderToStaticMarkup(
-    createElement(ComposerPrimaryActions, {
-      compact: true,
-      pendingAction: null,
-      isRunning: true,
-      followUpBehavior,
-      showPlanFollowUpPrompt: false,
-      promptHasText: hasSendableContent,
-      isSendBusy: false,
-      sendDisabledReason: null,
-      isConnecting: false,
-      isEnvironmentUnavailable: false,
-      isPreparingWorktree: false,
-      hasSendableContent,
-      onPreviousPendingQuestion: () => {},
-      onInterrupt: () => {},
-      onImplementPlanInNewThread: () => {},
-    }),
-  );
-}
-
 function renderSendButton(sendDisabledReason: string | null = null) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
       pendingAction: null,
       isRunning: false,
+      canInterrupt: false,
       showPlanFollowUpPrompt: false,
       promptHasText: true,
       isSendBusy: false,
@@ -123,26 +103,5 @@ describe("ComposerPrimaryActions", () => {
     const markup = renderSendButton();
 
     expect(markup).not.toContain("stage-nightly");
-  });
-
-  it.each([
-    ["queue", "Queue message"],
-    ["steer", "Steer message"],
-  ] as const)(
-    "renders the %s action alongside stop while running with a sendable draft",
-    (behavior, label) => {
-      const markup = renderRunningActions(true, behavior);
-
-      expect(markup).toContain('aria-label="Stop generation"');
-      expect(markup).toContain(`aria-label="${label}"`);
-      expect(markup).toContain('type="submit"');
-    },
-  );
-
-  it("keeps stop as the only action while running with an empty composer", () => {
-    const markup = renderRunningActions(false, "steer");
-
-    expect(markup).toContain('aria-label="Stop generation"');
-    expect(markup).not.toContain('type="submit"');
   });
 });

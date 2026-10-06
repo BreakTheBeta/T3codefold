@@ -20,8 +20,8 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import * as ChildProcess from "effect/unstable/process/ChildProcess";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
@@ -29,6 +29,7 @@ import type * as EffectAcpProtocol from "effect-acp/protocol";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
+import { signalProcessGroup } from "../../process/processGroup.ts";
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./AcpStderr.ts";
 import {
   collectSessionConfigOptionValues,
@@ -86,6 +87,7 @@ export interface AcpSpawnInput {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly extendEnv?: boolean;
+  readonly shell?: false;
 }
 
 export interface AcpSessionRuntimeOptions {
@@ -98,6 +100,8 @@ export interface AcpSessionRuntimeOptions {
   readonly interruptPromptOnCancel?: boolean;
   /** Optional provider metadata forwarded on `session/cancel`. */
   readonly cancelMeta?: EffectAcpSchema.CancelNotification["_meta"];
+  /** Optional provider metadata forwarded on `initialize`. */
+  readonly initializeMeta?: EffectAcpSchema.InitializeRequest["_meta"];
   readonly ownDetachedProcessGroup?: boolean;
   readonly ownDescendantProcessGroups?: boolean;
   readonly processGroupPlatform?: NodeJS.Platform;
@@ -266,21 +270,22 @@ export function wrapCommandForLinuxCgroup(
   args: ReadonlyArray<string>,
 ): { readonly command: string; readonly args: ReadonlyArray<string> } {
   return {
-    command: process.execPath,
+    command: "/bin/sh",
     args: [
-      "-e",
+      "-c",
       [
-        'const fs = require("node:fs");',
-        "try {",
-        '  fs.writeFileSync(process.argv[1] + "/cgroup.procs", String(process.pid) + "\\n");',
-        '  const actual = fs.readFileSync("/proc/self/cgroup", "utf8").split("\\n").find((line) => line.startsWith("0::"))?.slice(3);',
-        "  if (actual !== process.argv[2]) process.exit(126);",
-        "  const env = { ...process.env };",
-        "  delete env.ELECTRON_RUN_AS_NODE;",
-        "  delete env.T3_ACP_CGROUP_WRAPPER;",
-        "  process.execve(process.argv[3], process.argv.slice(3), env);",
-        "} catch { process.exit(125); }",
+        "lease_path=$1; expected=$2; shift 2",
+        'printf "%s\\n" "$$" > "$lease_path/cgroup.procs" || exit 125',
+        "actual=",
+        "while IFS= read -r line; do",
+        '  case "$line" in 0::*) [ -z "$actual" ] || exit 126; actual=${line#0::};; esac',
+        "done < /proc/self/cgroup || exit 125",
+        '[ "$actual" = "$expected" ] || exit 126',
+        "unset ELECTRON_RUN_AS_NODE T3_ACP_CGROUP_WRAPPER",
+        "trap 'exit 125' 0",
+        'exec "$@"',
       ].join("\n"),
+      "t3-acp-cgroup-wrapper",
       lease.path,
       lease.relativePath,
       command,
@@ -1096,7 +1101,7 @@ export function selectAcpAgentAuthMethod(
   if (preferred) {
     return authMethods?.find((method) => method.id === preferred);
   }
-  return authMethods?.find((method) => !("type" in method));
+  return authMethods?.find((method) => method.type === undefined || method.type === "agent");
 }
 
 function isAcpAuthenticationRequired(error: EffectAcpErrors.AcpError): boolean {
@@ -1211,6 +1216,8 @@ export class AcpSessionRuntime extends Context.Service<
       EffectAcpSchema.InitializeResponse,
       EffectAcpErrors.AcpError
     >;
+    /** Explicit login uses the negotiated v1 authenticate / v2 auth/login operation. */
+    readonly authenticate?: (methodId: string) => Effect.Effect<void, EffectAcpErrors.AcpError>;
     /**
      * Initializes the ACP connection, authenticates, and loads, resumes, or creates the session.
      * Concurrent calls share the same in-flight startup and a failed startup may be retried.
@@ -1380,7 +1387,8 @@ export const make = (
   Effect.gen(function* () {
     const crypto = yield* Crypto.Crypto;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const runtimeScope = yield* Scope.Scope;
+    // A child of the caller's scope, so termination can close the runtime without closing the caller's.
+    const runtimeScope = yield* Scope.fork(yield* Scope.Scope);
     const eventQueue = yield* Queue.unbounded<AcpSessionRuntimeEvent>();
     const modeStateRef = yield* Ref.make<AcpSessionModeState | undefined>(undefined);
     const toolCallsRef = yield* Ref.make(new Map<string, AcpToolCallTrackedState>());
@@ -1510,10 +1518,13 @@ export const make = (
         ),
       );
 
-    const spawnCommand = yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {
-      ...(options.spawn.env ? { env: options.spawn.env } : {}),
-      extendEnv: options.spawn.extendEnv ?? true,
-    });
+    const spawnCommand =
+      options.spawn.shell === false
+        ? { command: options.spawn.command, args: options.spawn.args, shell: false }
+        : yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {
+            ...(options.spawn.env ? { env: options.spawn.env } : {}),
+            extendEnv: options.spawn.extendEnv ?? true,
+          });
     const linuxCgroupLease =
       options.ownDescendantProcessGroups === true && options.processGroupPlatform === "linux"
         ? yield* Effect.sync(() => {
@@ -1642,7 +1653,7 @@ export const make = (
     const signalOwnedProcessGroup = (signal: NodeJS.Signals) =>
       Effect.try({
         try: () => {
-          process.kill(-Number(child.pid), signal);
+          signalProcessGroup(Number(child.pid), signal);
           return true;
         },
         catch: (cause) =>
@@ -2153,6 +2164,7 @@ export const make = (
         protocolVersion: 2,
         clientCapabilities: initializeClientCapabilities,
         clientInfo: options.clientInfo,
+        ...(options.initializeMeta === undefined ? {} : { _meta: options.initializeMeta }),
       } satisfies EffectAcpSchema.InitializeRequest;
 
       const initializeResult = yield* runLoggedRequest(
@@ -2233,7 +2245,11 @@ export const make = (
               cause: { configuredAuthMethodId, authMethods: initializeResult.authMethods },
             });
           }
-          if (authMethod !== undefined && "type" in authMethod) {
+          if (
+            authMethod !== undefined &&
+            authMethod.type !== undefined &&
+            authMethod.type !== "agent"
+          ) {
             return yield* new EffectAcpErrors.AcpTransportError({
               detail: `ACP authentication method "${authMethod.id}" requires ${authMethod.type} authentication, which cannot run inside a headless provider session`,
               cause: authMethod,
@@ -2492,6 +2508,13 @@ export const make = (
       handleExtRequest: acp.handleExtRequest,
       handleExtNotification: acp.handleExtNotification,
       initialize: () => initialize,
+      authenticate: (methodId) =>
+        initialize.pipe(
+          Effect.andThen(
+            runLoggedRequest("authenticate", { methodId }, acp.agent.authenticate({ methodId })),
+          ),
+          Effect.asVoid,
+        ),
       start: () => start,
       getEvents: () => Stream.fromQueue(eventQueue),
       drainEvents,
@@ -2688,13 +2711,12 @@ export const make = (
             ),
             (activePrompt) =>
               Fiber.join(activePrompt.fiber).pipe(
-                Effect.catchCauseIf(
-                  (cause) =>
-                    options.cancelBehavior !== "wait-for-prompt" && Cause.hasInterruptsOnly(cause),
-                  () =>
-                    Effect.succeed({
-                      stopReason: "cancelled",
-                    } satisfies EffectAcpSchema.PromptResponse),
+                Effect.catchCause((cause) =>
+                  options.cancelBehavior !== "wait-for-prompt" && Cause.hasInterruptsOnly(cause)
+                    ? Effect.succeed({
+                        stopReason: "cancelled",
+                      } satisfies EffectAcpSchema.PromptResponse)
+                    : Effect.failCause(cause),
                 ),
                 Effect.tap(() =>
                   closeActiveAssistantSegment({ queue: eventQueue, assistantSegmentRef }),
@@ -2726,18 +2748,36 @@ export const make = (
           ? promptDispatchSemaphore.withPermit(cancel)
           : cancel,
       ...(options.ownDetachedProcessGroup === true ? { terminateProcessGroup } : {}),
+      // A session's mode is its `category: "mode"` config option. ACP v1 agents
+      // that only advertise `modes` (gemini-cli) take `session/set_mode`
+      // instead, which ACP v2 removed.
       setMode: (modeId) =>
-        Ref.get(modeStateRef).pipe(
-          Effect.flatMap((modeState) => {
-            if (modeState?.currentModeId === modeId) {
-              return Effect.succeed({} satisfies EffectAcpSchema.SetSessionModeResponse);
-            }
-            return setConfigOption("mode", modeId).pipe(
-              Effect.tap(() => updateCurrentModeId(modeId)),
-              Effect.as({} satisfies EffectAcpSchema.SetSessionModeResponse),
-            );
-          }),
-        ),
+        Effect.gen(function* () {
+          const modeState = yield* Ref.get(modeStateRef);
+          if (modeState?.currentModeId === modeId) {
+            return {} satisfies EffectAcpSchema.SetSessionModeResponse;
+          }
+          const modeConfigOption = (yield* Ref.get(configOptionsRef))?.find(
+            (option) => option.category === "mode" && option.type === "select",
+          );
+          if (modeConfigOption === undefined && modeState !== undefined) {
+            const started = yield* getStartedState;
+            const payload = { sessionId: started.sessionId, modeId };
+            yield* runLoggedRequest("session/set_mode", payload, acp.agent.setSessionMode(payload));
+            yield* updateCurrentModeId(modeId);
+            return {} satisfies EffectAcpSchema.SetSessionModeResponse;
+          }
+          const response = yield* setConfigOption(modeConfigOption?.id ?? "mode", modeId);
+          // The agent answers with its config options, so the mode it reports
+          // is the mode it runs in, even when it kept another one.
+          const reported = parseSessionModeState({ configOptions: response.configOptions });
+          if (reported === undefined) {
+            yield* updateCurrentModeId(modeId);
+          } else {
+            yield* updateCurrentModeId(reported.currentModeId);
+          }
+          return {} satisfies EffectAcpSchema.SetSessionModeResponse;
+        }),
       setSessionModel: (modelId, meta) =>
         getStartedState.pipe(
           Effect.flatMap((started) => {

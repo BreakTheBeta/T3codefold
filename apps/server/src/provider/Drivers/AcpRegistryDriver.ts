@@ -19,15 +19,15 @@ import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
-import { ServerConfig } from "../../config.ts";
+import * as ServerConfig from "../../config.ts";
 import {
   AcpRegistryAdapterV2Driver,
   type AcpRegistryAdapterV2DriverEnv,
 } from "../../orchestration-v2/Adapters/AcpRegistryAdapterV2.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import type { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
@@ -57,8 +57,10 @@ import {
   probeAcpRegistryConfiguration,
   setAcpRegistryProvider,
 } from "../acp/AcpRegistryProbe.ts";
-import { AcpRegistryCatalog, type AcpRegistryInspection } from "../acp/AcpRegistrySupport.ts";
-import { AcpRegistryRuntimeCoordinator } from "../acp/AcpRegistryRuntimeCoordinator.ts";
+import * as AcpRegistrySupport from "../acp/AcpRegistrySupport.ts";
+import * as AcpRegistryRuntimeCoordinator from "../acp/AcpRegistryRuntimeCoordinator.ts";
+import * as AcpRegistryAuth from "../acp/AcpRegistryAuth.ts";
+import * as AcpRegistryAuthenticationState from "../acp/AcpRegistryAuthenticationState.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -124,7 +126,9 @@ function modelsFromDiscovery(
 }
 
 export function acpRegistrySnapshotReadiness(
-  inspection: AcpRegistryInspection | { readonly status: "failed"; readonly message: string },
+  inspection:
+    | AcpRegistrySupport.AcpRegistryInspection
+    | { readonly status: "failed"; readonly message: string },
 ): Pick<ServerProvider, "installed" | "version" | "status" | "message"> {
   switch (inspection.status) {
     case "ready":
@@ -134,7 +138,8 @@ export function acpRegistrySnapshotReadiness(
         installed: false,
         version: null,
         status: "warning",
-        message: "Select an ACP Registry agent before starting a thread.",
+        message:
+          "Select an ACP Registry agent or configure a local ACP executable before starting a thread.",
       };
     case "not_found":
       return {
@@ -155,7 +160,10 @@ export function acpRegistrySnapshotReadiness(
         installed: false,
         version: inspection.version,
         status: "error",
-        message: `ACP Registry agent '${inspection.agentId}' requires '${inspection.runner}' on this environment's PATH.`,
+        message:
+          inspection.distribution === "local"
+            ? "Local ACP executable is not available on this environment's PATH."
+            : `ACP executable '${inspection.runner}' is not available on this environment's PATH.`,
       };
     case "unprepared":
       return {
@@ -189,13 +197,17 @@ function baseSnapshot(
     readonly version: string | null;
     readonly status: ServerProvider["status"];
     readonly auth: ServerProvider["auth"];
+    readonly documentationUrl?: string;
     readonly message?: string;
     readonly probe?: AcpRegistryConfigurationProbeResult;
+    readonly probeError?: AcpRegistryOperationError;
   },
 ): ServerProvider {
   const iconUrl =
-    resolveOfficialAcpRegistryIconUrl(input.probe?.probe.icon) ??
-    officialAcpRegistryIconUrlForAgentId(input.settings.agentId);
+    input.settings.source === "local"
+      ? null
+      : (resolveOfficialAcpRegistryIconUrl(input.probe?.probe.icon) ??
+        officialAcpRegistryIconUrlForAgentId(input.settings.agentId));
   return {
     instanceId: input.instanceId,
     driver: DRIVER_KIND,
@@ -211,8 +223,19 @@ function baseSnapshot(
     installed: input.installed,
     version: input.version,
     status: input.settings.enabled ? input.status : "disabled",
-    auth: input.auth,
+    auth: { ...input.auth, canLogout: input.auth.canLogout ?? false },
     checkedAt: input.checkedAt,
+    setup: {
+      canInstall: false,
+      ...(input.documentationUrl ? { documentationUrl: input.documentationUrl } : {}),
+      canAuthenticate:
+        input.installed &&
+        (input.probe
+          ? input.probe.probe.authMethods.length > 0
+          : input.settings.source === "local"
+            ? (input.probeError?.authMethods?.length ?? 0) > 0
+            : input.settings.agentId.length > 0),
+    },
     ...(input.message ? { message: input.message } : {}),
     models: modelsFromDiscovery(input.probe?.probe, input.settings.customModels),
     ...(input.probe === undefined
@@ -250,7 +273,6 @@ export function applyAcpRegistryLiveConfiguration(
   return {
     ...snapshot,
     status: provider.enabled ? "ready" : provider.status,
-    auth: { ...provider.auth, status: "authenticated" },
     models: modelsFromDiscovery(configuration, customModels),
   };
 }
@@ -291,7 +313,7 @@ export function buildCheckedAcpRegistrySnapshot(
     readonly settings: AcpRegistrySettings;
     readonly checkedAt: string;
     readonly inspection:
-      | AcpRegistryInspection
+      | AcpRegistrySupport.AcpRegistryInspection
       | { readonly status: "failed"; readonly message: string };
     readonly probe?: AcpRegistryConfigurationProbeResult;
     readonly probeError?: AcpRegistryOperationError;
@@ -307,14 +329,17 @@ export function buildCheckedAcpRegistrySnapshot(
       : undefined;
   const authenticationMessage = advertisedAuthMethod
     ? advertisedAuthMethod.type === "terminal" && advertisedAuthMethod.command
-      ? `Run \`${advertisedAuthMethod.command}\` in a thread terminal on this environment. T3 Code will detect the completed sign-in on the next provider refresh.`
+      ? `Sign in in provider settings using "${advertisedAuthMethod.name}". The login terminal runs on this environment.`
       : advertisedAuthMethod.type === "env_var" &&
           (advertisedAuthMethod.envVarNames?.length ?? 0) > 0
         ? `Set ${advertisedAuthMethod.envVarNames!.join(", ")} under this instance's environment variables in provider settings. T3 Code will detect it on the next provider refresh.`
-        : `Complete the advertised "${advertisedAuthMethod.name}" authentication method on the server. T3 Code will detect it automatically on the next provider refresh.`
+        : `Sign in in provider settings using "${advertisedAuthMethod.name}".`
     : undefined;
   return baseSnapshot({
     ...input,
+    ...(input.inspection.status === "ready" && input.inspection.documentationUrl
+      ? { documentationUrl: input.inspection.documentationUrl }
+      : {}),
     installed: readiness.installed,
     version: readiness.version,
     // A failed discovery probe on a ready installation is a warning, not an
@@ -323,7 +348,8 @@ export function buildCheckedAcpRegistrySnapshot(
     status: probeFailed ? "warning" : readiness.status,
     auth: input.probe
       ? {
-          status: "authenticated",
+          // Discovery sessions and an empty auth-method list do not prove sign-in.
+          status: "unknown",
           canLogout: input.probe.probe.sessionManagement.canLogout,
         }
       : input.probeError?.reason === "authentication_failed"
@@ -353,12 +379,12 @@ export const checkAcpRegistryProviderStatus = Effect.fn("AcpRegistryDriver.check
       readonly environment: NodeJS.ProcessEnv;
     },
     probeConfiguration: AcpRegistryConfigurationProbe<Requirements>,
-  ): Effect.fn.Return<ServerProvider, never, AcpRegistryCatalog | Requirements> {
+  ): Effect.fn.Return<ServerProvider, never, AcpRegistrySupport.AcpRegistryCatalog | Requirements> {
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
     if (!input.settings.enabled) {
       return yield* buildInitialAcpRegistrySnapshot(input);
     }
-    const catalog = yield* AcpRegistryCatalog;
+    const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
     const inspected = yield* Effect.result(catalog.inspect(input.settings, input.environment));
     if (Result.isFailure(inspected)) {
       return buildCheckedAcpRegistrySnapshot({
@@ -409,12 +435,12 @@ export const checkAcpRegistryProviderReadiness = Effect.fn(
     readonly settings: AcpRegistrySettings;
     readonly environment: NodeJS.ProcessEnv;
   },
-): Effect.fn.Return<ServerProvider, never, AcpRegistryCatalog> {
+): Effect.fn.Return<ServerProvider, never, AcpRegistrySupport.AcpRegistryCatalog> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   if (!input.settings.enabled) {
     return yield* buildInitialAcpRegistrySnapshot(input);
   }
-  const catalog = yield* AcpRegistryCatalog;
+  const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
   const inspected = yield* Effect.result(catalog.inspect(input.settings, input.environment));
   const snapshot = buildCheckedAcpRegistrySnapshot({
     ...input,
@@ -437,7 +463,7 @@ export const checkAcpRegistryProviderReadiness = Effect.fn(
 export type AcpRegistryDriverEnv =
   | AcpRegistryAdapterV2DriverEnv
   | BackgroundPolicy.BackgroundPolicy
-  | ServerSettingsService;
+  | ServerSettings.ServerSettingsService;
 
 /** Canonical provider-instance wrapper for ACP Registry orchestration adapters. */
 export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryDriverEnv> = {
@@ -450,8 +476,10 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
   defaultConfig: () => decodeSettings({}),
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
-      const catalog = yield* AcpRegistryCatalog;
-      const runtimeCoordinator = yield* Effect.serviceOption(AcpRegistryRuntimeCoordinator);
+      const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
+      const runtimeCoordinator = yield* Effect.serviceOption(
+        AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator,
+      );
       if (Option.isSome(runtimeCoordinator)) {
         yield* runtimeCoordinator.value.clearAvailableCommands(instanceId);
         yield* runtimeCoordinator.value.clearLiveConfiguration(instanceId);
@@ -464,8 +492,8 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       const crypto = yield* Crypto.Crypto;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const hostEnvironment = yield* HostProcessEnvironment;
-      const serverConfig = yield* ServerConfig;
-      const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const serverSettings = yield* ServerSettings.ServerSettingsService;
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
         instanceId,
@@ -501,30 +529,48 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         settings: effectiveConfig,
         environment: processEnvironment,
       };
-      const withLiveRuntimeState = (provider: ServerProvider) =>
-        Option.isNone(runtimeCoordinator)
-          ? Effect.succeed(provider)
-          : Effect.all({
-              commands: runtimeCoordinator.value.getAvailableCommands(instanceId),
-              configuration: runtimeCoordinator.value.getLiveConfiguration(instanceId),
-              authAction: runtimeCoordinator.value.getUrlAuthAction(instanceId),
-            }).pipe(
-              Effect.map(({ commands, configuration, authAction }) => {
-                const withCommands = applyAcpRegistryAvailableCommands(provider, commands);
-                const withConfiguration = Option.match(configuration, {
-                  onNone: () => withCommands,
-                  onSome: (liveConfiguration) =>
-                    applyAcpRegistryLiveConfiguration(
-                      withCommands,
-                      liveConfiguration,
-                      effectiveConfig.customModels,
-                    ),
-                });
-                return applyAcpRegistryUrlAuthAction(withConfiguration, authAction);
-              }),
-            );
+      const confirmedAuthentication =
+        yield* AcpRegistryAuthenticationState.makeAcpRegistryAuthenticationState({
+          cacheDir: serverConfig.providerStatusCacheDir,
+          instanceId,
+          settings: effectiveConfig,
+          environment,
+          processEnvironment,
+        });
+      const withLiveRuntimeState = (input: ServerProvider) =>
+        Effect.gen(function* () {
+          if (input.auth.status === "unauthenticated") yield* confirmedAuthentication.set(false);
+          const provider =
+            input.enabled &&
+            input.installed &&
+            input.auth.status === "unknown" &&
+            (yield* confirmedAuthentication.get)
+              ? { ...input, auth: { ...input.auth, status: "authenticated" as const } }
+              : input;
+          return yield* Option.isNone(runtimeCoordinator)
+            ? Effect.succeed(provider)
+            : Effect.all({
+                commands: runtimeCoordinator.value.getAvailableCommands(instanceId),
+                configuration: runtimeCoordinator.value.getLiveConfiguration(instanceId),
+                authAction: runtimeCoordinator.value.getUrlAuthAction(instanceId),
+              }).pipe(
+                Effect.map(({ commands, configuration, authAction }) => {
+                  const withCommands = applyAcpRegistryAvailableCommands(provider, commands);
+                  const withConfiguration = Option.match(configuration, {
+                    onNone: () => withCommands,
+                    onSome: (liveConfiguration) =>
+                      applyAcpRegistryLiveConfiguration(
+                        withCommands,
+                        liveConfiguration,
+                        effectiveConfig.customModels,
+                      ),
+                  });
+                  return applyAcpRegistryUrlAuthAction(withConfiguration, authAction);
+                }),
+              );
+        });
       const checkProvider = checkAcpRegistryProviderReadiness(readinessInput).pipe(
-        Effect.provideService(AcpRegistryCatalog, catalog),
+        Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
         Effect.flatMap(withLiveRuntimeState),
       );
       const enrichProvider = checkAcpRegistryProviderStatus(
@@ -534,7 +580,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         },
         probeAcpRegistryConfiguration,
       ).pipe(
-        Effect.provideService(AcpRegistryCatalog, catalog),
+        Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(Crypto.Crypto, crypto),
       );
@@ -566,7 +612,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             };
           }
           const enriched = yield* enrichProvider;
-          if (enriched.auth.status === "authenticated") {
+          if (enriched.status === "ready") {
             yield* Ref.update(enrichmentCache, (current) =>
               current.generation === cacheState.generation
                 ? {
@@ -596,7 +642,9 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           const publishEnrichment = (
             Option.isSome(runtimeCoordinator)
               ? runtimeCoordinator.value.runBackgroundProbe(
-                  effectiveConfig.agentId,
+                  effectiveConfig.source === "local"
+                    ? `local:${instanceId}`
+                    : effectiveConfig.agentId,
                   enrichProviderCached(snapshot),
                 )
               : enrichProviderCached(snapshot).pipe(Effect.map(Option.some))
@@ -695,19 +743,59 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         effect: Effect.Effect<
           A,
           E,
-          AcpRegistryCatalog | ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto
+          | AcpRegistrySupport.AcpRegistryCatalog
+          | ChildProcessSpawner.ChildProcessSpawner
+          | Crypto.Crypto
         >,
       ): Effect.Effect<A, E> => {
         const provided = effect.pipe(
-          Effect.provideService(AcpRegistryCatalog, catalog),
+          Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
           Effect.provideService(Crypto.Crypto, crypto),
         );
         return Option.isSome(runtimeCoordinator)
           ? provided.pipe(
-              Effect.provideService(AcpRegistryRuntimeCoordinator, runtimeCoordinator.value),
+              Effect.provideService(
+                AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator,
+                runtimeCoordinator.value,
+              ),
             )
           : provided;
+      };
+
+      const clearLiveState = Option.isSome(runtimeCoordinator)
+        ? runtimeCoordinator.value
+            .clearLiveConfiguration(instanceId)
+            .pipe(Effect.andThen(runtimeCoordinator.value.clearAvailableCommands(instanceId)))
+        : Effect.void;
+      const controller = yield* AcpRegistryAuth.makeAcpRegistryAuth({
+        instanceId,
+        settings: effectiveConfig,
+        cwd: serverConfig.cwd,
+        environment: processEnvironment,
+        onChanged: (authenticated) =>
+          confirmedAuthentication
+            .set(authenticated)
+            .pipe(
+              Effect.andThen(authenticated ? Effect.void : clearLiveState),
+              Effect.andThen(liveSnapshotSemaphore.withPermit(invalidateEnrichmentCache)),
+              Effect.andThen(snapshot.refresh),
+              Effect.asVoid,
+            ),
+      }).pipe(
+        Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(Crypto.Crypto, crypto),
+      );
+      const auth = {
+        ...controller,
+        invalidate: (controller.invalidate ?? Effect.void).pipe(
+          Effect.andThen(confirmedAuthentication.set(false)),
+          Effect.andThen(clearLiveState),
+          Effect.andThen(liveSnapshotSemaphore.withPermit(invalidateEnrichmentCache)),
+          Effect.andThen(snapshot.refresh),
+          Effect.asVoid,
+        ),
       };
 
       return {
@@ -717,7 +805,13 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         displayName,
         accentColor,
         enabled,
-        snapshot,
+        auth,
+        snapshot: {
+          ...snapshot,
+          refresh: snapshot.refresh.pipe(
+            Effect.tap(() => controller.refreshMethods ?? Effect.void),
+          ),
+        },
         orchestrationAdapter,
         textGeneration: makeUnsupportedTextGeneration(),
         acpSessionManagement: {
@@ -780,9 +874,10 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
               cwd,
               environment: processEnvironment,
             }).pipe(
-              Effect.provideService(AcpRegistryCatalog, catalog),
+              Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
               Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
               Effect.provideService(Crypto.Crypto, crypto),
+              Effect.tap(() => confirmedAuthentication.set(false)),
               Effect.tap(() =>
                 liveSnapshotSemaphore.withPermit(
                   invalidateEnrichmentCache.pipe(
@@ -803,7 +898,10 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             );
             return Option.isSome(runtimeCoordinator)
               ? logout.pipe(
-                  Effect.provideService(AcpRegistryRuntimeCoordinator, runtimeCoordinator.value),
+                  Effect.provideService(
+                    AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator,
+                    runtimeCoordinator.value,
+                  ),
                 )
               : logout;
           },

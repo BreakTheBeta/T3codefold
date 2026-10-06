@@ -14,6 +14,18 @@ export const codexAppServerArgs = (launchArgs?: string) => [
   ...codexLaunchArgv(launchArgs),
 ];
 
+/**
+ * App-server args for T3 sessions. Realtime voice is opt-in upstream, so it is enabled here
+ * without touching the host config; launch args still come last so an administrator can
+ * turn it off again.
+ */
+export const codexSessionAppServerArgs = (launchArgs?: string) => [
+  "app-server",
+  "-c",
+  "features.realtime_conversation=true",
+  ...codexLaunchArgv(launchArgs),
+];
+
 export const codexExecLaunchArgs = (launchArgs?: string) => {
   const args = codexLaunchArgv(launchArgs);
   const execArgs: Array<string> = [];
@@ -36,19 +48,4 @@ export const codexExecLaunchArgs = (launchArgs?: string) => {
   }
 
   return execArgs;
-};
-
-export const codexSessionAppServerArgs = (
-  appServerArgs: ReadonlyArray<string> | undefined,
-  launchArgs: string | undefined,
-) => {
-  // Realtime is opt-in upstream. Enable it for T3 sessions without changing the host config.
-  // Explicit launch overrides still come last so an administrator can disable it.
-  const launchAppServerArgs = [
-    "app-server",
-    "-c",
-    "features.realtime_conversation=true",
-    ...codexLaunchArgv(launchArgs),
-  ];
-  return appServerArgs ? [...launchAppServerArgs, ...appServerArgs] : launchAppServerArgs;
 };

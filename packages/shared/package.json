@@ -103,6 +103,10 @@
       "types": "./src/KeyedCoalescingWorker.ts",
       "import": "./src/KeyedCoalescingWorker.ts"
     },
+    "./KeyedLock": {
+      "types": "./src/KeyedLock.ts",
+      "import": "./src/KeyedLock.ts"
+    },
     "./schemaJson": {
       "types": "./src/schemaJson.ts",
       "import": "./src/schemaJson.ts"
@@ -202,6 +206,10 @@
     "./connectAuth": {
       "types": "./src/connectAuth.ts",
       "import": "./src/connectAuth.ts"
+    },
+    "./symlink": {
+      "types": "./src/symlink.ts",
+      "import": "./src/symlink.ts"
     },
     "./path": {
       "types": "./src/path.ts",
@@ -379,10 +387,6 @@
       "types": "./src/foldRelease.ts",
       "import": "./src/foldRelease.ts"
     },
-    "./composerContextAttachments": {
-      "types": "./src/composerContextAttachments.ts",
-      "import": "./src/composerContextAttachments.ts"
-    },
     "./cliRelease": {
       "types": "./src/cliRelease.ts",
       "import": "./src/cliRelease.ts"
@@ -406,7 +410,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vp test run"
+    "test": "vp test run --config ../../vite.config.ts --dir ."
   },
   "dependencies": {
     "@noble/curves": "catalog:",

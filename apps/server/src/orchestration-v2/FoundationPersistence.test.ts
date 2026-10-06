@@ -37,42 +37,35 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as Tracer from "effect/Tracer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as Statement from "effect/unstable/sql/Statement";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Statement from "effect/sql/Statement";
 
-import { LIVE_STREAM_MAX_ITEMS, LiveStreamBufferError } from "../orchestration/LiveStreamBudget.ts";
+import { LIVE_STREAM_MAX_ITEMS, LiveStreamBufferError } from "./LiveStreamBudget.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
-import { CommandReceiptStoreV2, layer as commandReceiptStoreLayer } from "./CommandReceiptStore.ts";
-import { EffectOutboxV2, layer as effectOutboxLayer } from "./EffectOutbox.ts";
-import {
-  layerWithOptions as effectWorkerLayerWithOptions,
-  OrchestrationEffectExecutionError,
-  OrchestrationEffectExecutorV2,
-  OrchestrationEffectWorkerV2,
-  runDaemonWithOptions as runEffectWorkerDaemonWithOptions,
-} from "./EffectWorker.ts";
-import { EventSinkV2, layer as eventSinkLayer } from "./EventSink.ts";
-import { EventStoreReadEventsError, EventStoreV2, layer as eventStoreLayer } from "./EventStore.ts";
-import { layer as idAllocatorLayer } from "./IdAllocator.ts";
-import {
-  ProjectionMaintenanceV2,
-  layer as projectionMaintenanceLayer,
-} from "./ProjectionMaintenance.ts";
-import { ProjectionStoreV2, layer as projectionStoreLayer } from "./ProjectionStore.ts";
+import * as CommandReceiptStore from "./CommandReceiptStore.ts";
+import * as EffectOutbox from "./EffectOutbox.ts";
+import * as EffectWorker from "./EffectWorker.ts";
+import * as EventSink from "./EventSink.ts";
+import * as EventStore from "./EventStore.ts";
+import * as IdAllocator from "./IdAllocator.ts";
+import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderRuntimeRecovery from "./ProviderRuntimeRecoveryService.ts";
+import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 
 const isLiveStreamBufferError = Schema.is(LiveStreamBufferError);
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const databaseLayer = SqlitePersistenceMemory;
-const eventStoreProvided = eventStoreLayer.pipe(Layer.provideMerge(databaseLayer));
-const projectionStoreProvided = projectionStoreLayer.pipe(Layer.provideMerge(databaseLayer));
+const eventStoreProvided = EventStore.layer.pipe(Layer.provideMerge(databaseLayer));
+const projectionStoreProvided = ProjectionStore.layer.pipe(Layer.provideMerge(databaseLayer));
 const storesProvided = Layer.mergeAll(databaseLayer, eventStoreProvided, projectionStoreProvided);
-const eventSinkProvided = eventSinkLayer.pipe(Layer.provide(storesProvided));
-const effectOutboxProvided = effectOutboxLayer.pipe(Layer.provide(databaseLayer));
-const commandReceiptStoreProvided = commandReceiptStoreLayer.pipe(Layer.provide(databaseLayer));
-const projectionMaintenanceProvided = projectionMaintenanceLayer.pipe(
+const eventSinkProvided = EventSink.layer.pipe(Layer.provide(storesProvided));
+const effectOutboxProvided = EffectOutbox.layer.pipe(Layer.provide(databaseLayer));
+const commandReceiptStoreProvided = CommandReceiptStore.layer.pipe(Layer.provide(databaseLayer));
+const projectionMaintenanceProvided = ProjectionMaintenance.layer.pipe(
   Layer.provide(storesProvided),
 );
 const TestLayer = Layer.mergeAll(
@@ -80,7 +73,7 @@ const TestLayer = Layer.mergeAll(
   eventSinkProvided,
   effectOutboxProvided,
   commandReceiptStoreProvided,
-  idAllocatorLayer,
+  IdAllocator.layer,
   projectionMaintenanceProvided,
 );
 
@@ -138,8 +131,8 @@ function threadCreatedEvent(input: {
 
 it.effect("rebuilds event history one bounded page at a time", () =>
   Effect.gen(function* () {
-    const eventStore = yield* EventStoreV2;
-    const projectionStore = yield* ProjectionStoreV2;
+    const eventStore = yield* EventStore.EventStoreV2;
+    const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const now = yield* DateTime.now;
     const threadId = ThreadId.make("thread:foundation-paged-rebuild");
     const thread = makeThread(threadId, now);
@@ -160,20 +153,20 @@ it.effect("rebuilds event history one bounded page at a time", () =>
     let failAfterFirstPage = false;
     const appliedAtRead: Array<number> = [];
     const observedStores = Layer.mergeAll(
-      Layer.succeed(EventStoreV2, {
+      Layer.succeed(EventStore.EventStoreV2, {
         ...eventStore,
         read: (input) =>
           Stream.suspend(() => {
             appliedAtRead.push(applied);
             if (failAfterFirstPage && applied >= 500) {
               return Stream.fail(
-                new EventStoreReadEventsError({ afterSequence: input?.afterSequence }),
+                new EventStore.EventStoreReadEventsError({ afterSequence: input?.afterSequence }),
               );
             }
             return eventStore.read(input);
           }),
       }),
-      Layer.succeed(ProjectionStoreV2, {
+      Layer.succeed(ProjectionStore.ProjectionStoreV2, {
         ...projectionStore,
         apply: (event) =>
           projectionStore.apply(event).pipe(
@@ -186,10 +179,10 @@ it.effect("rebuilds event history one bounded page at a time", () =>
       }),
     );
     const rebuild = Effect.gen(function* () {
-      const maintenance = yield* ProjectionMaintenanceV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       return yield* maintenance.rebuild;
     }).pipe(
-      Effect.provide(Layer.fresh(projectionMaintenanceLayer.pipe(Layer.provide(observedStores)))),
+      Effect.provide(Layer.fresh(ProjectionMaintenance.layer.pipe(Layer.provide(observedStores)))),
     );
     const rebuilt = yield* rebuild;
     assert.isTrue(rebuilt.valid);
@@ -208,7 +201,7 @@ it.effect("rebuilds event history one bounded page at a time", () =>
       (yield* projectionStore.getThreadProjection(threadId)).thread.title,
       "Rebuilt update 1004",
     );
-    const maintenance = yield* ProjectionMaintenanceV2;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
     assert.isTrue((yield* maintenance.verify).valid);
   }).pipe(Effect.provide(TestLayer)),
 );
@@ -216,7 +209,7 @@ it.effect("rebuilds event history one bounded page at a time", () =>
 it.effect("verifies thread membership using only the thread-created partial index", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const maintenance = yield* ProjectionMaintenanceV2;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
     const now = DateTime.formatIso(yield* DateTime.now);
     yield* sql`
       WITH RECURSIVE history(n) AS (
@@ -263,7 +256,7 @@ it.effect("keeps other database work runnable while discovering compaction candi
   Effect.scoped(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      const maintenance = yield* ProjectionMaintenanceV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       const now = DateTime.formatIso(yield* DateTime.now);
       yield* sql`
         WITH RECURSIVE history(n) AS (
@@ -349,9 +342,9 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
   it.effect("projects oversized tool bodies before both replay and live RPC retention", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const sink = yield* EventSinkV2;
-        const store = yield* EventStoreV2;
-        const projections = yield* ProjectionStoreV2;
+        const sink = yield* EventSink.EventSinkV2;
+        const store = yield* EventStore.EventStoreV2;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
         const now = yield* DateTime.now;
         const thread = makeThread(ThreadId.make("thread:large-stream-body"), now);
         const output = {
@@ -442,11 +435,12 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
     ),
   );
 
-  for (const phase of ["high-water", "replay"] as const) {
-    it.effect(`bounds live events while the V2 ${phase} query is blocked`, () =>
+  it.effect.each(["high-water", "replay"] as const)(
+    "bounds live events while the V2 %s query is blocked",
+    (phase) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const sink = yield* EventSinkV2;
+          const sink = yield* EventSink.EventSinkV2;
           const now = yield* DateTime.now;
           const thread = makeThread(ThreadId.make(`thread:blocked-${phase}`), now);
           const [created] = yield* sink.write({
@@ -495,15 +489,14 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
           }
         }),
       ),
-    );
-  }
+  );
 
   it.effect(
     "keeps internal streams subscribed while replay is blocked beyond the RPC buffer cap",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
-          const sink = yield* EventSinkV2;
+          const sink = yield* EventSink.EventSinkV2;
           const now = yield* DateTime.now;
           const thread = makeThread(ThreadId.make("thread:internal-stream-burst"), now);
           const [created] = yield* sink.write({
@@ -553,7 +546,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
   it.effect("filters worker replay and live queues without losing matching events", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const sink = yield* EventSinkV2;
+        const sink = yield* EventSink.EventSinkV2;
         const sql = yield* SqlClient.SqlClient;
         const now = yield* DateTime.now;
         const thread = makeThread(ThreadId.make("thread:filtered-worker"), now);
@@ -647,7 +640,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("paginates catch-up beyond the event-store read limit", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
+      const eventSink = yield* EventSink.EventSinkV2;
       const now = yield* DateTime.now;
       const threadId = ThreadId.make("thread:foundation-large-catch-up");
       const thread = makeThread(threadId, now);
@@ -684,7 +677,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("does not lose or duplicate events while transitioning from catch-up to live", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
+      const eventSink = yield* EventSink.EventSinkV2;
       const now = yield* DateTime.now;
       const threadId = ThreadId.make("thread:foundation-stream-race");
       const thread = makeThread(threadId, now);
@@ -720,9 +713,9 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("replays shared provider-session payloads across every bound thread", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const projectionStore = yield* ProjectionStoreV2;
-      const maintenance = yield* ProjectionMaintenanceV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       const now = yield* DateTime.now;
       const firstThreadId = ThreadId.make("thread:foundation-shared-session:first");
       const secondThreadId = ThreadId.make("thread:foundation-shared-session:second");
@@ -785,10 +778,10 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("compacts superseded state events, imported v1 events, and legacy receipts", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const maintenance = yield* ProjectionMaintenanceV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       const sql = yield* SqlClient.SqlClient;
-      const projections = yield* ProjectionStoreV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
       const now = yield* DateTime.now;
       const nowIso = DateTime.formatIso(now);
       const threadId = ThreadId.make("thread:foundation-compact");
@@ -989,9 +982,9 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("verifies and rebuilds projections with cross-thread subagent relations", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const projectionStore = yield* ProjectionStoreV2;
-      const maintenance = yield* ProjectionMaintenanceV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       const sql = yield* SqlClient.SqlClient;
       const now = yield* DateTime.now;
       const parentThreadId = ThreadId.make("thread:foundation-cross-thread:parent");
@@ -1171,10 +1164,10 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
     "rolls back events, projections, receipts, and effects after a projection failure",
     () =>
       Effect.gen(function* () {
-        const eventSink = yield* EventSinkV2;
-        const eventStore = yield* EventStoreV2;
-        const receipts = yield* CommandReceiptStoreV2;
-        const outbox = yield* EffectOutboxV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const eventStore = yield* EventStore.EventStoreV2;
+        const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
         const sql = yield* SqlClient.SqlClient;
         const now = yield* DateTime.now;
         const commandId = CommandId.make("command:foundation-atomic-failure");
@@ -1247,8 +1240,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
   it.effect("replays every command event across bounded persistence pages", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      const eventStore = yield* EventStoreV2;
-      const eventSink = yield* EventSinkV2;
+      const eventStore = yield* EventStore.EventStoreV2;
+      const eventSink = yield* EventSink.EventSinkV2;
       const now = yield* DateTime.now;
       const occurredAt = DateTime.formatIso(now);
       const commandId = CommandId.make("command:paged-command-replay");
@@ -1406,8 +1399,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("keeps one durable effect across command retries and executes it after recovery", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const outbox = yield* EffectOutboxV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const now = yield* DateTime.now;
       const commandId = CommandId.make("command:foundation-effect-recovery");
       const threadId = ThreadId.make("thread:foundation-effect-recovery");
@@ -1452,16 +1445,18 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
       const executionCount = yield* Ref.make(0);
       const executorLayer = Layer.succeed(
-        OrchestrationEffectExecutorV2,
-        OrchestrationEffectExecutorV2.of({
+        EffectWorker.OrchestrationEffectExecutorV2,
+        EffectWorker.OrchestrationEffectExecutorV2.of({
           execute: () => Ref.update(executionCount, (count) => count + 1),
         }),
       );
-      const workerLayer = effectWorkerLayerWithOptions({ workerId: "recovery-worker" }).pipe(
-        Layer.provide(Layer.merge(Layer.succeed(EffectOutboxV2, outbox), executorLayer)),
+      const workerLayer = EffectWorker.layerWithOptions({ workerId: "recovery-worker" }).pipe(
+        Layer.provide(
+          Layer.merge(Layer.succeed(EffectOutbox.EffectOutboxV2, outbox), executorLayer),
+        ),
       );
       yield* Effect.gen(function* () {
-        const worker = yield* OrchestrationEffectWorkerV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
         assert.isTrue(yield* worker.runOnce);
         assert.isFalse(yield* worker.runOnce);
       }).pipe(Effect.provide(workerLayer));
@@ -1477,8 +1472,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("does not wake claimers for effects from an idempotent command retry", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const outbox = yield* EffectOutboxV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const now = yield* DateTime.now;
       const commandId = CommandId.make("command:foundation-idempotent-wakeup");
       const threadId = ThreadId.make("thread:foundation-idempotent-wakeup");
@@ -1516,8 +1511,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("does not publish a stale provider start after an interrupt wins", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const projectionStore = yield* ProjectionStoreV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const now = yield* DateTime.now;
       const threadId = ThreadId.make("thread:foundation-stale-provider-start");
       const runId = RunId.make("run:foundation-stale-provider-start");
@@ -1621,8 +1616,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("guards post-terminal provider-thread writes by attempt and run ordinal", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const projectionStore = yield* ProjectionStoreV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const now = yield* DateTime.now;
       const threadId = ThreadId.make("thread:foundation-provider-thread-owner");
       const runId = RunId.make("run:foundation-provider-thread-owner");
@@ -1668,7 +1663,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
         handoffIds: [] as const,
         forkedFrom: null,
         pendingBackgroundTasks: [
-          { taskId: "bg-owner", description: "sleep 20", taskType: "local_bash" },
+          { taskId: "bg-owner", description: "sleep 20", kind: "command" as const },
         ],
         createdAt: now,
         updatedAt: now,
@@ -1767,7 +1762,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
                 {
                   taskId: "bg-superseded",
                   description: "should not land",
-                  taskType: "local_bash",
+                  kind: "command" as const,
                 },
               ],
               updatedAt: afterReplacement,
@@ -1844,7 +1839,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("interrupts a running process-bound effect when it is cancelled", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const commandId = CommandId.make("command:foundation-cancel-running-effect");
       const threadId = ThreadId.make("thread:foundation-cancel-running-effect");
       const effectId = "effect:foundation-cancel-running-effect";
@@ -1863,8 +1858,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
       ]);
 
       const executorLayer = Layer.succeed(
-        OrchestrationEffectExecutorV2,
-        OrchestrationEffectExecutorV2.of({
+        EffectWorker.OrchestrationEffectExecutorV2,
+        EffectWorker.OrchestrationEffectExecutorV2.of({
           execute: () =>
             Deferred.succeed(started, undefined).pipe(
               Effect.andThen(Effect.never),
@@ -1874,12 +1869,16 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
             ),
         }),
       );
-      const workerLayer = effectWorkerLayerWithOptions({
+      const workerLayer = EffectWorker.layerWithOptions({
         workerId: "cancellation-worker",
-      }).pipe(Layer.provide(Layer.merge(Layer.succeed(EffectOutboxV2, outbox), executorLayer)));
+      }).pipe(
+        Layer.provide(
+          Layer.merge(Layer.succeed(EffectOutbox.EffectOutboxV2, outbox), executorLayer),
+        ),
+      );
 
       yield* Effect.gen(function* () {
-        const worker = yield* OrchestrationEffectWorkerV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
         const workerFiber = yield* worker.runOnce.pipe(Effect.forkChild);
         yield* Deferred.await(started);
         const cancelledEffectIds = yield* outbox.cancelUnsettled({
@@ -1920,7 +1919,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
         completedAt: null,
         lastError: null,
       };
-      const outboxLayer = Layer.mock(EffectOutboxV2)({
+      const outboxLayer = Layer.mock(EffectOutbox.EffectOutboxV2)({
         claimNext: () => Effect.succeed(Option.some(claimedEffect)),
         awaitCancellation: () => Effect.never,
         clearCancellation: () => Effect.void,
@@ -1937,15 +1936,15 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
           ),
       });
       const executorLayer = Layer.succeed(
-        OrchestrationEffectExecutorV2,
-        OrchestrationEffectExecutorV2.of({ execute: () => Effect.void }),
+        EffectWorker.OrchestrationEffectExecutorV2,
+        EffectWorker.OrchestrationEffectExecutorV2.of({ execute: () => Effect.void }),
       );
-      const workerLayer = effectWorkerLayerWithOptions({
+      const workerLayer = EffectWorker.layerWithOptions({
         workerId: "settlement-race-worker",
       }).pipe(Layer.provide(Layer.merge(outboxLayer, executorLayer)));
 
       assert.isTrue(
-        yield* OrchestrationEffectWorkerV2.pipe(
+        yield* EffectWorker.OrchestrationEffectWorkerV2.pipe(
           Effect.flatMap((worker) => worker.runOnce),
           Effect.provide(workerLayer),
         ),
@@ -1975,7 +1974,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
         lastError: null,
       };
       const executionCount = yield* Ref.make(0);
-      const outboxLayer = Layer.mock(EffectOutboxV2)({
+      const outboxLayer = Layer.mock(EffectOutbox.EffectOutboxV2)({
         claimNext: () => Effect.succeed(Option.some(claimedEffect)),
         get: () =>
           Effect.succeed(
@@ -1991,17 +1990,17 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
         awaitCancellation: () => Effect.never,
       });
       const executorLayer = Layer.succeed(
-        OrchestrationEffectExecutorV2,
-        OrchestrationEffectExecutorV2.of({
+        EffectWorker.OrchestrationEffectExecutorV2,
+        EffectWorker.OrchestrationEffectExecutorV2.of({
           execute: () => Ref.update(executionCount, (count) => count + 1),
         }),
       );
-      const workerLayer = effectWorkerLayerWithOptions({
+      const workerLayer = EffectWorker.layerWithOptions({
         workerId: "claim-cancellation-worker",
       }).pipe(Layer.provide(Layer.merge(outboxLayer, executorLayer)));
 
       assert.isTrue(
-        yield* OrchestrationEffectWorkerV2.pipe(
+        yield* EffectWorker.OrchestrationEffectWorkerV2.pipe(
           Effect.flatMap((worker) => worker.runOnce),
           Effect.provide(workerLayer),
         ),
@@ -2012,7 +2011,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("allows only one worker to claim an available effect", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const commandId = CommandId.make("command:foundation-exclusive-claim");
       yield* outbox.enqueue([
         {
@@ -2048,7 +2047,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("runs title generation beside critical work while serializing each lane", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const commandId = CommandId.make("command:foundation-title-effect-lane");
       const threadId = ThreadId.make("thread:foundation-title-effect-lane");
       const titleEffectId = "effect:foundation-title-effect-lane:a-title";
@@ -2153,7 +2152,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("ignores deadlines blocked by a running effect on the same thread", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const now = yield* DateTime.now;
       const future = DateTime.add(now, { seconds: 10 });
       const commandId = CommandId.make("command:foundation-next-claimable");
@@ -2226,7 +2225,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("does not emit a SQL span for an empty safety claim", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const spans: Array<string> = [];
       const tracer = Tracer.make({
         span: (options) => {
@@ -2251,7 +2250,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("wakes claimers when cancellation unblocks same-thread work", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const commandId = CommandId.make("command:foundation-cancellation-wakeup");
       const threadId = ThreadId.make("thread:foundation-cancellation-wakeup");
       yield* outbox.enqueue([
@@ -2306,22 +2305,92 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
     }).pipe(Effect.provide(Layer.fresh(effectOutboxProvided))),
   );
 
+  it.effect("keeps later thread effects behind an earlier effect waiting to retry", () =>
+    Effect.gen(function* () {
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const workerId = "retry-order-worker";
+      const commandId = CommandId.make("command:foundation-retry-order");
+      const threadId = ThreadId.make("thread:foundation-retry-order");
+      yield* outbox.enqueue([
+        {
+          id: "effect:foundation-retry-order:z-rollback",
+          commandId,
+          threadId,
+          request: {
+            type: "provider-thread.rollback",
+            providerThreadId: ProviderThreadId.make("provider-thread:foundation-retry-order"),
+            checkpointId: CheckpointId.make("checkpoint:foundation-retry-order"),
+            scopeId: CheckpointScopeId.make("scope:foundation-retry-order"),
+          },
+        },
+      ]);
+      const rollback = yield* outbox.claimNext({ workerId, leaseDurationMs: 30_000 });
+      assert.isTrue(Option.isSome(rollback));
+      if (Option.isNone(rollback)) return;
+      yield* outbox.retry({
+        effectId: rollback.value.id,
+        workerId,
+        error: "rollback failed once",
+        delayMs: 60_000,
+      });
+
+      // A turn the user starts during the rollback's backoff must not run first,
+      // even when its timestamp ties and its id sorts first.
+      yield* outbox.enqueue([
+        {
+          id: "effect:foundation-retry-order:a-start",
+          commandId: CommandId.make("command:foundation-retry-order:start"),
+          threadId,
+          request: { type: "provider-turn.start", runId: RunId.make("run:foundation-retry-order") },
+        },
+        {
+          id: "effect:foundation-retry-order:b-title",
+          commandId: CommandId.make("command:foundation-retry-order:title"),
+          threadId,
+          request: { type: "thread-title.generate", kind: { type: "regenerate" } },
+        },
+      ]);
+      const title = yield* outbox.claimNext({ workerId, leaseDurationMs: 30_000 });
+      assert.equal(Option.getOrUndefined(title)?.id, "effect:foundation-retry-order:b-title");
+      const blocked = yield* outbox.claimNext({ workerId, leaseDurationMs: 30_000 });
+      assert.isTrue(Option.isNone(blocked));
+      const nextClaimable = yield* outbox.nextClaimableAt;
+      assert.isTrue(Option.isSome(nextClaimable));
+      if (Option.isSome(nextClaimable)) {
+        assert.equal(
+          DateTime.formatIso(nextClaimable.value),
+          (yield* outbox.get(rollback.value.id)).pipe(Option.getOrThrow).availableAt,
+        );
+      }
+
+      yield* outbox.cancelUnsettled({
+        threadId,
+        effectTypes: ["provider-thread.rollback"],
+        reason: "Test cleanup.",
+      });
+      const unblocked = yield* outbox.claimNext({ workerId, leaseDurationMs: 30_000 });
+      assert.equal(Option.getOrUndefined(unblocked)?.id, "effect:foundation-retry-order:a-start");
+      yield* outbox.succeed({ effectId: "effect:foundation-retry-order:a-start", workerId });
+      yield* outbox.succeed({ effectId: "effect:foundation-retry-order:b-title", workerId });
+    }).pipe(Effect.provide(Layer.fresh(effectOutboxProvided))),
+  );
+
   it.effect("executes a retry at its durable deadline instead of the liveness interval", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const effectId = "effect:foundation-durable-retry-deadline";
       const commandId = CommandId.make("command:foundation-durable-retry-deadline");
       const threadId = ThreadId.make("thread:foundation-durable-retry-deadline");
       const executions = yield* Ref.make(0);
       const completed = yield* Deferred.make<void>();
       const executorLayer = Layer.succeed(
-        OrchestrationEffectExecutorV2,
-        OrchestrationEffectExecutorV2.of({
+        EffectWorker.OrchestrationEffectExecutorV2,
+        EffectWorker.OrchestrationEffectExecutorV2.of({
           execute: () =>
             Effect.gen(function* () {
               const attempt = yield* Ref.updateAndGet(executions, (count) => count + 1);
               if (attempt === 1) {
-                return yield* new OrchestrationEffectExecutionError({
+                return yield* new EffectWorker.OrchestrationEffectExecutionError({
                   effectId,
                   effectType: "terminal.cleanup",
                   cause: "simulated retry",
@@ -2331,12 +2400,16 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
             }),
         }),
       );
-      const workerLayer = effectWorkerLayerWithOptions({
+      const workerLayer = EffectWorker.layerWithOptions({
         workerId: "durable-retry-deadline-worker",
-      }).pipe(Layer.provide(Layer.merge(Layer.succeed(EffectOutboxV2, outbox), executorLayer)));
+      }).pipe(
+        Layer.provide(
+          Layer.merge(Layer.succeed(EffectOutbox.EffectOutboxV2, outbox), executorLayer),
+        ),
+      );
 
       yield* Effect.gen(function* () {
-        yield* runEffectWorkerDaemonWithOptions({
+        yield* EffectWorker.runDaemonWithOptions({
           concurrency: 1,
           livenessPollIntervalMs: 30_000,
         }).pipe(Effect.forkScoped);
@@ -2371,7 +2444,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("runs distinct threads concurrently while serializing effects within a thread", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const commandId = CommandId.make("command:foundation-concurrent-effects");
       const threadA = ThreadId.make("thread:foundation-concurrent-effects:a");
       const threadB = ThreadId.make("thread:foundation-concurrent-effects:b");
@@ -2390,8 +2463,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
         [effectB1, { started: startedB1, release: releaseB1 }],
       ]);
       const executorLayer = Layer.succeed(
-        OrchestrationEffectExecutorV2,
-        OrchestrationEffectExecutorV2.of({
+        EffectWorker.OrchestrationEffectExecutorV2,
+        EffectWorker.OrchestrationEffectExecutorV2.of({
           execute: (effect) => {
             const gate = gates.get(effect.id);
             if (gate === undefined) return Effect.die(`Missing gate for ${effect.id}`);
@@ -2401,12 +2474,16 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
           },
         }),
       );
-      const workerLayer = effectWorkerLayerWithOptions({
+      const workerLayer = EffectWorker.layerWithOptions({
         workerId: "concurrency-worker",
-      }).pipe(Layer.provide(Layer.merge(Layer.succeed(EffectOutboxV2, outbox), executorLayer)));
+      }).pipe(
+        Layer.provide(
+          Layer.merge(Layer.succeed(EffectOutbox.EffectOutboxV2, outbox), executorLayer),
+        ),
+      );
 
       yield* Effect.gen(function* () {
-        yield* runEffectWorkerDaemonWithOptions({ concurrency: 2 }).pipe(Effect.forkScoped);
+        yield* EffectWorker.runDaemonWithOptions({ concurrency: 2 }).pipe(Effect.forkScoped);
         // Let both slots reach the idle wait before work becomes available.
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
@@ -2461,7 +2538,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("does not reclaim a running effect after its process-local lease expires", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const sql = yield* SqlClient.SqlClient;
       const commandId = CommandId.make("command:foundation-no-live-reclaim");
       const threadId = ThreadId.make("thread:foundation-no-live-reclaim");
@@ -2486,8 +2563,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
       ]);
 
       const executorLayer = Layer.succeed(
-        OrchestrationEffectExecutorV2,
-        OrchestrationEffectExecutorV2.of({
+        EffectWorker.OrchestrationEffectExecutorV2,
+        EffectWorker.OrchestrationEffectExecutorV2.of({
           execute: (effect) =>
             Ref.update(executions, (current) => [...current, effect.id]).pipe(
               Effect.andThen(
@@ -2500,13 +2577,17 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
             ),
         }),
       );
-      const workerLayer = effectWorkerLayerWithOptions({
+      const workerLayer = EffectWorker.layerWithOptions({
         workerId: "no-live-reclaim-worker",
         leaseDurationMs: 1,
-      }).pipe(Layer.provide(Layer.merge(Layer.succeed(EffectOutboxV2, outbox), executorLayer)));
+      }).pipe(
+        Layer.provide(
+          Layer.merge(Layer.succeed(EffectOutbox.EffectOutboxV2, outbox), executorLayer),
+        ),
+      );
 
       yield* Effect.gen(function* () {
-        const worker = yield* OrchestrationEffectWorkerV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
         const firstFiber = yield* worker.runOnce.pipe(Effect.forkChild);
         yield* Deferred.await(firstStarted);
         yield* sql`
@@ -2530,7 +2611,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
     "persists shutdown continuation intent through the real event sink without domain events",
     () =>
       Effect.gen(function* () {
-        const outbox = yield* EffectOutboxV2;
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
         const now = yield* DateTime.now;
         const threadId = ThreadId.make("thread:shutdown-prepare");
         const runId = RunId.make("run:shutdown-prepare");
@@ -2574,11 +2655,11 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
           Effect.provide(
             Layer.mergeAll(
               ServerSettings.layerTest({ continueThreadsAfterServerUpdate: true }),
-              Layer.mock(ProjectionStoreV2)({
+              Layer.mock(ProjectionStore.ProjectionStoreV2)({
                 getRecoveryThreadIds: () => Effect.succeed([threadId]),
                 getRuntimeRecoveryProjection: () => Effect.succeed(projection),
               }),
-              Layer.mock(OrchestrationEffectWorkerV2)({}),
+              Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({}),
             ),
           ),
         );
@@ -2604,7 +2685,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
   it.effect("leaves restart continuation pending until normal worker claims are enabled", () =>
     Effect.gen(function* () {
-      const outbox = yield* EffectOutboxV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
       const threadId = ThreadId.make("thread:activation-restart");
       const commandId = CommandId.make("command:activation-restart");
       yield* outbox.enqueue([
@@ -2652,74 +2733,72 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
     }),
   );
 
-  for (const replayRequest of [
+  it.effect.each([
     { type: "terminal.cleanup" },
     { type: "provider-runtime.continue", sourceRunId: RunId.make("run:restart-replay") },
-  ] as const) {
-    it.effect(
-      `retires live provider effects and requeues ${replayRequest.type} after process loss`,
-      () =>
-        Effect.gen(function* () {
-          const outbox = yield* EffectOutboxV2;
-          const commandId = CommandId.make(
-            `command:foundation-reclaim-running:${replayRequest.type}`,
-          );
-          yield* outbox.enqueue([
-            {
-              id: `effect:a-foundation-cancel-provider-turn:${replayRequest.type}`,
-              commandId,
-              threadId: ThreadId.make(`thread:foundation-reclaim-running:${replayRequest.type}`),
-              request: {
-                type: "provider-turn.start",
-                runId: RunId.make(`run:foundation-reclaim-running:${replayRequest.type}`),
-              },
+  ] as const)(
+    "retires live provider effects and requeues $type after process loss",
+    (replayRequest) =>
+      Effect.gen(function* () {
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
+        const commandId = CommandId.make(
+          `command:foundation-reclaim-running:${replayRequest.type}`,
+        );
+        yield* outbox.enqueue([
+          {
+            id: `effect:a-foundation-cancel-provider-turn:${replayRequest.type}`,
+            commandId,
+            threadId: ThreadId.make(`thread:foundation-reclaim-running:${replayRequest.type}`),
+            request: {
+              type: "provider-turn.start",
+              runId: RunId.make(`run:foundation-reclaim-running:${replayRequest.type}`),
             },
-            {
-              id: `effect:b-foundation-requeue-cleanup:${replayRequest.type}`,
-              commandId,
-              threadId: ThreadId.make(`thread:foundation-reclaim-cleanup:${replayRequest.type}`),
-              request: replayRequest,
-            },
-          ]);
-          assert.isTrue(
-            Option.isSome(
-              yield* outbox.claimNext({ workerId: "crashed-worker", leaseDurationMs: 30_000 }),
-            ),
-          );
-          assert.isTrue(
-            Option.isSome(
-              yield* outbox.claimNext({ workerId: "crashed-worker", leaseDurationMs: 30_000 }),
-            ),
-          );
-          assert.deepEqual(yield* outbox.reconcileAfterProcessLoss, {
-            cancelled: 1,
-            requeued: 1,
-          });
-          const cancelled = yield* outbox.get(
-            `effect:a-foundation-cancel-provider-turn:${replayRequest.type}`,
-          );
-          assert.isTrue(Option.isSome(cancelled));
-          if (Option.isSome(cancelled)) assert.equal(cancelled.value.status, "cancelled");
+          },
+          {
+            id: `effect:b-foundation-requeue-cleanup:${replayRequest.type}`,
+            commandId,
+            threadId: ThreadId.make(`thread:foundation-reclaim-cleanup:${replayRequest.type}`),
+            request: replayRequest,
+          },
+        ]);
+        assert.isTrue(
+          Option.isSome(
+            yield* outbox.claimNext({ workerId: "crashed-worker", leaseDurationMs: 30_000 }),
+          ),
+        );
+        assert.isTrue(
+          Option.isSome(
+            yield* outbox.claimNext({ workerId: "crashed-worker", leaseDurationMs: 30_000 }),
+          ),
+        );
+        assert.deepEqual(yield* outbox.reconcileAfterProcessLoss, {
+          cancelled: 1,
+          requeued: 1,
+        });
+        const cancelled = yield* outbox.get(
+          `effect:a-foundation-cancel-provider-turn:${replayRequest.type}`,
+        );
+        assert.isTrue(Option.isSome(cancelled));
+        if (Option.isSome(cancelled)) assert.equal(cancelled.value.status, "cancelled");
 
-          const reclaimed = yield* outbox.claimNext({
-            workerId: "recovery-worker",
-            leaseDurationMs: 30_000,
-          });
-          assert.isTrue(Option.isSome(reclaimed));
-          if (Option.isSome(reclaimed)) {
-            assert.equal(reclaimed.value.request.type, replayRequest.type);
-            assert.equal(reclaimed.value.attemptCount, 2);
-            yield* outbox.succeed({ effectId: reclaimed.value.id, workerId: "recovery-worker" });
-          }
-        }),
-    );
-  }
+        const reclaimed = yield* outbox.claimNext({
+          workerId: "recovery-worker",
+          leaseDurationMs: 30_000,
+        });
+        assert.isTrue(Option.isSome(reclaimed));
+        if (Option.isSome(reclaimed)) {
+          assert.equal(reclaimed.value.request.type, replayRequest.type);
+          assert.equal(reclaimed.value.attemptCount, 2);
+          yield* outbox.succeed({ effectId: reclaimed.value.id, workerId: "recovery-worker" });
+        }
+      }),
+  );
 
   it.effect("atomically cancels stale runs and their process-bound effects", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const outbox = yield* EffectOutboxV2;
-      const projectionStore = yield* ProjectionStoreV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const now = yield* DateTime.now;
       const threadId = ThreadId.make("thread:foundation-process-loss");
       const runId = RunId.make("run:foundation-process-loss");
@@ -2777,8 +2856,8 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
       const recovery = yield* ProviderRuntimeRecovery.make.pipe(
         Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(
-          OrchestrationEffectWorkerV2,
-          OrchestrationEffectWorkerV2.of({
+          EffectWorker.OrchestrationEffectWorkerV2,
+          EffectWorker.OrchestrationEffectWorkerV2.of({
             awaitWork: Effect.void,
             runRecoveryOnce: Effect.succeed(false),
             runOnce: Effect.succeed(false),
@@ -2802,11 +2881,236 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
     }),
   );
 
+  it.effect("settles a native subagent's child thread when its provider process is gone", () =>
+    Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const parentId = ThreadId.make("thread:foundation-native-subagent-parent");
+      const childId = ThreadId.make("thread:foundation-native-subagent-child");
+      const runId = RunId.make("run:foundation-native-subagent");
+      const subagentId = NodeId.make("node:foundation-native-subagent");
+      const childRootId = NodeId.make("node:foundation-native-subagent-child-root");
+      const parent = makeThread(parentId, now);
+      const child: OrchestrationV2AppThread = {
+        ...makeThread(childId, now),
+        createdBy: "agent",
+        creationSource: "provider",
+        lineage: {
+          parentThreadId: parentId,
+          relationshipToParent: "subagent",
+          rootThreadId: parentId,
+        },
+        forkedFrom: { type: "node", nodeId: subagentId },
+      };
+      const node = (input: {
+        readonly id: NodeId;
+        readonly threadId: ThreadId;
+        readonly runId: RunId | null;
+        readonly kind: "root_turn" | "subagent";
+      }) => ({
+        ...input,
+        parentNodeId: null,
+        rootNodeId: input.id,
+        status: "running" as const,
+        countsForRun: false,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        runtimeRequestId: null,
+        checkpointScopeId: null,
+        startedAt: now,
+        completedAt: null,
+      });
+      // The parent run settled while its background subagent kept working,
+      // then the server died. Recovery already cancels the parent's subagent
+      // item, entity, and node; the child's runless root turn lives on another
+      // thread and must be settled too.
+      yield* eventSink.commitCommand({
+        commandId: CommandId.make("command:foundation-native-subagent"),
+        threadId: parentId,
+        commandType: "foundation.native-subagent",
+        acceptedAt: now,
+        events: [
+          threadCreatedEvent({
+            id: "event:foundation-native-subagent:parent",
+            thread: parent,
+            now,
+          }),
+          threadCreatedEvent({ id: "event:foundation-native-subagent:child", thread: child, now }),
+          {
+            id: EventId.make("event:foundation-native-subagent:run"),
+            type: "run.created",
+            threadId: parentId,
+            runId,
+            providerInstanceId,
+            occurredAt: now,
+            payload: {
+              id: runId,
+              threadId: parentId,
+              ordinal: 1,
+              providerInstanceId,
+              modelSelection,
+              providerThreadId: null,
+              userMessageId: MessageId.make("message:foundation-native-subagent"),
+              rootNodeId: null,
+              activeAttemptId: null,
+              status: "completed",
+              queuePosition: null,
+              requestedAt: now,
+              startedAt: now,
+              completedAt: now,
+              checkpointId: null,
+              contextHandoffId: null,
+            },
+          },
+          {
+            id: EventId.make("event:foundation-native-subagent:subagent-node"),
+            type: "node.updated",
+            threadId: parentId,
+            runId,
+            nodeId: subagentId,
+            occurredAt: now,
+            payload: node({ id: subagentId, threadId: parentId, runId, kind: "subagent" }),
+          },
+          {
+            id: EventId.make("event:foundation-native-subagent:child-root"),
+            type: "node.updated",
+            threadId: childId,
+            nodeId: childRootId,
+            occurredAt: now,
+            payload: node({ id: childRootId, threadId: childId, runId: null, kind: "root_turn" }),
+          },
+          {
+            // The subagent's live thinking in the child, still streaming.
+            id: EventId.make("event:foundation-native-subagent:child-progress"),
+            type: "turn-item.updated",
+            threadId: childId,
+            nodeId: childRootId,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make("item:foundation-native-subagent:progress"),
+              threadId: childId,
+              runId: null,
+              nodeId: childRootId,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 101,
+              type: "reasoning",
+              status: "running",
+              title: "Thinking",
+              startedAt: now,
+              completedAt: null,
+              updatedAt: now,
+              text: "Checking the diff.",
+              streaming: true,
+            },
+          },
+          {
+            id: EventId.make("event:foundation-native-subagent:subagent"),
+            type: "subagent.updated",
+            threadId: parentId,
+            runId,
+            nodeId: subagentId,
+            driver: providerDriver,
+            providerInstanceId,
+            occurredAt: now,
+            payload: {
+              id: subagentId,
+              threadId: parentId,
+              runId,
+              parentNodeId: subagentId,
+              origin: "provider_native",
+              createdBy: "agent",
+              driver: providerDriver,
+              providerInstanceId,
+              providerThreadId: null,
+              childThreadId: childId,
+              nativeTaskRef: null,
+              prompt: "Audit the adapters",
+              title: null,
+              model: null,
+              status: "running",
+              result: null,
+              startedAt: now,
+              completedAt: null,
+              updatedAt: now,
+            },
+          },
+          {
+            id: EventId.make("event:foundation-native-subagent:item"),
+            type: "turn-item.updated",
+            threadId: parentId,
+            runId,
+            nodeId: subagentId,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make("item:foundation-native-subagent"),
+              threadId: parentId,
+              runId,
+              nodeId: subagentId,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 1,
+              type: "subagent",
+              status: "running",
+              title: null,
+              startedAt: now,
+              completedAt: null,
+              updatedAt: now,
+              subagentId,
+              origin: "provider_native",
+              driver: providerDriver,
+              providerInstanceId,
+              childThreadId: childId,
+              prompt: "Audit the adapters",
+              result: null,
+            },
+          },
+        ],
+        effects: [],
+      });
+
+      const recovery = yield* ProviderRuntimeRecovery.make.pipe(
+        Effect.provide(ServerSettings.layerTest()),
+        Effect.provideService(
+          EffectWorker.OrchestrationEffectWorkerV2,
+          EffectWorker.OrchestrationEffectWorkerV2.of({
+            awaitWork: Effect.void,
+            runRecoveryOnce: Effect.succeed(false),
+            runOnce: Effect.succeed(false),
+            nextClaimableAt: Effect.succeed(Option.none()),
+            drain: () => Effect.succeed(0),
+          }),
+        ),
+      );
+      assert.include(yield* projectionStore.getRecoveryThreadIds("runtime"), childId);
+      yield* recovery.recover;
+
+      const parentProjection = yield* projectionStore.getThreadProjection(parentId);
+      assert.equal(parentProjection.subagents[0]?.status, "cancelled");
+      const childProjection = yield* projectionStore.getThreadProjection(childId);
+      const childRoot = childProjection.nodes.find((candidate) => candidate.id === childRootId);
+      assert.equal(childRoot?.status, "cancelled");
+      assert.isNotNull(childRoot?.completedAt ?? null);
+      // Nothing inside the child keeps reading as live work either.
+      const progress = childProjection.turnItems.find((item) => item.type === "reasoning");
+      assert.equal(progress?.status, "cancelled");
+      assert.isFalse(progress?.type === "reasoning" && progress.streaming);
+      assert.isNotNull(progress?.completedAt ?? null);
+      assert.notInclude(yield* projectionStore.getRecoveryThreadIds("runtime"), childId);
+    }),
+  );
+
   it.effect("allocates collision-free positions beyond 100 items and rebuilds equivalently", () =>
     Effect.gen(function* () {
-      const eventSink = yield* EventSinkV2;
-      const projectionStore = yield* ProjectionStoreV2;
-      const maintenance = yield* ProjectionMaintenanceV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       const sql = yield* SqlClient.SqlClient;
       const now = yield* DateTime.now;
       const threadId = ThreadId.make("thread:foundation-many-items");
@@ -2949,11 +3253,11 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
 
 it.live("keeps claiming new work after repeated idle periods", () =>
   Effect.gen(function* () {
-    const outbox = yield* EffectOutboxV2;
+    const outbox = yield* EffectOutbox.EffectOutboxV2;
     const completed = new Map<string, Deferred.Deferred<void>>();
     const executorLayer = Layer.succeed(
-      OrchestrationEffectExecutorV2,
-      OrchestrationEffectExecutorV2.of({
+      EffectWorker.OrchestrationEffectExecutorV2,
+      EffectWorker.OrchestrationEffectExecutorV2.of({
         execute: (effect) => {
           const completion = completed.get(effect.id);
           return completion === undefined
@@ -2962,12 +3266,14 @@ it.live("keeps claiming new work after repeated idle periods", () =>
         },
       }),
     );
-    const workerLayer = effectWorkerLayerWithOptions({
+    const workerLayer = EffectWorker.layerWithOptions({
       workerId: "idle-wave-worker",
-    }).pipe(Layer.provide(Layer.merge(Layer.succeed(EffectOutboxV2, outbox), executorLayer)));
+    }).pipe(
+      Layer.provide(Layer.merge(Layer.succeed(EffectOutbox.EffectOutboxV2, outbox), executorLayer)),
+    );
 
     yield* Effect.gen(function* () {
-      yield* runEffectWorkerDaemonWithOptions({ concurrency: 2 }).pipe(Effect.forkScoped);
+      yield* EffectWorker.runDaemonWithOptions({ concurrency: 2 }).pipe(Effect.forkScoped);
       for (let wave = 1; wave <= 6; wave += 1) {
         yield* Effect.sleep("125 millis");
         const effectId = `effect:foundation-idle-wave:${wave}`;
@@ -2987,4 +3293,91 @@ it.live("keeps claiming new work after repeated idle periods", () =>
       }
     }).pipe(Effect.provide(workerLayer), Effect.scoped);
   }).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect("publishes live events in commit order across concurrent writers", () =>
+  Effect.gen(function* () {
+    const firstCommitted = yield* Deferred.make<void>();
+    const releaseFirst = yield* Deferred.make<void>();
+    // The first writer's post-commit wakeup stands in for any scheduler yield
+    // between its commit and its publish.
+    const pausingOutbox = Layer.effect(
+      EffectOutbox.EffectOutboxV2,
+      Effect.gen(function* () {
+        const delegate = yield* EffectOutbox.EffectOutboxV2;
+        return EffectOutbox.EffectOutboxV2.of({
+          ...delegate,
+          notifyAvailable: (count) =>
+            Deferred.succeed(firstCommitted, undefined).pipe(
+              Effect.andThen(Deferred.await(releaseFirst)),
+              Effect.andThen(delegate.notifyAvailable(count)),
+            ),
+        });
+      }),
+    ).pipe(Layer.provide(effectOutboxProvided));
+    const eventSinkLayer = EventSink.layerFromStores.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          storesProvided,
+          pausingOutbox,
+          commandReceiptStoreProvided,
+          ProjectStore.layer.pipe(Layer.provide(databaseLayer)),
+          TurnItemPositionStore.layer.pipe(Layer.provide(databaseLayer)),
+        ),
+      ),
+    );
+
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const now = yield* DateTime.now;
+      const first = makeThread(ThreadId.make("thread:foundation-publish-order:first"), now);
+      const second = makeThread(ThreadId.make("thread:foundation-publish-order:second"), now);
+      const published = yield* eventSink
+        .stream({ afterSequence: yield* eventSink.latestSequence() })
+        .pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped({ startImmediately: true }));
+
+      const firstWrite = yield* eventSink
+        .writeWithEffects({
+          events: [
+            threadCreatedEvent({ id: "event:foundation-publish-order:first", thread: first, now }),
+          ],
+          effects: [
+            {
+              id: "effect:foundation-publish-order:first",
+              commandId: CommandId.make("command:foundation-publish-order:first"),
+              threadId: first.id,
+              request: { type: "terminal.cleanup" },
+            },
+          ],
+        })
+        .pipe(Effect.forkScoped);
+      yield* Deferred.await(firstCommitted);
+      // The second writer commits after the first. It may run as far as it can
+      // before the first writer resumes.
+      const secondWrite = yield* eventSink
+        .write({
+          events: [
+            threadCreatedEvent({
+              id: "event:foundation-publish-order:second",
+              thread: second,
+              now,
+            }),
+          ],
+        })
+        .pipe(
+          Effect.provideService(Scheduler.MaxOpsBeforeYield, Number.POSITIVE_INFINITY),
+          Effect.forkScoped,
+        );
+      yield* Effect.yieldNow;
+      yield* Deferred.succeed(releaseFirst, undefined);
+      yield* Fiber.join(firstWrite);
+      yield* Fiber.join(secondWrite);
+
+      const sequences = Array.from(yield* Fiber.join(published), (stored) => stored.sequence);
+      assert.deepEqual(
+        sequences,
+        [...sequences].sort((left, right) => left - right),
+      );
+    }).pipe(Effect.provide(eventSinkLayer));
+  }).pipe(Effect.provide(databaseLayer)),
 );

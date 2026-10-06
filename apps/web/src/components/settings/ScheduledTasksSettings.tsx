@@ -75,6 +75,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
+  SettingsPageContainer,
   SettingsRow,
   SettingsSection,
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
@@ -127,10 +128,10 @@ function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="flex items-baseline justify-between gap-2" htmlFor={htmlFor}>
+      <Label className="flex items-baseline justify-between" htmlFor={htmlFor}>
         <span>{label}</span>
         {hint ? (
-          <span className="font-normal text-[11px] text-muted-foreground/80">{hint}</span>
+          <span className="font-normal text-2xs text-muted-foreground/80">{hint}</span>
         ) : null}
       </Label>
       {children}
@@ -219,9 +220,8 @@ export function ScheduledTasksSettings(target: {
   }, []);
   const defaultEnvironment = environment ?? connectedEnvironments[0];
   return (
-    <>
+    <SettingsPageContainer>
       <SettingsSection
-        id="scheduled-tasks"
         title="Scheduled tasks"
         variant="plain"
         headerAction={
@@ -280,7 +280,7 @@ export function ScheduledTasksSettings(target: {
           onClose={() => setEditor(null)}
         />
       ) : null}
-    </>
+    </SettingsPageContainer>
   );
 }
 
@@ -803,6 +803,7 @@ function ScheduledTaskEditorDialog({
                 lockedProvider={null}
                 instanceEntries={instanceEntries}
                 modelOptionsByInstance={modelOptionsByInstance}
+                isComposerOwned={false}
                 triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                 onInstanceModelChange={(instanceId, model) =>
                   setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))

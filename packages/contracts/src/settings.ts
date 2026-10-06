@@ -20,8 +20,8 @@ import {
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
   ProviderOptionSelections,
 } from "./model.ts";
-import { ProjectScript } from "./project.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { ProjectScript } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
@@ -38,6 +38,7 @@ import {
   type ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
+import { FoldClientSettingsFields, FoldClientSettingsPatchFields } from "./foldSettings.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -288,44 +289,6 @@ export const LoadBalancingWeights = Schema.Record(
 
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
-/** Where the splatter backdrop shows: the themes that ship with it, or every theme. */
-export const ThemeBackdropScope = Schema.Literals(["featured", "all"]);
-export type ThemeBackdropScope = typeof ThemeBackdropScope.Type;
-
-/** Lead, second and rare accent paint colours, overriding the theme-derived ones. */
-export const ThemeBackdropColors = Schema.Tuple([
-  Schema.String.check(Schema.isPattern(/^#[0-9a-f]{6}$/i)),
-  Schema.String.check(Schema.isPattern(/^#[0-9a-f]{6}$/i)),
-  Schema.String.check(Schema.isPattern(/^#[0-9a-f]{6}$/i)),
-]);
-export type ThemeBackdropColors = typeof ThemeBackdropColors.Type;
-
-export const MIN_THEME_BACKDROP_INTENSITY = 25;
-export const MAX_THEME_BACKDROP_INTENSITY = 250;
-/** Percent of the tuned default alpha. */
-export const ThemeBackdropIntensity = Schema.Int.check(
-  Schema.isBetween({
-    minimum: MIN_THEME_BACKDROP_INTENSITY,
-    maximum: MAX_THEME_BACKDROP_INTENSITY,
-  }),
-);
-export type ThemeBackdropIntensity = typeof ThemeBackdropIntensity.Type;
-
-export const MIN_THEME_BACKDROP_AMOUNT = 0;
-export const MAX_THEME_BACKDROP_AMOUNT = 200;
-/** Percent of the tuned default number of marks scattered across the canvas. */
-export const ThemeBackdropAmount = Schema.Int.check(
-  Schema.isBetween({ minimum: MIN_THEME_BACKDROP_AMOUNT, maximum: MAX_THEME_BACKDROP_AMOUNT }),
-);
-export type ThemeBackdropAmount = typeof ThemeBackdropAmount.Type;
-
-export const MAX_THEME_BACKDROP_SEED = 999_999;
-/** Splatter pattern variant; 0 is the original art. */
-export const ThemeBackdropSeed = Schema.Int.check(
-  Schema.isBetween({ minimum: 0, maximum: MAX_THEME_BACKDROP_SEED }),
-);
-export type ThemeBackdropSeed = typeof ThemeBackdropSeed.Type;
-
 /** Maximum width of the chat timeline and composer on wide screens. */
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
@@ -415,23 +378,6 @@ export const ClientSettingsSchema = Schema.Struct({
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
   ),
-  /** Paint-splatter backdrop behind the conversation, on themes that ship one. */
-  themeBackdropEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  themeBackdropScope: ThemeBackdropScope.pipe(
-    Schema.withDecodingDefault(Effect.succeed("featured" as const)),
-  ),
-  /** Null follows the active theme's accent colours. */
-  themeBackdropColors: Schema.NullOr(ThemeBackdropColors).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  themeBackdropIntensity: ThemeBackdropIntensity.pipe(
-    Schema.withDecodingDefault(Effect.succeed(100)),
-  ),
-  themeBackdropAmount: ThemeBackdropAmount.pipe(Schema.withDecodingDefault(Effect.succeed(100))),
-  themeBackdropGlow: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  /** Adds a splat in the project's colour for each PR merged since 6am local. */
-  themeBackdropDynamic: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  themeBackdropSeed: ThemeBackdropSeed.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
   ),
@@ -510,14 +456,17 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   proactivePanelsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   showSkillsInSlashMenu: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  citeSelectionEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  vimModeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  vimThreadPreviewEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // Legacy sidebar (the original per-project tree). Deliberately a fresh key
   // (was `sidebarV2Enabled` + `sidebarV2ConfiguredByUser`): decoding drops the
   // old keys, so everyone, including prior beta opt-outs, resets to the new
   // default sidebar.
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Beta: working and monitoring threads fold into a Working shelf and return
+  // to the top of the inbox once they need the user. The inbox then orders by
+  // time, so manual placement there is ignored (and kept) while it is on.
+  sidebarWorkingShelfEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -551,6 +500,7 @@ export const ClientSettingsSchema = Schema.Struct({
   snapShotFlash: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  ...FoldClientSettingsFields,
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -887,7 +837,7 @@ export type AntigravitySettings = typeof AntigravitySettings.Type;
 
 export const PiSettings = makeProviderSettingsSchema(
   {
-    // Disabled by default while Pi support is Early Access.
+    // Off by default like Cursor and Grok. Users opt in from Settings.
     enabled: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
@@ -923,6 +873,19 @@ export type AcpRegistryDistributionPreference = typeof AcpRegistryDistributionPr
 
 export const AcpRegistrySettings = makeProviderSettingsSchema(
   {
+    source: Schema.Literals(["registry", "local"]).pipe(
+      Schema.withDecodingDefault(Effect.succeed("registry")),
+      Schema.annotateKey({
+        title: "ACP source",
+        providerSettingsForm: {
+          control: "select",
+          options: [
+            { value: "registry", label: "ACP Registry" },
+            { value: "local", label: "Local command" },
+          ],
+        },
+      }),
+    ),
     enabled: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
@@ -940,9 +903,13 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Executable override",
         description:
-          "Optional local executable to use instead of installing the registry distribution. Registry arguments and environment are still applied.",
+          "Executable on this environment. For registry agents, this overrides the distribution executable while keeping its arguments and environment.",
         providerSettingsForm: { placeholder: "Registry default", clearWhenEmpty: "omit" },
       }),
+    ),
+    commandArgs: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     authMethodId: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
@@ -963,7 +930,7 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["agentId", "commandPath", "authMethodId"],
+    order: ["source", "agentId", "commandPath", "authMethodId"],
   },
 );
 export type AcpRegistrySettings = typeof AcpRegistrySettings.Type;
@@ -1125,20 +1092,19 @@ export const BackgroundActivitySettings = Schema.Struct({
 export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 
 /**
+ * How assistant text reaches clients while a turn runs.
+ * - `turn`: hold the whole message until the turn finishes or pauses.
+ * - `paragraph`: deliver each finished paragraph or closed code block.
+ */
+export const ResponseStreamingMode = Schema.Literals(["turn", "paragraph"]);
+export type ResponseStreamingMode = typeof ResponseStreamingMode.Type;
+
+/**
  * Server settings a project may override. Every other server setting is
  * environment-wide: providers, keybindings, observability, device hosts,
  * background activity, theme. UI, search and the write planner derive
  * eligibility from this list, so adding a key here is the whole opt-in.
  */
-/**
- * How assistant text reaches clients while a turn runs.
- * - `turn`: hold the whole message until the turn finishes or pauses.
- * - `paragraph`: deliver each finished paragraph or closed code block.
- * - `token`: forward every provider delta. Legacy, kept for compatibility.
- */
-export const ResponseStreamingMode = Schema.Literals(["turn", "paragraph", "token"]);
-export type ResponseStreamingMode = typeof ResponseStreamingMode.Type;
-
 const StorageRetentionDays = Schema.NullOr(
   Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3650 })),
 );
@@ -1173,6 +1139,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "textGenerationModelSelection",
   "sourceControlWriterModelSelection",
   "sourceControlWritingStyle",
+  "removeAgentCreditsOnMerge",
   "branchNamingMode",
   "branchNamePrefix",
   "branchNameInstructions",
@@ -1203,6 +1170,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
+  removeAgentCreditsOnMerge: Schema.optionalKey(Schema.Boolean),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),
   branchNameInstructions: Schema.optionalKey(TrimmedString),
@@ -1251,10 +1219,6 @@ export const ServerSettings = Schema.Struct({
   storageCleanup: StorageCleanupSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(StorageCleanupSettings)({}))),
   ),
-  // How assistant text reaches clients during a turn. Deliberately a fresh
-  // key (was `enableLegacyTokenStreaming`, before that
-  // `enableAssistantStreaming`): decoding drops the old key, so everyone,
-  // including prior token-streaming opt-ins, resets to the paragraph default.
   responseStreamingMode: ResponseStreamingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
@@ -1403,14 +1367,15 @@ export const ServerSettings = Schema.Struct({
       }),
     ),
   ),
-  sourceControlWritingStyle: SourceControlWritingStyleSettings.pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
   branchNamingMode: BranchNamingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("static" as const)),
   ),
   branchNamePrefix: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("t3code"))),
   branchNameInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  removeAgentCreditsOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  sourceControlWritingStyle: SourceControlWritingStyleSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   sourceControlWriterModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1459,6 +1424,13 @@ export const ServerSettings = Schema.Struct({
   ),
   /** Exact model IDs, applied to past and future usage on this environment. */
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  /**
+   * Exact model ID to the model its usage counts as, such as a preview slug to
+   * its released name. The mapped model is priced and reported as its target.
+   */
+  usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
 });
@@ -1706,6 +1678,7 @@ export const ServerSettingsPatch = Schema.Struct({
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),
   branchNameInstructions: Schema.optionalKey(TrimmedString),
+  removeAgentCreditsOnMerge: Schema.optionalKey(Schema.Boolean),
   sourceControlWritingStyle: Schema.optionalKey(
     Schema.Struct({
       mode: Schema.optionalKey(SourceControlWritingStyleMode),
@@ -1757,6 +1730,10 @@ export const ServerSettingsPatch = Schema.Struct({
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),
   ),
+  /** Each entry replaces one model's mapping; `null` removes it. */
+  usageModelAliases: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, Schema.NullOr(TrimmedNonEmptyString)),
+  ),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
@@ -1788,14 +1765,6 @@ export const ClientSettingsPatch = Schema.Struct({
   diffLayout: Schema.optionalKey(DiffLayout),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
-  themeBackdropEnabled: Schema.optionalKey(Schema.Boolean),
-  themeBackdropScope: Schema.optionalKey(ThemeBackdropScope),
-  themeBackdropColors: Schema.optionalKey(Schema.NullOr(ThemeBackdropColors)),
-  themeBackdropIntensity: Schema.optionalKey(ThemeBackdropIntensity),
-  themeBackdropAmount: Schema.optionalKey(ThemeBackdropAmount),
-  themeBackdropGlow: Schema.optionalKey(Schema.Boolean),
-  themeBackdropDynamic: Schema.optionalKey(Schema.Boolean),
-  themeBackdropSeed: Schema.optionalKey(ThemeBackdropSeed),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),
@@ -1839,10 +1808,8 @@ export const ClientSettingsPatch = Schema.Struct({
   followUpBehavior: Schema.optionalKey(Schema.Literals(["queue", "steer"])),
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
-  citeSelectionEnabled: Schema.optionalKey(Schema.Boolean),
-  vimModeEnabled: Schema.optionalKey(Schema.Boolean),
-  vimThreadPreviewEnabled: Schema.optionalKey(Schema.Boolean),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
+  sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
@@ -1859,5 +1826,6 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotFlash: Schema.optionalKey(Schema.Boolean),
   snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
+  ...FoldClientSettingsPatchFields,
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

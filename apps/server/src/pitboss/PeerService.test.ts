@@ -23,14 +23,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
-import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
-import * as NetAddress from "effect/unstable/net/NetAddress";
+import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
-import {
-  SqlitePersistenceMemory,
-  makeSqlitePersistenceLive,
-} from "../persistence/Layers/Sqlite.ts";
+import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer as workLayer } from "./WorkStore.ts";
 import { PeerService, layer as peerLayer } from "./PeerService.ts";
 import { layer as routes } from "./PeerHttp.ts";

@@ -13,7 +13,7 @@ import { parsePullRequestReference } from "~/pullRequestReference";
 import { useProjects, useThreadShell } from "~/state/entities";
 import { usePullRequestLinking } from "~/hooks/usePullRequestLinking";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -49,7 +49,7 @@ interface LinkPullRequestDialogProps {
 }
 
 /** Mounted once per chat view; shows the dialog for whichever thread asked for it. */
-function LinkPullRequestDialogHost() {
+export function LinkPullRequestDialogHost() {
   const threadRef = useAtomValue(linkPullRequestDialogThreadAtom);
   const thread = useThreadShell(threadRef);
   const linking = usePullRequestLinking(threadRef?.environmentId);

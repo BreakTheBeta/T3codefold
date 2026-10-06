@@ -53,7 +53,7 @@ npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/r
 
 Scan the QR code on your phone or paste the pairing URL into **Add environment**
 in the receiving app. Connection settings are under **Settings → Connections**
-on web and desktop and **Settings → Connections → Environments** on mobile. A loopback address
+on web and desktop and **Settings → Environments** on mobile. A loopback address
 such as `127.0.0.1` reaches only the device opening the link.
 
 Pairing authorizes that device for future connections. Use a fresh one-time link
@@ -61,6 +61,35 @@ for each new device; you do not need the original token to reconnect. Links
 created in Settings can only be copied from the client that created them while
 its Connections page stays open. If you leave or reload that page, create
 another link to share.
+
+### Reach one machine several ways
+
+A machine can have more than one route: LAN, Tailscale, a public URL, SSH, or
+T3 Connect. To add one, choose **Add route** in the machine's route list, or
+next to it in the T3 Connect list. Pairing the same machine again over another
+address also adds a route instead of a second machine. A new route is placed by
+speed, in that order, and you can reorder routes at any time.
+
+While connected through T3 Connect or a paired address, T3 Code also learns the
+machine's current LAN and Tailscale addresses and adds them as routes, so
+pairing once through T3 Connect is enough to use the LAN at home. When the
+machine's LAN address changes, for example after it joins another Wi-Fi network,
+the learned route follows it. The machine must allow network access for its LAN
+address to be learned. You can reorder a learned route, but not remove it; it
+goes away with the route it was learned through, or when the machine stops
+reporting that address.
+
+T3 Code connects over the first route that answers. Away from home, a LAN
+address that does not answer is checked briefly and skipped. It is only tried
+again, after the other routes, if none of them connect. While connected over a
+later route, T3 Code checks the earlier ones when your network changes, when you
+return to the app, and every minute, and moves back as soon as one works.
+
+On web and desktop, select the route count under the machine's name in
+**Settings → Connections** to see its routes. Drag a route to change the order,
+or remove it. On mobile, open the machine under **Settings → Environments** and
+choose **Edit**. Signing out of T3 Connect removes only that route; a machine
+you can still reach another way stays saved.
 
 ### Balance new threads across machines
 
@@ -157,20 +186,31 @@ independently. Reconnect the client for later messages or return delivery. A sen
 receipt means the message was accepted; read the destination thread to confirm
 what the agent has done.
 
+Agents do this through T3's MCP tools: `t3_environment_list` finds connected
+environments, `t3_project_list` and `orchestrator_capabilities` take the
+destination `environmentId`, and `t3_thread_launch` starts the new thread with
+`title`, `message`, `environmentId`, `projectId`, and an optional
+`clientRequestId` that makes a retried launch return the original thread.
+`t3_thread_start` remains as an alias for older agents.
+
 From a terminal on a host running T3, the fleet commands provide the same actions:
 
 ```bash
 t3 fleet environments
 t3 fleet projects --environment <environment-id>
-t3 fleet capabilities --environment <environment-id> --project <project-id>
+t3 fleet capabilities --environment <environment-id>
 t3 fleet start --environment <environment-id> --project <project-id> --file handoff.txt --client-request-id <unique-request-id>
 ```
+
+`start` takes an optional `--title` (default "New thread"), and `--provider` with
+`--model` to pick a model; pass both or neither.
 
 Use `t3 fleet list`, `read`, `send`, and `wait` to find threads, inspect progress,
 send follow-ups, and wait for results. Keep `--environment` and `--project` on
 commands for another host; `read`, `send`, and `wait` take `--thread`. Commands
 return JSON. IDs are unambiguous; unique environment labels and project titles
-or paths also work. Use `--base-dir` if the local server uses a different T3 home.
+or paths also work. A project is looked up on the selected environment; without
+`--environment`, it always means a project on this host. Use `--base-dir` if the local server uses a different T3 home.
 For start or send, reuse `--client-request-id` when retrying the same request after
 a lost response. See `t3 fleet <command> --help` for message and pagination options.
 

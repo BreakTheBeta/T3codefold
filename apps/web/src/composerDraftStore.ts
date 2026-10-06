@@ -52,8 +52,6 @@ import {
   type TerminalContextDraft,
   migrateLegacyTerminalContextPlaceholders,
   normalizeTerminalContextText,
-  stripInlineTerminalContextPlaceholders,
-  ensureInlineTerminalContextPlaceholders,
 } from "./lib/terminalContext";
 import {
   appendInlineContextReference,
@@ -1506,7 +1504,7 @@ function normalizeComposerTarget(
   return target;
 }
 
-function resolveComposerDraftKey(
+export function resolveComposerDraftKey(
   state: ComposerThreadLookupState,
   target: ComposerThreadTarget,
 ): string | null {

@@ -13,17 +13,21 @@ import { modelSelectionCommandType } from "@t3tools/shared/model";
 import {
   newCommandId,
   readCaller,
-  readMutationCaller,
+  readFullAccessCaller,
   readThread,
   readWritableThread,
   unavailable,
 } from "../../threadAccess.ts";
-import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import { ThreadToolkit } from "./tools.ts";
 
-function queueEntry(projection: OrchestrationV2ThreadProjection, runId: RunId, limit: number) {
+function queueEntry(
+  projection: Pick<OrchestrationV2ThreadProjection, "runs" | "messages">,
+  runId: RunId,
+  limit: number,
+) {
   const run = projection.runs.find((run) => run.id === runId && run.status === "queued");
   const message = projection.messages.find((message) => message.id === run?.userMessageId);
   if (run === undefined || message === undefined) return undefined;
@@ -52,7 +56,9 @@ const readQuestion = Effect.fn("mcp.readQuestion")(function* (
   },
   writable = false,
 ) {
-  const context = yield* writable ? readWritableThread(input.threadId) : readThread(input.threadId);
+  const context = yield* writable
+    ? readWritableThread(input.threadId, ["runtimeRequests", "turnItems"])
+    : readThread(input.threadId, ["runtimeRequests", "turnItems"]);
   const request = context.projection.runtimeRequests.find(
     (request) =>
       request.id === input.requestId &&
@@ -72,22 +78,15 @@ const readQuestion = Effect.fn("mcp.readQuestion")(function* (
 export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
   run_scheduled_task_now: (input) =>
     Effect.gen(function* () {
-      const { caller } = yield* readMutationCaller();
-      if (
-        caller.archivedAt !== null ||
-        caller.runtimeMode !== "full-access" ||
-        caller.interactionMode !== "default"
-      )
-        return yield* new OrchestratorMcpFailure({
-          code: "capability_denied",
-          message: "Running a scheduled task requires a live full-access/default thread.",
-        });
+      yield* readFullAccessCaller(
+        "Running a scheduled task requires a live full-access/default thread or a full-access client.",
+      );
       const scheduler = yield* ScheduledTasks.ScheduledTaskService;
       const { tasks } = yield* scheduler.list().pipe(Effect.mapError(unavailable));
-      if (!tasks.some((task) => task.id === input.taskId && task.projectId === caller.projectId))
+      if (!tasks.some((task) => task.id === input.taskId))
         return yield* new OrchestratorMcpFailure({
           code: "invalid_request",
-          message: "The task was not found in the calling project.",
+          message: "The scheduled task was not found.",
         });
       const { task } = yield* scheduler
         .runNow({ id: input.taskId })
@@ -103,13 +102,22 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
   t3_thread_search: (input) =>
     Effect.gen(function* () {
       const { caller } = yield* readCaller();
-      const query = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-      const result = yield* query.searchThreads(input).pipe(Effect.mapError(unavailable));
-      return { matches: result.matches.filter((match) => match.projectId === caller.projectId) };
+      const { projectId: requested, ...query } = input;
+      // Like the other project tools, an omitted project means the caller's own; a client
+      // outside a thread searches every project.
+      const projectId = requested ?? caller?.projectId;
+      const threadSearch = yield* ThreadSearch.ThreadSearch;
+      const result = yield* threadSearch.search(query).pipe(Effect.mapError(unavailable));
+      return {
+        matches:
+          projectId === undefined
+            ? result.matches
+            : result.matches.filter((match) => match.projectId === projectId),
+      };
     }),
   t3_thread_fork: (input) =>
     Effect.gen(function* () {
-      const { threads, projection } = yield* readWritableThread();
+      const { threads, projection } = yield* readWritableThread(input.threadId);
       const commandId = yield* newCommandId();
       const targetThreadId = ThreadId.make(`${commandId}:fork`);
       const result = yield* threads
@@ -128,12 +136,13 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
     }),
   t3_thread_merge_back: (input) =>
     Effect.gen(function* () {
-      const { threads, caller } = yield* readWritableThread(input.targetThreadId);
-      const result = yield* threads
+      const context = yield* readWritableThread(input.targetThreadId);
+      const source = yield* readWritableThread(input.sourceThreadId);
+      const result = yield* context.threads
         .dispatch({
           type: "thread.merge_back",
           commandId: yield* newCommandId(),
-          sourceThreadId: caller.id,
+          sourceThreadId: source.projection.thread.id,
           targetThreadId: input.targetThreadId,
           sourcePoint: input.sourcePoint,
           createdBy: "agent",
@@ -144,7 +153,7 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
     }),
   t3_thread_transfers: (input) =>
     Effect.gen(function* () {
-      const { projection } = yield* readThread(input.threadId);
+      const { projection } = yield* readThread(input.threadId, ["contextTransfers"]);
       return {
         transfers: projection.contextTransfers.map(
           ({ id, sourceThreadId, targetThreadId, status }) => ({
@@ -173,7 +182,7 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
       const {
         threads,
         projection: { thread },
-      } = yield* readWritableThread();
+      } = yield* readWritableThread(input.threadId);
       const type = modelSelectionCommandType(thread.providerInstanceId, input.modelSelection);
       const result = yield* threads
         .dispatch({
@@ -187,7 +196,7 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
     }),
   t3_pending_request_list: (input) =>
     Effect.gen(function* () {
-      const { projection } = yield* readThread(input.threadId);
+      const { projection } = yield* readThread(input.threadId, ["runtimeRequests"]);
       return {
         requestIds: projection.runtimeRequests
           .filter((request) => request.kind === "user_input" && request.status === "pending")
@@ -215,7 +224,7 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
     }),
   t3_queue_list: (input) =>
     Effect.gen(function* () {
-      const { projection } = yield* readThread(input.threadId);
+      const { projection } = yield* readThread(input.threadId, ["runs", "messages"]);
       const runs = queuedRunsInDeliveryOrder(projection);
       const cursor = input.cursor ?? 0;
       const end = cursor + (input.limit ?? 20);
@@ -229,7 +238,7 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
     }),
   t3_queue_read: (input) =>
     Effect.gen(function* () {
-      const { projection } = yield* readThread(input.threadId);
+      const { projection } = yield* readThread(input.threadId, ["runs", "messages"]);
       const entry = queueEntry(projection, input.queuedRunId, 16000);
       return (
         entry ??

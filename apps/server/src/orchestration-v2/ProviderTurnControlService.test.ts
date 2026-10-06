@@ -23,13 +23,10 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
-import { ProjectionStoreV2 } from "./ProjectionStore.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 import type { ProviderAdapterV2SessionRuntime } from "./ProviderAdapter.ts";
-import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
-import {
-  layer as providerTurnControlLayer,
-  ProviderTurnControlServiceV2,
-} from "./ProviderTurnControlService.ts";
+import * as ProviderSessionManager from "./ProviderSessionManager.ts";
+import * as ProviderTurnControlService from "./ProviderTurnControlService.ts";
 
 const driver = ProviderDriverKind.make("codex");
 const providerInstanceId = ProviderInstanceId.make("codex");
@@ -211,16 +208,27 @@ it.effect(
         forkThread: () => Effect.die("unused forkThread"),
       };
       const projectionLayer = Layer.succeed(
-        ProjectionStoreV2,
-        ProjectionStoreV2.of({
+        ProjectionStore.ProjectionStoreV2,
+        ProjectionStore.ProjectionStoreV2.of({
           apply: () => Effect.void,
+          getLimitRecoveryCandidates: () => Effect.die("unused getLimitRecoveryCandidates"),
           getShellSnapshot: () => Effect.die("unused getShellSnapshot"),
           getThreadShell: () => Effect.die("unused getThreadShell"),
           getThread: () => Ref.get(projection).pipe(Effect.map((state) => state.thread)),
           getSettlementCandidates: () => Effect.die("unused getSettlementCandidates"),
+          getThreadsWithPullRequests: () => Effect.die("unused getThreadsWithPullRequests"),
           getThreadProjection: () => Effect.die("control effects must not load transcript"),
+          getTurnStartContext: () => Effect.die("unused"),
+          getTurnStartHistory: () => Effect.die("unused"),
           getRuntimeRecoveryProjection: () => Effect.die("unused getRuntimeRecoveryProjection"),
           getPlan: () => Effect.die("unused"),
+          hasUnpairedRunInterruptRequest: () => Effect.die("unused interrupt read"),
+          getThreadAttachmentIds: () => Effect.die("Unused attachment lookup"),
+          getTimelinePage: () => Effect.die("Unused timeline read"),
+          getMessageCount: () => Effect.die("unused message count"),
+          getNextTurnItemOrdinal: () => Effect.die("unused ordinal read"),
+          getTurnItem: () => Effect.die("unused turn item read"),
+          getThreadRecords: () => Effect.die("unused record read"),
           getRuntimeRequest: () => Effect.die("unused getRuntimeRequest"),
           getRunningTurnContext: () => Effect.die("unused getRunningTurnContext"),
           getThreadProviderContext: () => Effect.die("unused getThreadProviderContext"),
@@ -241,6 +249,9 @@ it.effect(
               })),
             ),
           getCheckpointContext: () => Effect.die("not used"),
+          getCheckpointCaptureContext: () => Effect.die("not used"),
+          getRunMessage: () => Effect.die("not used"),
+          canStartQueuedRun: () => Effect.die("not used"),
           getRecoveryThreadIds: () => Effect.die("unused getRecoveryThreadIds"),
           getUnreadableThreadIds: () => Effect.die("unused getUnreadableThreadIds"),
           getThreadSnapshot: () => Effect.die("unused getThreadSnapshot"),
@@ -248,8 +259,8 @@ it.effect(
         }),
       );
       const sessionManagerLayer = Layer.succeed(
-        ProviderSessionManagerV2,
-        ProviderSessionManagerV2.of({
+        ProviderSessionManager.ProviderSessionManagerV2,
+        ProviderSessionManager.ProviderSessionManagerV2.of({
           shutdown: Effect.void,
           open: () => Effect.die("unused open"),
           get: (providerSessionId) =>
@@ -262,12 +273,12 @@ it.effect(
           detach: () => Effect.void,
         }),
       );
-      const controlLayer = providerTurnControlLayer.pipe(
+      const controlLayer = ProviderTurnControlService.layer.pipe(
         Layer.provide(Layer.merge(projectionLayer, sessionManagerLayer)),
       );
 
       const [ordinaryInterrupt, unrelatedRestart] = yield* Effect.gen(function* () {
-        const control = yield* ProviderTurnControlServiceV2;
+        const control = yield* ProviderTurnControlService.ProviderTurnControlServiceV2;
         const ordinary = yield* Effect.exit(
           control.interrupt({
             threadId,
@@ -294,7 +305,7 @@ it.effect(
       assert.isNull(yield* Ref.get(interruptedThread));
 
       yield* Effect.gen(function* () {
-        const control = yield* ProviderTurnControlServiceV2;
+        const control = yield* ProviderTurnControlService.ProviderTurnControlServiceV2;
         yield* control.interruptAndAwaitTerminal({
           threadId,
           providerSessionId: oldSessionId,

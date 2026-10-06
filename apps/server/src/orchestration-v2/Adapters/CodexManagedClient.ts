@@ -33,7 +33,8 @@ function payloadRecord(payload: unknown): Record<string, unknown> {
  * its process environment, so a rotated token needs a new process. Before a turn starts on an idle
  * client, the runtime is resolved again; when the token changed, Codex is respawned, handler
  * registrations and initialization are replayed, and every thread the old process had loaded is
- * resumed. A turn that is already running keeps the old process until the next idle turn start.
+ * resumed. A turn that is already running, or other work reported by `isBusy` (such as a live
+ * voice call), keeps the old process until the next idle turn start.
  */
 export const makeManagedCodexClient = Effect.fn("makeManagedCodexClient")(function* (input: {
   readonly resolve: Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>;
@@ -41,6 +42,7 @@ export const makeManagedCodexClient = Effect.fn("makeManagedCodexClient")(functi
     runtime: CodexEffectiveRuntime,
   ) => Effect.Effect<Client, ProviderAdapterOpenSessionError, Scope.Scope>;
   readonly onOpenError: (error: ProviderSetupError) => ProviderAdapterOpenSessionError;
+  readonly isBusy?: Effect.Effect<boolean>;
 }) {
   const sessionScope = yield* Scope.Scope;
   const activeTurns = new Set<string>();
@@ -93,6 +95,7 @@ export const makeManagedCodexClient = Effect.fn("makeManagedCodexClient")(functi
     .withPermit(
       Effect.gen(function* () {
         if (activeTurns.size > 0) return;
+        if (input.isBusy !== undefined && (yield* input.isBusy)) return;
         const scope = yield* Scope.fork(sessionScope, "sequential");
         const runtime = yield* resolveIn(scope);
         if (runtime.revision === current.revision) {
@@ -148,6 +151,8 @@ export const makeManagedCodexClient = Effect.fn("makeManagedCodexClient")(functi
         if (threadId !== undefined) {
           loadedThreads.set(threadId, method === "thread/start" ? payloadRecord(payload) : {});
         }
+      } else if (method === "thread/unsubscribe") {
+        loadedThreads.delete((payload as { readonly threadId: string }).threadId);
       } else if (method === "turn/start") {
         const turnId = (response as { readonly turn?: { readonly id?: unknown } }).turn?.id;
         if (typeof turnId === "string") activeTurns.add(turnId);

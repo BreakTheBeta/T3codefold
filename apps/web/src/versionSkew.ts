@@ -1,6 +1,16 @@
-import { foldServerCommand, supportsFoldUpdates } from "@t3tools/shared/foldRelease";
-import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ServerConfig,
+  ServerInstallation,
+  ServerSelfUpdateCapability,
+} from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
+import {
+  foldServerCommand,
+  foldServerPackageSpec,
+  isFoldReleaseVersion,
+  supportsFoldUpdates,
+} from "@t3tools/shared/foldRelease";
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 import * as Schema from "effect/Schema";
 
@@ -96,6 +106,7 @@ export function resolveServerConfigVersionMismatch(
 export function resolveServerSelfUpdateCapability(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): ServerSelfUpdateCapability | null {
+  // Updaters that predate Fold's release channel install upstream npm `t3`.
   const capabilities = serverConfig?.environment.capabilities;
   return capabilities && supportsFoldUpdates(capabilities)
     ? (capabilities.serverSelfUpdate ?? null)
@@ -123,9 +134,20 @@ export function supportsServerUpdateThreadContinuation(
   return serverConfig?.environment.capabilities.serverUpdateThreadContinuation === true;
 }
 
-/** The command to hand users whose server cannot update itself. */
-export function manualServerUpdateCommand(targetVersion: string): string {
-  return foldServerCommand(targetVersion);
+/** The command to hand users whose server cannot update itself. Fold ships
+    as GitHub release tarballs, never the upstream npm `t3` package, so global
+    installs get the tarball and every runner gets the Fold `npx` command. */
+export function manualServerUpdateCommand(
+  targetVersion: string,
+  installation?: ServerInstallation,
+): string {
+  // Release specs require an exact version; fall back to the latest release.
+  const version = isFoldReleaseVersion(targetVersion) ? targetVersion : "latest";
+  if (installation?.kind === "npm-global") {
+    const prefix = `'${installation.prefix.replaceAll("'", "'\\''")}'`;
+    return `npm install --global --prefix ${prefix} ${foldServerPackageSpec(version)}`;
+  }
+  return foldServerCommand(version);
 }
 
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {

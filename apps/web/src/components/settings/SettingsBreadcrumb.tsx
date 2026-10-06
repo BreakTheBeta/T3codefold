@@ -3,12 +3,10 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
-import { SETTINGS_SECTION_ROUTES, settingsPathLabel } from "./settingsSearch";
+import { SETTINGS_SECTION_LABELS } from "./settingsSearch";
 
 const SETTINGS_BREADCRUMB_LABELS: Readonly<Record<string, string>> = {
-  ...Object.fromEntries(SETTINGS_SECTION_ROUTES.map((section) => [section.to, section.label])),
-  "/settings/projects": settingsPathLabel("/settings/projects"),
-  "/settings/keybindings": settingsPathLabel("/settings/keybindings"),
+  ...SETTINGS_SECTION_LABELS,
   "/settings/diagnostics": "Diagnostics",
   "/settings/open-source-licenses": "Open source licenses",
 };

@@ -30,11 +30,7 @@ export const PROVIDER_PRESENTATION = {
     color: "color-mix(in oklab, var(--contrast-foreground) 72%, var(--background))",
     driverKind: ProviderDriverKind.make("grok"),
   },
-  cursor: {
-    label: "Cursor",
-    color: "#8b8b8b",
-    driverKind: ProviderDriverKind.make("cursor"),
-  },
+  cursor: { label: "Cursor", color: "#8b8b8b", driverKind: ProviderDriverKind.make("cursor") },
   opencode: {
     label: "OpenCode",
     color: "#5b9bbd",

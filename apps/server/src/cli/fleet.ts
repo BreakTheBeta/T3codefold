@@ -2,7 +2,7 @@ import {
   AuthAdministrativeScopes,
   ORCHESTRATION_PROTOCOL_VERSION,
   FleetEnvironmentList,
-  FleetProjectList,
+  NonNegativeInt,
   ProjectId,
   WsRpcGroup,
   WS_METHODS,
@@ -15,10 +15,10 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { Command, Flag, GlobalFlag } from "effect/unstable/cli";
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
-import { RpcClientError } from "effect/unstable/rpc/RpcClientError";
-import * as Socket from "effect/unstable/socket/Socket";
+import { Command, Flag, GlobalFlag } from "effect/cli";
+import { RpcClient, RpcSerialization } from "effect/rpc";
+import { RpcClientError } from "effect/rpc/RpcClientError";
+import * as Socket from "effect/socket/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
@@ -30,7 +30,17 @@ export class FleetCliError extends Schema.TaggedError<FleetCliError>()("FleetCli
 }) {}
 
 const decodeEnvironments = Schema.decodeUnknownEffect(FleetEnvironmentList);
-const decodeProjects = Schema.decodeUnknownEffect(FleetProjectList);
+const FleetProjectSelectorRow = Schema.Struct({
+  id: ProjectId,
+  title: Schema.String,
+  workspaceRoot: Schema.String,
+});
+/** The page shape of `t3_project_list`, keeping only what selectors read. */
+const FleetProjectPage = Schema.Struct({
+  projects: Schema.Array(FleetProjectSelectorRow),
+  nextCursor: Schema.NullOr(NonNegativeInt),
+});
+const decodeProjectPage = Schema.decodeUnknownEffect(FleetProjectPage);
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const isFleetCliError = Schema.is(FleetCliError);
 const isRpcClientError = Schema.is(RpcClientError);
@@ -92,28 +102,41 @@ export const invokeFleetCommand = Effect.fn("invokeFleetCommand")(function* (
   const environmentId = environment?.environmentId;
   let projectId: ProjectId | undefined;
   if (request.project !== undefined) {
-    const projects = yield* decodeProjects(
-      yield* client.invoke({ environmentId, operation: "t3_project_list", input: {} }),
-    );
+    const projects: Array<typeof FleetProjectSelectorRow.Type> = [];
+    let cursor: number | null = 0;
+    while (cursor !== null) {
+      const page: typeof FleetProjectPage.Type = yield* decodeProjectPage(
+        yield* client.invoke({
+          environmentId,
+          operation: "t3_project_list",
+          input: { cursor, limit: 100 },
+        }),
+      );
+      projects.push(...page.projects);
+      cursor = page.nextCursor;
+    }
     const project = yield* Effect.try({
       try: () =>
         resolveFleetSelector(
-          projects.projects,
+          projects,
           request.project!,
           "project",
-          (p) => p.projectId,
+          (p) => p.id,
           (p) => [p.title, p.workspaceRoot],
         ),
       catch: (cause) =>
         isFleetCliError(cause) ? cause : new FleetCliError({ message: "Cannot resolve project." }),
     });
-    projectId = project.projectId;
+    projectId = project.id;
   }
+  // The project lives in the tool input, where t3_thread_launch and t3_thread_list read it.
   return yield* client.invoke({
     environmentId,
-    projectId,
     operation: request.operation,
-    input: request.input,
+    input:
+      projectId === undefined || typeof request.input !== "object" || request.input === null
+        ? request.input
+        : { ...request.input, projectId },
   });
 });
 
@@ -276,22 +299,21 @@ export const makeFleetCommand = (execute: typeof withLiveFleet = withLiveFleet) 
     Command.withDescription("Create and start a thread on the selected environment and project."),
     Command.withHandler((flags) =>
       Effect.gen(function* () {
-        const prompt = yield* readFleetPrompt(flags);
+        const message = yield* readFleetPrompt(flags);
+        if (Option.isSome(flags.provider) !== Option.isSome(flags.model))
+          return yield* new FleetCliError({ message: "Pass --provider and --model together." });
         return yield* execute(flags, (client) =>
           invokeFleetCommand(client, {
             ...selected(flags),
-            operation: "t3_thread_start",
+            operation: "t3_thread_launch",
             input: definedFields({
-              prompt,
-              title: Option.getOrUndefined(flags.title),
+              title: Option.getOrElse(flags.title, () => "New thread"),
+              message,
               clientRequestId: Option.getOrUndefined(flags.clientRequestId),
-              target:
-                Option.isNone(flags.provider) && Option.isNone(flags.model)
-                  ? undefined
-                  : definedFields({
-                      providerInstanceId: Option.getOrUndefined(flags.provider),
-                      model: Option.getOrUndefined(flags.model),
-                    }),
+              modelSelection:
+                Option.isSome(flags.provider) && Option.isSome(flags.model)
+                  ? { instanceId: flags.provider.value, model: flags.model.value }
+                  : undefined,
             }),
           }),
         );

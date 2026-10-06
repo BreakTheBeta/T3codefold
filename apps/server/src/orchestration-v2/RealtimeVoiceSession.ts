@@ -3,9 +3,9 @@ import {
   type ThreadId,
   type OrchestrationV2ThreadProjection,
 } from "@t3tools/contracts";
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { makeKeyedSerialExecutor } from "./KeyedSerialExecutor.ts";
 import type { ProviderSessionManagerV2Shape } from "./ProviderSessionManager.ts";
 
 /** Starting voice is an explicit user action, so an idle provider may be resumed without starting a coding turn. */
@@ -29,7 +29,7 @@ export const makeRealtimeVoiceSessionResolver = <E>(dependencies: {
 }) =>
   Effect.gen(function* () {
     const { sessions } = dependencies;
-    const locks = yield* makeKeyedSerialExecutor<ThreadId>();
+    const locks = yield* KeyedLock.make<ThreadId>();
     return (
       threadId: ThreadId,
       operation: ProviderRealtimeVoiceError["operation"],

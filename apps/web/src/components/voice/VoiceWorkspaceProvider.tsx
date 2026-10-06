@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import {
   VoiceWorkspace,
   voiceStartInput,
@@ -25,11 +25,13 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { threadEnvironment } from "../../state/threads";
+import { createRealtimeVoiceEnvironmentAtoms } from "@t3tools/client-runtime/state/realtime-voice";
+import { connectionAtomRuntime } from "../../connection/runtime";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useThreadShells, useServerConfigs } from "../../state/entities";
 import { openWebVoiceMedia } from "../../hooks/codexVoiceMedia";
 
+const realtimeVoiceEnvironment = createRealtimeVoiceEnvironmentAtoms(connectionAtomRuntime);
 const VoiceContext = createContext<VoiceWorkspace | null>(null);
 const emptyFeedAtom = Atom.make(AsyncResult.success(emptyVoiceFeed));
 const preferenceKey = "fold.liveVoice.preferences";
@@ -62,10 +64,14 @@ export function useVoiceWorkspace() {
   return { workspace, state };
 }
 export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
-  const start = useAtomCommand(threadEnvironment.startRealtimeVoice, { reportFailure: false });
-  const stop = useAtomCommand(threadEnvironment.stopRealtimeVoice, { reportFailure: false });
-  const list = useAtomCommand(threadEnvironment.listRealtimeVoices, { reportFailure: false });
-  const context = useAtomCommand(threadEnvironment.appendRealtimeVoiceContext, {
+  const start = useAtomCommand(realtimeVoiceEnvironment.startRealtimeVoice, {
+    reportFailure: false,
+  });
+  const stop = useAtomCommand(realtimeVoiceEnvironment.stopRealtimeVoice, { reportFailure: false });
+  const list = useAtomCommand(realtimeVoiceEnvironment.listRealtimeVoices, {
+    reportFailure: false,
+  });
+  const context = useAtomCommand(realtimeVoiceEnvironment.appendRealtimeVoiceContext, {
     reportFailure: false,
   });
   const workspace = useMemo(
@@ -168,7 +174,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
       workspace.hasVoiceEvents &&
       state.voice.status !== "idle" &&
       state.voice.status !== "error"
-      ? threadEnvironment.realtimeVoiceEvents({
+      ? realtimeVoiceEnvironment.realtimeVoiceEvents({
           environmentId: state.target.environmentId,
           input: { threadId: state.target.threadId },
         })

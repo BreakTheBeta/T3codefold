@@ -4,7 +4,7 @@ import {
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import {
   annotateEnvironmentRequest,
@@ -13,11 +13,11 @@ import {
   requireEnvironmentScope,
 } from "../auth/http.ts";
 import * as ServerRuntimeStartup from "../serverRuntimeStartup.ts";
-import { ProjectService, type ProjectServiceError } from "./ProjectService.ts";
+import * as ProjectService from "./ProjectService.ts";
 import { projectMutationOperation } from "./ProjectMutation.ts";
 
 export const failProjectMutation = Effect.fn("environment.projects.failMutation")(function* (
-  cause: ProjectServiceError | ServerRuntimeStartup.ServerRuntimeStartupError,
+  cause: ProjectService.ProjectServiceError | ServerRuntimeStartup.ServerRuntimeStartupError,
 ) {
   if (
     cause._tag === "ProjectNotFoundError" ||
@@ -33,7 +33,7 @@ export const projectHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
   "projects",
   Effect.fnUntraced(function* (handlers) {
-    const projects = yield* ProjectService;
+    const projects = yield* ProjectService.ProjectService;
     const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
 
     return handlers

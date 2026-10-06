@@ -1,10 +1,9 @@
-import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
-import type { RuntimeRequestId } from "@t3tools/contracts";
-import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
 import { RequestActionButton } from "./RequestActionButton";
 import { PendingUserInputFullScreen } from "./PendingUserInputFullScreen";
 import { PendingUserInputQuestions } from "./PendingUserInputQuestions";
-
+import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
+import type { RuntimeRequestId } from "@t3tools/contracts";
+import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
 import { useCallback, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
@@ -66,8 +65,9 @@ export interface PendingUserInputCardProps {
     questionId: string,
     customAnswer: string,
   ) => void;
-  readonly onDismiss: () => Promise<unknown>;
   readonly onSubmit: () => Promise<unknown>;
+  /** Closes an async question without a reply. Hidden for native callback questions. */
+  readonly onDismiss: () => Promise<unknown>;
 }
 
 /**
@@ -88,12 +88,14 @@ const EXPANDED_CARD_IS_OVERLAY = Platform.OS === "ios";
 const CARD_LAYOUT_TRANSITION = LinearTransition.duration(200);
 
 export function PendingUserInputCard(props: PendingUserInputCardProps) {
+  // A live voice call can read the open questions when context sharing is on.
   useVoiceViewContext("question", JSON.stringify(props.pendingUserInput.questions).slice(0, 2500));
   const questionCount = props.pendingUserInput.questions.length;
   // Message responses start a new run and remain available after the provider exits.
   const canRespond = props.pendingUserInput.responseCapability !== "not_resumable";
-
-  // Opt-in reading mode; the card stays the default presentation.
+  const isResponding = props.respondingUserInputId === props.pendingUserInput.requestId;
+  const responseDisabled = !canRespond || isResponding;
+  // Opt-in reading mode for long requests; the card stays the default presentation.
   const [fullScreen, setFullScreen] = useState(false);
 
   const cardCoverage = props.cardCoverage;
@@ -169,7 +171,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
       pointerEvents={props.collapsed ? "auto" : "none"}
       accessibilityElementsHidden={!props.collapsed}
       importantForAccessibility={props.collapsed ? "auto" : "no-hide-descendants"}
-      className="flex-row items-center gap-2 rounded-full border border-adaptive-neutral-200-white-a6 bg-adaptive-neutral-100-900 py-1.5 pl-4 pr-1.5"
+      className="flex-row items-center gap-2 rounded-full border border-border bg-card-alt py-1.5 pl-4 pr-1.5"
     >
       <Pressable
         accessibilityRole="button"
@@ -179,10 +181,10 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         onPress={props.onToggleCollapsed}
         className="min-h-10 flex-1 flex-row items-center gap-2 active:opacity-70"
       >
-        <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-adaptive-sky-700-300">
+        <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
           User input needed
         </Text>
-        <Text className="font-sans text-xs text-adaptive-neutral-500-400">
+        <Text className="font-sans text-xs text-foreground-muted">
           {questionCount} question{questionCount === 1 ? "" : "s"}
         </Text>
         <View className="flex-1" />
@@ -224,7 +226,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
           : FadeOutDown.duration(USER_INPUT_TOGGLE_DURATION_MS).easing(Easing.out(Easing.cubic))
       }
       layout={CARD_LAYOUT_TRANSITION}
-      className="overflow-hidden gap-2.5 rounded-[20px] border border-adaptive-neutral-200-white-a6 bg-adaptive-neutral-100-900 p-4"
+      className="overflow-hidden gap-2.5 rounded-[20px] border border-border bg-card-alt p-4"
       style={
         EXPANDED_CARD_IS_OVERLAY
           ? [{ maxHeight: props.maxHeight }, cardAnimatedStyle]
@@ -238,18 +240,16 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         className="flex-row items-start gap-2"
       >
         <View className="flex-1 gap-2.5">
-          <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-adaptive-sky-700-300">
+          <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
             User input needed
           </Text>
-          <Text className="font-t3-bold text-lg text-adaptive-neutral-950-50">
-            Fill in the pending answers
-          </Text>
+          <Text className="font-t3-bold text-lg text-foreground">Fill in the pending answers</Text>
         </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Open user input full screen"
           onPress={() => setFullScreen(true)}
-          className="h-8 w-8 items-center justify-center rounded-full bg-adaptive-neutral-200-a70-white-a8 active:opacity-70"
+          className="h-8 w-8 items-center justify-center rounded-full bg-subtle-strong active:opacity-70"
         >
           <SymbolView
             name="arrow.up.left.and.arrow.down.right"
@@ -258,7 +258,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
             type="monochrome"
           />
         </Pressable>
-        <View className="h-8 w-8 items-center justify-center rounded-full bg-adaptive-neutral-200-a70-white-a8">
+        <View className="h-8 w-8 items-center justify-center rounded-full bg-subtle-strong">
           <SymbolView
             name="chevron.down"
             size={13}
@@ -290,18 +290,14 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         label="Submit answers"
         size="large"
         tone={props.answers ? "primary" : "secondary"}
-        disabled={
-          !canRespond ||
-          props.answers === null ||
-          props.respondingUserInputId === props.pendingUserInput.requestId
-        }
+        disabled={responseDisabled || props.answers === null}
         onPress={() => void props.onSubmit()}
       />
-      {props.pendingUserInput.responseMode === "message" ? (
+      {props.pendingUserInput.dismissible ? (
         <Pressable
           accessibilityRole="button"
           className="items-center justify-center rounded-2xl px-4 py-2.5 active:opacity-70"
-          disabled={props.respondingUserInputId === props.pendingUserInput.requestId}
+          disabled={isResponding}
           onPress={() => void props.onDismiss()}
         >
           <Text className="font-t3-bold text-sm text-foreground-muted">
@@ -311,26 +307,23 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
       ) : null}
     </Animated.View>
   ) : null;
-  const fullScreenPresentation = (
-    <PendingUserInputFullScreen
-      visible={fullScreen}
-      pendingUserInput={props.pendingUserInput}
-      canRespond={canRespond}
-      drafts={props.drafts}
-      answers={props.answers}
-      respondingUserInputId={props.respondingUserInputId}
-      onSelectOption={props.onSelectOption}
-      onChangeCustomAnswer={props.onChangeCustomAnswer}
-      onInputFocusChange={props.onInputFocusChange}
-      onRequestClose={() => setFullScreen(false)}
-      onSubmit={props.onSubmit}
-      onDismiss={props.onDismiss}
-    />
-  );
   return (
     <View className="relative">
       {bar}
-      {fullScreenPresentation}
+      <PendingUserInputFullScreen
+        visible={fullScreen}
+        pendingUserInput={props.pendingUserInput}
+        canRespond={canRespond}
+        drafts={props.drafts}
+        answers={props.answers}
+        respondingUserInputId={props.respondingUserInputId}
+        onSelectOption={props.onSelectOption}
+        onChangeCustomAnswer={props.onChangeCustomAnswer}
+        onInputFocusChange={props.onInputFocusChange}
+        onRequestClose={() => setFullScreen(false)}
+        onSubmit={props.onSubmit}
+        onDismiss={props.onDismiss}
+      />
       {EXPANDED_CARD_IS_OVERLAY ? (
         // Clipping window for the collapse slide: same footprint as the
         // expanded card, bottom edge on the bar's bottom edge. The sliding

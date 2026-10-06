@@ -65,10 +65,10 @@ export function PendingUserInputFullScreen(props: PendingUserInputFullScreenProp
             style={{ maxWidth: layout.contentMaxWidth + layout.horizontalPadding * 2 }}
           >
             <View className="flex-1 gap-1" style={{ paddingLeft: layout.horizontalPadding }}>
-              <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-adaptive-sky-700-300">
+              <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
                 User input needed
               </Text>
-              <Text className="font-t3-bold text-2xl text-adaptive-neutral-950-50">
+              <Text className="font-t3-bold text-2xl text-foreground">
                 {questionCount} question{questionCount === 1 ? "" : "s"}
               </Text>
             </View>
@@ -77,7 +77,7 @@ export function PendingUserInputFullScreen(props: PendingUserInputFullScreenProp
                 accessibilityRole="button"
                 accessibilityLabel="Close full screen user input"
                 onPress={close}
-                className="h-11 w-11 items-center justify-center rounded-full bg-adaptive-neutral-200-a70-white-a8 active:opacity-70"
+                className="h-11 w-11 items-center justify-center rounded-full bg-subtle-strong active:opacity-70"
               >
                 <SymbolView
                   name="arrow.down.right.and.arrow.up.left"
@@ -111,7 +111,7 @@ export function PendingUserInputFullScreen(props: PendingUserInputFullScreenProp
             </View>
           </ScrollView>
           <View
-            className="w-full self-center gap-2 border-t border-adaptive-neutral-200-white-a6 pt-3"
+            className="w-full self-center gap-2 border-t border-border pt-3"
             style={{
               maxWidth: layout.contentMaxWidth + layout.horizontalPadding * 2,
               paddingHorizontal: layout.horizontalPadding,
@@ -129,7 +129,7 @@ export function PendingUserInputFullScreen(props: PendingUserInputFullScreenProp
                 void props.onSubmit();
               }}
             />
-            {props.pendingUserInput.responseMode === "message" ? (
+            {props.pendingUserInput.dismissible ? (
               <Pressable
                 accessibilityRole="button"
                 className="items-center justify-center rounded-2xl px-4 py-2.5 active:opacity-70"

@@ -1,22 +1,25 @@
-import {
-  FleetProjectList,
-  MessageId,
-  ThreadId,
-  OrchestratorMcpFailure,
-  ProjectId,
-} from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
+import { MessageId, ThreadId, OrchestratorMcpFailure, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
+import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
-import { newCommandId, readCaller, readMutationCaller, unavailable } from "../../threadAccess.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
-import { FleetRouter } from "../../FleetRouter.ts";
-import { OrchestratorMcpService } from "../../OrchestratorMcpService.ts";
-import { ProjectToolkit } from "./tools.ts";
+import { routeIfRemote } from "../../fleet/route.ts";
+import { resolveRuntimeMode } from "../../OrchestratorMcpService.ts";
+import {
+  newCommandId,
+  readCaller,
+  readFullAccessCaller,
+  readMutationCaller,
+  resolveProjectId,
+  retryCommandId,
+  unavailable,
+} from "../../threadAccess.ts";
+import { requireLedgerDelegation } from "../work/ledgerGuard.ts";
+import { ProjectListResult, ProjectToolkit, ThreadLaunchResult } from "./tools.ts";
+import type { ThreadLaunchParameters } from "./tools.ts";
 
 function projectFailure(error: Project.ProjectServiceError) {
   if (error._tag === "ProjectOperationError") return unavailable();
@@ -33,120 +36,144 @@ const access = Effect.gen(function* () {
   yield* readCaller();
   return yield* Project.ProjectService;
 });
-const decodeFleetProjectList = Schema.decodeUnknownEffect(FleetProjectList);
-const invalidFleetResult = (error: { readonly message: string }) =>
-  new OrchestratorMcpFailure({
-    code: "orchestration_error",
-    message: `Destination returned an invalid project list: ${error.message}`,
-  });
 const mutation = Effect.gen(function* () {
-  const { caller } = yield* readMutationCaller();
-  if (
-    caller.archivedAt !== null ||
-    caller.runtimeMode !== "full-access" ||
-    caller.interactionMode !== "default"
-  )
-    return yield* new OrchestratorMcpFailure({
-      code: "capability_denied",
-      message: "Project changes require a live full-access/default calling thread.",
-    });
+  yield* readFullAccessCaller(
+    "Project changes require a live full-access/default calling thread or a full-access client.",
+  );
   return yield* Project.ProjectService;
 });
-export const ProjectHandlersLive = ProjectToolkit.toLayer({
-  t3_thread_launch: (input) =>
-    Effect.gen(function* () {
-      const { caller } = yield* readMutationCaller();
-      if (caller.runtimeMode !== "full-access" || caller.interactionMode !== "default")
-        return yield* new OrchestratorMcpFailure({
-          code: "capability_denied",
-          message: "Project launches require a full-access/default calling thread.",
-        });
-      const commandId = yield* newCommandId();
-      const threadId = ThreadId.make(commandId);
-      const messageId = MessageId.make(commandId);
-      const attachments = input.attachments ?? [];
-      if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message: "A new thread accepts only pending attachment uploads.",
-        });
-      const result = yield* ThreadMessageIntake.launchThread({
-        commandId,
-        threadId,
-        projectId: input.projectId ?? caller.projectId,
-        title: input.title,
-        modelSelection: input.modelSelection ?? caller.modelSelection,
-        runtimeMode: input.runtimeMode ?? caller.runtimeMode,
-        interactionMode: input.interactionMode ?? caller.interactionMode,
-        workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
-        ...(input.message === undefined && attachments.length === 0
-          ? {}
-          : {
-              initialMessage: {
-                messageId,
-                text: input.message ?? "",
-                attachments,
-              },
-            }),
-        createdBy: "agent",
-        creationSource: "mcp",
-      }).pipe(
-        Effect.mapError((error) =>
-          error._tag === "AttachmentClaimError"
-            ? new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message })
-            : unavailable(),
+const launchLocally = (input: typeof ThreadLaunchParameters.Type) =>
+  Effect.gen(function* () {
+    const context = yield* readMutationCaller();
+    const { caller, limits } = context;
+    // A thread caller launches only as itself (full-access/default), as before. A client
+    // launches anything up to its ceiling.
+    if (
+      caller !== undefined &&
+      (caller.runtimeMode !== "full-access" || caller.interactionMode !== "default")
+    )
+      return yield* new OrchestratorMcpFailure({
+        code: "capability_denied",
+        message: "Project launches require a full-access/default calling thread.",
+      });
+    const runtimeMode = yield* resolveRuntimeMode(
+      limits.runtimeMode,
+      input.runtimeMode ?? caller?.runtimeMode,
+    );
+    // A clientRequestId keys the command, thread and message ids, so a retry replays the
+    // original launch (ThreadLaunchService treats a repeated commandId as a resume).
+    const commandId =
+      input.clientRequestId === undefined
+        ? yield* newCommandId()
+        : retryCommandId(context.scope, "launch", input.clientRequestId);
+    const threadId = ThreadId.make(commandId);
+    const messageId = MessageId.make(commandId);
+    const attachments = input.attachments ?? [];
+    if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message: "A new thread accepts only pending attachment uploads.",
+      });
+    if (
+      input.scratch === true &&
+      (input.projectId !== undefined || input.workspaceStrategy !== undefined)
+    )
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message:
+          "scratch:true picks its own project and folder; omit projectId and workspaceStrategy.",
+      });
+    const projectId =
+      input.scratch === true
+        ? (yield* ManagedProjectFolders.ManagedProjectFolders.pipe(
+            Effect.flatMap((folders) => folders.ensureScratchProject),
+            Effect.mapError(
+              (error) =>
+                new OrchestratorMcpFailure({
+                  code: "orchestration_error",
+                  message: error.message,
+                }),
+            ),
+          )).projectId
+        : yield* resolveProjectId(context, input.projectId);
+    const modelSelection =
+      input.modelSelection ??
+      caller?.modelSelection ??
+      (yield* Project.ProjectService.pipe(
+        Effect.flatMap((projects) => projects.getById(projectId)),
+        Effect.mapError(unavailable),
+        Effect.map((project) =>
+          Option.getOrUndefined(Option.flatMapNullishOr(project, (p) => p.defaultModelSelection)),
         ),
-      );
-      const thread = result.projection.thread;
-      const run = result.projection.runs.find((run) => run.userMessageId === messageId);
-      return {
-        threadId: thread.id,
-        projectId: thread.projectId,
-        modelSelection: thread.modelSelection,
-        runId: run?.id ?? null,
-        status: run?.status ?? null,
-      };
-    }),
+      ));
+    if (modelSelection === undefined)
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message:
+          "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
+      });
+    const result = yield* ThreadMessageIntake.launchThread({
+      commandId,
+      threadId,
+      projectId,
+      title: input.title,
+      modelSelection,
+      runtimeMode,
+      interactionMode: input.interactionMode ?? caller?.interactionMode ?? "default",
+      workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
+      ...(input.message === undefined && attachments.length === 0
+        ? {}
+        : {
+            initialMessage: {
+              messageId,
+              ...(caller === undefined ? {} : { senderThreadId: caller.id }),
+              text: input.message ?? "",
+              attachments,
+            },
+          }),
+      createdBy: "agent",
+      creationSource: "mcp",
+    }).pipe(
+      Effect.mapError((error) =>
+        error._tag === "AttachmentClaimError"
+          ? new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message })
+          : unavailable(),
+      ),
+    );
+    const thread = result.projection.thread;
+    const run = result.projection.runs.find((run) => run.userMessageId === messageId);
+    return {
+      threadId: thread.id,
+      projectId: thread.projectId,
+      modelSelection: thread.modelSelection,
+      runId: run?.id ?? null,
+      status: run?.status ?? null,
+    };
+  });
+
+/**
+ * Launches a top-level thread here, or in the environment `input.environmentId`
+ * names. `tool` is the name the caller used, for the ledger guard's refusal;
+ * t3_thread_start is an alias of this launch.
+ */
+export const launchThread = (input: typeof ThreadLaunchParameters.Type, tool: string) =>
+  requireLedgerDelegation(tool).pipe(
+    Effect.andThen(
+      launchLocally(input).pipe(routeIfRemote("t3_thread_launch", input, ThreadLaunchResult)),
+    ),
+  );
+
+export const ProjectHandlersLive = ProjectToolkit.toLayer({
+  t3_thread_launch: (input) => launchThread(input, "t3_thread_launch"),
   t3_project_list: (input) =>
     Effect.gen(function* () {
-      const scope = yield* McpInvocationContext;
-      const service = yield* OrchestratorMcpService;
-      if (input.environmentId !== undefined && input.environmentId !== scope.environmentId) {
-        const policy = yield* service.capabilities(scope);
-        const result = yield* (yield* FleetRouter).invoke(
-          {
-            environmentId: input.environmentId,
-            operation: "t3_project_list",
-            input: {
-              ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-              ...(input.limit === undefined ? {} : { limit: input.limit }),
-            },
-          },
-          scope.threadId,
-          { runtimeMode: policy.runtimeMode, interactionMode: policy.interactionMode },
-        );
-        const fleet = yield* decodeFleetProjectList(result).pipe(
-          Effect.mapError(invalidFleetResult),
-        );
-        const start = input.cursor ?? 0;
-        const end = start + (input.limit ?? 20);
-        return {
-          environmentId: fleet.environmentId,
-          projects: fleet.projects.slice(start, end),
-          nextCursor: end < fleet.projects.length ? end : null,
-        };
-      }
       const projects = yield* access;
       const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
       const rows = snapshot.projects.filter((project) => project.deletedAt === null);
       const start = input.cursor ?? 0,
         end = start + (input.limit ?? 20);
-      return {
-        environmentId: scope.environmentId,
-        projects: rows.slice(start, end).map((project) => ({ ...project, projectId: project.id })),
-        nextCursor: end < rows.length ? end : null,
-      };
-    }),
+      return { projects: rows.slice(start, end), nextCursor: end < rows.length ? end : null };
+    }).pipe(routeIfRemote("t3_project_list", input, ProjectListResult)),
   t3_project_read: (input) =>
     Effect.gen(function* () {
       const projects = yield* access;
@@ -158,12 +185,47 @@ export const ProjectHandlersLive = ProjectToolkit.toLayer({
         });
       return result.value;
     }),
-  t3_project_create: (input) =>
+  t3_project_create: ({ workspaceRoot, ...input }) =>
     Effect.gen(function* () {
       const projects = yield* mutation;
+      if (workspaceRoot === undefined) {
+        // Project creation records no model default (only an update does), so
+        // reject what this mode would otherwise drop silently.
+        if (
+          input.scripts !== undefined ||
+          input.createWorkspaceRootIfMissing !== undefined ||
+          input.defaultModelSelection !== undefined
+        )
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message:
+              "A project started from its title takes only a title; set scripts or defaultModelSelection afterwards with t3_project_update.",
+          });
+        const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+        const created = yield* folders
+          .createNamedProject({ name: input.title })
+          .pipe(
+            Effect.mapError(
+              (error) =>
+                new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
+            ),
+          );
+        const project = yield* projects
+          .getById(created.projectId)
+          .pipe(
+            Effect.mapError(unavailable),
+            Effect.flatMap(
+              Option.match({ onNone: () => Effect.fail(unavailable()), onSome: Effect.succeed }),
+            ),
+          );
+        return {
+          ...project,
+          ...(created.commitError === undefined ? {} : { commitError: created.commitError }),
+        };
+      }
       const commandId = yield* newCommandId();
       return yield* projects
-        .create({ ...input, commandId, projectId: ProjectId.make(commandId) })
+        .create({ ...input, workspaceRoot, commandId, projectId: ProjectId.make(commandId) })
         .pipe(Effect.mapError(projectFailure));
     }),
   t3_project_update: (input) =>

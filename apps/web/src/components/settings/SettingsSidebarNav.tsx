@@ -10,16 +10,18 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
+  ArchiveIcon,
   BlocksIcon,
   BotIcon,
+  createLucideIcon,
+  CalendarClockIcon,
   CrosshairIcon,
   GitBranchIcon,
-  InfoIcon,
+  HardDriveIcon,
+  PanelsTopLeftIcon,
   KeyboardIcon,
   Link2Icon,
-  MessagesSquareIcon,
   PaletteIcon,
-  PanelsTopLeftIcon,
   SearchIcon,
   Settings2Icon,
   XIcon,
@@ -43,14 +45,24 @@ import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
   isSettingsOverviewVisible,
-  SETTINGS_DETAIL_PAGE_SECTIONS,
-  SETTINGS_SECTION_ROUTES,
-  settingsPathLabel,
+  SETTINGS_SECTION_LABELS,
   type SettingsPath,
   type SettingsSearchItem,
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
+
+const SnapShotIcon = createLucideIcon("snap-shot", [
+  [
+    "path",
+    {
+      d: "M8 3H6a3 3 0 0 0-3 3v2M16 3h2a3 3 0 0 1 3 3v2M21 16v2a3 3 0 0 1-3 3h-2M8 21H6a3 3 0 0 1-3-3v-2",
+      key: "capture-frame",
+    },
+  ],
+  ["rect", { width: "10", height: "8", x: "7", y: "8", rx: "2", key: "window" }],
+  ["circle", { cx: "12", cy: "12", r: "1.5", key: "lens" }],
+]);
 
 const T3ConnectSidebarSignIn = lazy(() =>
   import("../clerk/T3ConnectSidebarSignIn").then((module) => ({
@@ -66,31 +78,30 @@ const T3ConnectSidebarAvatar = lazy(() =>
 const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
-  "/settings/projects": PanelsTopLeftIcon,
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
-  "/settings/agents": BotIcon,
-  "/settings/glados": CrosshairIcon,
-  "/settings/threads": MessagesSquareIcon,
-  "/settings/git": GitBranchIcon,
-  "/settings/tools": BlocksIcon,
-  "/settings/connections": Link2Icon,
-  "/settings/about": InfoIcon,
+  "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
+  "/settings/snap-shot": SnapShotIcon,
+  "/settings/providers": BotIcon,
+  "/settings/glados": CrosshairIcon,
+  "/settings/integrations": BlocksIcon,
+  "/settings/scheduled-tasks": CalendarClockIcon,
+  "/settings/source-control": GitBranchIcon,
+  "/settings/storage": HardDriveIcon,
+  "/settings/connections": Link2Icon,
+  "/settings/archived": ArchiveIcon,
 };
 
-/** The project scope page leads when a project is selected; the shared sections follow in order. */
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
   to: SettingsPath;
   icon: ComponentType<{ className?: string }>;
-}> = ["/settings/projects" as const, ...SETTINGS_SECTION_ROUTES.map((section) => section.to)].map(
-  (to) => ({
-    to,
-    label: settingsPathLabel(to),
-    icon: SETTINGS_SECTION_ICONS[to],
-  }),
-);
+}> = (Object.keys(SETTINGS_SECTION_LABELS) as SettingsPath[]).map((to) => ({
+  to,
+  label: SETTINGS_SECTION_LABELS[to],
+  icon: SETTINGS_SECTION_ICONS[to],
+}));
 
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   const Icon = SETTINGS_SECTION_ICONS[to];
@@ -304,8 +315,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                         <span className="block truncate text-sm font-medium text-sidebar-foreground">
                           {item.title}
                         </span>
-                        <span className="block truncate text-[11px] text-sidebar-muted-foreground/75">
-                          {settingsPathLabel(item.to)}
+                        <span className="block truncate text-2xs text-sidebar-muted-foreground/75">
+                          {SETTINGS_SECTION_LABELS[item.to]}
                         </span>
                       </span>
                     </SidebarMenuButton>

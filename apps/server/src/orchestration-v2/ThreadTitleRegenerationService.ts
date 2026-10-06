@@ -13,12 +13,14 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
-import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
-import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
-import type { OrchestratorV2Error } from "./Orchestrator.ts";
-import { ThreadManagementService } from "./ThreadManagementService.ts";
+import type {
+  OrchestratorV2Error,
+  ThreadTitleRegenerationCompleteCommand,
+} from "./Orchestrator.ts";
+import * as ProjectStore from "./ProjectStore.ts";
+import * as ThreadManagementService from "./ThreadManagementService.ts";
 
 import { formatThreadTitleContext } from "../textGeneration/ThreadTitleContext.ts";
 export { formatThreadTitleContext } from "../textGeneration/ThreadTitleContext.ts";
@@ -34,14 +36,14 @@ export class ThreadTitleRegenerationService extends Context.Service<
         | { readonly type: "regenerate" };
     }) => Effect.Effect<
       void,
-      OrchestratorV2Error | ProjectionRepositoryError | ServerSettingsError
+      OrchestratorV2Error | ProjectStore.ProjectStoreV2Error | ServerSettingsError
     >;
   }
 >()("t3/orchestration-v2/ThreadTitleRegenerationService") {}
 
 const make = Effect.gen(function* () {
-  const threads = yield* ThreadManagementService;
-  const projects = yield* ProjectionProjectRepository;
+  const threads = yield* ThreadManagementService.ThreadManagementService;
+  const projects = yield* ProjectStore.ProjectStoreV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const textGeneration = yield* TextGeneration.TextGeneration;
 
@@ -50,17 +52,17 @@ const make = Effect.gen(function* () {
     readonly requestId: CommandId;
     readonly title?: string;
     readonly needsRefinement?: boolean;
-  }) =>
-    threads
-      .dispatch({
-        type: "thread.title.regeneration.complete",
-        commandId: CommandId.make(`${input.requestId}:title-complete`),
-        threadId: input.threadId,
-        requestId: input.requestId,
-        needsRefinement: input.needsRefinement ?? false,
-        ...(input.title === undefined ? {} : { title: input.title }),
-      })
-      .pipe(Effect.asVoid);
+  }) => {
+    const command: ThreadTitleRegenerationCompleteCommand = {
+      type: "thread.title.regeneration.complete",
+      commandId: CommandId.make(`${input.requestId}:title-complete`),
+      threadId: input.threadId,
+      requestId: input.requestId,
+      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(input.needsRefinement === true ? { needsRefinement: true } : {}),
+    };
+    return threads.dispatch(command).pipe(Effect.asVoid);
+  };
 
   const execute: ThreadTitleRegenerationService["Service"]["execute"] = Effect.fn(
     "ThreadTitleRegenerationService.execute",
@@ -72,12 +74,18 @@ const make = Effect.gen(function* () {
           readonly title?: string;
           readonly needsRefinement?: boolean;
         } = yield* Effect.gen(function* () {
-      const projection = yield* threads.getThreadProjection(input.threadId);
+      const projection = yield* threads.getThreadRecords(
+        input.threadId,
+        ["messages"],
+        input.kind.type === "initial"
+          ? { messageIds: [input.kind.messageId] }
+          : { messageRoles: ["user", "assistant"] },
+      );
       if (projection.thread.titleRegeneration?.requestId !== input.requestId) {
         return { type: "stale" as const };
       }
 
-      const project = yield* projects.getById({ projectId: projection.thread.projectId });
+      const project = yield* projects.get(projection.thread.projectId);
       if (Option.isNone(project)) {
         return { type: "complete" as const };
       }
@@ -122,6 +130,8 @@ const make = Effect.gen(function* () {
         : {
             type: "complete" as const,
             title: result.title,
+            // Only a first-message title can be provisional; a regeneration
+            // already saw the conversation.
             needsRefinement: input.kind.type === "initial" && result.needsRefinement === true,
           };
     }).pipe(
@@ -145,8 +155,8 @@ const make = Effect.gen(function* () {
     }
     yield* complete({
       ...input,
-      needsRefinement: outcome.needsRefinement ?? false,
       ...(outcome.title === undefined ? {} : { title: outcome.title }),
+      ...(outcome.needsRefinement === true ? { needsRefinement: true } : {}),
     });
   });
 

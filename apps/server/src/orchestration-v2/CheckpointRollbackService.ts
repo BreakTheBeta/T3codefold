@@ -1,7 +1,7 @@
-import { CheckpointWorkspaceIsolation } from "./CheckpointWorkspaceIsolation.ts";
 import {
   CheckpointId,
   CheckpointScopeId,
+  latestProviderTurnForAttempt,
   type OrchestrationV2DomainEvent,
   ProviderThreadId,
   ThreadId,
@@ -11,6 +11,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import {
@@ -21,9 +22,13 @@ import { CheckpointServiceV2 } from "./CheckpointService.ts";
 import { EventSinkV2 } from "./EventSink.ts";
 import { IdAllocatorV2 } from "./IdAllocator.ts";
 import { ProjectionStoreV2 } from "./ProjectionStore.ts";
+import * as ProjectStore from "./ProjectStore.ts";
 import type { ProviderAdapterV2RollbackTarget } from "./ProviderAdapter.ts";
 import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
 import { RuntimePolicyV2 } from "./RuntimePolicy.ts";
+
+export const ROLLBACK_FAILED_MESSAGE =
+  "The provider could not roll back this conversation. Try again; if it keeps failing, check the provider and server logs.";
 
 export class CheckpointRollbackExecutionError extends Schema.TaggedError<CheckpointRollbackExecutionError>()(
   "CheckpointRollbackExecutionError",
@@ -52,7 +57,7 @@ export class CheckpointRollbackExecutionError extends Schema.TaggedError<Checkpo
       case "shared-workspace":
         return SHARED_WORKSPACE_RESTORE_MESSAGE;
       case "unexpected-failure":
-        return `Failed to execute rollback target ${this.checkpointId} on provider thread ${this.providerThreadId} for thread ${this.threadId}.`;
+        return ROLLBACK_FAILED_MESSAGE;
     }
   }
 }
@@ -84,6 +89,8 @@ export const layer: Layer.Layer<
   | ProviderSessionManagerV2
   | RuntimePolicyV2
   | FileSystem.FileSystem
+  | Path.Path
+  | ProjectStore.ProjectStoreV2
 > = Layer.effect(
   CheckpointRollbackServiceV2,
   Effect.gen(function* () {
@@ -94,7 +101,8 @@ export const layer: Layer.Layer<
     const sessions = yield* ProviderSessionManagerV2;
     const runtimePolicy = yield* RuntimePolicyV2;
     const fileSystem = yield* FileSystem.FileSystem;
-    const isolation = yield* CheckpointWorkspaceIsolation;
+    const projects = yield* ProjectStore.ProjectStoreV2;
+    const path = yield* Path.Path;
 
     const execute = Effect.fn("orchestrationV2.checkpointRollback.execute")(function* (input: {
       readonly threadId: ThreadId;
@@ -103,7 +111,16 @@ export const layer: Layer.Layer<
       readonly scopeId: CheckpointScopeId;
       readonly restoreFiles?: boolean;
     }) {
-      const projection = yield* projections.getThreadProjection(input.threadId);
+      const projection = yield* projections.getThreadRecords(input.threadId, [
+        "providerThreads",
+        "providerSessions",
+        "checkpoints",
+        "checkpointScopes",
+        "runs",
+        "attempts",
+        "nodes",
+        "providerTurns",
+      ]);
       const providerThread = projection.providerThreads.find(
         (candidate) => candidate.id === input.providerThreadId,
       );
@@ -143,7 +160,8 @@ export const layer: Layer.Layer<
         !(yield* isCheckpointRestoreIsolated(projection.thread, scope, {
           fileSystem,
           projections,
-          isolation,
+          projects,
+          path,
         }))
       ) {
         return yield* new CheckpointRollbackExecutionError({
@@ -179,11 +197,30 @@ export const layer: Layer.Layer<
       });
 
       const targetOrdinal = checkpoint.appRunOrdinal ?? 0;
+      // Stopped and failed runs after the target leave the provider
+      // conversation too, so they must not stay visible.
       const runsToRollback = projection.runs.filter(
-        (run) => run.ordinal > targetOrdinal && run.status === "completed",
+        (run) =>
+          run.ordinal > targetOrdinal &&
+          (run.status === "completed" ||
+            run.status === "interrupted" ||
+            run.status === "failed" ||
+            run.status === "cancelled"),
+      );
+      // Rolled-back turns stay in the audit history, but no longer exist in
+      // the provider conversation and must not be counted by a later rewind.
+      const rolledBackRunIds = new Set(
+        projection.runs.filter((run) => run.status === "rolled_back").map((run) => run.id),
+      );
+      const rolledBackAttemptIds = new Set(
+        projection.attempts
+          .filter((attempt) => rolledBackRunIds.has(attempt.runId))
+          .map((attempt) => attempt.id),
       );
       const providerThreadTurns = projection.providerTurns.filter(
-        (turn) => turn.providerThreadId === providerThread.id,
+        (turn) =>
+          turn.providerThreadId === providerThread.id &&
+          (turn.runAttemptId === null || !rolledBackAttemptIds.has(turn.runAttemptId)),
       );
       const rollbackTarget: ProviderAdapterV2RollbackTarget =
         targetOrdinal === 0
@@ -197,11 +234,10 @@ export const layer: Layer.Layer<
               const targetAttempt = projection.attempts.find(
                 (attempt) => attempt.id === targetRun?.activeAttemptId,
               );
-              const targetTurn = projection.providerTurns.find(
-                (turn) =>
-                  turn.id === targetAttempt?.providerTurnId ||
-                  turn.runAttemptId === targetAttempt?.id,
-              );
+              // A goal run can span several native turns; roll back to its last.
+              const targetTurn =
+                latestProviderTurnForAttempt(projection.providerTurns, targetAttempt?.id) ??
+                projection.providerTurns.find((turn) => turn.id === targetAttempt?.providerTurnId);
               if (targetTurn === undefined || targetTurn.providerThreadId !== providerThread.id) {
                 return yield* new CheckpointRollbackExecutionError({
                   reason: "provider-turn-unavailable",

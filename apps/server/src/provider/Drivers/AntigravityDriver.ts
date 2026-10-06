@@ -1,6 +1,7 @@
 import { withAgentDeviceEnvironment } from "../../mcp/McpProviderSession.ts";
 import { AntigravitySettings, ProviderDriverKind, ProviderSetupError } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import {
   NodeRuntimeUnavailableError,
   nodeRuntimeUnavailableMessage,
@@ -14,18 +15,18 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type { AcpError } from "effect-acp/errors";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
-import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import * as ServerConfig from "../../config.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import {
   isAntigravityTextGenerationAvailable,
   makeAntigravityTextGeneration,
 } from "../../textGeneration/AntigravityTextGeneration.ts";
 import { makeAntigravityAuth, type AntigravityAuth } from "../AntigravityAuth.ts";
-import { AntigravityInstallation } from "../AntigravityInstallation.ts";
+import * as AntigravityInstallation from "../AntigravityInstallation.ts";
 import {
   antigravityAuthConfigIssue,
   antigravityAuthLabel,
@@ -42,17 +43,18 @@ import {
 } from "../acp/AntigravityAcpSupport.ts";
 import type { AcpSessionRuntime, AcpSessionRuntimeStartResult } from "../acp/AcpSessionRuntime.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
-import { IdAllocatorV2 } from "../../orchestration-v2/IdAllocator.ts";
-import { ProviderContinuationRequests } from "../../orchestration-v2/ProviderContinuationRequests.ts";
-import { makeAntigravityAdapterV2 } from "../../orchestration-v2/Adapters/AntigravityAdapterV2.ts";
-import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import {
   removeAntigravityRuntimeTempDirs,
   removeAntigravitySessionFiles,
 } from "../acp/AntigravitySessionFiles.ts";
+import * as IdAllocator from "../../orchestration-v2/IdAllocator.ts";
+import * as ProviderContinuationRequests from "../../orchestration-v2/ProviderContinuationRequests.ts";
+import { makeAntigravityAdapterV2 } from "../../orchestration-v2/Adapters/AntigravityAdapterV2.ts";
+import type { AcpAdapterV2RuntimeInput } from "../../orchestration-v2/Adapters/AcpAdapterV2.ts";
+import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeAntigravityProvider } from "../Layers/AntigravityProvider.ts";
-import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
+import * as ProviderEventLoggers from "../Layers/ProviderEventLoggers.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -68,17 +70,17 @@ const decodeSettings = Schema.decodeSync(AntigravitySettings);
 const isNodeRuntimeUnavailableError = Schema.is(NodeRuntimeUnavailableError);
 
 export type AntigravityDriverEnv =
-  | AntigravityInstallation
+  | AntigravityInstallation.AntigravityInstallation
   | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
   | FileSystem.FileSystem
-  | IdAllocatorV2
+  | IdAllocator.IdAllocatorV2
   | ModelManifest.ModelManifest
   | Path.Path
-  | ProviderEventLoggers
-  | ServerConfig
-  | ServerSettingsService;
+  | ProviderEventLoggers.ProviderEventLoggers
+  | ServerConfig.ServerConfig
+  | ServerSettings.ServerSettingsService;
 
 /** Each instance owns its Google profile. Executable releases are shared by the environment. */
 export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityDriverEnv> = {
@@ -92,12 +94,13 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const serverConfig = yield* ServerConfig;
-      const installation = yield* AntigravityInstallation;
-      const loggers = yield* ProviderEventLoggers;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const selfInvocation = yield* resolveSelfInvocation();
+      const installation = yield* AntigravityInstallation.AntigravityInstallation;
+      const loggers = yield* ProviderEventLoggers.ProviderEventLoggers;
       const modelManifest = yield* ModelManifest.ModelManifest;
-      const idAllocator = yield* IdAllocatorV2;
-      const continuationRequests = yield* ProviderContinuationRequests;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
       const makeNativeLogger = yield* makeAcpNativeLoggerFactory();
       const settings = { ...config, enabled } satisfies AntigravitySettings;
       const auth: AntigravityAuthConfig = {
@@ -159,7 +162,9 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         );
 
       const makeRuntime = Effect.fn("AntigravityDriver.makeRuntime")(function* (
-        input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner">,
+        // Chat sessions pass AcpAdapterV2's thread-scoped `processEnvironment` through.
+        input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner"> &
+          Pick<AcpAdapterV2RuntimeInput, "processEnvironment">,
       ): Effect.fn.Return<
         AcpSessionRuntime["Service"],
         AcpError | ProviderSetupError,
@@ -240,7 +245,13 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
             installation: executable,
             profile,
             cwd: input.cwd,
-            baseEnv: withAgentDeviceEnvironment(processEnvironment, input),
+            // One agent process per session, so it gets the thread's `t3 work` credential.
+            baseEnv: withAgentDeviceEnvironment(
+              input.processEnvironment === undefined
+                ? processEnvironment
+                : { ...processEnvironment, ...input.processEnvironment },
+              input,
+            ),
             auth,
             runtimeTempDirectory,
           }),
@@ -409,6 +420,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         path,
         idAllocator,
         serverConfig,
+        selfInvocation,
         makeRuntime,
         withProcess: authFlow.withProcess,
         defaultModel,

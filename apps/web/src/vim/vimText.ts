@@ -172,3 +172,27 @@ export function orderedRange(anchor: number, focus: number, inclusive = false): 
     end: Math.max(anchor, focus) + (inclusive && focus >= anchor ? 1 : 0),
   };
 }
+
+/** Offset of the `f`/`F`/`t`/`T` target, or `cursor` when the character is not found. */
+export function findCharacter(
+  text: string,
+  cursor: number,
+  character: string,
+  direction: -1 | 1,
+  till: boolean,
+  repetitions: number,
+): number {
+  let next = cursor;
+  for (let index = 0; index < repetitions; index += 1) {
+    const found =
+      direction > 0
+        ? text.indexOf(character, next + 1)
+        : next > 0
+          ? text.lastIndexOf(character, next - 1)
+          : -1;
+    if (found === -1) break;
+    next = found;
+  }
+  if (next !== cursor && till) next -= direction;
+  return next;
+}

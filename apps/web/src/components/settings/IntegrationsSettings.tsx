@@ -107,6 +107,7 @@ import {
 import {
   SettingsUnavailableGroup,
   SettingResetButton,
+  SettingsPageContainer,
   SettingsRow,
   SettingsSection,
 } from "./settingsLayout";
@@ -645,10 +646,18 @@ function DeviceIntegrationControls({
     "hub" | "check" | "agent" | "update-hub" | "update-agent" | null
   >(null);
   const busy = state.hostStatus === "installing" || state.hostStatus === "starting";
+  const localPlatformsUnavailable = state.hosts.some(
+    (host) => host.kind === "local" && !host.platforms.some((platform) => platform.available),
+  );
   const [platformsRevealed, setPlatformsRevealed] = useState(false);
   // Keep diagnostics visible through subsequent agent setup and refresh phases.
   if (platformsRevealed && !enabled) setPlatformsRevealed(false);
-  if (enabled && !platformsRevealed && state.hostStatus === "ready" && pending !== "hub") {
+  if (
+    enabled &&
+    !platformsRevealed &&
+    (state.hostStatus === "ready" || localPlatformsUnavailable) &&
+    pending !== "hub"
+  ) {
     setPlatformsRevealed(true);
   }
 
@@ -1441,7 +1450,7 @@ export function IntegrationsSettingsPanel() {
   );
 
   return (
-    <>
+    <SettingsPageContainer>
       {/* Server-authoritative agent access is scoped by the header selection;
           the preview defaults below are device-local and ignore it. */}
       <ProjectDefaultsSettings category="integrations" />
@@ -1455,6 +1464,6 @@ export function IntegrationsSettingsPanel() {
         )}
       </SettingsSection>
       <DeviceIntegrationSettings />
-    </>
+    </SettingsPageContainer>
   );
 }

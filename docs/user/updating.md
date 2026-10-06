@@ -10,7 +10,7 @@ notice.
 Server updates restart the connection and can interrupt active agents and
 terminal commands. Saved threads, settings, and project files remain.
 
-**Settings → Agents → Continue threads after restarts** is off by default.
+**Settings → General → Continue threads after restarts** is off by default.
 Enable it to resume supported active threads after an update, crash, or machine
 restart. Changes are saved to connected environments that support this setting;
 update older servers first. If a supported environment was offline or has a
@@ -44,23 +44,26 @@ The offered action depends on how the server runs:
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Update server**          | Keep the client open while it installs and reconnects. Supported background services update remotely. For a desktop-hosted server, this also closes and relaunches the desktop app on the host. |
 | **Update the desktop app** | Update the desktop app on the machine running the server, then reopen it if needed.                                                                                                             |
-| **Copy update command**    | Stop the command-line server on its host and relaunch with the copied command, keeping your usual startup options.                                                                              |
+| **Copy update command**    | Run the command on the named host to update the detected global npm install, then restart the server with your usual options.                                                                   |
+| **Copy relaunch command**  | Stop the command-line server on its host and relaunch with the copied command, keeping your usual subcommand and options. This does not update an installed `t3` command.                       |
 
 On the host, run:
 
 ```sh
-npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v<client-version>/t3-<client-version>.tgz t3 service update
+t3 update <client-version>
 ```
 
-Replace `<client-version>` with the version shown in the notice. Using
-the `fold-server-latest` package only resolves the mismatch if your client is on that release. An older
-service launcher may require this local update before it supports remote updates
-and rollback.
+Replace `<client-version>` with the version shown in the notice. The command
+asks before restarting the background service; if you decline, run
+`t3 service restart` when you are ready. For a server you started by hand,
+stop it and start it again afterwards with your usual options such as `--host`
+or `--tailscale-serve`.
 
-For a foreground server, the copied command is `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v<client-version>/t3-<client-version>.tgz t3`. Add
-`serve` if you normally run without a browser, and preserve options such as
-`--host` or `--tailscale-serve`. See
-[background services](./background-service.md) for service management.
+If you run the server with `npx` rather than an installed `t3`, there is
+nothing to update on the host: stop the server and relaunch it as
+`npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-v<client-version>/t3-<client-version>.tgz t3`
+with the same subcommand and options. The npm `t3` package installs upstream
+T3 Code, not Fold.
 
 ## If an update fails
 
@@ -71,27 +74,28 @@ update can roll back to the previous version. If the update still fails:
 2. Check that you updated the server's machine, not only the device you are using.
 3. For a command-line server, stop it and relaunch the exact version shown in the notice.
 
-## Compatibility with older servers
+## Update providers
 
-Web, desktop (including macOS), and Android clients automatically use compatibility mode for servers from before the
-orchestration upgrade. You can browse projects and threads, send messages, and
-answer approvals and questions without upgrading those servers. Server-side queues
-and newer orchestration actions still require an updated server.
-
-Older servers without a Fold-aware updater show a manual Fold command. Run it on
-the server host once to enable future Fold updates.
+**Settings → Providers** shows provider updates for the selected environment.
+**Update all** updates every outdated provider on every connected environment
+at once. Hover it to see which providers it will update. Providers that only
+offer a manual update command are not included.
 
 ## Mobile updates
 
 To update an environment from your phone, open **Settings → Environments** and
 select it. **Check for updates** finds the latest release on that environment's
 current release channel. Keep the app open while the environment updates and
-reconnects.
+reconnects. Hosts that cannot update remotely show instructions for updating on
+the machine instead.
 
-If your environment uses a fork or prerelease channel, configure that channel
+The same page lets you refresh provider status and update supported providers.
+These controls require a connected environment and permission to operate it.
+Provider update checks and restart continuation preferences are in
+**Settings → Maintenance**. If provider update checks are disabled, enable them
 there before refreshing to find newer versions.
 
-Install Fold APK releases from [the fork’s releases](https://github.com/BreakTheBeta/T3codefold/releases). The mobile app can also
+Install App Store or Google Play releases as usual. The mobile app can also
 download updates in the background and apply them when you next leave the app.
 It saves drafts and queued messages before restarting. If you keep the app open
 for a long time, it may ask to install immediately; choosing **Later** leaves the

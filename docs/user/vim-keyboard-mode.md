@@ -195,6 +195,9 @@ find backward. Press `;` to repeat the find or `,` to repeat it in reverse.
 | `p` / `P`          | Paste after or before the cursor                         |
 | `u` / `Ctrl+r`     | Undo or redo                                             |
 
+`x` stops at the end of the line. Deleted, changed, and copied text keeps its
+file and context chips, so `dd` then `p` moves a line along with its references.
+
 In Visual modes, use motions to adjust the selection, `o` to swap ends, and
 `y`, `d`, or `c` to copy, delete, or change it.
 

@@ -6,6 +6,8 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
+import { backgroundWorkHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
+
 export type AgentAwarenessPhase =
   | "starting"
   | "running"
@@ -42,7 +44,9 @@ export interface ProjectThreadAwarenessV2Input {
     OrchestrationV2ThreadShell,
     | "activityRunStatus"
     | "id"
+    | "lineage"
     | "modelSelection"
+    | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
     | "status"
     | "title"
@@ -55,6 +59,7 @@ export function projectThreadAwarenessV2(
   input: ProjectThreadAwarenessV2Input,
 ): AgentAwarenessState | null {
   const { environmentId, project, thread } = input;
+  if (thread.lineage.relationshipToParent === "subagent") return null;
   const phase = resolveThreadAwarenessPhaseV2(thread);
   if (phase === null) {
     return null;
@@ -99,7 +104,10 @@ function resolveThreadAwarenessPhaseV2(
     case "waiting":
       return "running";
     case "completed":
-      return "completed";
+      // Work that will wake the agent keeps the run going; a dev server does not.
+      return backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
+        ? "running"
+        : "completed";
     case "failed":
       return "failed";
     case "idle":

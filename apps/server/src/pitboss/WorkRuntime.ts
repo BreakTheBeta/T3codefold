@@ -32,6 +32,7 @@ import { attemptsExhausted, readyTasks, workContext, type WorkActor } from "./Wo
 import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
 import {
   ThreadManagementProjectionLoadError,
+  ThreadManagementThreadArchivedError,
   ThreadManagementThreadNotFoundError,
   ThreadManagementService,
   latestActiveRun,
@@ -53,6 +54,7 @@ const isProjectionMissing = Schema.is(ProjectionStoreThreadNotFoundError);
 const isManagementMissing = Schema.is(ThreadManagementThreadNotFoundError);
 const isProjectionError = Schema.is(OrchestratorProjectionError);
 const isManagementError = Schema.is(ThreadManagementProjectionLoadError);
+const isArchivedThread = Schema.is(ThreadManagementThreadArchivedError);
 function isMissingThread(error: unknown): boolean {
   if (isProjectionMissing(error) || isManagementMissing(error)) return true;
   return (isProjectionError(error) || isManagementError(error)) && isMissingThread(error.cause);
@@ -486,6 +488,11 @@ export const layer = Layer.effectDiscard(
     const launch = yield* ThreadLaunchService;
     const drainLock = yield* Semaphore.make(1);
     const settledAttempts = new Set<string>();
+    // Run state and archive flags only; avoids loading the full transcript.
+    const runRecords = (target: { readonly projectId: ProjectId; readonly threadId: ThreadId }) =>
+      threads.getProjectThreadRecords({ projectId: target.projectId, threadId: target.threadId }, [
+        "runs",
+      ]);
     const readShell = Effect.fn("WorkRuntime.readShell")(function* (
       threadId: ThreadId,
       projectId?: ProjectId,
@@ -656,7 +663,9 @@ export const layer = Layer.effectDiscard(
           creationSource: "server",
         }),
       );
-      if (delivered._tag === "Failure") {
+      // A retry can land after the recipient was archived; UP refuses archived targets even for a
+      // command id that already delivered, so treat it as finished instead of retrying forever.
+      if (delivered._tag === "Failure" && !isArchivedThread(delivered.failure)) {
         yield* store.retryEffect(effect.operation_id, String(delivered.failure));
         return;
       }
@@ -696,7 +705,7 @@ export const layer = Layer.effectDiscard(
           const busy = yield* Effect.forEach(
             activeLeads(current).filter((lead) => lead.id !== target),
             (lead) =>
-              threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }).pipe(
+              runRecords(lead).pipe(
                 Effect.map((thread) => !!latestActiveRun(thread)),
                 Effect.catch((error) =>
                   isMissingThread(error) ? Effect.succeed(false) : Effect.fail(error),
@@ -708,14 +717,11 @@ export const layer = Layer.effectDiscard(
         if (leadStatusAction?.type === "lead-status" && leadStatusAction.status === "active") {
           const lead = activeLeads(current).find((entry) => entry.id === leadStatusAction.leadId);
           if (lead) {
-            const thread = yield* threads
-              .getProjectThread({ projectId: lead.projectId, threadId: lead.threadId })
-              .pipe(
-                Effect.map((projection) => projection),
-                Effect.catch((error) =>
-                  isMissingThread(error) ? Effect.succeed(undefined) : Effect.fail(error),
-                ),
-              );
+            const thread = yield* runRecords(lead).pipe(
+              Effect.catch((error) =>
+                isMissingThread(error) ? Effect.succeed(undefined) : Effect.fail(error),
+              ),
+            );
             if (thread && latestActiveRun(thread)) continue;
           }
         }
@@ -776,9 +782,7 @@ export const layer = Layer.effectDiscard(
                 }
               }
               for (const lead of (state.leads ?? []).filter((lead) => leadIds.has(lead.id))) {
-                const existing = yield* Effect.result(
-                  threads.getProjectThread({ projectId: lead.projectId, threadId: lead.threadId }),
-                );
+                const existing = yield* Effect.result(runRecords(lead));
                 if (existing._tag === "Failure") {
                   if (!isMissingThread(existing.failure))
                     return yield* Effect.fail(existing.failure);
@@ -863,10 +867,7 @@ export const layer = Layer.effectDiscard(
             }
             if (action.type === "elect") {
               if (state.role?.threadId !== action.threadId) return;
-              const electedThread = yield* threads.getProjectThread({
-                threadId: action.threadId,
-                projectId: action.projectId,
-              });
+              const electedThread = yield* runRecords(action);
               if (electedThread.thread.archivedAt !== null)
                 yield* threads.dispatch({
                   type: "thread.unarchive",
@@ -888,10 +889,7 @@ export const layer = Layer.effectDiscard(
               state.role.brief.workerRuntimeMode === "full-access" &&
               state.role.brief.projectIds.length > 0
             ) {
-              const coordinator = yield* threads.getProjectThread({
-                projectId: state.role.projectId,
-                threadId: state.role.threadId,
-              });
+              const coordinator = yield* runRecords(state.role);
               if (!latestActiveRun(coordinator))
                 yield* threads.sendToThread({
                   projectId: state.role.projectId,
@@ -910,14 +908,11 @@ export const layer = Layer.effectDiscard(
               if (!lead) return;
               const existing =
                 action.type === "lead-status"
-                  ? yield* threads
-                      .getProjectThread({ projectId: lead.projectId, threadId: lead.threadId })
-                      .pipe(
-                        Effect.map((projection) => projection),
-                        Effect.catch((error) =>
-                          isMissingThread(error) ? Effect.succeed(undefined) : Effect.fail(error),
-                        ),
-                      )
+                  ? yield* runRecords(lead).pipe(
+                      Effect.catch((error) =>
+                        isMissingThread(error) ? Effect.succeed(undefined) : Effect.fail(error),
+                      ),
+                    )
                   : undefined;
               if (action.type === "lead-status" && action.status === "dormant") {
                 const run = existing && latestActiveRun(existing);
@@ -1340,9 +1335,13 @@ export const layer = Layer.effectDiscard(
       }
     }, drainLock.withPermits(1));
     // Subscribe first, then perform recovery. Event receipts, not model polling, drive subsequent work.
+    // Both subscriptions are taken here, before the initial drain reads, so a change during
+    // startup is not lost to a wake fiber that has not started yet.
+    const storeChanges = yield* store.subscribeChanges;
+    const domainEvents = yield* threads.subscribeDomainEvents.pipe(Effect.orDie);
     const wakes = Stream.merge(
-      store.changes,
-      threads.streamDomainEvents.pipe(
+      storeChanges,
+      domainEvents.pipe(
         // A pending permission prompt changes no run, so the request events are the only signal
         // that a worker just became blocked, or just became unblocked.
         Stream.filter(

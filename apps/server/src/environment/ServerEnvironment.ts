@@ -1,10 +1,10 @@
-import { FOLD_REPOSITORY } from "@t3tools/shared/foldRelease";
 import {
   EnvironmentId,
   ORCHESTRATION_PROTOCOL_VERSION,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   type ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
+import { FOLD_REPOSITORY } from "@t3tools/shared/foldRelease";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { resolveServerInstallation } from "../cli/invocation.ts";
 import { readAgentActivityPublishingActive } from "../cloud/config.ts";
 import { resolveServerSelfUpdateCapability } from "../cloud/selfUpdate.ts";
 import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
@@ -197,6 +198,7 @@ export const make = Effect.gen(function* () {
     desktopManaged: serverConfig.mode === "desktop",
     launcherManaged: launcher.managed,
   });
+  const serverInstallation = serverSelfUpdate === null ? yield* resolveServerInstallation : null;
   // Static is correct: the control fd is known at bootstrap, and the desktop
   // app and its bundled server ship in one artifact, so a present fd means
   // the app speaks the requestDesktopUpdate protocol. WSL backends never get
@@ -215,10 +217,8 @@ export const make = Effect.gen(function* () {
     serverVersion: packageJson.version,
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
     capabilities: {
-      fleetOrchestration: true,
       repositoryIdentity: true,
       connectionProbe: true,
-      realtimeVoiceControls: true,
       attachmentUploads: true,
       questionAttachments: true,
       fileAttachments: { maxUploadBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES },
@@ -236,20 +236,26 @@ export const make = Effect.gen(function* () {
       environmentThemes: true,
       usageLimitSources: true,
       usagePriceOverrides: true,
+      usageModelAliases: true,
       threadPinning: true,
       threadPinReorder: true,
       threadActiveReorder: true,
       threadAutoSettleOptOut: true,
       threadTitleRegeneration: true,
       threadVisitedTracking: true,
-      threadPullRequestLinking: true,
       threadPullRequests: true,
+      threadPullRequestWatch: true,
       pullRequestStackActions: true,
-      environmentIcon: true,
-      updateRepository: FOLD_REPOSITORY,
+      threadPullRequestLinking: true,
       serverResolvedCommandContext: true,
+      environmentIcon: true,
       projectCloneTracking: true,
+      // Fold: clients only self-update hosts whose updater installs Fold releases.
+      updateRepository: FOLD_REPOSITORY,
+      fleetOrchestration: true,
+      realtimeVoiceControls: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
+      ...(serverInstallation === null ? {} : { serverInstallation }),
       // V2 restart recovery uses the environment-owned opt-in. The old
       // per-update request flag is not wired into the V2 update RPC path.
       ...(serverSelfUpdate === "boot-service" || desktopAppUpdate

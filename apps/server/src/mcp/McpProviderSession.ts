@@ -59,21 +59,27 @@ function clearAllMcpProviderSessions(): void {
   sessionsByThread.clear();
 }
 
-/** Shell agents receive the same revocable, thread-scoped authority as MCP tools. */
-function workCliEnvironment(threadId: ThreadId): Readonly<Record<string, string>> {
+/**
+ * The `t3 work` CLI's credential: the thread's own revocable MCP authority,
+ * never local admin auth. Empty when the thread has no MCP session.
+ */
+export function workCliEnvironment(threadId: ThreadId): Readonly<Record<string, string>> {
   const session = readMcpProviderSession(threadId);
   return session
     ? { T3_WORK_ENDPOINT: session.endpoint, T3_WORK_AUTHORIZATION: session.authorizationHeader }
     : {};
 }
 
-/** Apply thread-local tooling over the provider's configured environment. */
+/**
+ * Provider env with the thread's `t3 work` credential applied over `base`, or
+ * `base` untouched. Adapters call it where they spawn a per-thread process.
+ * The device shim is separate (`withAgentDeviceEnvironment`) and not applied
+ * here; devices reach agents through the MCP device tools.
+ */
 export function providerSessionEnvironment(
   base: NodeJS.ProcessEnv,
   threadId: ThreadId,
 ): NodeJS.ProcessEnv {
-  return {
-    ...withAgentDeviceEnvironment(base, readMcpProviderSession(threadId)),
-    ...workCliEnvironment(threadId),
-  };
+  const work = workCliEnvironment(threadId);
+  return Object.keys(work).length === 0 ? base : { ...base, ...work };
 }

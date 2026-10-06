@@ -13,6 +13,24 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
+### Start without a project
+
+A thread does not need a project. To start one without a project, click **or
+start without a project** under a new thread's heading, pick **No project** from
+the project menu in that heading or from **New thread in...** in the command
+palette, or press `mod+alt+n`. On mobile, pick **No project** from the project
+list. It starts on your current machine; before sending, pick another machine
+from the machine menu to move it there. To move a draft into a project, pick the
+project in the heading.
+
+Each thread without a project works in its own folder under `~/.t3/scratch` (the
+`scratch` folder of your T3 data directory), named after its date, the first words
+of its first message, and a short id, like
+`2026-09-25-convert-these-pngs-to-webp-a1b2c3d4`. Deleting a thread keeps its
+folder, so the files the agent wrote stay until you delete them. Branch, worktree, and diff controls stay hidden because
+these folders are not Git repositories. This is unavailable when the data
+directory itself sits inside a Git checkout.
+
 ### Start in the background
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
@@ -32,13 +50,9 @@ Pin a thread from its menu to keep it above your active work.
 On web and desktop, unpinning, settling, snoozing, and archiving a thread each show
 a notification with **Undo** for five seconds. Undo restores the thread's previous
 state, including its pinned position, and reopens an archived thread you were
-viewing. `mod+z` triggers the most recent Undo when no text field is focused; see
+viewing. Discarding an unsent draft from the sidebar works the same way: Undo brings
+back its text and attachments. `mod+z` triggers the most recent Undo when no text field is focused; see
 [Keybindings](./keybindings.md#commands-with-special-behavior).
-
-On web and desktop, you can also drag files from your computer onto any thread row:
-the thread opens and the files are attached in its composer, ready for
-your next message. The same per-message file limits apply as when attaching
-files directly; see [Attach files](./composer.md#attach-files).
 
 On web and desktop, you can also drag files from your computer onto any thread row:
 the thread opens and the files are attached in its composer, ready for
@@ -49,6 +63,9 @@ On web and desktop, pinning or unpinning a thread keeps the sidebar at your curr
 scroll position instead of following the thread to its new place in the list.
 
 Pinning does not prevent automatic settlement. Settling a thread removes its pin.
+
+The thread running your elected GLaDOS cannot be archived, deleted, unpinned, settled, or
+snoozed by hand. Dismiss or replace GLaDOS in **Settings → GLaDOS** first.
 
 On web and desktop, drag a thread between sections to change its state. Drag a thread up into
 the pinned section to pin it at the spot you drop it; drag a pinned thread down into the active
@@ -98,6 +115,18 @@ rename a thread, regenerate its title, or link and unlink a pull request. These 
 appear on web, desktop, and mobile without requiring the originating browser to remain
 open.
 
+### Fold working threads (beta)
+
+Turn on **Settings → General → Working section (beta)** on web and desktop, or **Settings →
+Thread behavior → Working section** on iOS and Android, to move threads that are working or
+monitoring into a collapsed **Working** section below the active list. A thread returns to the top
+of the active list when it finishes, fails, or needs an approval or answer. The Working section
+lists the thread you last sent work to first. Pinned threads stay in the pinned section. Each
+device keeps its own choice.
+
+While this is on, the active list is ordered by when each thread last came back to you, so you
+cannot drag or move threads within it. Your saved order returns when you turn it off.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list
@@ -108,14 +137,25 @@ sending an answer or restarting the agent. Settling also closes the thread's
 terminals that wait at an idle prompt, and keeps their output. A terminal that
 runs a command, such as a dev server, stays open.
 
+On web and desktop, press a thread's **Settle** button and drag up or down to
+settle every thread in that section between it and the one you release on.
+The **Un-settle** and **Wake** buttons work the same way in their sections.
+Press `Escape` while dragging to cancel.
+
 By default, environments settle inactive threads after three days and settle
 threads whose pull request merged. A closed pull request can also settle an idle
 thread. Work in progress, pending questions or approvals, and live background work
 prevent automatic settlement. An open pull request does not prevent inactivity
 settlement, but an old closed or merged pull request does not settle work you
-resumed after it closed.
+resumed after it closed. Only your own messages count as resuming. A turn that
+finished background work or a pull request watch starts on its own does not.
 
-Change these rules in **Settings → Threads**.
+To keep one thread out of the settled shelf no matter how long it sits idle, open its menu,
+choose **Auto-settle behavior**, and pick **Disabled**. The current option is checked. Pick
+**Enabled** to return to the usual rules. Manual settle, snooze, and archive still work while it
+is disabled.
+
+Change these rules in **Settings → General** on web and desktop, or **Settings → Thread behavior** on mobile.
 They continue to run when your apps are closed. On web and desktop, choose an environment at the
 top to change only its rules, or **All environments** to update connected environments together.
 Mixed values show where the selected environments disagree. Mobile applies these
@@ -140,7 +180,7 @@ On web and desktop, open the command palette with `Cmd/Ctrl+K` to search threads
 across connected environments. Message search starts after two characters and
 includes your messages and final agent responses.
 
-Use **Settings → General → Keyboard shortcuts** to find or customize shortcuts for searching files
+Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request
 link when available, otherwise its thread ID. See [keybindings](./keybindings.md)
 for custom configuration.
@@ -171,6 +211,7 @@ snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
 On web and desktop, use **Agents** to follow work delegated to subagents.
+Stop on a thread also stops the subagents it delegated to.
 
 Subagent threads started by the agent can't take messages; message the parent
 thread instead. When such a subagent needs an approval or an answer, the parent
@@ -179,48 +220,6 @@ thread asks for it.
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
-
-## GLaDOS
-
-Open **Settings → GLaDOS** on any device to set up and configure GLaDOS. **Set up GLaDOS** creates a persistent conversation and working folder on the selected environment; no repository thread is needed, and each connected environment owns its own home. The page is the same on web, desktop and mobile.
-
-Most of the brief is two things: **Priorities** and the **Projects** GLaDOS may work in. You can leave projects empty and authorize work later. **Autonomy** is one choice. **Ask me** keeps GLaDOS and its workers on approval prompts and has you review new verification checks. **Full auto** lets them run without prompts and lets GLaDOS prepare and save verification checks for new work. Product decisions, shared leadership changes, and changes to proof requirements after an attempt still need you, and existing worker runs keep the permissions they started with. **Model** picks the worker configuration, including its thinking level.
-
-**Advanced** holds the limits, which start at three concurrent workers and three attempts per task, plus an optional quality bar and a fallback model. Once you add a fallback, tell GLaDOS when to use each model under **How GLaDOS should choose**. She picks per task rather than switching after a failed attempt. When two or more peers are connected, Advanced also limits which peers GLaDOS coordinates with. You can ask GLaDOS to change any of this in conversation, and the settings page shows the saved result.
-
-**Reset GLaDOS** cancels this environment's open work, archives the conversation and starts a fresh one. The brief, task sources and peers are kept, and work mirrored from a peer is untouched. **Dismiss GLaDOS** stops GLaDOS on the environment until you set it up again. Both ask for confirmation.
-
-Routine worker questions and operational blockers stay with GLaDOS. The board separates work in progress, verification and waiting from **Chat input**, where GLaDOS needs your judgment. When GLaDOS needs your judgment, tell her which option you want in the conversation and she records your answer, or use the optional decision controls under **Advanced**. She records only the answer you actually gave, and never treats silence or unrelated text as one. Only that task and its dependencies wait; independent work continues. You can leave a decision for later. Acknowledging a message does not approve it. After your answer, GLaDOS or the project lead reconciles the retained work within the existing brief and limits.
-
-Open **GLaDOS work** on desktop or mobile for a live Kanban board of outcomes, verification and delivery. Search or filter by project, then open a card to see progress and evidence. The board is optional: GLaDOS manages the work and reviews results, and you give direction or answer questions in the conversation. **Talk to GLaDOS** returns to your draft. On mobile, columns adapt to the available width when folding or rotating; the selected outcome stays open. Manual controls remain under **Advanced**.
-
-For sustained project work, ask GLaDOS to create or reuse a project lead. The lead keeps project context, coordinates workers within the shared limit, reviews their combined result, and reports back through GLaDOS. Small tasks can still go directly to a worker. Open GLaDOS work to inspect the lead and its retained context. **Return to GLaDOS** makes the lead dormant without stopping existing workers; **Reactivate** restores its management role. Project leads are local to their environment and do not change shared peer leadership.
-
-With automatic verification enabled, GLaDOS inspects the project and saves its checks before assigning new work. If manual review is selected, or proof requirements would change after an attempt, GLaDOS prepares a proposal. Review the readiness, checks and permitted effects in the conversation or under **Review proposed settings**. Then tell GLaDOS to approve it, or use **Save and select profile**. Approval is bound to the exact proposal you reviewed, so a changed proposal needs a fresh decision. GLaDOS can also revise proof after an attempt, change the evidence profile, and hand the check to a worker or lead, so routine proof upkeep no longer needs you. She asks first when that would weaken the bar or drop to reported-only evidence, and you answer in the conversation. Approval retains other pending decisions and never substitutes a missing tool or device with a passing result.
-
-Describe the outcome you want in the GLaDOS conversation. It prepares the tasks, success criteria and verification plan, then keeps the work view updated as it works. **Talk to GLaDOS** returns to your draft. Manual task entry remains available under **Manual work and project leads** in the GLaDOS panel on web and desktop. On web and desktop, manual tasks use project files by default; choose an isolated Git worktree for code changes. Search and filter the work view to find outcomes across projects, and open an outcome to inspect its decisions, dependencies and evidence. Choose **Advanced** for manual controls and the resizable outcome list. Drag the list divider to adjust its width, or focus it and use the arrow keys; your width is remembered. Narrow windows show the list or the selected outcome, with **Back** returning to the list. **Talk to GLaDOS** returns to your existing draft. GLaDOS can start eligible work proactively, receive worker questions, and inspect evidence before accepting a result. Pause stops new assignments; existing workers keep running until stopped. Use **Stop for rework**, then reopen the task after its worker stops. Reassigning a stopped task with a named worktree automatically retains its latest candidate. **Resume candidate** lets you explicitly choose retained work while using the model selected in the GLaDOS thread. Dismiss the role before archiving, settling, snoozing, or unpinning its thread.
-
-Under **Settings → GLaDOS → Task sources**, GLaDOS can read a selected Vikunja project, Jira project, or Linear team. Use a read credential; it stays on the environment. Imports start as candidates: review their criteria and verification recipe before reopening them. A tracker's “Done” status does not accept work in T3, and T3 does not write status changes back to trackers.
-
-For a shared tracker scope, configure both environments under **Settings → GLaDOS → Peers** with their environment IDs, reachable server URLs, and the same dedicated random peer key. Propose a coordinator and approve the proposal on both environments. The pilot supports two participants per shared scope. The first agreement chooses the task home, where workers run and evidence stays. Later proposals can change the coordinator while retaining that home; approve or decline them after resolving existing writers. The coordinator forwards task controls to the home and receives task and evidence updates automatically. Requests remain queued when a peer is offline. To open a remote worker thread, pair this client with its task-home environment. Disconnecting a peer does not release its shared work for automatic takeover.
-
-Mobile provides GLaDOS navigation, task controls, evidence, and coordination approval. Configure tracker and peer connections from web or desktop. Models use the ordinary T3 provider tools. Codex and Claude shell sessions can use `t3 work read` and `t3 work command --file command.json` with the same scoped authority; other providers use MCP where supported. The CLI's `--dry-run` checks the command's format without sending it or validating current server state.
-
-### Captured verification
-
-Ask GLaDOS to prepare an evidence profile in the conversation, or select a task under **Advanced** and choose **New evidence profile**. Discuss the checks in chat and ask GLaDOS to select the profile for the task. The optional manual selector is **Evidence profile for this task**. A project can have different profiles for code, research, audio and operations. Existing project recipes remain defaults. With automatic verification enabled, GLaDOS and project leads can configure checks for unattempted work in their scope. GLaDOS manages proof updates within the saved brief and asks in chat before weakening requirements. Existing briefs retain manual review until you enable automatic setup.
-
-Choose the subject appropriate to the outcome:
-
-- **Code commit:** workers report `commit:<full SHA>`. Checks run in a disposable checkout.
-- **File / audio / research packet:** approve a relative input path. Workers report `sha256:<SHA-256 digest of that file's bytes>`. Checks receive a temporary copy of that file, with no Git requirement. A research packet should contain dated sources, findings and unknowns; a render should carry or reference its reproducibility information. Input changes during verification invalidate the check.
-- **Host / service observation:** approve a target and commands on this environment, permitted effects and an evidence lifetime. Workers report `observation:<target>`. Checks run in the project workspace. A required configuration file can be hashed with the observation. Expired results cannot be accepted as fresh proof.
-
-Readiness should check required tools, hardware and services. Missing capabilities, wrong environments, timeouts and missing artifacts are inconclusive. Commands have normal host permissions: selecting “Observe only” expresses what you approve the commands to do, rather than installing a security sandbox. Configure cleanup for any processes the commands start. Checks do not automatically move to another host.
-
-After workers stop and report a candidate, ask the lead to run captured verification and inspect its receipt. A passing recipe is separate from the lead's qualitative review; an observation review must follow the captured result. Downloaded artifacts survive cleanup. Files are limited to 100 MiB each, with at most five retained outputs. An interrupted check is not automatically repeated after restart.
-
-Use **Reported evidence — user review** explicitly for work without an approved captured check. It does not produce a server-attested pass. Mobile can review and save prepared recipes, select profiles, request verification and inspect evidence. Use web or desktop to edit individual recipe fields. Acceptance records a completed result, not ongoing service health or permission to deploy.
 
 ## Snooze until later
 
