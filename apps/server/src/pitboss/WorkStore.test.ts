@@ -9,9 +9,9 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer } from "./WorkStore.ts";
-const database = SqlitePersistenceMemory;
+const database = SqlitePersistence.layerMemory;
 const services = layer.pipe(Layer.provideMerge(database));
 const election = {
   commandId: CommandId.make("elect"),

@@ -5,7 +5,7 @@ import { ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
 import { readSourcePage } from "./TaskSources.ts";
 import { WorkStore, layer } from "./WorkStore.ts";
 
@@ -62,5 +62,5 @@ it.effect.skipIf(!fixturePath)(
       expect(task?.source?.status).toBe("Done");
       expect(task?.status).toBe("blocked");
       expect(task?.acceptedEvidenceId).toBeNull();
-    }).pipe(Effect.provide(layer.pipe(Layer.provide(SqlitePersistenceMemory)))),
+    }).pipe(Effect.provide(layer.pipe(Layer.provide(SqlitePersistence.layerMemory)))),
 );

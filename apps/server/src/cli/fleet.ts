@@ -191,7 +191,7 @@ const withLiveFleet = Effect.fn("withLiveFleet")(function* (
       (session) => auth.revokeSession(session.sessionId).pipe(Effect.ignore({ log: true })),
     );
   }).pipe(
-    Effect.provide(EnvironmentAuth.runtimeLayer.pipe(Layer.provide(ServerConfig.layer(config)))),
+    Effect.provide(EnvironmentAuth.layerRuntime.pipe(Layer.provide(ServerConfig.layer(config)))),
   );
 });
 

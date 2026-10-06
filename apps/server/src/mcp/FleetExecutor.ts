@@ -26,7 +26,7 @@ import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { FleetRouter } from "./FleetRouter.ts";
 import { McpInvocationContext, type McpInvocationScope } from "./McpInvocationContext.ts";
 import { OrchestratorMcpService, resolveInteractionMode } from "./OrchestratorMcpService.ts";
-import { ProjectHandlersLive } from "./toolkits/project/handlers.ts";
+import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 
 type ProjectTools = Toolkit.Tools<typeof ProjectToolkit>;
@@ -143,7 +143,7 @@ export const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment;
   const orchestrator = yield* OrchestratorMcpService;
   const router = yield* FleetRouter;
-  const projectTools = yield* ProjectToolkit.pipe(Effect.provide(ProjectHandlersLive));
+  const projectTools = yield* ProjectToolkit.pipe(Effect.provide(ProjectHandlers.layer));
   const projectToolServices = yield* Effect.context<ProjectToolServices>();
   const localId = yield* environment.getEnvironmentId;
 

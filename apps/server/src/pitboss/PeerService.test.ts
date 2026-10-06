@@ -27,8 +27,7 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
-import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer as workLayer } from "./WorkStore.ts";
 import { PeerService, layer as peerLayer } from "./PeerService.ts";
 import { layer as routes } from "./PeerHttp.ts";
@@ -52,8 +51,8 @@ const startPeer = Effect.fn("startPeer")(function* (
   });
   const database = Layer.fresh(
     options
-      ? makeSqlitePersistenceLive(options.dbPath).pipe(Layer.provide(NodeServices.layer))
-      : SqlitePersistenceMemory,
+      ? SqlitePersistence.layerFromPath(options.dbPath).pipe(Layer.provide(NodeServices.layer))
+      : SqlitePersistence.layerMemory,
   );
   const work = workLayer;
   const services = peerLayer.pipe(

@@ -26,7 +26,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
 import {
   emptyProjection,
   threadShellFromProjection,
@@ -427,7 +427,7 @@ const harness = Effect.gen(function* () {
     lead,
   };
 });
-const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
+const services = storeLayer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory));
 it.effect("drains active writers before removing tasks and stale messages from the board", () =>
   Effect.gen(function* () {
     const h = yield* harness;

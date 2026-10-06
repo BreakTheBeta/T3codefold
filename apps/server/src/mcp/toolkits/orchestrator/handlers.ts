@@ -67,6 +67,12 @@ export const handlers = {
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.deleteScheduledTask(scope, input);
     }),
+  request_secret: (input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.requestSecret(scope, input);
+    }),
   create_threads: (input) =>
     Effect.gen(function* () {
       yield* requireLedgerDelegation("create_threads");
@@ -122,4 +128,4 @@ export const handlers = {
     }),
 } satisfies Parameters<typeof OrchestratorToolkit.toLayer>[0];
 
-export const OrchestratorToolkitHandlersLive = OrchestratorToolkit.toLayer(handlers);
+export const layer = OrchestratorToolkit.toLayer(handlers);

@@ -8,7 +8,7 @@ import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { ProjectRow, ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
 import { WorkStore, layer as storeLayer } from "./WorkStore.ts";
 import { VerificationRunner } from "./VerificationRunner.ts";
 import { layer as runtime } from "./VerificationRuntime.ts";
@@ -149,7 +149,7 @@ it.effect.each([
     }).pipe(
       Effect.provide(
         storeLayer.pipe(
-          Layer.provideMerge(SqlitePersistenceMemory),
+          Layer.provideMerge(SqlitePersistence.layerMemory),
           Layer.provideMerge(NodeServices.layer),
         ),
       ),
@@ -245,7 +245,7 @@ it.effect("acts on a change that lands while startup is still reading the store"
   }).pipe(
     Effect.provide(
       storeLayer.pipe(
-        Layer.provideMerge(SqlitePersistenceMemory),
+        Layer.provideMerge(SqlitePersistence.layerMemory),
         Layer.provideMerge(NodeServices.layer),
       ),
     ),
