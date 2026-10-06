@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- The initial dictation feature is English-only. Fall back to English until localized. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="dictation_title">On-device dictation</string>
+    <string name="dictation_start">Dictate</string>
+    <string name="dictation_stop">Stop</string>
+    <string name="dictation_setup">Setup</string>
+    <string name="dictation_idle">On-device dictation · %1$s microphone</string>
+    <string name="dictation_loading">Loading speech model…</string>
+    <string name="dictation_connecting">Connecting call audio…</string>
+    <string name="dictation_listening">Listening · %1$s</string>
+    <string name="dictation_stopping">Finishing dictation…</string>
+    <string name="dictation_permissions">Allow dictation permissions</string>
+    <string name="dictation_download">Download English model</string>
+    <string name="dictation_ready">Ready. Return to a text field and tap Dictate.</string>
+    <string name="dictation_download_progress">Downloading %1$s · %2$d%%</string>
+    <string name="dictation_intro">Speech is transcribed on this phone. Download a model once, then dictation works offline. Bluetooth uses call audio for headset microphones, including Meta Ray-Bans. Nothing is uploaded.</string>
+    <string name="dictation_phone">Phone</string>
+    <string name="dictation_bluetooth">Bluetooth headset</string>
+    <string name="dictation_model_tiny">English Tiny · fastest</string>
+    <string name="dictation_model_small">English Small · recommended</string>
+    <string name="dictation_model_medium">English Medium · higher accuracy</string>
+    <string name="dictation_error">Dictation stopped: %1$s</string>
+    <string name="dictation_notices">Speech model licenses</string>
+    <string name="dictation_remove">Remove selected downloaded model</string>
+    <string name="dictation_app_permissions">Android app permissions</string>
+    <string name="dictation_remove_failed">Could not remove the model. Try again.</string>
+</resources>

@@ -23,6 +23,7 @@
     "build": "vp run --filter './apps/*' build",
     "build:marketing": "vp run --filter @t3tools/marketing build",
     "build:desktop": "vp run --filter @t3tools/desktop --filter t3 build",
+    "build:keyboard": "cd apps/keyboard && ./gradlew :app:assembleDebugNoMinify",
     "build:resource-monitor": "cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml",
     "mobile:ota:publish": "node scripts/publish-mobile-github-ota.ts",
     "typecheck": "vp run -r --concurrency-limit 2 typecheck",

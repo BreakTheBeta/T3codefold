@@ -87,6 +87,8 @@ export default defineConfig({
   fmt: {
     ignorePatterns: [
       ".repos/**",
+      // The companion Android keyboard retains upstream source formatting.
+      "apps/keyboard/**",
       // Macroscope's glob-per-line ignore grammar, not Markdown: formatting
       // it rewrites `*` as `_` and joins lines.
       ".macroscope/ignore.md",
@@ -116,6 +118,7 @@ export default defineConfig({
     ignorePatterns: [
       ".repos",
       ".repos/**",
+      "apps/keyboard/**",
       "dist",
       "dist-electron",
       "node_modules",
