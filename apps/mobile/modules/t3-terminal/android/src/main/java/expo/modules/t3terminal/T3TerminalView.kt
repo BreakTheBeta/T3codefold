@@ -227,6 +227,9 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   }
 
   private fun configureInputView() {
+    // The app's hardware-shortcut router (t3-native-controls) leaves plain Ctrl chords to a
+    // focused view with this tag, so Ctrl+B/K/F/N/[ reach the shell instead of app shortcuts.
+    inputView.tag = "t3-raw-keyboard"
     inputView.setSingleLine(true)
     inputView.setTextColor(Color.TRANSPARENT)
     inputView.setHintTextColor(Color.TRANSPARENT)
