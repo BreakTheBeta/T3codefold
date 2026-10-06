@@ -171,9 +171,9 @@ function makeHarness(options: HarnessOptions = {}) {
       renameBranch,
       fetchRemote: options.fetchRemote ?? (() => Effect.void),
       isRepository: options.isRepository ?? (() => Effect.succeed(true)),
-      // Base refs have commits; the plain `t3code` branch that blocks `t3code/*` does not.
+      // Base refs have commits; the plain `t3` branch that blocks `t3/*` does not.
       hasCommit:
-        options.hasCommit ?? ((input) => Effect.succeed(input.refName !== "refs/heads/t3code")),
+        options.hasCommit ?? ((input) => Effect.succeed(input.refName !== "refs/heads/t3")),
       remoteExists: () => Effect.succeed(true),
       remoteBranchExists: () => Effect.succeed(true),
       removeWorktree,
@@ -1191,7 +1191,8 @@ it.effect("renames a temporary t3/<hash> branch off the provisioning critical pa
 it.effect("provisions under t3-<hash> when a plain t3 branch blocks t3/*", () =>
   Effect.gen(function* () {
     const harness = makeHarness({
-      hasCommit: (input) => Effect.succeed(input.refName === "refs/heads/t3"),
+      // The base has commits, and a plain `t3` branch exists.
+      hasCommit: () => Effect.succeed(true),
       createWorktree: (input) =>
         Effect.succeed({
           worktree: { path: "/repo-worktrees/temp", refName: input.newRefName, headSha: "abc" },
