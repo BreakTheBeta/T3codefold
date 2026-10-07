@@ -146,6 +146,29 @@ describe("phone-local streaming dictation", () => {
     expect(f.session.currentState.phase).toBe("idle");
     expect(f.text()).toBe("hello world");
   });
+  it("allows Android permission dialogs to finish without canceling preparation", async () => {
+    const f = fixture();
+    const entered = Promise.withResolvers<void>();
+    const permission = Promise.withResolvers<void>();
+    let requestingPermission = false;
+    f.backend.isRequestingPermission = () => requestingPermission;
+    vi.mocked(f.backend.start).mockImplementationOnce(async (_, signal) => {
+      requestingPermission = true;
+      entered.resolve();
+      await permission.promise;
+      requestingPermission = false;
+      signal.throwIfAborted();
+    });
+    const starting = f.session.start(f.target);
+    await entered.promise;
+    f.session.appMovedToBackground();
+    permission.resolve();
+    await starting;
+    expect(f.session.currentState.phase).toBe("recording");
+    f.session.appMovedToBackground();
+    expect(f.session.currentState.phase).toBe("error");
+    expect(f.text()).toBe("hello world");
+  });
   it("keeps a permanently denied microphone permission actionable through Android settings", async () => {
     const f = fixture();
     vi.mocked(f.backend.start).mockRejectedValueOnce(

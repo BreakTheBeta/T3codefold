@@ -11,6 +11,7 @@ export interface LocalDictationBackend {
   stop(flush: boolean): Promise<void>;
   getStatus(): { isRecording: boolean; metering: number; durationMillis: number };
   configure(): Promise<void>;
+  isRequestingPermission?(): boolean;
 }
 
 export function getLocalDictationBackend(): LocalDictationBackend | null {

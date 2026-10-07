@@ -146,10 +146,12 @@ already inserted. Audio is never uploaded or saved as a recording.
 
 Open **Settings → On-device dictation → Speech model & microphone** to select
 Tiny, Small, or Medium, change the microphone, or remove downloaded models. Small
-is recommended; choose Tiny if recognition cannot keep up. Bluetooth headset mode
-uses call audio without making a phone call. Pair your Meta Ray-Bans, enable
-**Calls** in Android Bluetooth settings, and grant microphone and Nearby devices
-access. If the headset route fails, dictation stops instead of using the phone mic.
+is recommended; choose Tiny if recognition cannot keep up. Headset mode
+uses a connected Bluetooth or wired headset, and the phone microphone when no
+headset is connected. Bluetooth uses call audio without making a phone call.
+Enable **Calls** for your headset in Android Bluetooth settings, and grant
+microphone and Nearby devices access. If a headset disconnects during dictation,
+capture stops; start again to use the available microphone.
 End other voice calls first. Phone mode explicitly uses the handset microphone.
 
 ## Voice input on iPhone

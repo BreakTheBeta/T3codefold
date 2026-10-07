@@ -42,6 +42,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -49,8 +50,10 @@ class T3VoiceAudioModule : Module() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private var call: CallControlScope? = null
   private var callJob: Job? = null
-  private var currentEndpointId: String? = null
-  private var endpoints = emptyList<CallEndpointCompat>()
+  // Core-Telecom exposes channel-backed flows: collect each once, then retain
+  // state so route selection and the UI cannot consume each other's updates.
+  private val currentEndpointId = MutableStateFlow<String?>(null)
+  private val endpoints = MutableStateFlow(emptyList<CallEndpointCompat>())
   private var previousVolumeStream: Int? = null
   private var dictationStartJob: Job? = null
   private var dictation: LocalDictationCapture? = null
@@ -118,9 +121,9 @@ class T3VoiceAudioModule : Module() {
         }
         // Telecom owns audio focus and Bluetooth HFP/LE routes. Never compete with
         // it using AudioManager.setCommunicationDevice or startBluetoothSco.
-        val preferred = endpoints.firstOrNull { it.type == CallEndpointCompat.TYPE_BLUETOOTH }
-          ?: endpoints.firstOrNull { it.type == CallEndpointCompat.TYPE_WIRED_HEADSET }
-          ?: endpoints.firstOrNull { it.type == CallEndpointCompat.TYPE_SPEAKER }
+        val preferred = endpoints.value.firstOrNull { it.type == CallEndpointCompat.TYPE_BLUETOOTH }
+          ?: endpoints.value.firstOrNull { it.type == CallEndpointCompat.TYPE_WIRED_HEADSET }
+          ?: endpoints.value.firstOrNull { it.type == CallEndpointCompat.TYPE_SPEAKER }
         if (preferred !=
           null
         ) {
@@ -137,7 +140,7 @@ class T3VoiceAudioModule : Module() {
         promise.reject("VOICE_AUDIO", "Open T3 to choose call audio.", null)
       } else {
         activity.runOnUiThread {
-          val choices = endpoints.toList()
+          val choices = endpoints.value.toList()
           AlertDialog.Builder(activity)
             .setTitle("Call audio output")
             .setSingleChoiceItems(
@@ -146,7 +149,7 @@ class T3VoiceAudioModule : Module() {
               }.toTypedArray(),
               choices.indexOfFirst {
                 it.identifier.toString() ==
-                  currentEndpointId
+                  currentEndpointId.value
               }
             ) { dialog, index ->
               dialog.dismiss()
@@ -209,9 +212,9 @@ class T3VoiceAudioModule : Module() {
           } else {
             val arch = intArrayOf(2, 4, 5)[index]
             AlertDialog.Builder(activity).setTitle("Dictation microphone")
-              .setMessage("Bluetooth uses call audio without placing a phone call. Enable Calls for your Ray-Bans in Android Bluetooth settings.")
-              .setPositiveButton("Ray-Bans / headset") { _, _ -> saveDictationSettings(arch, true); promise.resolve(null) }
-              .setNeutralButton("Phone") { _, _ -> saveDictationSettings(arch, false); promise.resolve(null) }
+              .setMessage("Use a Bluetooth or wired headset when connected, or the phone microphone otherwise. Bluetooth uses call audio without placing a phone call. Enable Calls for your headset in Android Bluetooth settings.")
+              .setPositiveButton("Headset when connected") { _, _ -> saveDictationSettings(arch, true); promise.resolve(null) }
+              .setNeutralButton("Phone microphone") { _, _ -> saveDictationSettings(arch, false); promise.resolve(null) }
               .setNegativeButton("Cancel") { _, _ -> promise.reject("LOCAL_DICTATION", "Setup canceled.", null) }
               .setOnCancelListener { promise.reject("LOCAL_DICTATION", "Setup canceled.", null) }.show()
           }
@@ -249,20 +252,20 @@ class T3VoiceAudioModule : Module() {
     start("On-device dictation")
     val activeCall = checkNotNull(call)
     check(activeCall.setActive() is CallControlResult.Success) { "Android could not activate call audio." }
-    val available = withTimeout(10000) { activeCall.availableEndpoints.first { it.isNotEmpty() } }
-    val selected = if (bluetooth) available.filter { it.type == CallEndpointCompat.TYPE_BLUETOOTH }
-      .sortedByDescending { val name = it.name.toString().lowercase(); name.contains("meta") || name.contains("ray") }.firstOrNull()
-      else available.firstOrNull { it.type == CallEndpointCompat.TYPE_SPEAKER }
-        ?: available.firstOrNull { it.type == CallEndpointCompat.TYPE_EARPIECE }
-    check(selected != null) { "No selected call microphone is available. Connect your glasses and enable Calls in Bluetooth settings, or choose Phone in dictation setup." }
+    val available = withTimeout(10000) { endpoints.first { it.isNotEmpty() } }
+    val selected = (if (bluetooth) available.firstOrNull { it.type == CallEndpointCompat.TYPE_BLUETOOTH }
+      ?: available.firstOrNull { it.type == CallEndpointCompat.TYPE_WIRED_HEADSET } else null)
+      ?: available.firstOrNull { it.type == CallEndpointCompat.TYPE_SPEAKER }
+      ?: available.firstOrNull { it.type == CallEndpointCompat.TYPE_EARPIECE }
+    check(selected != null) { "No microphone is available. Reconnect your headset or try the phone microphone." }
     check(activeCall.requestEndpointChange(selected) is CallControlResult.Success) { "Android refused the selected call microphone." }
-    withTimeout(10000) { activeCall.currentCallEndpoint.first { it.identifier == selected.identifier } }
+    withTimeout(10000) { currentEndpointId.first { it == selected.identifier.toString() } }
     var speech: LocalSpeechStream? = null
     try {
       sendEvent("dictationPreparation", mapOf("message" to "Loading on-device speech model"))
       withContext(Dispatchers.IO) { speech = LocalSpeechStream(MoonshineEngine(directory.absolutePath, arch)) }
       kotlinx.coroutines.currentCoroutineContext().ensureActive()
-      val capture = LocalDictationCapture(audio, bluetooth, checkNotNull(speech),
+      val capture = LocalDictationCapture(audio, selected.type, checkNotNull(speech),
         phrase = { sendEvent("dictationPhrase", mapOf("text" to it)) },
         meter = { decibels, duration -> sendEvent("dictationMeter", mapOf("decibels" to decibels, "durationMillis" to duration)) },
         failed = { message ->
@@ -314,7 +317,7 @@ class T3VoiceAudioModule : Module() {
           call = this
           launch {
             currentCallEndpoint.collect { endpoint ->
-              currentEndpointId = endpoint.identifier.toString()
+              currentEndpointId.value = endpoint.identifier.toString()
               sendEvent(
                 "audioRoute",
                 mapOf(
@@ -324,7 +327,7 @@ class T3VoiceAudioModule : Module() {
               )
             }
           }
-          launch { availableEndpoints.collect { endpoints = it } }
+          launch { availableEndpoints.collect { endpoints.value = it } }
           launch { isMuted.collect { sendEvent("systemMute", mapOf("muted" to it)) } }
           ready.complete(Unit)
         }
@@ -371,7 +374,8 @@ class T3VoiceAudioModule : Module() {
       finally {
         call = null
         callJob = null
-        endpoints = emptyList()
+        endpoints.value = emptyList()
+        currentEndpointId.value = null
         previousVolumeStream?.let { appContext.currentActivity?.volumeControlStream = it }
         previousVolumeStream = null
         context.stopService(Intent(context, VoiceCallService::class.java))

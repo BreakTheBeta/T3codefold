@@ -13,7 +13,7 @@ export function LocalDictationSettings() {
       <SettingsRow
         icon="mic"
         label="Speech model & microphone"
-        value="English · phone or Bluetooth call audio"
+        value="English · phone or headset microphone"
         disabled={voice.isBusy}
         onPress={() => {
           void backend
