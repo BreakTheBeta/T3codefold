@@ -2131,9 +2131,12 @@ code {
 }
 
 /* Thread wrapping. When the timeline has room for several reading-width
-   columns, the lane widens and long settled assistant replies flow through
-   them like a printed paper; every other row keeps a single column. Rows are
-   the size containers so a floating preview's lane inset counts too. */
+   columns, long settled assistant replies widen symmetrically and flow
+   through them like a printed paper. Every other row keeps the normal
+   centered lane, so short threads look unchanged. A reply's own column cap
+   (data-thread-wrap-columns, from its length) meets the screen's cap (the
+   root attribute) at the smaller of the two. Rows are the size containers so
+   a floating preview's lane inset counts too. */
 @property --thread-wrap-page-height {
   syntax: "<length>";
   inherits: true;
@@ -2151,27 +2154,45 @@ code {
   container: thread-wrap / inline-size;
 }
 
-/* ChatCanvas sizes its width probe to the widest lane so the workspace card
-   and floating preview steer clear of the extra columns. The canvas
-   thresholds add the timeline's 1.25rem side padding to the row thresholds
-   below. */
-:root[data-thread-wrap] [data-chat-canvas] {
-  container: thread-wrap-canvas / inline-size;
+[data-thread-wrap-columns="2"] {
+  --thread-wrap-reply-columns: 2;
 }
 
-:root[data-thread-wrap] :is(.chat-content-lane, .chat-canvas-width-probe) {
+[data-thread-wrap-columns="3"] {
+  --thread-wrap-reply-columns: 3;
+}
+
+[data-thread-wrap-columns="4"] {
+  --thread-wrap-reply-columns: 4;
+}
+
+:root[data-thread-wrap] :is([data-thread-wrap-columns], .chat-canvas-width-probe) {
+  --thread-wrap-lane-columns: min(var(--thread-wrap-columns), var(--thread-wrap-reply-columns, 4));
   --thread-wrap-lane-width: max(
     var(--chat-content-max-width),
     calc(
-      var(--thread-wrap-columns) * var(--thread-wrap-column-width) +
-        (var(--thread-wrap-columns) - 1) * var(--thread-wrap-gap)
+      var(--thread-wrap-lane-columns) * var(--thread-wrap-column-width) +
+        (var(--thread-wrap-lane-columns) - 1) * var(--thread-wrap-gap)
     )
   );
+}
+
+/* In a thread with wide replies, ChatCanvas sizes its width probe to the
+   widest lane so the workspace card and floating preview steer clear of
+   them. The canvas thresholds add the timeline's 1.25rem side padding to the
+   row thresholds below. */
+:root[data-thread-wrap] [data-chat-canvas] {
+  container: thread-wrap-canvas / inline-size;
 }
 
 @container thread-wrap-canvas (width >= 92.5rem) {
   :root[data-thread-wrap] .chat-canvas-width-probe {
     --thread-wrap-columns: 2;
+  }
+
+  :root[data-thread-wrap]
+    [data-chat-canvas]:has([data-thread-wrap-replies])
+    > .chat-canvas-width-probe {
     width: var(--thread-wrap-lane-width);
   }
 }
@@ -2188,44 +2209,43 @@ code {
   }
 }
 
-:root[data-thread-wrap] [data-thread-wrap="spread"] .chat-markdown {
+:root[data-thread-wrap] [data-thread-wrap-columns] .chat-markdown {
   column-gap: var(--thread-wrap-gap);
   column-rule: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   column-fill: balance;
 }
 
-:root[data-thread-wrap] [data-thread-wrap="spread"] .chat-markdown > :first-child {
+:root[data-thread-wrap] [data-thread-wrap-columns] .chat-markdown > :first-child {
   margin-top: 0;
 }
 
 :root[data-thread-wrap]
-  [data-thread-wrap="spread"]
+  [data-thread-wrap-columns]
   :is(.chat-markdown-codeblock, .chat-markdown-table-container, blockquote, img, li) {
   break-inside: avoid;
 }
 
-:root[data-thread-wrap] [data-thread-wrap="spread"] :is(h1, h2, h3, h4, h5, h6) {
+:root[data-thread-wrap] [data-thread-wrap-columns] :is(h1, h2, h3, h4, h5, h6) {
   break-after: avoid;
 }
 
 @container thread-wrap (width >= 90rem) {
-  :root[data-thread-wrap] .chat-content-lane {
+  :root[data-thread-wrap] [data-thread-wrap-columns] {
     --thread-wrap-columns: 2;
     max-width: var(--thread-wrap-lane-width);
   }
 
-  :root[data-thread-wrap] .chat-content-lane > :not([data-thread-wrap="spread"]),
-  :root[data-thread-wrap] [data-thread-wrap="spread"] > * > :not([data-assistant-citation-source]) {
+  /* The changed-files card and message actions keep a single column's width. */
+  :root[data-thread-wrap]
+    [data-thread-wrap-columns]
+    > *
+    > *
+    > :not([data-assistant-citation-source]) {
     max-width: var(--thread-wrap-column-width);
   }
 
-  /* Prompts settle in the last column, opposite the work in the first. */
-  :root[data-thread-wrap] .chat-content-lane > [data-message-role="user"] {
-    margin-inline-start: auto;
-  }
-
-  :root[data-thread-wrap] [data-thread-wrap="spread"] .chat-markdown {
-    column-count: var(--thread-wrap-columns);
+  :root[data-thread-wrap] [data-thread-wrap-columns] .chat-markdown {
+    column-count: var(--thread-wrap-lane-columns);
   }
 
   /* Replies too tall to balance on one screen read as screen-height pages of
@@ -2250,18 +2270,17 @@ code {
 }
 
 @container thread-wrap (width >= 136rem) {
-  :root:is([data-thread-wrap="3"], [data-thread-wrap="4"]) .chat-content-lane {
+  :root:is([data-thread-wrap="3"], [data-thread-wrap="4"]) [data-thread-wrap-columns] {
     --thread-wrap-columns: 3;
   }
 }
 
 @container thread-wrap (width >= 182rem) {
-  :root[data-thread-wrap="4"] .chat-content-lane {
+  :root[data-thread-wrap="4"] [data-thread-wrap-columns] {
     --thread-wrap-columns: 4;
   }
 }
 
-/* A soft-edged sweep that sets the reply across its columns left to right. */
 @keyframes thread-wrap-reveal {
   from {
     mask-image: linear-gradient(90deg, #000 40%, rgb(0 0 0 / 12%) 60%);
