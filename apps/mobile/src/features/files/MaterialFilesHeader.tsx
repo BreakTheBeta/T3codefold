@@ -1,3 +1,4 @@
+import { androidKeyboardFirst, dismissAndroidKeyboard } from "../../lib/android-back";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { BackHandler, Keyboard, type TextInputInstance, View } from "react-native";
 
@@ -29,6 +30,7 @@ export function MaterialFilesHeader(props: {
   useEffect(() => {
     if (!searching) return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (dismissAndroidKeyboard()) return true;
       closeSearch();
       return true;
     });
@@ -82,7 +84,7 @@ export function MaterialFilesHeader(props: {
             <AndroidHeaderIconButton
               accessibilityLabel="Close file search"
               icon="arrow.left"
-              onPress={closeSearch}
+              onPress={androidKeyboardFirst(closeSearch)}
             />
             <MaterialSearchField
               inputRef={searchRef}

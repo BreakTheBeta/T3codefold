@@ -1,3 +1,4 @@
+import { androidKeyboardFirst } from "../lib/android-back";
 import {
   AlertDialog,
   Host,
@@ -31,7 +32,7 @@ export function MaterialConfirmDialog(props: MaterialConfirmDialogProps) {
       style={{ height: 0, width: 0 }}
     >
       <AlertDialog
-        onDismissRequest={props.onCancel}
+        onDismissRequest={androidKeyboardFirst(props.onCancel)}
         tonalElevation={0}
         colors={{
           containerColor: colors["--color-card-alt"],

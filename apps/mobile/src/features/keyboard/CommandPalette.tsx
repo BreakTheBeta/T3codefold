@@ -1,3 +1,4 @@
+import { dismissAndroidKeyboard } from "../../lib/android-back";
 import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import { THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
@@ -429,7 +430,9 @@ export function CommandPalette(props: {
       transparent
       animationType="fade"
       onShow={() => inputRef.current?.focus()}
-      onRequestClose={() => close()}
+      onRequestClose={() => {
+        if (!dismissAndroidKeyboard()) close();
+      }}
       onDismiss={handleDismissed}
     >
       <GestureHandlerRootView className="flex-1">

@@ -32,36 +32,44 @@ export function CompactBrandTitle(
   return (
     <View
       aria-level={1}
-      accessibilityLabel="T3 Code, Threads"
+      accessibilityLabel="T3 Code Fold, Threads"
       accessible
       role="heading"
       className="flex-row items-center gap-1.5"
-      style={[{ marginLeft: titleOffset }, Platform.OS === "android" && { gap: 5.25 * scale }]}
+      style={[
+        { marginLeft: titleOffset, minWidth: 0, flexShrink: 1, overflow: "hidden" },
+        Platform.OS === "android" && { gap: 5.25 * scale },
+      ]}
     >
       <T3Wordmark colorClassName="accent-icon" height={Math.round(15 * scale)} />
       <Text
         allowFontScaling={props.allowFontScaling}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
         className="font-t3-medium text-foreground-muted"
-        style={{ fontSize: 21 * scale, letterSpacing: -0.5 * scale }}
+        style={{ fontSize: 21 * scale, letterSpacing: -0.5 * scale, flexShrink: 1 }}
       >
-        Code
+        Code Fold
       </Text>
-      <View
-        className="rounded-full bg-subtle px-1.5 py-0.5"
-        style={
-          Platform.OS === "android"
-            ? { paddingHorizontal: 5.25 * scale, paddingVertical: 1.75 * scale }
-            : undefined
-        }
-      >
-        <Text
-          allowFontScaling={props.allowFontScaling}
-          className="font-t3-bold text-foreground-muted uppercase"
-          style={{ fontSize: 9 * scale, letterSpacing: 0.9 * scale }}
+      {stageLabel ? (
+        <View
+          className="rounded-full bg-subtle px-1.5 py-0.5"
+          style={
+            Platform.OS === "android"
+              ? { paddingHorizontal: 5.25 * scale, paddingVertical: 1.75 * scale }
+              : undefined
+          }
         >
-          {stageLabel}
-        </Text>
-      </View>
+          <Text
+            allowFontScaling={props.allowFontScaling}
+            className="font-t3-bold text-foreground-muted uppercase"
+            style={{ fontSize: 9 * scale, letterSpacing: 0.9 * scale }}
+          >
+            {stageLabel}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

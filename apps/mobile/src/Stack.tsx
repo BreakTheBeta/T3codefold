@@ -707,6 +707,7 @@ const RootStackConfig = createNativeStackNavigator({
         contentStyle: { backgroundColor: "transparent" },
         headerBackVisible: false,
         ...getCompactBrandHeaderOptions(),
+        ...(Platform.OS === "android" ? { headerShown: false } : {}),
       },
     }),
     Thread: createNativeStackScreen({

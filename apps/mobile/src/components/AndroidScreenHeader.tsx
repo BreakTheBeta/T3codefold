@@ -1,3 +1,4 @@
+import { androidKeyboardFirst } from "../lib/android-back";
 import { useState, type ReactNode } from "react";
 import { View } from "react-native";
 
@@ -63,7 +64,7 @@ export function AndroidScreenHeader(props: {
             accessibilityLabel="Navigate up"
             icon="arrow.left"
             tintColorClassName="accent-header-foreground"
-            onPress={props.onBack}
+            onPress={props.onBack ? androidKeyboardFirst(props.onBack) : undefined}
           />
         ) : null}
 

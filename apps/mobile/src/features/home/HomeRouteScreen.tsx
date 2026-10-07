@@ -165,9 +165,8 @@ export function HomeRouteScreen() {
       onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
     >
       <>
-        {/* Restore the header after leaving split view; screen options are
-            shallow-merged. The brand slot also doubles as the connection
-            status surface while an environment reconnects. */}
+        {/* iOS restores its native header after split view. Android's list
+            toolbar owns the brand and connection status in both layouts. */}
         <NativeStackScreenOptions
           optionsVersion={windowWidth}
           options={{
@@ -179,7 +178,7 @@ export function HomeRouteScreen() {
                   params: { screen: "SettingsEnvironments" },
                 }),
             }),
-            headerShown: true,
+            headerShown: Platform.OS !== "android",
           }}
         />
         <HomeHeader

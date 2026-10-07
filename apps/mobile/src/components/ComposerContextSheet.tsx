@@ -1,3 +1,4 @@
+import { androidKeyboardFirst } from "../lib/android-back";
 import { SourceFileSurface } from "../features/files/SourceFileSurface";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import type {
@@ -128,7 +129,7 @@ export function ComposerContextSheet(props: {
         return (
           <VideoPreviewModal
             source={{ type: "local", attachment: localFile }}
-            onRequestClose={props.onClose}
+            onRequestClose={androidKeyboardFirst(props.onClose)}
           />
         );
       }
@@ -142,7 +143,7 @@ export function ComposerContextSheet(props: {
               ...remoteSource,
               actionsSource: { name: record.name, mimeType, ...remoteSource },
             }}
-            onRequestClose={props.onClose}
+            onRequestClose={androidKeyboardFirst(props.onClose)}
           />
         );
       }
@@ -162,7 +163,7 @@ export function ComposerContextSheet(props: {
               ...source,
               actionsSource: { name: record.name, mimeType, ...source },
             }}
-            onRequestClose={props.onClose}
+            onRequestClose={androidKeyboardFirst(props.onClose)}
           />
         );
       }
@@ -186,7 +187,7 @@ export function ComposerContextSheet(props: {
       animationType="slide"
       presentationStyle={Platform.OS === "android" ? "overFullScreen" : "pageSheet"}
       transparent={Platform.OS === "android"}
-      onRequestClose={props.onClose}
+      onRequestClose={androidKeyboardFirst(props.onClose)}
     >
       <View
         className={

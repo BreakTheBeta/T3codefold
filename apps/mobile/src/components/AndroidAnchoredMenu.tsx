@@ -1,3 +1,4 @@
+import { dismissAndroidKeyboard } from "../lib/android-back";
 import type { MenuAction, MenuComponentProps } from "@react-native-menu/menu";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -106,6 +107,7 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
       return;
     }
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (dismissAndroidKeyboard()) return true;
       if (submenuDepth > 0) {
         setPath((current) => current.slice(0, -1));
       } else {

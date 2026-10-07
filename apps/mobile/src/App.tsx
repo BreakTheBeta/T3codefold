@@ -1,3 +1,4 @@
+import { AndroidKeyboardBackCoordinator } from "./components/AndroidKeyboardBackCoordinator";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -95,6 +96,7 @@ function AppContent() {
                   <IncomingShareProvider>
                     <LocalAgentNotificationsCoordinator />
                     <Navigation linking={appLinking} theme={navigationTheme} />
+                    <AndroidKeyboardBackCoordinator />
                   </IncomingShareProvider>
                 </VoiceWorkspaceProvider>
                 <ConfirmDialogHost />

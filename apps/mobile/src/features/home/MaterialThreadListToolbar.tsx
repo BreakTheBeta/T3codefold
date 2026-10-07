@@ -1,3 +1,4 @@
+import { androidKeyboardFirst, dismissAndroidKeyboard } from "../../lib/android-back";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   BackHandler,
@@ -36,7 +37,10 @@ export function MaterialThreadListToolbar(props: {
   readonly onRequestVisibility?: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { fabSize } = useAndroidControlSizing();
+  const { fabSize, scale } = useAndroidControlSizing();
+  const [toolbarWidth, setToolbarWidth] = useState(0);
+  // Reserve the full brand width before exposing secondary actions, including at large text sizes.
+  const compactActions = toolbarWidth < 200 * scale + 3 * 48 + 32;
   const { height: toolbarHeight, ...headerPadding } = useMaterialToolbarLayout();
   const { state } = useWorkspaceState();
   const { onRequestVisibility, onSearchQueryChange } = props;
@@ -60,6 +64,7 @@ export function MaterialThreadListToolbar(props: {
   useEffect(() => {
     if (!searching) return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (dismissAndroidKeyboard()) return true;
       closeSearch();
       return true;
     });
@@ -83,7 +88,10 @@ export function MaterialThreadListToolbar(props: {
   return (
     <>
       <View
-        onLayout={props.onLayout}
+        onLayout={(event) => {
+          setToolbarWidth(event.nativeEvent.layout.width);
+          props.onLayout?.(event);
+        }}
         className={
           props.sidebar ? "absolute inset-x-0 top-0 z-[4] bg-header px-2" : "bg-header px-2"
         }
@@ -95,35 +103,59 @@ export function MaterialThreadListToolbar(props: {
               <AndroidHeaderIconButton
                 accessibilityLabel="Close search"
                 icon="arrow.left"
-                onPress={closeSearch}
+                onPress={androidKeyboardFirst(closeSearch)}
               />
               {searchField}
             </>
           ) : (
             <>
               {/* Match the visible inset of the trailing 48dp icon button. */}
-              <View className="min-w-0 flex-1 pl-4">
+              <View className="min-w-0 flex-1 overflow-hidden pl-4">
                 <WorkspaceConnectionTitle
                   grow
                   onPress={props.onOpenEnvironments}
                   brand={<CompactBrandTitle allowFontScaling={false} />}
                 />
               </View>
-              <AndroidHeaderIconButton
-                accessibilityLabel="Pull requests"
-                icon="arrow.triangle.pull"
-                onPress={props.onOpenPullRequests}
-              />
+              {compactActions ? null : (
+                <AndroidHeaderIconButton
+                  accessibilityLabel="Pull requests"
+                  icon="arrow.triangle.pull"
+                  onPress={props.onOpenPullRequests}
+                />
+              )}
               <AndroidHeaderIconButton
                 accessibilityLabel="Search threads"
                 icon="magnifyingglass"
                 onPress={openSearch}
               />
-              <AndroidHeaderIconButton
-                accessibilityLabel="Open settings"
-                icon="gearshape"
-                onPress={props.onOpenSettings}
-              />
+              {compactActions ? (
+                <AndroidAnchoredMenu
+                  title="Thread options"
+                  actions={[
+                    { id: "pull-requests", title: "Pull requests" },
+                    { id: "settings", title: "Settings" },
+                  ]}
+                  onPressAction={({ nativeEvent }) => {
+                    if (nativeEvent.event === "pull-requests") props.onOpenPullRequests();
+                    if (nativeEvent.event === "settings") props.onOpenSettings();
+                  }}
+                >
+                  {(open) => (
+                    <AndroidHeaderIconButton
+                      accessibilityLabel="Thread options"
+                      icon="ellipsis"
+                      onPress={open}
+                    />
+                  )}
+                </AndroidAnchoredMenu>
+              ) : (
+                <AndroidHeaderIconButton
+                  accessibilityLabel="Open settings"
+                  icon="gearshape"
+                  onPress={props.onOpenSettings}
+                />
+              )}
             </>
           )}
         </View>

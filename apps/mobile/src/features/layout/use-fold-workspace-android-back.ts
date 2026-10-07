@@ -1,3 +1,4 @@
+import { dismissAndroidKeyboard } from "../../lib/android-back";
 import { useCallback, useRef } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import { BackHandler, Platform } from "react-native";
@@ -21,6 +22,7 @@ export function useFoldWorkspaceAndroidBack() {
       if (Platform.OS !== "android" || !usesSplitView) return;
 
       const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (dismissAndroidKeyboard()) return true;
         const { panes, setAuxiliaryPaneMaximized, hideAuxiliaryPane, togglePrimarySidebar } =
           workspaceRef.current;
         switch (

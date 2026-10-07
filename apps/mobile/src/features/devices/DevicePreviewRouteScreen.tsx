@@ -1,3 +1,4 @@
+import { dismissAndroidKeyboard } from "../../lib/android-back";
 import {
   deviceToolVersionLabels,
   deviceToolUpdateOwnership,
@@ -126,6 +127,7 @@ function DevicePreviewScreen({
   useEffect(() => {
     if (controlsVisible) return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (dismissAndroidKeyboard()) return true;
       setControlsVisible(true);
       return true;
     });

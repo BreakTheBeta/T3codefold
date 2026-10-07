@@ -1,3 +1,4 @@
+import { androidKeyboardFirst, dismissAndroidKeyboard } from "../lib/android-back";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BackHandler,
@@ -37,6 +38,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
   useEffect(() => {
     if (!searching || search?.mode === "inline") return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (dismissAndroidKeyboard()) return true;
       closeSearch();
       return true;
     });
@@ -103,7 +105,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
                 accessibilityLabel="Navigate up"
                 accessibilityRole="button"
                 hitSlop={8}
-                onPress={props.onBack}
+                onPress={props.onBack ? androidKeyboardFirst(props.onBack) : undefined}
                 className="items-center justify-center"
                 style={{ width: buttonSize, height: buttonSize }}
               >
@@ -206,7 +208,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
                 <ScreenHeaderButton
                   accessibilityLabel={search.closeAccessibilityLabel ?? "Close search"}
                   icon="arrow.left"
-                  onPress={closeSearch}
+                  onPress={androidKeyboardFirst(closeSearch)}
                 />
                 <MaterialSearchField
                   inputRef={inputRef}
