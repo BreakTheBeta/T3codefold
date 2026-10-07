@@ -255,6 +255,7 @@ import { ContextChip, ContextChipLabel, type ContextChipKind } from "../ContextC
 import { createContextPresentationRegistry } from "../contextPresentationRegistry";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
+import { useThreadRibbon } from "./useThreadRibbon";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
@@ -374,7 +375,7 @@ const TIMELINE_LIST_FADE_HEADER = (
 function TimelineListFooter({ composerInset }: { readonly composerInset: number }) {
   return (
     <div aria-hidden>
-      <div style={{ height: composerInset }} />
+      <div style={{ height: composerInset }} data-timeline-composer-inset="" />
       <div className="h-3 sm:h-4" />
     </div>
   );
@@ -932,6 +933,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   // Re-measure the minimap gutter when the chat column changes width without a viewport resize.
   const chatWidth = useClientSettings((settings) => settings.chatWidth);
+  const threadWrapColumns = useClientSettings((settings) =>
+    settings.threadWrapEnabled ? settings.threadWrapMaxColumns : null,
+  );
+  const [timelineScroller, setTimelineScroller] = useState<HTMLElement | null>(null);
+  const { ribbon: threadRibbon, ribbonIsAtEnd } = useThreadRibbon({
+    scroller: timelineScroller,
+    maxColumns: threadWrapColumns,
+    composerInset: contentInsetEndAdjustment,
+  });
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -1031,7 +1041,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
-    const isAtEnd = resolveTimelineIsAtEnd(state);
+    // LegendList measures the end in single-column coordinates; the ribbon
+    // ends earlier, once the thread's end reaches the last column.
+    const isAtEnd = ribbonIsAtEnd() ?? resolveTimelineIsAtEnd(state);
     const position = state?.data?.length ? resolveWorkGroupScrollAnchor(state) : undefined;
     if (position && state && isAtEnd !== undefined) {
       const index = state.indexByKey(position.rowId);
@@ -1108,6 +1120,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     minimapStripMap,
     onIsAtEndChange,
     reportContentOverflow,
+    ribbonIsAtEnd,
   ]);
 
   useEffect(() => {
@@ -1147,7 +1160,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth]);
+  }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth, threadWrapColumns]);
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
@@ -1286,7 +1299,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const setTimelineList = useCallback(
     (list: LegendListRef | null) => {
       listRef.current = list;
-      registerTimeline?.(list?.getScrollableNode() ?? null);
+      const scroller = list?.getScrollableNode() ?? null;
+      registerTimeline?.(scroller);
+      setTimelineScroller(scroller instanceof HTMLElement ? scroller : null);
     },
     [listRef, registerTimeline],
   );
@@ -1347,6 +1362,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             getItemType={getItemType}
             renderItem={renderItem}
             estimatedItemSize={90}
+            // The ribbon shows every column's worth of rows at once.
+            {...(threadRibbon
+              ? { drawDistance: threadRibbon.columns * threadRibbon.pageHeight }
+              : {})}
             initialScrollAtEnd={citationRequest === null && rememberedPosition?.atEnd !== false}
             // Legend needs a data refresh to mount new pins without a scroll event.
             dataVersion={readyCitationRequest?.key ?? listIdentityKey}
@@ -1945,7 +1964,6 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 // inside a message are exposed below this level. Visually hidden and excluded
 // from selection so sighted users and copied text are unaffected.
 const MESSAGE_HEADING_LEVEL = 3;
-
 function MessageAuthorHeading({ children }: { children: string }) {
   return <h3 className="sr-only select-none">{children}</h3>;
 }
@@ -2505,10 +2523,18 @@ function AttemptFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "at
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  // A reply that finishes streaming on screen plays thread wrapping's reflow
+  // once. Rows remounted by virtualization start settled and stay still.
+  const [mountedWhileStreaming] = useState(Boolean(row.message.streaming));
 
   return (
     <>
-      <div className="relative min-w-0 px-1 py-0.5">
+      <div
+        className="relative min-w-0 px-1 py-0.5"
+        data-thread-wrap-reveal={
+          mountedWhileStreaming && !row.message.streaming ? "true" : undefined
+        }
+      >
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
         <AssistantCitationSource
           messageId={row.message.id}
