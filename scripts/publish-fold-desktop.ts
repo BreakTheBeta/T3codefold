@@ -12,7 +12,8 @@ const repository = "BreakTheBeta/T3codefold";
 const channel = version.includes("-nightly.") ? "nightly" : "latest";
 const assets = (await NodeFSP.readdir(directory))
   .filter(
-    (file) => file !== "builder-debug.yml" && /\.(?:yml|exe|dmg|zip|AppImage|blockmap)$/.test(file),
+    (file) =>
+      file !== "builder-debug.yml" && /\.(?:yml|exe|dmg|zip|deb|AppImage|blockmap)$/.test(file),
   )
   .map((file) => NodePath.resolve(directory, file));
 if (!assets.some((file) => file.endsWith(".yml")))
