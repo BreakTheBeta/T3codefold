@@ -1,4 +1,5 @@
 import { actionableInboxFor, activeLeads, inboxFor, leadView, taskLead } from "./Leads.ts";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Recipe fingerprints are pure, synchronous SHA-256 values.
 import * as NodeCrypto from "node:crypto";
 import {
   PitbossError,

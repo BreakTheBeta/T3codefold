@@ -2,6 +2,7 @@ import { recordVerification } from "./Verification.ts";
 import type { PitbossVerification } from "@t3tools/contracts";
 import { leadView } from "./Leads.ts";
 import { replayJournal } from "./WorkJournal.ts";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Stable row ids are derived with synchronous SHA-256 inside SQL transactions.
 import * as NodeCrypto from "node:crypto";
 import type { PitbossSourceAuthority, PitbossSourceConfig } from "@t3tools/contracts";
 import type { SourceObservation } from "./TaskSources.ts";

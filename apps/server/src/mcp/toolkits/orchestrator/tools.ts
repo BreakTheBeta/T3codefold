@@ -43,16 +43,14 @@ import { ThreadLaunchResult, threadLaunchDependencies } from "../project/tools.t
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
+  ThreadManagementService.ThreadManagementService,
   OrchestratorMcpService.OrchestratorMcpService,
 ];
 /** Tools that run on another environment when their input names one. */
-const fleetDependencies = [
-  ...dependencies,
-  ThreadManagementService.ThreadManagementService,
-  FleetRouter,
-];
+const fleetDependencies = [...dependencies, FleetRouter];
 const threadMetadataDependencies = [
   McpInvocationContext.McpInvocationContext,
+  ThreadManagementService.ThreadManagementService,
   ThreadMetadataMcpService.ThreadMetadataMcpService,
 ];
 

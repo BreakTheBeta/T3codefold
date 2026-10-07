@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 
 import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import { requireThreadScope } from "../../McpInvocationContext.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
 import { readCaller } from "../../threadAccess.ts";
 import { WorkToolkit } from "./tools.ts";
 
@@ -14,9 +15,9 @@ const needsLaunchAuthority = ({ action }: PitbossCommand) =>
   (action.type === "lead-status" && action.status === "active");
 
 /**
- * The calling thread as a work actor. Work belongs to T3 threads, so an MCP
- * client signed in from outside a thread is refused; readCaller enforces the
- * orchestration capability and a live calling thread.
+ * The calling thread as a work actor. Work belongs to T3 threads, so the
+ * declarations below refuse an MCP client signed in from outside one;
+ * readCaller adds the orchestration capability.
  */
 const agent = (operation: string) =>
   Effect.gen(function* () {
@@ -29,13 +30,15 @@ const agent = (operation: string) =>
     };
   });
 
-export const WorkToolkitHandlersLive = WorkToolkit.toLayer({
-  work_read: () =>
+/** Pitboss work tools: only an agent inside a T3 thread, and work_command only during its live run. */
+export const layer = McpToolAccess.toLayer(WorkToolkit, {
+  work_read: McpToolAccess.readsAsCaller(() =>
     Effect.gen(function* () {
       const { actor, store } = yield* agent("work_read");
       return yield* store.read(actor);
     }),
-  work_command: (input) =>
+  ),
+  work_command: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const { actor, limits, store } = yield* agent("work_command");
       return yield* store.command(
@@ -44,4 +47,5 @@ export const WorkToolkitHandlersLive = WorkToolkit.toLayer({
         needsLaunchAuthority(input) ? { runtimeMode: limits.runtimeMode } : undefined,
       );
     }),
+  ),
 });

@@ -12,14 +12,19 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import { McpInvocationContext, type McpInvocationScope } from "../../McpInvocationContext.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
+import { liveThreadsLayer } from "../../McpToolAccess.testkit.ts";
 import { OrchestratorMcpService } from "../../OrchestratorMcpService.ts";
-import { handlers as orchestratorHandlers } from "../orchestrator/handlers.ts";
-import { WorkToolkitHandlersLive } from "./handlers.ts";
+import { ThreadMetadataMcpService } from "../../ThreadMetadataMcpService.ts";
+import * as OrchestratorHandlers from "../orchestrator/handlers.ts";
+import { OrchestratorToolkit } from "../orchestrator/tools.ts";
+import * as WorkHandlers from "./handlers.ts";
 import { requireLedgerDelegation } from "./ledgerGuard.ts";
 import { WorkToolkit } from "./tools.ts";
 
@@ -79,7 +84,7 @@ const clientScope: McpInvocationScope = {
   issuedAt: 0,
   requestNamespace: "client:session",
   thread: undefined,
-  client: { sessionId: "session", label: "Claude Code", runtimeModeCeiling: "full-access" },
+  client: { sessionId: "session", label: "Claude Code", access: "full-access" },
 };
 
 const callerShell = (threadId: ThreadId, runtimeMode: OrchestrationV2ThreadShell["runtimeMode"]) =>
@@ -133,22 +138,33 @@ describe("requireLedgerDelegation", () => {
 
   it.effect("guards delegate_task and create_threads before the orchestrator runs", () =>
     Effect.gen(function* () {
-      const layer = Layer.mergeAll(
+      const dependencies = Layer.mergeAll(
         Layer.succeed(McpInvocationContext, threadScope(gladosThreadId)),
+        liveThreadsLayer,
         Layer.mock(WorkStore)({ read }),
         Layer.mock(OrchestratorMcpService)({
           delegateTask: () => Effect.die("must not delegate"),
           createThreads: () => Effect.die("must not create"),
         }),
+        Layer.mock(ThreadMetadataMcpService)({}),
       );
-      const delegated = yield* refusal(
-        orchestratorHandlers.delegate_task({ task: "Do bounded work" }),
-      ).pipe(Effect.provide(layer));
-      assert.match(delegated, /work_command/);
-      const created = yield* refusal(
-        orchestratorHandlers.create_threads({ threads: [{ prompt: "Do bounded work" }] }),
-      ).pipe(Effect.provide(layer));
-      assert.match(created, /work_command/);
+      const built = yield* OrchestratorToolkit.pipe(
+        Effect.provide(McpToolAccess.HandlersLayer.layer(OrchestratorHandlers.layer)),
+      );
+      const failureMessage = <A extends { readonly isFailure: boolean; readonly result: unknown }>(
+        option: Option.Option<A>,
+      ) =>
+        Option.isSome(option) && option.value.isFailure
+          ? String((option.value.result as { readonly message?: unknown }).message)
+          : "allowed";
+      const delegated = yield* built
+        .handle("delegate_task", { task: "Do bounded work" })
+        .pipe(Stream.unwrap, Stream.runLast, Effect.provide(dependencies));
+      assert.match(failureMessage(delegated), /work_command/);
+      const created = yield* built
+        .handle("create_threads", { threads: [{ prompt: "Do bounded work" }] })
+        .pipe(Stream.unwrap, Stream.runLast, Effect.provide(dependencies));
+      assert.match(failureMessage(created), /work_command/);
     }),
   );
 });
@@ -168,7 +184,9 @@ describe("work tools", () => {
       }),
     );
     const toolkit = WorkToolkit.pipe(
-      Effect.provide(WorkToolkitHandlersLive.pipe(Layer.provide(dependencies))),
+      Effect.provide(
+        McpToolAccess.HandlersLayer.layer(WorkHandlers.layer).pipe(Layer.provide(dependencies)),
+      ),
     );
     const read = toolkit.pipe(
       Effect.flatMap((built) => built.handle("work_read", {})),

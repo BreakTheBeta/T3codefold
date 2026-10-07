@@ -1,3 +1,4 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Artifact digests are computed synchronously over in-memory bytes.
 import * as NodeCrypto from "node:crypto";
 import { EnvironmentId } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";

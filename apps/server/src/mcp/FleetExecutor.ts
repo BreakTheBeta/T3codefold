@@ -25,6 +25,7 @@ import type { Tool, Toolkit } from "effect/ai";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { FleetRouter } from "./FleetRouter.ts";
 import { McpInvocationContext, type McpInvocationScope } from "./McpInvocationContext.ts";
+import * as McpToolAccess from "./McpToolAccess.ts";
 import { OrchestratorMcpService, resolveInteractionMode } from "./OrchestratorMcpService.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
@@ -143,7 +144,9 @@ export const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment;
   const orchestrator = yield* OrchestratorMcpService;
   const router = yield* FleetRouter;
-  const projectTools = yield* ProjectToolkit.pipe(Effect.provide(ProjectHandlers.layer));
+  const projectTools = yield* ProjectToolkit.pipe(
+    Effect.provide(McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer)),
+  );
   const projectToolServices = yield* Effect.context<ProjectToolServices>();
   const localId = yield* environment.getEnvironmentId;
 
@@ -160,7 +163,7 @@ export const make = Effect.gen(function* () {
       client: {
         sessionId: key,
         label: "fleet",
-        runtimeModeCeiling: source.runtimeMode ?? "full-access",
+        access: source.runtimeMode ?? "full-access",
       },
     } satisfies McpInvocationScope;
   });

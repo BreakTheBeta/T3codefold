@@ -52,15 +52,12 @@ describe("requestLatencyState", () => {
     expect(getSlowRpcAckRequests()).toEqual([]);
   });
 
-  it.each([WS_METHODS.previewAutomationConnect, WS_METHODS.fleetConnect])(
-    "ignores long-lived connection %s",
-    (method) => {
-      trackRpcRequestSent("1", method);
-      vi.advanceTimersByTime(SLOW_RPC_ACK_THRESHOLD_MS * 2);
+  it("ignores the long-lived fleet connection", () => {
+    trackRpcRequestSent("1", WS_METHODS.fleetConnect);
+    vi.advanceTimersByTime(SLOW_RPC_ACK_THRESHOLD_MS * 2);
 
-      expect(getSlowRpcAckRequests()).toEqual([]);
-    },
-  );
+    expect(getSlowRpcAckRequests()).toEqual([]);
+  });
 
   it("ignores usage summary requests", () => {
     trackRpcRequestSent("1", WS_METHODS.serverGetUsageSummary);
@@ -82,8 +79,8 @@ describe("requestLatencyState", () => {
   it("keeps ignoring untracked methods when a display tag is supplied", () => {
     trackRpcRequestSent(
       "1",
-      WS_METHODS.previewAutomationConnect,
-      `${WS_METHODS.previewAutomationConnect} · env-1`,
+      WS_METHODS.serverGetUsageSummary,
+      `${WS_METHODS.serverGetUsageSummary} · env-1`,
     );
     vi.advanceTimersByTime(SLOW_RPC_ACK_THRESHOLD_MS * 2);
 
