@@ -255,7 +255,7 @@ import { ContextChip, ContextChipLabel, type ContextChipKind } from "../ContextC
 import { createContextPresentationRegistry } from "../contextPresentationRegistry";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
-import { useThreadWrapPaging } from "./useThreadWrapPaging";
+import { useThreadWrapSnake } from "./useThreadWrapSnake";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
@@ -2539,40 +2539,43 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
   // once. Rows remounted by virtualization start settled and stay still.
   const [mountedWhileStreaming] = useState(Boolean(row.message.streaming));
   const threadWrapEnabled = useClientSettings((settings) => settings.threadWrapEnabled);
-  const threadWrapPagingRef = useThreadWrapPaging(
+  const threadWrapSnakeRef = useThreadWrapSnake(
     threadWrapEnabled && threadWrapReplyColumns(row) !== null,
   );
 
   return (
     <>
       <div
-        ref={threadWrapPagingRef}
+        ref={threadWrapSnakeRef}
         className="relative min-w-0 px-1 py-0.5"
         data-thread-wrap-reveal={
           mountedWhileStreaming && !row.message.streaming ? "true" : undefined
         }
       >
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
-        <AssistantCitationSource
-          messageId={row.message.id}
-          {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
-          itemKey={row.id}
-          request={ctx.citationRequest}
-          listRef={ctx.listRef}
-        >
-          <ChatMarkdown
-            text={messageText}
-            cwd={ctx.markdownCwd}
-            threadRef={ctx.threadRef ?? undefined}
-            isStreaming={Boolean(row.message.streaming)}
-            lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
-            skills={ctx.skills}
-            headingLevelOffset={MESSAGE_HEADING_LEVEL}
-            onUseArtifactTemplate={ctx.onUseArtifactTemplate}
-            onRunShellCommand={ctx.onRunShellCommand}
-            onImageExpand={ctx.onImageExpand}
-          />
-        </AssistantCitationSource>
+        {/* Thread wrapping's snake pins the reply inside this track. */}
+        <div data-thread-wrap-track="">
+          <AssistantCitationSource
+            messageId={row.message.id}
+            {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
+            itemKey={row.id}
+            request={ctx.citationRequest}
+            listRef={ctx.listRef}
+          >
+            <ChatMarkdown
+              text={messageText}
+              cwd={ctx.markdownCwd}
+              threadRef={ctx.threadRef ?? undefined}
+              isStreaming={Boolean(row.message.streaming)}
+              lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
+              skills={ctx.skills}
+              headingLevelOffset={MESSAGE_HEADING_LEVEL}
+              onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+              onRunShellCommand={ctx.onRunShellCommand}
+              onImageExpand={ctx.onImageExpand}
+            />
+          </AssistantCitationSource>
+        </div>
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
