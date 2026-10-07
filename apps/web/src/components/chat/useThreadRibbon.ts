@@ -27,16 +27,24 @@ export interface ThreadRibbon {
  * of rows (see the returned page size). A spacer after the window keeps the
  * scroll range ending exactly when the thread's end reaches the last column.
  *
+ * A row split across a column break grows by the lines pushed into the next
+ * column, so the thread's length depends on the ribbon position. Pinned to the
+ * end, the ribbon follows growth but holds through shrinks; otherwise moving
+ * to the new end moves the breaks, which changes the length again, forever.
+ *
  * Every per-frame write is a DOM style, so rows never re-render while
  * scrolling; the hook re-renders its owner only when the ribbon turns on, off,
  * or changes shape.
  */
 export function useThreadRibbon({
   scroller,
+  threadKey,
   maxColumns,
   composerInset,
 }: {
   scroller: HTMLElement | null;
+  /** A new thread starts a fresh ribbon, so a held end never carries over. */
+  threadKey: string | null;
   maxColumns: number | null;
   composerInset: number;
 }) {
@@ -53,6 +61,7 @@ export function useThreadRibbon({
     const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     let offset = -1;
     let frame: number | null = null;
+    let shape = "";
 
     // The flow's first child carries the ribbon offset as a negative margin.
     const lead = () =>
@@ -71,8 +80,7 @@ export function useThreadRibbon({
       if (frame === null) frame = requestAnimationFrame(follow);
     };
 
-    // Computed heights are the unfragmented single-column heights, even for
-    // children split across columns.
+    // LegendList's container carries its total row size as an explicit height.
     const contentLength = () =>
       Array.from(content.children).reduce(
         (sum, child) => sum + (Number.parseFloat(getComputedStyle(child).height) || 0),
@@ -111,7 +119,13 @@ export function useThreadRibbon({
         previousEnd === null
           ? scroller.scrollTop + viewport >= scroller.scrollHeight - 2
           : scroller.scrollTop >= previousEnd - 2;
-      const end = Math.max(0, Math.ceil(length - columns * pageHeight));
+      const measuredEnd = Math.max(0, Math.ceil(length - columns * pageHeight));
+      const previousShape = shape;
+      shape = `${columns}:${pageHeight}`;
+      const end =
+        wasAtEnd && previousEnd !== null && shape === previousShape
+          ? Math.max(previousEnd, measuredEnd)
+          : measuredEnd;
       endRef.current = end;
       scroller.dataset.threadRibbon = "true";
       scroller.style.setProperty("--thread-ribbon-columns", String(columns));
@@ -157,7 +171,7 @@ export function useThreadRibbon({
         scroller.style.removeProperty(name);
       }
     };
-  }, [composerInset, maxColumns, scroller]);
+  }, [composerInset, maxColumns, scroller, threadKey]);
 
   /** At the ribbon's end, or undefined when the ribbon is off. */
   const ribbonIsAtEnd = useCallback(() => {
