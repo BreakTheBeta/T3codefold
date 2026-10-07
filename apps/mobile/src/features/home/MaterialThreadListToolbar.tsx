@@ -7,12 +7,10 @@ import {
   View,
   type LayoutChangeEvent,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuAction } from "@react-native-menu/menu";
 
 import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
-import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { MaterialSearchField } from "../../components/MaterialSearchField";
@@ -36,8 +34,7 @@ export function MaterialThreadListToolbar(props: {
   readonly onLayout?: (event: LayoutChangeEvent) => void;
   readonly onRequestVisibility?: () => void;
 }) {
-  const insets = useSafeAreaInsets();
-  const { fabSize, scale } = useAndroidControlSizing();
+  const { scale } = useAndroidControlSizing();
   const [toolbarWidth, setToolbarWidth] = useState(0);
   // Reserve the full brand width before exposing secondary actions, including at large text sizes.
   const compactActions = toolbarWidth < 200 * scale + 3 * 48 + 32;
@@ -71,9 +68,6 @@ export function MaterialThreadListToolbar(props: {
     return () => subscription.remove();
   }, [closeSearch, searching]);
 
-  const filterIcon = props.filterCustomized
-    ? "line.3.horizontal.decrease.circle.fill"
-    : "line.3.horizontal.decrease.circle";
   const searchField = (
     <MaterialSearchField
       inputRef={searchRef}
@@ -129,59 +123,49 @@ export function MaterialThreadListToolbar(props: {
                 icon="magnifyingglass"
                 onPress={openSearch}
               />
-              {compactActions ? (
-                <AndroidAnchoredMenu
-                  title="Thread options"
-                  actions={[
-                    { id: "pull-requests", title: "Pull requests" },
-                    { id: "settings", title: "Settings" },
-                  ]}
-                  onPressAction={({ nativeEvent }) => {
-                    if (nativeEvent.event === "pull-requests") props.onOpenPullRequests();
-                    if (nativeEvent.event === "settings") props.onOpenSettings();
-                  }}
-                >
-                  {(open) => (
+              <AndroidAnchoredMenu
+                title="Thread options"
+                actions={[
+                  ...(state.hasConnections
+                    ? [
+                        {
+                          id: "thread-filters",
+                          title: "Filter threads",
+                          subactions: props.filterActions,
+                        },
+                      ]
+                    : []),
+                  ...(compactActions ? [{ id: "pull-requests", title: "Pull requests" }] : []),
+                  { id: "settings", title: "Settings" },
+                ]}
+                onPressAction={(event) => {
+                  if (event.nativeEvent.event === "pull-requests") props.onOpenPullRequests();
+                  else if (event.nativeEvent.event === "settings") props.onOpenSettings();
+                  else props.onFilterAction(event);
+                }}
+              >
+                {(open) => (
+                  <View>
                     <AndroidHeaderIconButton
-                      accessibilityLabel="Thread options"
+                      accessibilityLabel={
+                        props.filterCustomized ? "Thread options, filters active" : "Thread options"
+                      }
                       icon="ellipsis"
                       onPress={open}
                     />
-                  )}
-                </AndroidAnchoredMenu>
-              ) : (
-                <AndroidHeaderIconButton
-                  accessibilityLabel="Open settings"
-                  icon="gearshape"
-                  onPress={props.onOpenSettings}
-                />
-              )}
+                    {props.filterCustomized ? (
+                      <View
+                        pointerEvents="none"
+                        className="absolute right-2 top-2 size-1.5 rounded-full bg-primary"
+                      />
+                    ) : null}
+                  </View>
+                )}
+              </AndroidAnchoredMenu>
             </>
           )}
         </View>
       </View>
-      {/* Keep the filter above the New thread FAB at every text size. */}
-      {state.hasConnections ? (
-        <View
-          className="absolute right-5 z-[5]"
-          style={{
-            bottom:
-              (props.sidebar ? Math.max(insets.bottom, 12) + 6 : Math.max(insets.bottom, 16) + 16) +
-              fabSize +
-              8,
-          }}
-        >
-          <AndroidAnchoredMenu actions={props.filterActions} onPressAction={props.onFilterAction}>
-            {(open) => (
-              <MaterialFloatingActionButton
-                label="Filter threads"
-                icon={filterIcon}
-                onPress={open}
-              />
-            )}
-          </AndroidAnchoredMenu>
-        </View>
-      ) : null}
     </>
   );
 }

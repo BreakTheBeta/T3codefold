@@ -2,7 +2,8 @@ import { useCallback, useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
-import { AppText } from "../../components/AppText";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SymbolView } from "../../components/AppSymbol";
 
 import {
   resolveWorkspaceThumbAction,
@@ -14,6 +15,7 @@ export function WorkspaceThumbNavigation(props: {
   readonly onAction: (action: WorkspaceThumbAction) => void;
 }) {
   const { onAction } = props;
+  const insets = useSafeAreaInsets();
   const dispatch = useCallback(
     (x: number, y: number) => {
       const action = resolveWorkspaceThumbAction(x, y);
@@ -31,7 +33,10 @@ export function WorkspaceThumbNavigation(props: {
     [dispatch],
   );
   return (
-    <View className="items-center bg-header" style={{ paddingHorizontal: 32 }}>
+    <View
+      className="border-t border-header-border bg-header"
+      style={{ paddingHorizontal: 16, paddingBottom: Math.max(insets.bottom, 8), paddingTop: 4 }}
+    >
       <GestureDetector gesture={gesture}>
         <View
           accessible
@@ -53,29 +58,38 @@ export function WorkspaceThumbNavigation(props: {
             )
               props.onAction(action);
           }}
-          className="h-10 w-40 items-center justify-center"
+          className="flex-row items-center justify-between self-center"
+          style={{ width: "100%", maxWidth: 320, minHeight: 48 }}
         >
-          <View className="h-1 w-12 rounded-full bg-foreground-muted" />
+          {(["previous", "sidebar", "inspector", "next"] as const).map((action) => (
+            <Pressable
+              key={action}
+              accessibilityRole="button"
+              accessibilityLabel={
+                action === "previous" || action === "next"
+                  ? `${action} recent thread`
+                  : `Toggle ${action}`
+              }
+              onPress={() => props.onAction(action)}
+              className="size-12 items-center justify-center rounded-xl active:bg-subtle"
+            >
+              <SymbolView
+                name={
+                  action === "previous"
+                    ? "chevron.left"
+                    : action === "next"
+                      ? "chevron.right"
+                      : action === "sidebar"
+                        ? "sidebar.left"
+                        : "sidebar.right"
+                }
+                size={20}
+                tintColorClassName="accent-icon-muted"
+              />
+            </Pressable>
+          ))}
         </View>
       </GestureDetector>
-      <View className="flex-row gap-4 pb-1">
-        {(["previous", "sidebar", "inspector", "next"] as const).map((action) => (
-          <Pressable
-            key={action}
-            accessibilityRole="button"
-            accessibilityLabel={
-              action === "previous" || action === "next"
-                ? `${action} recent thread`
-                : `Toggle ${action}`
-            }
-            onPress={() => props.onAction(action)}
-          >
-            <AppText className="text-xs text-foreground-muted">
-              {action === "previous" ? "‹" : action === "next" ? "›" : action}
-            </AppText>
-          </Pressable>
-        ))}
-      </View>
     </View>
   );
 }

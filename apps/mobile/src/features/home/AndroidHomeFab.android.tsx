@@ -40,7 +40,7 @@ export function AndroidHomeFabLayout(props: ComponentProps<typeof SharedAndroidH
         <MaterialNewThreadButton
           key={`${appearance.baseFontSize}:${fontScale}:${layoutWidth}`}
           extended
-          expanded={expanded}
+          expanded={expanded && layoutWidth >= 360}
           onPress={props.onStartNewTask}
           className="absolute right-5"
           style={{

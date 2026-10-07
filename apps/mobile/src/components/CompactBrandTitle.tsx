@@ -5,7 +5,7 @@ import { Platform, View } from "react-native";
 import { AppText as Text } from "./AppText";
 import { T3Wordmark } from "./T3Wordmark";
 import { IPAD_HOME_TITLE_OFFSET } from "../lib/layoutMetrics";
-import { resolveMobileStageLabel } from "../lib/mobileBranding";
+import { MOBILE_APP_NAME, resolveMobileStageLabel } from "../lib/mobileBranding";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 
 /**
@@ -29,6 +29,26 @@ export function CompactBrandTitle(
   const titleOffset = brandTitleOffset();
   const { scale } = useAndroidControlSizing();
 
+  if (Platform.OS === "android") {
+    return (
+      <View
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel="T3 Code Fold, Threads"
+        style={{ minWidth: 0, flexShrink: 1 }}
+      >
+        <Text
+          allowFontScaling={props.allowFontScaling}
+          numberOfLines={1}
+          className="font-t3-medium text-header-foreground"
+          style={{ fontSize: 18 * scale, lineHeight: 24 * scale, letterSpacing: -0.3 * scale }}
+        >
+          {MOBILE_APP_NAME}
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View
       aria-level={1}
@@ -36,10 +56,7 @@ export function CompactBrandTitle(
       accessible
       role="heading"
       className="flex-row items-center gap-1.5"
-      style={[
-        { marginLeft: titleOffset, minWidth: 0, flexShrink: 1, overflow: "hidden" },
-        Platform.OS === "android" && { gap: 5.25 * scale },
-      ]}
+      style={{ marginLeft: titleOffset, minWidth: 0, flexShrink: 1, overflow: "hidden" }}
     >
       <T3Wordmark colorClassName="accent-icon" height={Math.round(15 * scale)} />
       <Text
@@ -53,14 +70,7 @@ export function CompactBrandTitle(
         Code Fold
       </Text>
       {stageLabel ? (
-        <View
-          className="rounded-full bg-subtle px-1.5 py-0.5"
-          style={
-            Platform.OS === "android"
-              ? { paddingHorizontal: 5.25 * scale, paddingVertical: 1.75 * scale }
-              : undefined
-          }
-        >
+        <View className="rounded-full bg-subtle px-1.5 py-0.5">
           <Text
             allowFontScaling={props.allowFontScaling}
             className="font-t3-bold text-foreground-muted uppercase"
