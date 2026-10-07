@@ -1199,6 +1199,9 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
                 : terminalTheme.background,
             paddingBottom:
               Platform.OS === "android" && !keyboardState.isVisible ? insets.bottom : 0,
+            // The inspector column spans the full window height with no header
+            // of its own, so on Android the terminal starts below the status bar.
+            paddingTop: isInspector && Platform.OS === "android" ? insets.top : 0,
           }}
         >
           {!isEnvironmentReady ? (
