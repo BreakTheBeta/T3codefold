@@ -42,13 +42,6 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     resetPinchPreview.run()
   }
 
-  override fun onDetachedFromWindow() {
-    pinching = false
-    clearPinchPreview()
-    parent?.requestDisallowInterceptTouchEvent(false)
-    super.onDetachedFromWindow()
-  }
-
   private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
     override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
       clearPinchPreview()
@@ -542,6 +535,9 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   }
 
   override fun onDetachedFromWindow() {
+    pinching = false
+    clearPinchPreview()
+    parent?.requestDisallowInterceptTouchEvent(false)
     viewTreeObserver.removeOnGlobalLayoutListener(releaseFocusWhenClipped)
     super.onDetachedFromWindow()
   }
