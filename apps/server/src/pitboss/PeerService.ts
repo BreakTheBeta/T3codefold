@@ -1,4 +1,5 @@
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Stable ids need synchronous SHA-256, and Effect's Crypto has no timingSafeEqual.
 import * as NodeCrypto from "node:crypto";
 import {
   CommandId,

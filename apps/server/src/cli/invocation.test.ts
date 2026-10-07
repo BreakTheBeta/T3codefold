@@ -9,8 +9,15 @@ import {
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import { foldServerPackageSpec } from "@t3tools/shared/foldRelease";
 
-import { formatCliCommand, resolveServerInstallation } from "./invocation.ts";
+import packageJson from "../../package.json" with { type: "json" };
+
+import {
+  formatCliCommand,
+  resolveRootCliCommand,
+  resolveServerInstallation,
+} from "./invocation.ts";
 
 // Fold suggests its GitHub release tarballs, never the upstream npm `t3` package.
 const STABLE =
@@ -107,6 +114,31 @@ it("formats serve suggestions to match the launching command", () => {
     "t3 serve",
   );
 });
+
+it.effect("keeps a user-installed Node reachable when the command runs under sudo", () =>
+  Effect.gen(function* () {
+    const command = (node: string, entry: string) =>
+      resolveRootCliCommand("browser setup").pipe(
+        Effect.provideService(HostProcessExecutablePath, node),
+        Effect.provideService(HostProcessArguments, [node, entry]),
+      );
+    const npx = "/home/theo/.npm/_npx/abc/node_modules/t3/dist/bin.mjs";
+    // The npx form reinstalls this exact Fold release, never upstream's npm package.
+    const runner = `npx --yes --prefer-online --package=${foldServerPackageSpec(packageJson.version)} t3`;
+    // sudo's secure_path already has a system Node.
+    expect(yield* command("/usr/bin/node", npx)).toBe(`sudo ${runner} browser setup`);
+    // nvm, fnm, and tarball installs are dropped by sudo's PATH reset.
+    expect(yield* command("/home/theo/.nvm/versions/node/v24/bin/node", npx)).toBe(
+      `sudo env "PATH=$PATH" ${runner} browser setup`,
+    );
+    expect(
+      yield* command(
+        "/home/theo/.local/node/bin/node",
+        "/home/theo/.local/lib/node_modules/t3/dist/bin.mjs",
+      ),
+    ).toBe('sudo env "PATH=$PATH" t3 browser setup');
+  }),
+);
 
 it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
   it.effect("recognizes runner caches for both script and executable packages", () =>
