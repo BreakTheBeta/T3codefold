@@ -95,7 +95,7 @@ const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(function* (
   return yield* new CliUpdateError({ reason: `No published ${channel} release was found.` });
 });
 
-/** Whether a launcher target lives inside `<baseDir>/runtime/versions`. */
+/** Whether a launcher target lives inside `<baseDir>/runtime/fold/versions`. */
 export function launcherOwnsVersionsDir(
   path: Path.Path,
   versionsDir: string,
@@ -109,13 +109,13 @@ export function launcherOwnsVersionsDir(
  * The launcher the install scripts leave behind: a symlink at `<bin>/t3` on
  * POSIX, a `t3.cmd` shim on Windows. `t3 update` repoints it so the next `t3`
  * invocation is the new version. Only a launcher that already points into
- * this home's `runtime/versions` tree is touched; a plain copy of the
+ * this home's `runtime/fold/versions` tree is touched; a plain copy of the
  * executable, or a launcher for some other install, is left alone.
  */
 export const repointLauncher = Effect.fn("cli.update.repoint_launcher")(function* (input: {
   /** Path the current process was started through, if known. */
   readonly launchedAs: string | undefined;
-  /** `<baseDir>/runtime/versions` of the home being updated. */
+  /** `<baseDir>/runtime/fold/versions` of the home being updated. */
   readonly versionsDir: string;
   readonly targetEntryPath: string;
 }) {
