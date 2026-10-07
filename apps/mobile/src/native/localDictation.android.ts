@@ -1,5 +1,5 @@
 import { requireOptionalNativeModule } from "expo";
-import { Alert, PermissionsAndroid, Platform } from "react-native";
+import { Alert, AppState, PermissionsAndroid, Platform } from "react-native";
 import type { LocalDictationBackend } from "./localDictation.ts";
 
 type Settings = { configured: boolean; bluetooth: boolean; architecture: number; ready: boolean };
@@ -38,10 +38,12 @@ export function getLocalDictationBackend(): LocalDictationBackend | null {
   let callbacks: Parameters<LocalDictationBackend["start"]>[0] | null = null;
   let subscriptions: { remove(): void }[] = [];
   let removeAbort = () => {};
+  let requestingPermission = false;
   let status = { isRecording: false, metering: -160, durationMillis: 0 };
   backend = {
     configure: () => module.configureDictation(),
     getStatus: () => status,
+    isRequestingPermission: () => requestingPermission,
     async start(next, signal) {
       signal.throwIfAborted();
       let settings = module.getDictationSettings();
@@ -72,7 +74,10 @@ export function getLocalDictationBackend(): LocalDictationBackend | null {
               PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
             ]
           : [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
-      const grants = await PermissionsAndroid.requestMultiple(permissions);
+      requestingPermission = true;
+      const grants = await PermissionsAndroid.requestMultiple(permissions).finally(() => {
+        requestingPermission = false;
+      });
       signal.throwIfAborted();
       if (
         permissions.some((permission) => grants[permission] !== PermissionsAndroid.RESULTS.GRANTED)
@@ -81,6 +86,9 @@ export function getLocalDictationBackend(): LocalDictationBackend | null {
           "Microphone and Nearby devices access are required for the selected dictation input.",
         );
         throw Object.assign(denied, { code: "PERMISSION_DENIED" });
+      }
+      if (AppState.currentState !== "active") {
+        throw new Error("Return to T3 before starting dictation.");
       }
       callbacks = next;
       status = { isRecording: false, metering: -160, durationMillis: 0 };

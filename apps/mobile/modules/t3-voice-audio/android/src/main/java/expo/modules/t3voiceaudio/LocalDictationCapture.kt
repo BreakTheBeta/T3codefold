@@ -1,6 +1,7 @@
 package expo.modules.t3voiceaudio
 
 import android.annotation.SuppressLint
+import androidx.core.telecom.CallEndpointCompat
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -25,7 +26,7 @@ import kotlin.math.sqrt
 /** The bounded PCM channel separates capture from inference; audio never reaches JavaScript or disk. */
 internal class LocalDictationCapture(
   private val audio: AudioManager,
-  private val bluetooth: Boolean,
+  private val endpointType: Int,
   private val speech: LocalSpeechStream,
   private val phrase: (String) -> Unit,
   private val meter: (Double, Long) -> Unit,
@@ -79,9 +80,9 @@ internal class LocalDictationCapture(
           val selected = if (Build.VERSION.SDK_INT >= 31) audio.communicationDevice else null
           val inputAddress = if (Build.VERSION.SDK_INT >= 28) routed?.address else null
           val selectedAddress = if (Build.VERSION.SDK_INT >= 31) selected?.address else null
-          val valid = acceptsInput(bluetooth, routed?.type, inputAddress, if (connected) connectedAddress else selectedAddress)
+          val valid = acceptsInput(endpointType, routed?.type, inputAddress, if (connected) connectedAddress else selectedAddress)
           if (!valid) {
-            check(!connected && ++attempts < 100) { "The selected call microphone disconnected or Android routed to the phone. Check Calls is enabled for your glasses." }
+            check(!connected && ++attempts < 100) { "The selected microphone disconnected or Android changed the audio route. Reconnect your headset and try dictation again." }
             continue
           }
           if (!connected) { connected = true; connectedAddress = inputAddress; ready.complete(Unit) }
@@ -125,8 +126,11 @@ internal class LocalDictationCapture(
   }
 
   companion object {
-    fun acceptsInput(bluetooth: Boolean, type: Int?, inputAddress: String?, selectedAddress: String?): Boolean {
-      if (!bluetooth) return type == AudioDeviceInfo.TYPE_BUILTIN_MIC
+    fun acceptsInput(endpointType: Int, type: Int?, inputAddress: String?, selectedAddress: String?): Boolean {
+      if (endpointType == CallEndpointCompat.TYPE_WIRED_HEADSET) {
+        return type == AudioDeviceInfo.TYPE_WIRED_HEADSET || type == AudioDeviceInfo.TYPE_USB_HEADSET || type == AudioDeviceInfo.TYPE_USB_DEVICE
+      }
+      if (endpointType != CallEndpointCompat.TYPE_BLUETOOTH) return type == AudioDeviceInfo.TYPE_BUILTIN_MIC
       if (type != AudioDeviceInfo.TYPE_BLUETOOTH_SCO && type != AudioDeviceInfo.TYPE_BLE_HEADSET) return false
       return selectedAddress.isNullOrEmpty() || inputAddress == selectedAddress
     }

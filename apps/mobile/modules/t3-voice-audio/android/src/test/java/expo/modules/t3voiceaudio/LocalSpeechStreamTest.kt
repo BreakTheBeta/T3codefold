@@ -1,6 +1,7 @@
 package expo.modules.t3voiceaudio
 
 import org.junit.Assert.*
+import androidx.core.telecom.CallEndpointCompat
 import org.junit.Test
 
 class LocalSpeechStreamTest {
@@ -45,12 +46,18 @@ class LocalSpeechStreamTest {
       assertTrue(speech.finish().isEmpty())
     }
   }
+  @Test fun wiredHeadsetsAcceptTheirMicrophonesWithoutAcceptingPhoneFallback() {
+    assertTrue(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_WIRED_HEADSET, 3, "", ""))
+    assertTrue(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_WIRED_HEADSET, 22, "", ""))
+    assertTrue(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_WIRED_HEADSET, 11, "", ""))
+    assertFalse(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_WIRED_HEADSET, 15, "", ""))
+  }
   @Test fun bluetoothCaptureRejectsPhoneOrDifferentHeadsetFallback() {
-    assertFalse(LocalDictationCapture.acceptsInput(true, 15, "", "glasses"))
-    assertFalse(LocalDictationCapture.acceptsInput(true, 7, "other", "glasses"))
-    assertTrue(LocalDictationCapture.acceptsInput(true, 7, "glasses", "glasses"))
-    assertTrue(LocalDictationCapture.acceptsInput(true, 26, "glasses", "glasses"))
-    assertTrue(LocalDictationCapture.acceptsInput(false, 15, "", ""))
-    assertFalse(LocalDictationCapture.acceptsInput(false, 7, "glasses", "glasses"))
+    assertFalse(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_BLUETOOTH, 15, "", "glasses"))
+    assertFalse(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_BLUETOOTH, 7, "other", "glasses"))
+    assertTrue(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_BLUETOOTH, 7, "glasses", "glasses"))
+    assertTrue(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_BLUETOOTH, 26, "glasses", "glasses"))
+    assertTrue(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_SPEAKER, 15, "", ""))
+    assertFalse(LocalDictationCapture.acceptsInput(CallEndpointCompat.TYPE_SPEAKER, 7, "glasses", "glasses"))
   }
 }

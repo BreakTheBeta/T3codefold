@@ -112,6 +112,8 @@ export class StreamingVoiceInputSession {
     this.cancel();
   }
   appMovedToBackground() {
+    // Android reports background while its runtime permission activity is open.
+    if (this.backend.isRequestingPermission?.()) return;
     if (voiceInputBlocksSubmission(this.state))
       this.fail("Dictation stopped when the app moved to the background.");
   }
