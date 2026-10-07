@@ -75,7 +75,7 @@ export function normalizeBaseFontSize(value: number | null | undefined): number 
   return Math.min(MAX_BASE_FONT_SIZE, Math.max(MIN_BASE_FONT_SIZE, Math.round(value)));
 }
 
-function normalizeCodeFontSize(value: number | null | undefined): number {
+export function normalizeCodeFontSize(value: number | null | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return DEFAULT_CODE_FONT_SIZE;
   }

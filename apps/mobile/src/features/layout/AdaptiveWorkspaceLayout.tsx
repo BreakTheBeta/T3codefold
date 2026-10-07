@@ -23,7 +23,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Platform, useWindowDimensions, View } from "react-native";
+import { Platform, useWindowDimensions, View, type ViewInstance } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { AsyncResult } from "effect/reactivity";
 
@@ -34,7 +34,11 @@ import {
   type Layout,
   type WorkspacePaneLayout,
 } from "../../lib/layout";
-import { deriveHingeSnapWidths, type PaneDividerRelease } from "../../lib/foldable-pane-layout";
+import {
+  deriveWorkspaceFoldRegions,
+  deriveHingeSnapWidths,
+  type PaneDividerRelease,
+} from "../../lib/foldable-pane-layout";
 import { useWindowPosture } from "../../native/T3WindowPosture";
 import {
   resolveThreadSelectionNavigationAction,
@@ -61,9 +65,13 @@ import { HomeListOptionsProvider } from "../home/home-list-options";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { WORKSPACE_PANE_REVEAL_TIMING } from "./workspace-pane-animation";
+import { WorkspaceThumbNavigation, type WorkspaceThumbAction } from "./workspace-thumb-navigation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
 
 interface AdaptiveWorkspaceContextValue {
+  readonly tabletopTopHeight: number | null;
+  readonly tabletopHingeTop: number | null;
+  readonly tabletopHingeHeight: number;
   readonly layout: Layout;
   readonly panes: WorkspacePaneLayout;
   readonly fileInspector: FileInspectorPaneLayout;
@@ -97,6 +105,9 @@ const compactPanes = deriveWorkspacePaneLayout({
 });
 const compactFileInspector: FileInspectorPaneLayout = { supported: false, width: null };
 const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
+  tabletopTopHeight: null,
+  tabletopHingeTop: null,
+  tabletopHingeHeight: 0,
   layout: compactLayout,
   panes: compactPanes,
   fileInspector: compactFileInspector,
@@ -234,14 +245,35 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const navigation = useNavigation();
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const layout = useMemo(
-    () => deriveLayout({ width: window.width, height: window.height }),
-    [window.height, window.width],
+    () =>
+      deriveLayout({
+        width: window.width - safeAreaInsets.left - safeAreaInsets.right,
+        height: window.height,
+        platform: Platform.OS,
+      }),
+    [safeAreaInsets.left, safeAreaInsets.right, window.height, window.width],
   );
   // A landscape navigation bar or display cutout sits beside the panes, not under them.
   const leadingInset = layout.usesSplitView ? safeAreaInsets.left : 0;
   const trailingInset = layout.usesSplitView ? safeAreaInsets.right : 0;
   const width = Math.max(0, window.width - leadingInset - trailingInset);
   const posture = useWindowPosture();
+  const foldRegions = useMemo(
+    () =>
+      deriveWorkspaceFoldRegions({
+        hinges: posture.hinges,
+        width: window.width,
+        height: window.height,
+        leadingInset,
+        trailingInset,
+      }),
+    [posture.hinges, window.width, window.height, leadingInset, trailingInset],
+  );
+  const workspaceView = useRef<ViewInstance>(null);
+  const [workspaceTop, setWorkspaceTop] = useState(0);
+  const tabletopTopHeight = foldRegions.tabletop
+    ? Math.max(0, foldRegions.tabletop.top - workspaceTop)
+    : null;
   const hingeSnapWidths = useMemo(
     () =>
       deriveHingeSnapWidths({
@@ -276,9 +308,26 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const showPrimarySidebar = pathname === "/" || sidebarPreferredVisible;
   const [inspectorPreferredVisible, setInspectorPreferredVisible] = useState(true);
   const [inspectorMaximized, setInspectorMaximized] = useState(false);
-  const [inspectorPreferredWidth, setInspectorPreferredWidth] = useState<number | null>(
-    props.initialPreferences.workspaceInspectorWidth ?? null,
-  );
+  const inspectorRatios = props.initialPreferences.workspaceInspectorRatios ?? {};
+  useEffect(() => {
+    const previousWidth = props.initialPreferences.workspaceInspectorWidth;
+    if (!layout.usesSplitView || previousWidth === undefined) return;
+    savePreferences({
+      transform: (current) => ({
+        workspaceInspectorWidth: undefined,
+        workspaceInspectorRatios: {
+          [foldRegions.presetKey]: Math.min(0.95, Math.max(0.05, previousWidth / width)),
+          ...current.workspaceInspectorRatios,
+        },
+      }),
+    });
+  }, [
+    props.initialPreferences.workspaceInspectorWidth,
+    layout.usesSplitView,
+    foldRegions.presetKey,
+    savePreferences,
+    width,
+  ]);
   const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
   useEffect(() => {
     if (!shouldRestorePrimarySidebar({ usesSplitView: layout.usesSplitView, pathname })) {
@@ -314,35 +363,51 @@ function AdaptiveWorkspaceLayoutContent(props: {
   }, []);
 
   // Until the user picks a width, an unfolded display splits at its fold.
-  const inspectorRestingWidth = inspectorPreferredWidth ?? hingeSnapWidths[0];
-  const panes = useMemo(
+  const inspectorPreferredRatio = inspectorRatios[foldRegions.presetKey];
+  const inspectorRestingWidth =
+    foldRegions.vertical?.trailingWidth ??
+    (inspectorPreferredRatio !== undefined ? inspectorPreferredRatio * width : hingeSnapWidths[0]);
+  const effectiveLayout = useMemo(
     () =>
-      deriveWorkspacePaneLayout({
-        layout,
-        viewportWidth: width,
-        primarySidebarPreferredVisible: showPrimarySidebar,
-        auxiliaryPanePreferredVisible: inspectorPreferredVisible,
-        auxiliaryPaneRegistered: workspaceInspector !== null,
-        auxiliaryPaneMaximized: inspectorMaximized,
-        ...(inspectorRestingWidth !== undefined
-          ? { auxiliaryPanePreferredWidth: inspectorRestingWidth }
-          : {}),
-      }),
-    [
-      inspectorMaximized,
-      inspectorPreferredVisible,
-      inspectorRestingWidth,
-      layout,
-      showPrimarySidebar,
-      width,
-      workspaceInspector,
-    ],
+      foldRegions.vertical
+        ? { ...layout, listPaneWidth: foldRegions.vertical.leadingWidth }
+        : layout,
+    [foldRegions.vertical, layout],
   );
+  const panes = useMemo(() => {
+    const derived = deriveWorkspacePaneLayout({
+      layout: effectiveLayout,
+      viewportWidth: width - (foldRegions.vertical?.gap ?? 0),
+      primarySidebarPreferredVisible:
+        showPrimarySidebar &&
+        tabletopTopHeight === null &&
+        !(foldRegions.vertical && inspectorPreferredVisible && workspaceInspector !== null),
+      auxiliaryPanePreferredVisible: inspectorPreferredVisible,
+      auxiliaryPaneRegistered: workspaceInspector !== null,
+      auxiliaryPaneMaximized: inspectorMaximized,
+      ...(inspectorRestingWidth !== undefined
+        ? { auxiliaryPanePreferredWidth: inspectorRestingWidth }
+        : {}),
+    });
+    return foldRegions.vertical && derived.auxiliaryPaneMaximized
+      ? { ...derived, auxiliaryPaneWidth: foldRegions.vertical.trailingWidth }
+      : derived;
+  }, [
+    inspectorMaximized,
+    inspectorPreferredVisible,
+    inspectorRestingWidth,
+    effectiveLayout,
+    foldRegions.vertical,
+    tabletopTopHeight,
+    showPrimarySidebar,
+    width,
+    workspaceInspector,
+  ]);
   const fileInspector = useMemo<FileInspectorPaneLayout>(
     () => ({ supported: panes.supportsAuxiliaryPane, width: panes.auxiliaryPaneWidth }),
     [panes.auxiliaryPaneWidth, panes.supportsAuxiliaryPane],
   );
-  const activeThread = parseActiveThreadPath(pathname);
+  const activeThread = useMemo(() => parseActiveThreadPath(pathname), [pathname]);
   const environmentId = activeThread?.environmentId ?? null;
   const threadId = activeThread?.threadId ?? null;
   const selectedThreadKey = useMemo(() => {
@@ -357,6 +422,16 @@ function AdaptiveWorkspaceLayoutContent(props: {
   }, [environmentId, threadId]);
 
   const togglePrimarySidebar = useCallback(() => {
+    if (tabletopTopHeight !== null && pathname !== "/") {
+      navigation.navigate("Home");
+      return;
+    }
+    if (foldRegions.vertical && panes.auxiliaryPaneVisible) {
+      setInspectorPreferredVisible(false);
+      setInspectorMaximized(false);
+      setSidebarPreferredVisible(true);
+      return;
+    }
     if (pathname === "/") {
       return;
     }
@@ -372,6 +447,10 @@ function AdaptiveWorkspaceLayoutContent(props: {
     }
     setSidebarPreferredVisible(!sidebarPreferredVisible);
   }, [
+    tabletopTopHeight,
+    foldRegions.vertical,
+    panes.auxiliaryPaneVisible,
+    navigation,
     panes.auxiliaryPaneMaximized,
     panes.primarySidebarSuppressedByAuxiliary,
     panes.primarySidebarVisible,
@@ -422,12 +501,19 @@ function AdaptiveWorkspaceLayoutContent(props: {
           return;
         case "resize":
           setInspectorMaximized(false);
-          setInspectorPreferredWidth(release.width);
-          savePreferences({ workspaceInspectorWidth: release.width });
+          const ratio = release.width / Math.max(1, width);
+          savePreferences({
+            transform: (current) => ({
+              workspaceInspectorRatios: {
+                ...current.workspaceInspectorRatios,
+                [foldRegions.presetKey]: ratio,
+              },
+            }),
+          });
           return;
       }
     },
-    [hideAuxiliaryPane, savePreferences, setAuxiliaryPaneMaximized],
+    [foldRegions.presetKey, hideAuxiliaryPane, savePreferences, setAuxiliaryPaneMaximized, width],
   );
   const handleOpenFilesCommand = useCallback(() => {
     const activeThread = parseActiveThreadPath(pathname);
@@ -548,8 +634,61 @@ function AdaptiveWorkspaceLayoutContent(props: {
     ],
   );
 
+  const recentThreads = useRef<{
+    threads: Array<{ environmentId: string; threadId: string }>;
+    index: number;
+  }>({ threads: [], index: -1 });
+  useEffect(() => {
+    if (!activeThread) return;
+    const history = recentThreads.current;
+    const selected = history.threads[history.index];
+    if (
+      selected?.environmentId === activeThread.environmentId &&
+      selected.threadId === activeThread.threadId
+    )
+      return;
+    const threads = [...history.threads.slice(0, history.index + 1), activeThread].slice(-12);
+    recentThreads.current = { threads, index: threads.length - 1 };
+  }, [activeThread]);
+  const handleThumbAction = useCallback(
+    (action: WorkspaceThumbAction) => {
+      if (action === "sidebar") {
+        if (layout.usesSplitView) togglePrimarySidebar();
+        else navigation.navigate("Home");
+        return;
+      }
+      if (action === "inspector") {
+        if (panes.supportsAuxiliaryPane) toggleAuxiliaryPane();
+        else if (activeThread) navigation.navigate("ThreadFiles", activeThread);
+        return;
+      }
+      const history = recentThreads.current;
+      const index = history.index + (action === "previous" ? -1 : 1);
+      const next = history.threads[index];
+      if (next) {
+        history.index = index;
+        hideAuxiliaryPane();
+        navigation.navigate("Thread", next);
+      }
+    },
+    [
+      activeThread,
+      environmentId,
+      hideAuxiliaryPane,
+      layout.usesSplitView,
+      navigation,
+      panes.supportsAuxiliaryPane,
+      threadId,
+      toggleAuxiliaryPane,
+      togglePrimarySidebar,
+    ],
+  );
+
   const contextValue = useMemo(
     () => ({
+      tabletopTopHeight,
+      tabletopHingeTop: foldRegions.tabletop?.top ?? null,
+      tabletopHingeHeight: foldRegions.tabletop?.gap ?? 0,
       layout,
       panes,
       fileInspector,
@@ -565,6 +704,9 @@ function AdaptiveWorkspaceLayoutContent(props: {
       togglePrimarySidebar,
     }),
     [
+      tabletopTopHeight,
+      foldRegions.tabletop?.top,
+      foldRegions.tabletop?.gap,
       fileInspector,
       handleSelectThread,
       hideAuxiliaryPane,
@@ -584,11 +726,13 @@ function AdaptiveWorkspaceLayoutContent(props: {
     <HomeListOptionsProvider projectGroupingMode={projectGroupingMode}>
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
         <View
+          ref={workspaceView}
+          onLayout={() => workspaceView.current?.measureInWindow((_x, y) => setWorkspaceTop(y))}
           testID="adaptive-workspace-layout"
           className="flex-1 flex-row"
           style={{ paddingLeft: leadingInset, paddingRight: trailingInset }}
         >
-          <WorkspaceSidebarColumn layout={layout} visible={panes.primarySidebarVisible}>
+          <WorkspaceSidebarColumn layout={effectiveLayout} visible={panes.primarySidebarVisible}>
             {(listPaneWidth) => (
               <RenderErrorBoundary
                 renderFallback={(fallback) => (
@@ -618,6 +762,9 @@ function AdaptiveWorkspaceLayoutContent(props: {
               </RenderErrorBoundary>
             )}
           </WorkspaceSidebarColumn>
+          {foldRegions.vertical && panes.primarySidebarVisible ? (
+            <View style={{ width: foldRegions.vertical.gap }} />
+          ) : null}
           <View
             className={
               Platform.OS === "android" ? "overflow-hidden bg-header" : "overflow-hidden bg-screen"
@@ -628,12 +775,35 @@ function AdaptiveWorkspaceLayoutContent(props: {
               panes.auxiliaryPaneMaximized ? "no-hide-descendants" : "auto"
             }
             // A maximized inspector collapses the chat without unmounting it.
-            style={panes.auxiliaryPaneMaximized ? { width: 0 } : { flex: 1 }}
+            style={
+              panes.auxiliaryPaneMaximized
+                ? { width: 0 }
+                : foldRegions.vertical &&
+                    !panes.primarySidebarVisible &&
+                    !panes.auxiliaryPaneVisible
+                  ? { width: foldRegions.vertical.leadingWidth }
+                  : { flex: 1 }
+            }
           >
             {props.children}
+            {Platform.OS === "android" &&
+            props.initialPreferences.workspaceThumbGesturesEnabled === true ? (
+              <WorkspaceThumbNavigation onAction={handleThumbAction} />
+            ) : null}
             <VimPaneFocusMarker region="chat" />
           </View>
+          {foldRegions.vertical && panes.auxiliaryPaneVisible ? (
+            <View
+              style={{
+                width:
+                  foldRegions.vertical.gap +
+                  (panes.auxiliaryPaneMaximized ? foldRegions.vertical.leadingWidth : 0),
+              }}
+            />
+          ) : null}
           <WorkspaceInspectorPane
+            topRegionHeight={tabletopTopHeight}
+            fixedDivider={foldRegions.vertical !== null}
             pathname={props.pathname}
             panes={panes}
             renderInspector={workspaceInspector?.render}

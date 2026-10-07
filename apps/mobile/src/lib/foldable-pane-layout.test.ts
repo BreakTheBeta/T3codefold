@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   constrainFoldablePaneWidth,
   deriveHingeSnapWidths,
+  deriveWorkspaceFoldRegions,
   resolvePaneDividerRelease,
 } from "./foldable-pane-layout";
 
@@ -86,5 +87,56 @@ describe("deriveHingeSnapWidths", () => {
         trailingInset: 0,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("fold workspace regions", () => {
+  const input = { width: 900, height: 1000, leadingInset: 20, trailingInset: 24 };
+  it("excludes an occluded vertical hinge from both usable regions", () => {
+    const regions = deriveWorkspaceFoldRegions({
+      ...input,
+      hinges: [
+        {
+          left: 400,
+          right: 440,
+          top: 0,
+          bottom: 1000,
+          orientation: "vertical",
+          state: "flat",
+          separating: true,
+        },
+      ],
+    });
+    expect(regions.vertical).toEqual({ leadingWidth: 380, gap: 40, trailingWidth: 436 });
+    expect(regions.presetKey).toBe("separating:portrait:medium");
+  });
+  it("adopts horizontal half-open posture and restores flat layout", () => {
+    const hinge = {
+      left: 0,
+      right: 900,
+      top: 490,
+      bottom: 510,
+      orientation: "horizontal" as const,
+      state: "halfOpened" as const,
+      separating: true,
+    };
+    expect(deriveWorkspaceFoldRegions({ ...input, hinges: [hinge] }).tabletop).toEqual({
+      top: 490,
+      gap: 20,
+    });
+    expect(
+      deriveWorkspaceFoldRegions({ ...input, hinges: [{ ...hinge, state: "flat" }] }).tabletop,
+    ).toBeNull();
+    expect(
+      deriveWorkspaceFoldRegions({ ...input, hinges: [{ ...hinge, top: 80 }] }).tabletop,
+    ).toBeNull();
+  });
+  it("keeps the pane preset as a window resizes within its posture class", () => {
+    expect(deriveWorkspaceFoldRegions({ ...input, hinges: [] }).presetKey).toBe(
+      deriveWorkspaceFoldRegions({ ...input, width: 800, hinges: [] }).presetKey,
+    );
+    expect(deriveWorkspaceFoldRegions({ ...input, width: 1400, hinges: [] }).presetKey).not.toBe(
+      deriveWorkspaceFoldRegions({ ...input, hinges: [] }).presetKey,
+    );
   });
 });

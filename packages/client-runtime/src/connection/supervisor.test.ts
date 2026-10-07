@@ -1824,6 +1824,65 @@ describe("EnvironmentSupervisor routes", () => {
     }),
   );
 
+  it.effect("returns from cellular to LAN while connectivity stays online", () =>
+    Effect.gen(function* () {
+      const lanReachable = yield* Ref.make(false);
+      const harness = yield* makeHarness({
+        checkRoute: (route) =>
+          route.target._tag === "BearerConnectionTarget"
+            ? Ref.get(lanReachable).pipe(
+                Effect.map((reachable) => (reachable ? "answered" : "silent")),
+              )
+            : Effect.succeed("unchecked"),
+        prepare: (_attempt, target) => Effect.succeed(preparedFor(target)),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
+        "RelayConnectionTarget",
+      );
+
+      // Expo reports both cellular and Wi-Fi as online; only the path wakeup changes.
+      yield* Ref.set(lanReachable, true);
+      yield* harness.wake("network-changed");
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+
+      expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
+        "BearerConnectionTarget",
+      );
+      expect(yield* Ref.get(harness.releaseCount)).toBe(1);
+    }),
+  );
+
+  it.effect("keeps a healthy direct session after an online network handoff", () =>
+    Effect.gen(function* () {
+      const probed = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        probe: () => Deferred.succeed(probed, undefined).pipe(Effect.asVoid),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("network-changed");
+      yield* Deferred.await(probed);
+
+      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(0);
+      expect(yield* SubscriptionRef.get(supervisor.state)).toMatchObject({
+        phase: "connected",
+        generation: 1,
+      });
+    }),
+  );
+
   it.effect("checks for a better route periodically while on a fallback", () =>
     Effect.gen(function* () {
       const lanReachable = yield* Ref.make(false);

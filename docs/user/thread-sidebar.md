@@ -85,7 +85,10 @@ identify empty sections and a collapsed settled shelf.
 
 Drag within the pinned or active section to change its order. Other rows slide aside to show the
 spot where the thread will land. Drops into either section keep the position you choose. On
-mobile, open a thread's menu and choose **Arrange threads**. Drag a handle within or between
+mobile, press a thread briefly, then drag it without lifting your finger to reorder, pin, or
+unpin it; drag it onto **Settled** to settle it. Holding still opens the thread's menu instead. After changing a thread's section
+from Home or the sidebar, use **Undo** to move it back. Starting another drag clears Undo.
+To arrange parked threads too, open a thread's menu and choose **Arrange threads**. Drag a handle within or between
 **Pinned** and **Active** to reorder, pin, or unpin. Drop onto the **Settled** divider to
 settle a thread. The dragged card shows the action before you release it. Expand **Snoozed**
 or **Settled** to drag a parked thread back into either live section. Each drop saves; **Done** returns to the thread list.
@@ -220,6 +223,23 @@ thread asks for it.
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
+
+## Android foldable workspace
+
+In a wide window, keep chat beside Files, Terminal, or Git. Pane sizes are remembered
+separately for different postures and window sizes. Use **Settings → Organization →
+Reset pane sizes** to return to the fold or default split.
+
+In tabletop posture, chat stays above the horizontal fold and its composer below it.
+If the keyboard leaves too little room below the fold, the composer uses the normal
+keyboard layout so you can keep typing. A physical hinge stays clear of pane content.
+
+Enable **Thumb navigation** in **Settings → Organization** to use the bottom handle.
+Swipe sideways through recently visited threads, up for the thread list, or down for
+the inspector. Turn the setting off to remove the handle.
+
+In a source file, long-press a line and drag the selection handles. Choose **Attach
+lines** to add the selection to the current thread's draft, or **Copy** to use it elsewhere.
 
 ## Snooze until later
 

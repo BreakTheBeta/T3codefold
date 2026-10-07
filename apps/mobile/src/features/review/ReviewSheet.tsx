@@ -789,6 +789,9 @@ export function ReviewSheet(props: ReviewSheetProps) {
                     onDebug={handleNativeDebug}
                     onPressLine={commentSelection.onPressLine}
                     onVisibleFileChange={handleVisibleFileChange}
+                    {...(Platform.OS === "android"
+                      ? { onFontScaleCommit: nativeBridge.onFontScaleCommit }
+                      : {})}
                     onToggleComment={nativeBridge.onToggleComment}
                     onToggleFile={handleNativeToggleFile}
                     onToggleViewedFile={handleNativeToggleViewedFile}

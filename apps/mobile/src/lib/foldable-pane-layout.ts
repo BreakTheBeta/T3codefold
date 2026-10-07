@@ -77,3 +77,49 @@ export function deriveHingeSnapWidths(input: {
     )
     .filter((width) => width > 0);
 }
+
+/** Geometry is window-relative; horizontal half-open folds reserve the crease for controls. */
+export function deriveWorkspaceFoldRegions(input: {
+  readonly hinges: ReadonlyArray<{
+    readonly left: number;
+    readonly right: number;
+    readonly top: number;
+    readonly bottom: number;
+    readonly orientation: "vertical" | "horizontal";
+    readonly state: "flat" | "halfOpened";
+    readonly separating: boolean;
+  }>;
+  readonly width: number;
+  readonly height: number;
+  readonly leadingInset: number;
+  readonly trailingInset: number;
+}) {
+  const vertical = input.hinges.find(
+    (hinge) =>
+      hinge.orientation === "vertical" &&
+      hinge.separating &&
+      hinge.right > hinge.left &&
+      hinge.left > input.leadingInset &&
+      hinge.right < input.width - input.trailingInset,
+  );
+  const tabletop = input.hinges.find(
+    (hinge) =>
+      hinge.orientation === "horizontal" &&
+      hinge.state === "halfOpened" &&
+      hinge.top >= 160 &&
+      input.height - hinge.bottom >= 160,
+  );
+  return {
+    vertical: vertical
+      ? {
+          leadingWidth: vertical.left - input.leadingInset,
+          gap: vertical.right - vertical.left,
+          trailingWidth: input.width - input.trailingInset - vertical.right,
+        }
+      : null,
+    tabletop: tabletop
+      ? { top: tabletop.top, gap: Math.max(0, tabletop.bottom - tabletop.top) }
+      : null,
+    presetKey: `${tabletop ? "tabletop" : vertical ? "separating" : input.hinges.some((hinge) => hinge.orientation === "vertical") ? "book" : "flat"}:${input.width >= input.height ? "landscape" : "portrait"}:${input.width >= 1200 ? "wide" : input.width >= 720 ? "medium" : "compact"}`,
+  };
+}

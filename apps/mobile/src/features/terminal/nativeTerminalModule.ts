@@ -41,6 +41,7 @@ export interface NativeTerminalSurfaceProps extends ViewProps {
   readonly onCursorKeysChange?: (
     event: NativeSyntheticEvent<{ readonly application: boolean }>,
   ) => void;
+  readonly onFontScaleCommit?: (event: NativeSyntheticEvent<{ readonly scale: number }>) => void;
   readonly onResize?: (event: NativeSyntheticEvent<TerminalResizeEvent>) => void;
 }
 

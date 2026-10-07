@@ -37,6 +37,7 @@ export interface NativeReviewDiffRow {
   readonly deletions?: number;
   readonly text?: string;
   readonly content?: string;
+  readonly selectionContent?: string;
   readonly change?: "context" | "add" | "delete";
   readonly oldLineNumber?: number | null;
   readonly newLineNumber?: number | null;
@@ -74,6 +75,7 @@ export interface NativeReviewDiffTheme {
 }
 
 export interface NativeReviewDiffStyle {
+  readonly wordWrap?: boolean;
   readonly rowHeight?: number;
   readonly contentWidth?: number;
   readonly changeBarWidth?: number;
@@ -123,6 +125,13 @@ export interface NativeReviewDiffViewProps extends ViewProps {
   readonly contentWidth: number;
   readonly initialRowIndex?: number;
   readonly refreshing?: boolean;
+  /** Android source documents support native line-range selection. */
+  readonly textSelectable?: boolean;
+  readonly canAttachSelection?: boolean;
+  readonly onAttachSelection?: (
+    event: NativeSyntheticEvent<{ readonly startIndex: number; readonly endIndex: number }>,
+  ) => void;
+  readonly onFontScaleCommit?: (event: NativeSyntheticEvent<{ readonly scale: number }>) => void;
   readonly nativeViewRef?: Ref<NativeReviewDiffViewHandle>;
   readonly onPullToRefresh?: (event: NativeSyntheticEvent<Record<string, never>>) => void;
   readonly onDebug?: (event: NativeSyntheticEvent<Record<string, unknown>>) => void;

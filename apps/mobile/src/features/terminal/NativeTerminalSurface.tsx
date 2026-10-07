@@ -4,6 +4,7 @@ import {
 } from "@t3tools/client-runtime/state/terminal";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import {
+  Platform,
   Pressable,
   ScrollView,
   TextInput,
@@ -15,6 +16,7 @@ import {
 } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
+import { normalizeTerminalFontSize } from "./terminalPreferences";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
@@ -238,7 +240,7 @@ const FallbackTerminalSurface = memo(function FallbackTerminalSurface(props: Ter
 
 export const TerminalSurface = memo(function TerminalSurface(props: TerminalSurfaceProps) {
   const fontSize = props.fontSize ?? MOBILE_TYPOGRAPHY.label.fontSize;
-  const { themeAppearance, themeId } = useAppearancePreferences();
+  const { themeAppearance, themeId, setTerminalFontSize } = useAppearancePreferences();
   const theme = props.theme ?? getMobileTerminalTheme(themeId, themeAppearance);
   const { onInput, onResize } = props;
   const NativeTerminalSurfaceView = resolveNativeTerminalSurfaceView();
@@ -293,6 +295,17 @@ export const TerminalSurface = memo(function TerminalSurface(props: TerminalSurf
           onCursorKeysChange={(event) =>
             props.onApplicationCursorKeysChange?.(event.nativeEvent.application)
           }
+          {...(Platform.OS === "android"
+            ? {
+                onFontScaleCommit: (event: {
+                  readonly nativeEvent: { readonly scale: number };
+                }) => {
+                  if (!Number.isFinite(event.nativeEvent.scale)) return;
+                  const next = normalizeTerminalFontSize(fontSize * event.nativeEvent.scale);
+                  if (next !== fontSize) setTerminalFontSize(next);
+                },
+              }
+            : {})}
           fontSize={fontSize}
           style={{ flex: 1 }}
           themeConfig={buildGhosttyThemeConfig(theme)}

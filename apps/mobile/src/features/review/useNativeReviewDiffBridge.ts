@@ -30,7 +30,7 @@ export function useNativeReviewDiffBridge(input: {
     threadKey,
     viewedFileIds,
   } = input;
-  const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
+  const { nativeReviewDiffStyle, onFontScaleCommit } = useAppearanceCodeSurface();
   const { themeAppearance: scheme, themeId } = useAppearancePreferences();
   const appTheme = useUniwindTheme();
   const [collapsedCommentIds, setCollapsedCommentIds] = useState<ReadonlySet<string>>(
@@ -123,5 +123,6 @@ export function useNativeReviewDiffBridge(input: {
     tokensResetKey,
     onDebug,
     onToggleComment,
+    onFontScaleCommit,
   };
 }

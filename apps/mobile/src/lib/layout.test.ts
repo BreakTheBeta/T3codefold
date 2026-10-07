@@ -274,3 +274,16 @@ describe("deriveWorkspacePaneLayout", () => {
     });
   });
 });
+
+describe("Android adaptive windows", () => {
+  it("supports a wide short Android window without changing iPhone landscape", () => {
+    expect(deriveLayout({ width: 840, height: 360, platform: "android" }).usesSplitView).toBe(true);
+    expect(deriveLayout({ width: 840, height: 360, platform: "ios" }).usesSplitView).toBe(false);
+    expect(deriveLayout({ width: 600, height: 900, platform: "android" }).usesSplitView).toBe(
+      false,
+    );
+    expect(deriveLayout({ width: 840, height: 280, platform: "android" }).usesSplitView).toBe(
+      false,
+    );
+  });
+});

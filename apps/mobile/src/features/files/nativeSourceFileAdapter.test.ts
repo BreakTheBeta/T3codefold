@@ -22,6 +22,7 @@ describe("nativeSourceFileAdapter", () => {
         id: nativeSourceRowId(1),
         fileId: "source-file",
         content: "    return value;",
+        selectionContent: "\treturn value;",
         change: "context",
         newLineNumber: 2,
       },

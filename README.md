@@ -19,10 +19,12 @@ Fold's Android app treats an unfolded screen as a workspace, not a stretched pho
 | ![The divider handle dragged to give the side pane more room](docs/images/fold-resized.webp)       | ![The file tree maximized to the whole screen](docs/images/fold-maximized.webp)  |
 
 - **Side-by-side panes.** Open Files, Terminal or Git next to the conversation. When the chat would get too narrow, the thread sidebar steps aside.
-- **A real divider.** Drag the handle to resize: the panes lay out once when you let go, and the handle snaps to the fold. Drag past either end, or tap the handle, to maximize or close the side pane.
-- **Fold and unfold freely.** The sidebar keeps its place when you fold and unfold. Pane sizes and sidebar visibility are remembered, and Android Back steps out one layer at a time.
+- **A real divider.** Drag the handle to resize: the panes lay out once when you let go. A separating physical hinge fixes the split; use the pane’s maximize button to expand or restore it.
+- **Fold and unfold freely.** The sidebar keeps its place when you fold and unfold. Pane sizes are remembered per posture, sidebar visibility is remembered, and Android Back steps out one layer at a time.
 - **Terminal that keeps up.** Agent CLIs and full-screen programs redraw cleanly when you resize. Hardware arrows, Esc, Tab and function keys work.
 - **Folded, it's a great phone app.** Close the phone and you're back to the compact single-column layout.
+- **Tabletop and thumb navigation.** Tabletop posture puts chat above the fold and the composer below. Enable optional thumb navigation in **Settings → Organization** to switch recent threads and panes.
+- **Native source tools.** Wrap code, select and copy lines, or attach them to chat. Pinch to resize code, diffs, terminal text, and images.
 
 <img src="docs/images/fold-folded.webp" alt="The same workspace folded, as a single-column phone layout" width="300">
 

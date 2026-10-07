@@ -14,6 +14,10 @@ those modes. Customize these shortcuts under **Settings → Keybindings**.
 On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
 code, and terminal preferences. It does not follow environment themes or defaults.
 
+On Android, pinch source code, diffs, or the terminal to change their text size.
+Code and terminal sizes are saved separately in Appearance. Image previews also
+support pinch zoom and adjust when you unfold or resize the app.
+
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
 your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
 can be selected separately for light and dark appearances.

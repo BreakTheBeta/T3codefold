@@ -11,10 +11,16 @@ import {
 } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform, Pressable, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Reanimated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Platform, Pressable, View, useWindowDimensions } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Reanimated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 
 import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
@@ -26,6 +32,8 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { connectionTone } from "../connection/connectionTone";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsSection } from "./components/SettingsSection";
+
+import { useUIThreadDrag } from "../threads/use-ui-thread-drag";
 
 const ICON_SIZE = Platform.OS === "android" ? 24 : 22;
 const REMOVE_SIZE = 20;
@@ -58,6 +66,9 @@ export function EnvironmentRoutesSection({
   const prepared = useAtomValue(environmentSession.preparedConnectionValueAtom(environmentId));
   const reorder = useAtomCommand(environmentCatalog.reorderRoutes, "route reorder");
   const removeRoute = useAtomCommand(environmentCatalog.removeRoute, "route removal");
+  const window = useWindowDimensions();
+  const translation = useSharedValue(0);
+  const dragId = useRef<string | null>(null);
   const [editing, setEditing] = useState(false);
   const saved = entry === undefined ? [] : connectionRoutes(entry);
   const savedIds = saved.map((route) => connectionRouteId(route.target));
@@ -78,6 +89,12 @@ export function EnvironmentRoutesSection({
   // land in one frame. Kept rows would show their old offsets in their new
   // slots until the animated style catches up, and the card flashes empty.
   const [drops, setDrops] = useState(0);
+  const orderVersion = savedIds.join("|");
+  useEffect(() => {
+    dragId.current = null;
+    setDrag(null);
+    translation.set(0);
+  }, [orderVersion, editing, window.width, window.height, translation]);
   if (entry === undefined) return null;
 
   const byId = new Map(saved.map((route) => [connectionRouteId(route.target), route]));
@@ -161,6 +178,7 @@ export function EnvironmentRoutesSection({
         return (
           <RouteRow
             key={`${id}:${drops}`}
+            translation={translation}
             route={route}
             position={index + 1}
             count={routes.length}
@@ -173,9 +191,16 @@ export function EnvironmentRoutesSection({
                 current.get(id) === height ? current : new Map(current).set(id, height),
               )
             }
-            onDragStart={() => setDrag({ id, translation: 0 })}
-            onDragMove={(translation) => setDrag({ id, translation })}
+            onDragStart={() => {
+              dragId.current = id;
+              setDrag({ id, translation: 0 });
+            }}
+            onDragMove={(translation) => {
+              if (dragId.current === id) setDrag({ id, translation });
+            }}
             onDragEnd={(translation, cancelled) => {
+              if (dragId.current !== id) return;
+              dragId.current = null;
               setDrag(null);
               setDrops((count) => count + 1);
               if (!cancelled) move(index, dropIndex(index, translation));
@@ -195,6 +220,7 @@ export function EnvironmentRoutesSection({
 }
 
 function RouteRow(props: {
+  readonly translation: SharedValue<number>;
   readonly route: ConnectionRoute;
   readonly position: number;
   readonly count: number;
@@ -216,7 +242,7 @@ function RouteRow(props: {
     transform: [
       {
         translateY: lifted
-          ? offset
+          ? props.translation.value
           : withTiming(offset, { duration: 160, reduceMotion: ReduceMotion.System }),
       },
     ],
@@ -289,6 +315,7 @@ function RouteRow(props: {
       </View>
       {props.editing ? (
         <DragHandle
+          translation={props.translation}
           title={label}
           canMoveUp={props.position > 1}
           canMoveDown={props.position < props.count}
@@ -304,6 +331,7 @@ function RouteRow(props: {
 
 /** Pan recognition wins over the settings scroll view only inside the handle. */
 function DragHandle(props: {
+  readonly translation: SharedValue<number>;
   readonly title: string;
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
@@ -312,28 +340,10 @@ function DragHandle(props: {
   readonly onEnd: (translation: number, cancelled: boolean) => void;
   readonly onStep: (direction: "up" | "down") => void;
 }) {
-  const latest = useRef(props);
-  useEffect(() => {
-    latest.current = props;
+  const gesture = useUIThreadDrag({
+    ...props,
+    onEnd: (value, success) => props.onEnd(value, !success),
   });
-  const translation = useRef(0);
-  const gesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .minDistance(0)
-        .shouldCancelWhenOutside(false)
-        .runOnJS(true)
-        .onStart(() => {
-          translation.current = 0;
-          latest.current.onStart();
-        })
-        .onUpdate((event) => {
-          translation.current = event.translationY;
-          latest.current.onMove(event.translationY);
-        })
-        .onFinalize((_, success) => latest.current.onEnd(translation.current, !success)),
-    [],
-  );
   return (
     <GestureDetector gesture={gesture}>
       <View

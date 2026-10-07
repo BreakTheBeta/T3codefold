@@ -42,6 +42,11 @@ interface SourceFileSurfaceProps {
   readonly initialLine?: number | null;
   /** Keep the entire document in one native text-selection scope. */
   readonly selectable?: boolean;
+  /** Attach a native selection to the current thread draft. */
+  readonly onAttachSelectedLines?: (selection: {
+    readonly startIndex: number;
+    readonly endIndex: number;
+  }) => void;
   /** Enables native pull-to-refresh on the source surface. */
   readonly onRefresh?: () => Promise<void> | void;
 }
@@ -184,7 +189,8 @@ function NativeSourceFileSurface(
   },
 ) {
   const { NativeView, onRefresh } = props;
-  const { codeSurface, codeWordBreak, nativeSourceStyle } = useAppearanceCodeSurface();
+  const { codeSurface, codeWordBreak, nativeSourceStyle, onFontScaleCommit } =
+    useAppearanceCodeSurface();
   const { themeAppearance, themeId } = useAppearancePreferences();
   const appTheme = useUniwindTheme();
   const { width: windowWidth } = useWindowDimensions();
@@ -222,6 +228,16 @@ function NativeSourceFileSurface(
         contentWidth={contentWidth}
         initialRowIndex={targetIndex ?? -1}
         rowHeight={nativeSourceStyle.rowHeight ?? codeSurface.rowHeight}
+        {...(Platform.OS === "android"
+          ? {
+              textSelectable: true,
+              canAttachSelection: props.onAttachSelectedLines !== undefined,
+              onAttachSelection: (event: {
+                readonly nativeEvent: { readonly startIndex: number; readonly endIndex: number };
+              }) => props.onAttachSelectedLines?.(event.nativeEvent),
+              onFontScaleCommit,
+            }
+          : {})}
         rowsJson={rowsJson}
         selectedRowIdsJson={selectedRowIdsJson}
         styleJson={styleJson}
@@ -396,10 +412,8 @@ function JavaScriptSourceFileSurface(props: SourceFileSurfaceProps) {
 export function SourceFileSurface(props: SourceFileSurfaceProps) {
   const NativeView = resolveNativeReviewDiffView();
   const { codeWordBreak } = useAppearanceCodeSurface();
-  // The native canvas draws source lines without text selection or wrapping. Attachments
-  // need one selectable text view in either wrap mode; workspace line navigation can still
-  // use the canvas when wrapping is disabled.
-  return NativeView && !codeWordBreak && !props.selectable ? (
+  // Android keeps wrapped and selectable documents on the native canvas.
+  return NativeView && (Platform.OS === "android" || (!codeWordBreak && !props.selectable)) ? (
     <NativeSourceFileSurface {...props} NativeView={NativeView} />
   ) : (
     <JavaScriptSourceFileSurface {...props} />
