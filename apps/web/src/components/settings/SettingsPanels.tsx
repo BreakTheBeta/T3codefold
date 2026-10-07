@@ -581,6 +581,10 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Diff colors"]
         : []),
       ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
+      ...(settings.threadWrapEnabled !== DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled ||
+      settings.threadWrapMaxColumns !== DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns
+        ? ["Thread wrapping"]
+        : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -717,6 +721,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.appearanceContrast,
       settings.diffColorScheme,
       settings.chatWidth,
+      settings.threadWrapEnabled,
+      settings.threadWrapMaxColumns,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -845,6 +851,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
+      threadWrapEnabled: DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled,
+      threadWrapMaxColumns: DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
@@ -1789,6 +1797,61 @@ export function AppearanceSettingsPanel() {
                   <SelectItem value="full">Full</SelectItem>
                 </SelectPopup>
               </Select>
+            </div>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("thread-wrap")}
+          description="On very wide screens, flow long replies into side-by-side columns like a printed paper."
+          resetAction={
+            settings.threadWrapEnabled !== DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled ||
+            settings.threadWrapMaxColumns !== DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns ? (
+              <SettingResetButton
+                label="thread wrapping"
+                onClick={() =>
+                  updateSettings({
+                    threadWrapEnabled: DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled,
+                    threadWrapMaxColumns: DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
+              {settings.threadWrapEnabled ? (
+                <div className="w-full sm:w-36">
+                  <Select
+                    value={String(settings.threadWrapMaxColumns)}
+                    onValueChange={(value) => {
+                      const threadWrapMaxColumns = Number(value);
+                      if (threadWrapMaxColumns >= 2 && threadWrapMaxColumns <= 4)
+                        updateSettings({ threadWrapMaxColumns });
+                    }}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      className="w-full min-w-0"
+                      aria-label="Maximum thread columns"
+                    >
+                      <SelectValue>Up to {settings.threadWrapMaxColumns} columns</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      <SelectItem value="2">Up to 2 columns</SelectItem>
+                      <SelectItem value="3">Up to 3 columns (default)</SelectItem>
+                      <SelectItem value="4">Up to 4 columns</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </div>
+              ) : null}
+              <Switch
+                checked={settings.threadWrapEnabled}
+                onCheckedChange={(checked) =>
+                  updateSettings({ threadWrapEnabled: Boolean(checked) })
+                }
+                aria-label="Wrap long threads into columns on wide screens"
+              />
             </div>
           }
         />

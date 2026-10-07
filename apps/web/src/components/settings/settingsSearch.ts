@@ -280,6 +280,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["wide full width column layout messages composer monitor"],
   },
   {
+    id: "thread-wrap",
+    title: "Thread wrapping",
+    to: "/settings/appearance",
+    searchTerms: ["columns newspaper paper multi column 4k tv ultrawide large screen wrap"],
+  },
+  {
     id: "panel-animations",
     title: "Panel animations",
     to: "/settings/appearance",

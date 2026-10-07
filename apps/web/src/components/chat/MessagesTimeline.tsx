@@ -932,6 +932,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   // Re-measure the minimap gutter when the chat column changes width without a viewport resize.
   const chatWidth = useClientSettings((settings) => settings.chatWidth);
+  const threadWrapColumns = useClientSettings((settings) =>
+    settings.threadWrapEnabled ? settings.threadWrapMaxColumns : null,
+  );
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -1147,7 +1150,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth]);
+  }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth, threadWrapColumns]);
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
@@ -1796,6 +1799,14 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         row.kind === "message" || row.kind === "assistant-meta" ? row.message.id : undefined
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
+      data-thread-wrap={
+        row.kind === "message" &&
+        row.message.role === "assistant" &&
+        !row.message.streaming &&
+        row.message.text.length >= THREAD_WRAP_MIN_TEXT_LENGTH
+          ? "spread"
+          : undefined
+      }
     >
       {isWorkLogRow ? (
         <WorkLogBlock
@@ -1945,6 +1956,8 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 // inside a message are exposed below this level. Visually hidden and excluded
 // from selection so sighted users and copied text are unaffected.
 const MESSAGE_HEADING_LEVEL = 3;
+// Shorter replies stay in one column: a few lines split three ways reads worse.
+const THREAD_WRAP_MIN_TEXT_LENGTH = 1200;
 
 function MessageAuthorHeading({ children }: { children: string }) {
   return <h3 className="sr-only select-none">{children}</h3>;
@@ -2505,10 +2518,18 @@ function AttemptFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "at
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  // A reply that finishes streaming on screen plays thread wrapping's reflow
+  // once. Rows remounted by virtualization start settled and stay still.
+  const [mountedWhileStreaming] = useState(Boolean(row.message.streaming));
 
   return (
     <>
-      <div className="relative min-w-0 px-1 py-0.5">
+      <div
+        className="relative min-w-0 px-1 py-0.5"
+        data-thread-wrap-reveal={
+          mountedWhileStreaming && !row.message.streaming ? "true" : undefined
+        }
+      >
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
         <AssistantCitationSource
           messageId={row.message.id}

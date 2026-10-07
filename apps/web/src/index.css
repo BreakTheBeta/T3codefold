@@ -2130,6 +2130,122 @@ code {
   --chat-content-max-width: 100%;
 }
 
+/* Thread wrapping. When the timeline has room for several reading-width
+   columns, the lane widens and long settled assistant replies flow through
+   them like a printed paper; every other row keeps a single column. Rows are
+   the size containers so a floating preview's lane inset counts too. */
+:root[data-thread-wrap] {
+  --thread-wrap-column-width: 42rem;
+  --thread-wrap-gap: 3.5rem;
+}
+
+:root[data-thread-wrap] .messages-timeline-row-frame {
+  container: thread-wrap / inline-size;
+}
+
+:root[data-thread-wrap] [data-thread-wrap="spread"] .chat-markdown {
+  column-gap: var(--thread-wrap-gap);
+  column-rule: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  column-fill: balance;
+}
+
+/* Pages of columns no taller than the viewport, so reading down one column
+   and up into the next never needs a scroll back. */
+@supports (column-wrap: wrap) {
+  :root[data-thread-wrap] [data-thread-wrap="spread"] .chat-markdown {
+    column-height: max(18rem, calc(100dvh - 20rem));
+    column-wrap: wrap;
+    row-gap: 2.5rem;
+  }
+}
+
+:root[data-thread-wrap] [data-thread-wrap="spread"] .chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+:root[data-thread-wrap]
+  [data-thread-wrap="spread"]
+  :is(.chat-markdown-codeblock, .chat-markdown-table-container, blockquote, img, li) {
+  break-inside: avoid;
+}
+
+:root[data-thread-wrap] [data-thread-wrap="spread"] :is(h1, h2, h3, h4, h5, h6) {
+  break-after: avoid;
+}
+
+@container thread-wrap (width >= 90rem) {
+  :root[data-thread-wrap] .chat-content-lane {
+    --thread-wrap-columns: 2;
+    max-width: max(
+      var(--chat-content-max-width),
+      calc(
+        var(--thread-wrap-columns) * var(--thread-wrap-column-width) +
+          (var(--thread-wrap-columns) - 1) * var(--thread-wrap-gap)
+      )
+    );
+  }
+
+  :root[data-thread-wrap] .chat-content-lane > :not([data-thread-wrap="spread"]),
+  :root[data-thread-wrap] [data-thread-wrap="spread"] > * > :not([data-assistant-citation-source]) {
+    max-width: var(--thread-wrap-column-width);
+  }
+
+  /* Prompts settle in the last column, opposite the work in the first. */
+  :root[data-thread-wrap] .chat-content-lane > [data-message-role="user"] {
+    margin-inline-start: auto;
+  }
+
+  :root[data-thread-wrap] [data-thread-wrap="spread"] .chat-markdown {
+    column-count: var(--thread-wrap-columns);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    :root[data-thread-wrap] [data-thread-wrap-reveal] > [data-assistant-citation-source] {
+      animation: thread-wrap-reveal 900ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    }
+
+    :root[data-thread-wrap] [data-thread-wrap-reveal] .chat-markdown {
+      animation: thread-wrap-rules 900ms ease-out both;
+    }
+  }
+}
+
+@container thread-wrap (width >= 136rem) {
+  :root:is([data-thread-wrap="3"], [data-thread-wrap="4"]) .chat-content-lane {
+    --thread-wrap-columns: 3;
+  }
+}
+
+@container thread-wrap (width >= 182rem) {
+  :root[data-thread-wrap="4"] .chat-content-lane {
+    --thread-wrap-columns: 4;
+  }
+}
+
+/* A soft-edged sweep that sets the reply across its columns left to right. */
+@keyframes thread-wrap-reveal {
+  from {
+    mask-image: linear-gradient(90deg, #000 40%, rgb(0 0 0 / 12%) 60%);
+    mask-size: 250% 100%;
+    mask-position: 100% 0;
+    opacity: 0.35;
+    transform: translateY(0.375rem);
+  }
+  to {
+    mask-image: linear-gradient(90deg, #000 40%, rgb(0 0 0 / 12%) 60%);
+    mask-size: 250% 100%;
+    mask-position: 0 0;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes thread-wrap-rules {
+  from {
+    column-rule-color: transparent;
+  }
+}
+
 :root[data-diff-color-scheme="blue-orange"] {
   --diff-addition: light-dark(var(--color-blue-600), var(--color-blue-400));
   --diff-deletion: light-dark(var(--color-orange-600), var(--color-orange-400));

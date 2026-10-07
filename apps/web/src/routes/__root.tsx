@@ -287,6 +287,18 @@ function ContrastAppearanceSync() {
     document.documentElement.dataset.chatWidth = chatWidth;
   }, [chatWidth]);
 
+  // The column limit doubles as the on switch; CSS decides whether there is room.
+  const threadWrapColumns = useClientSettings((settings) =>
+    settings.threadWrapEnabled ? settings.threadWrapMaxColumns : null,
+  );
+  useEffect(() => {
+    if (threadWrapColumns === null) {
+      delete document.documentElement.dataset.threadWrap;
+    } else {
+      document.documentElement.dataset.threadWrap = String(threadWrapColumns);
+    }
+  }, [threadWrapColumns]);
+
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);
   }, [appearanceContrast]);

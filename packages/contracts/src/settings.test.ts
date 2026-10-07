@@ -372,6 +372,20 @@ describe("ClientSettings chat width", () => {
   });
 });
 
+describe("ClientSettings thread wrapping", () => {
+  it("is off with three columns for existing settings", () => {
+    const settings = decodeClientSettings({});
+    expect(settings.threadWrapEnabled).toBe(false);
+    expect(settings.threadWrapMaxColumns).toBe(3);
+  });
+
+  it("rejects column limits outside two to four", () => {
+    expect(decodeClientSettingsPatch({ threadWrapMaxColumns: 4 }).threadWrapMaxColumns).toBe(4);
+    expect(() => decodeClientSettings({ threadWrapMaxColumns: 1 })).toThrow();
+    expect(() => decodeClientSettingsPatch({ threadWrapMaxColumns: 5 })).toThrow();
+  });
+});
+
 describe("ClientSettings load balancing", () => {
   it("requires opt-in when settings are new or omit load balancing", () => {
     expect(decodeClientSettings({}).loadBalancingEnabled).toBe(false);
