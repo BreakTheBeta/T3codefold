@@ -255,6 +255,7 @@ import { ContextChip, ContextChipLabel, type ContextChipKind } from "../ContextC
 import { createContextPresentationRegistry } from "../contextPresentationRegistry";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
+import { useThreadWrapPaging } from "./useThreadWrapPaging";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
@@ -1799,14 +1800,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         row.kind === "message" || row.kind === "assistant-meta" ? row.message.id : undefined
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
-      data-thread-wrap={
-        row.kind === "message" &&
-        row.message.role === "assistant" &&
-        !row.message.streaming &&
-        row.message.text.length >= THREAD_WRAP_MIN_TEXT_LENGTH
-          ? "spread"
-          : undefined
-      }
+      data-thread-wrap={isThreadWrapSpread(row) ? "spread" : undefined}
     >
       {isWorkLogRow ? (
         <WorkLogBlock
@@ -1958,6 +1952,16 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 const MESSAGE_HEADING_LEVEL = 3;
 // Shorter replies stay in one column: a few lines split three ways reads worse.
 const THREAD_WRAP_MIN_TEXT_LENGTH = 1200;
+
+/** Whether thread wrapping may flow this row's reply across columns. */
+function isThreadWrapSpread(row: TimelineRow) {
+  return (
+    row.kind === "message" &&
+    row.message.role === "assistant" &&
+    !row.message.streaming &&
+    row.message.text.length >= THREAD_WRAP_MIN_TEXT_LENGTH
+  );
+}
 
 function MessageAuthorHeading({ children }: { children: string }) {
   return <h3 className="sr-only select-none">{children}</h3>;
@@ -2521,10 +2525,13 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
   // A reply that finishes streaming on screen plays thread wrapping's reflow
   // once. Rows remounted by virtualization start settled and stay still.
   const [mountedWhileStreaming] = useState(Boolean(row.message.streaming));
+  const threadWrapEnabled = useClientSettings((settings) => settings.threadWrapEnabled);
+  const threadWrapPagingRef = useThreadWrapPaging(threadWrapEnabled && isThreadWrapSpread(row));
 
   return (
     <>
       <div
+        ref={threadWrapPagingRef}
         className="relative min-w-0 px-1 py-0.5"
         data-thread-wrap-reveal={
           mountedWhileStreaming && !row.message.streaming ? "true" : undefined
