@@ -2137,17 +2137,9 @@ code {
    (data-thread-wrap-columns, from its length) meets the screen's cap (the
    root attribute) at the smaller of the two. Rows are the size containers so
    a floating preview's lane inset counts too. */
-@property --thread-wrap-page-height {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-
 :root[data-thread-wrap] {
   --thread-wrap-column-width: 42rem;
   --thread-wrap-gap: 3.5rem;
-  /* Registered so useThreadWrapSnake can read it back in pixels. */
-  --thread-wrap-page-height: max(18rem, calc(100dvh - 20rem));
 }
 
 :root[data-thread-wrap] .messages-timeline-row-frame {
@@ -2191,7 +2183,7 @@ code {
   }
 
   :root[data-thread-wrap]
-    [data-chat-canvas]:has([data-thread-wrap-replies])
+    [data-chat-canvas]:has([data-thread-wrap-replies], [data-thread-ribbon])
     > .chat-canvas-width-probe {
     width: var(--thread-wrap-lane-width);
   }
@@ -2236,7 +2228,11 @@ code {
   }
 
   /* The changed-files card and message actions keep a single column's width. */
-  :root[data-thread-wrap] [data-thread-wrap-columns] > * > * > :not([data-thread-wrap-track]) {
+  :root[data-thread-wrap]
+    [data-thread-wrap-columns]
+    > *
+    > *
+    > :not([data-assistant-citation-source]) {
     max-width: var(--thread-wrap-column-width);
   }
 
@@ -2244,62 +2240,8 @@ code {
     column-count: var(--thread-wrap-lane-columns);
   }
 
-  /* Replies too tall to balance on one screen snake: the reply pins as a
-     screen-height window of columns and scrolling feeds the text through
-     them (useThreadWrapSnake). The window's bottom margin is the scroll
-     distance that carries the text from start to end. */
-  :root[data-thread-wrap] [data-thread-wrap-snake] [data-assistant-citation-source] {
-    position: sticky;
-    top: 1.5rem;
-    height: var(--thread-wrap-page-height);
-    overflow: clip;
-  }
-
-  /* A sticky box only travels within its parent's content, so the travel is
-     real content after the window. */
-  :root[data-thread-wrap] [data-thread-wrap-snake] [data-thread-wrap-track]::after {
-    content: "";
-    display: block;
-    height: var(--thread-wrap-snake-travel, 0px);
-  }
-
-  :root[data-thread-wrap] [data-thread-wrap-snake] .chat-markdown {
-    height: 100%;
-    column-fill: auto;
-  }
-
-  :root[data-thread-wrap] [data-thread-wrap-snake] .chat-markdown > :first-child {
-    margin-top: calc(-1 * var(--thread-wrap-snake-offset, 0px));
-  }
-
-  /* While the text is moving, lines soften as they leave the top and enter at
-     the bottom. The top 3px stay solid for the reading-progress hairline. */
-  :root[data-thread-wrap] [data-thread-wrap-snaking] {
-    mask-image: linear-gradient(
-      to bottom,
-      #000 0 3px,
-      transparent 3px,
-      #000 2.25rem,
-      #000 calc(100% - 2.25rem),
-      transparent
-    );
-  }
-
-  :root[data-thread-wrap] [data-thread-wrap-snake] [data-assistant-citation-source]::before {
-    content: "";
-    position: absolute;
-    inset-inline: 0;
-    top: 0;
-    z-index: 1;
-    height: 2px;
-    border-radius: 9999px;
-    background: color-mix(in srgb, var(--primary) 70%, transparent);
-    transform: scaleX(var(--thread-wrap-snake-progress, 0));
-    transform-origin: left;
-  }
-
   @media (prefers-reduced-motion: no-preference) {
-    :root[data-thread-wrap] [data-thread-wrap-reveal] [data-assistant-citation-source] {
+    :root[data-thread-wrap] [data-thread-wrap-reveal] > [data-assistant-citation-source] {
       animation: thread-wrap-reveal 1100ms cubic-bezier(0.45, 0, 0.25, 1) backwards;
     }
 
@@ -2319,6 +2261,34 @@ code {
   :root[data-thread-wrap="4"] [data-thread-wrap-columns] {
     --thread-wrap-columns: 4;
   }
+}
+
+/* The thread ribbon (useThreadRibbon): LegendList's content pins as a
+   screen-height window of columns and scrolling feeds the whole thread
+   through them. Every row is one column wide inside it. */
+[data-thread-ribbon] > .legend-list-content-container {
+  position: sticky;
+  top: var(--thread-ribbon-top);
+  margin-top: var(--thread-ribbon-top);
+  margin-inline: auto;
+  max-width: calc(
+    var(--thread-ribbon-columns) * var(--thread-wrap-column-width) +
+      (var(--thread-ribbon-columns) - 1) * var(--thread-wrap-gap)
+  );
+  height: var(--thread-ribbon-page-height);
+  min-height: 0 !important;
+  /* LegendList's anchored end space would only add blank columns here. */
+  padding-bottom: 0 !important;
+  overflow: clip;
+  column-count: var(--thread-ribbon-columns);
+  column-gap: var(--thread-wrap-gap);
+  column-rule: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  column-fill: auto;
+}
+
+/* The window already stops above the composer. */
+[data-thread-ribbon] [data-timeline-composer-inset] {
+  height: 0 !important;
 }
 
 @keyframes thread-wrap-reveal {

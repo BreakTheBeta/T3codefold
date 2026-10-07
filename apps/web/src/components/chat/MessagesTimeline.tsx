@@ -255,7 +255,7 @@ import { ContextChip, ContextChipLabel, type ContextChipKind } from "../ContextC
 import { createContextPresentationRegistry } from "../contextPresentationRegistry";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
-import { useThreadWrapSnake } from "./useThreadWrapSnake";
+import { useThreadRibbon } from "./useThreadRibbon";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
@@ -375,7 +375,7 @@ const TIMELINE_LIST_FADE_HEADER = (
 function TimelineListFooter({ composerInset }: { readonly composerInset: number }) {
   return (
     <div aria-hidden>
-      <div style={{ height: composerInset }} />
+      <div style={{ height: composerInset }} data-timeline-composer-inset="" />
       <div className="h-3 sm:h-4" />
     </div>
   );
@@ -936,6 +936,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const threadWrapColumns = useClientSettings((settings) =>
     settings.threadWrapEnabled ? settings.threadWrapMaxColumns : null,
   );
+  const [timelineScroller, setTimelineScroller] = useState<HTMLElement | null>(null);
+  const { ribbon: threadRibbon, ribbonIsAtEnd } = useThreadRibbon({
+    scroller: timelineScroller,
+    maxColumns: threadWrapColumns,
+    composerInset: contentInsetEndAdjustment,
+  });
   // Lets ChatCanvas reserve room for wide replies only in threads that have one.
   const hasThreadWrapReplies = useMemo(
     () => threadWrapColumns !== null && rows.some((row) => threadWrapReplyColumns(row) !== null),
@@ -1040,7 +1046,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
-    const isAtEnd = resolveTimelineIsAtEnd(state);
+    // LegendList measures the end in single-column coordinates; the ribbon
+    // ends earlier, once the thread's end reaches the last column.
+    const isAtEnd = ribbonIsAtEnd() ?? resolveTimelineIsAtEnd(state);
     const position = state?.data?.length ? resolveWorkGroupScrollAnchor(state) : undefined;
     if (position && state && isAtEnd !== undefined) {
       const index = state.indexByKey(position.rowId);
@@ -1117,6 +1125,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     minimapStripMap,
     onIsAtEndChange,
     reportContentOverflow,
+    ribbonIsAtEnd,
   ]);
 
   useEffect(() => {
@@ -1295,7 +1304,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const setTimelineList = useCallback(
     (list: LegendListRef | null) => {
       listRef.current = list;
-      registerTimeline?.(list?.getScrollableNode() ?? null);
+      const scroller = list?.getScrollableNode() ?? null;
+      registerTimeline?.(scroller);
+      setTimelineScroller(scroller instanceof HTMLElement ? scroller : null);
     },
     [listRef, registerTimeline],
   );
@@ -1361,6 +1372,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             getItemType={getItemType}
             renderItem={renderItem}
             estimatedItemSize={90}
+            // The ribbon shows every column's worth of rows at once.
+            {...(threadRibbon
+              ? { drawDistance: threadRibbon.columns * threadRibbon.pageHeight }
+              : {})}
             initialScrollAtEnd={citationRequest === null && rememberedPosition?.atEnd !== false}
             // Legend needs a data refresh to mount new pins without a scroll event.
             dataVersion={readyCitationRequest?.key ?? listIdentityKey}
@@ -2538,44 +2553,36 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
   // A reply that finishes streaming on screen plays thread wrapping's reflow
   // once. Rows remounted by virtualization start settled and stay still.
   const [mountedWhileStreaming] = useState(Boolean(row.message.streaming));
-  const threadWrapEnabled = useClientSettings((settings) => settings.threadWrapEnabled);
-  const threadWrapSnakeRef = useThreadWrapSnake(
-    threadWrapEnabled && threadWrapReplyColumns(row) !== null,
-  );
 
   return (
     <>
       <div
-        ref={threadWrapSnakeRef}
         className="relative min-w-0 px-1 py-0.5"
         data-thread-wrap-reveal={
           mountedWhileStreaming && !row.message.streaming ? "true" : undefined
         }
       >
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
-        {/* Thread wrapping's snake pins the reply inside this track. */}
-        <div data-thread-wrap-track="">
-          <AssistantCitationSource
-            messageId={row.message.id}
-            {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
-            itemKey={row.id}
-            request={ctx.citationRequest}
-            listRef={ctx.listRef}
-          >
-            <ChatMarkdown
-              text={messageText}
-              cwd={ctx.markdownCwd}
-              threadRef={ctx.threadRef ?? undefined}
-              isStreaming={Boolean(row.message.streaming)}
-              lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
-              skills={ctx.skills}
-              headingLevelOffset={MESSAGE_HEADING_LEVEL}
-              onUseArtifactTemplate={ctx.onUseArtifactTemplate}
-              onRunShellCommand={ctx.onRunShellCommand}
-              onImageExpand={ctx.onImageExpand}
-            />
-          </AssistantCitationSource>
-        </div>
+        <AssistantCitationSource
+          messageId={row.message.id}
+          {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
+          itemKey={row.id}
+          request={ctx.citationRequest}
+          listRef={ctx.listRef}
+        >
+          <ChatMarkdown
+            text={messageText}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+            isStreaming={Boolean(row.message.streaming)}
+            lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
+            skills={ctx.skills}
+            headingLevelOffset={MESSAGE_HEADING_LEVEL}
+            onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+            onRunShellCommand={ctx.onRunShellCommand}
+            onImageExpand={ctx.onImageExpand}
+          />
+        </AssistantCitationSource>
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
