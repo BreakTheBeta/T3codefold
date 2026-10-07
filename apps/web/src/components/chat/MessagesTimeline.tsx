@@ -942,11 +942,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     maxColumns: threadWrapColumns,
     composerInset: contentInsetEndAdjustment,
   });
-  // Lets ChatCanvas reserve room for wide replies only in threads that have one.
-  const hasThreadWrapReplies = useMemo(
-    () => threadWrapColumns !== null && rows.some((row) => threadWrapReplyColumns(row) !== null),
-    [rows, threadWrapColumns],
-  );
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -1316,11 +1311,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
       <div className="messages-timeline-row-frame">
-        <div
-          className="chat-content-lane overflow-x-clip"
-          data-timeline-root="true"
-          data-thread-wrap-columns={threadWrapReplyColumns(item) ?? undefined}
-        >
+        <div className="chat-content-lane overflow-x-clip" data-timeline-root="true">
           <TimelineRowContent row={item} />
         </div>
       </div>
@@ -1355,7 +1346,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           ref={setTimelineViewportElement}
           className="relative h-full min-h-0"
           data-assistant-citation-viewport="true"
-          data-thread-wrap-replies={hasThreadWrapReplies || undefined}
         >
           {onCiteAssistantText && citationThreadRef ? (
             <AssistantSelectionToolbar
@@ -1974,23 +1964,6 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 // inside a message are exposed below this level. Visually hidden and excluded
 // from selection so sighted users and copied text are unaffected.
 const MESSAGE_HEADING_LEVEL = 3;
-// Minimum reply length for each extra thread-wrapping column, so every column
-// carries a real passage. Shorter replies keep the normal single column.
-const THREAD_WRAP_COLUMN_MIN_TEXT_LENGTHS = [
-  [4, 6000],
-  [3, 3000],
-  [2, 1200],
-] as const;
-
-/** The most columns thread wrapping may flow this row's reply into, if any. */
-function threadWrapReplyColumns(row: TimelineRow) {
-  if (row.kind !== "message" || row.message.role !== "assistant" || row.message.streaming) {
-    return null;
-  }
-  const length = row.message.text.length;
-  return THREAD_WRAP_COLUMN_MIN_TEXT_LENGTHS.find(([, min]) => length >= min)?.[0] ?? null;
-}
-
 function MessageAuthorHeading({ children }: { children: string }) {
   return <h3 className="sr-only select-none">{children}</h3>;
 }

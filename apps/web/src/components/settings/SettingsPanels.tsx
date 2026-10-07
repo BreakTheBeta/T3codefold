@@ -1803,7 +1803,7 @@ export function AppearanceSettingsPanel() {
 
         <SettingsRow
           {...searchableSetting("thread-wrap")}
-          description="On very wide screens, flow long replies into side-by-side columns like a printed paper."
+          description="On very wide screens, flow long threads through side-by-side columns like a newspaper."
           resetAction={
             settings.threadWrapEnabled !== DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled ||
             settings.threadWrapMaxColumns !== DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns ? (
