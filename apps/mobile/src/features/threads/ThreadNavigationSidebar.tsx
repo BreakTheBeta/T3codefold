@@ -995,6 +995,9 @@ function ThreadNavigationSidebarPane(
               items={listItems}
               workingShelfEnabled={workingShelfEnabled}
               edgeInsets={nativeDragEdgeInsets}
+              undoBottomInset={
+                Platform.OS === "android" ? Math.max(insets.bottom, 16) + fabClearance : undefined
+              }
               onMoveThread={moveThread}
             >
               {(dragListProps) => (
@@ -1077,6 +1080,9 @@ function ThreadNavigationSidebarPane(
               items={listItems}
               workingShelfEnabled={workingShelfEnabled}
               edgeInsets={nativeDragEdgeInsets}
+              undoBottomInset={
+                Platform.OS === "android" ? Math.max(insets.bottom, 16) + fabClearance : undefined
+              }
               onMoveThread={moveThread}
             >
               {(dragListProps) => (

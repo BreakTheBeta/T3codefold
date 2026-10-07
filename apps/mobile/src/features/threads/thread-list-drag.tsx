@@ -242,6 +242,8 @@ export function ThreadListDragSurface(props: {
   readonly workingShelfEnabled: boolean;
   /** Content hidden under translucent chrome, kept out of the auto-scroll edges. */
   readonly edgeInsets?: { readonly top: number; readonly bottom: number };
+  /** Keep the inverse action above any floating controls outside the list. */
+  readonly undoBottomInset?: number;
   readonly onMoveThread: (
     thread: EnvironmentThreadShell,
     destination: ThreadDropDestination,
@@ -606,7 +608,7 @@ export function ThreadListDragSurface(props: {
           <View
             accessibilityLiveRegion="polite"
             className="absolute left-3 right-3 flex-row items-center gap-3 rounded-xl border border-border bg-screen px-4 py-2"
-            style={{ bottom: (props.edgeInsets?.bottom ?? 0) + 12 }}
+            style={{ bottom: (props.undoBottomInset ?? props.edgeInsets?.bottom ?? 0) + 12 }}
           >
             <Text numberOfLines={1} className="flex-1 text-sm">
               {undo.expectedSection === "settled"

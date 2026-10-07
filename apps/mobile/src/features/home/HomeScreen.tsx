@@ -989,6 +989,9 @@ export function HomeScreen(props: HomeScreenProps) {
             items={threadListV2Items}
             workingShelfEnabled={workingShelfEnabled}
             edgeInsets={dragEdgeInsets}
+            undoBottomInset={
+              Platform.OS === "android" ? Math.max(insets.bottom, 16) + fabClearance : undefined
+            }
             onMoveThread={props.onMoveThread}
           >
             {(dragListProps) => (
