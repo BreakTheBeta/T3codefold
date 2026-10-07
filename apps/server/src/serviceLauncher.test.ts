@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
+import { pinnedRuntimeVersionsDir } from "./cloud/pinnedRuntime.ts";
 import { Launcher, readServiceState, writeServiceState } from "./serviceLauncher.ts";
 import {
   compareExactServiceVersions,
@@ -124,7 +125,7 @@ it.layer(NodeServices.layer)("service state persistence", (it) => {
       yield* writeFakeRuntime(
         fs,
         path,
-        path.join(root, "runtime", "versions", "1.0.0"),
+        path.join(pinnedRuntimeVersionsDir(path, root), "1.0.0"),
         "setInterval(() => {}, 1_000);\n",
       );
       yield* Effect.promise(() =>
@@ -167,7 +168,7 @@ it.layer(NodeServices.layer)("service state persistence", (it) => {
       yield* writeFakeRuntime(
         fs,
         path,
-        path.join(root, "runtime", "versions", "1.0.0"),
+        path.join(pinnedRuntimeVersionsDir(path, root), "1.0.0"),
         "setInterval(() => {}, 1_000);\n",
       );
       yield* Effect.promise(() =>
@@ -217,7 +218,7 @@ if (context.update?.status === "pending") {
         yield* writeFakeRuntime(
           fs,
           path,
-          path.join(root, "runtime", "versions", version),
+          path.join(pinnedRuntimeVersionsDir(path, root), version),
           childSource,
         );
       }
@@ -267,7 +268,7 @@ if (context.update?.status === "pending") {
         yield* writeFakeRuntime(
           fs,
           path,
-          path.join(root, "runtime", "versions", version),
+          path.join(pinnedRuntimeVersionsDir(path, root), version),
           childSource,
         );
       }
@@ -326,7 +327,7 @@ if (context.update?.status === "pending") {
         yield* writeFakeRuntime(
           fs,
           path,
-          path.join(root, "runtime", "versions", version),
+          path.join(pinnedRuntimeVersionsDir(path, root), version),
           childSource,
         );
       }

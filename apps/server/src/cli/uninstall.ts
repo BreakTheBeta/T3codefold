@@ -49,7 +49,7 @@ export interface UninstallPlan {
 
 /**
  * Finds the launcher this install left on PATH. Only a launcher that points
- * into this home's `runtime/versions` is claimed: a plain copy of the
+ * into this home's `runtime/fold/versions` is claimed: a plain copy of the
  * executable, or a launcher for another home, is not ours to delete.
  */
 export const findOwnedLauncher = Effect.fn("cli.uninstall.find_launcher")(function* (input: {

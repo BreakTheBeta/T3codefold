@@ -22,7 +22,7 @@ import * as ProcessRunner from "../processRunner.ts";
 
 /**
  * A pinned runtime is an exact t3 release archive unpacked into
- * <baseDir>/runtime/versions/<version>: the self-contained executable, the
+ * <baseDir>/runtime/fold/versions/<version>: the self-contained executable, the
  * web client, and the native packages beside it. The boot service points its
  * unit or launch agent at the executable, and server self-update installs the
  * target version here before switching over. The runtime never depends on a

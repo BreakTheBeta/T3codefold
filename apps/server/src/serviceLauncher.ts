@@ -45,9 +45,10 @@ interface ManagedChild {
 
 // Mirrors pinnedRuntimePaths: a runtime is an unpacked release archive whose
 // executable runs on its own. Kept inline so this file stays on Node
-// built-ins only.
+// built-ins only; serviceLauncher.test.ts installs through pinnedRuntime's
+// paths so the two cannot drift apart.
 const runtimePaths = (baseDir: string, version: string) => {
-  const versionDir = NodePath.join(baseDir, "runtime", "versions", version);
+  const versionDir = NodePath.join(baseDir, "runtime", "fold", "versions", version);
   // oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone launcher has no Effect runtime.
   const executableName = process.platform === "win32" ? "t3.exe" : "t3";
   return {
