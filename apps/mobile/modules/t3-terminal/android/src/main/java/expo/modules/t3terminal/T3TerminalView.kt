@@ -2,6 +2,7 @@ package expo.modules.t3terminal
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.text.Editable
 import android.text.InputType
@@ -10,6 +11,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -523,6 +525,25 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     if (response.isNotEmpty()) {
       onInput(mapOf("data" to String(response, Charsets.UTF_8)))
     }
+  }
+
+  // A hidden workspace pane keeps the terminal mounted (clipped to zero width) so the
+  // PTY keeps its size; it must not keep keyboard focus or the soft keyboard there.
+  private val releaseFocusWhenClipped = ViewTreeObserver.OnGlobalLayoutListener {
+    if (inputView.hasFocus() && !getGlobalVisibleRect(Rect())) {
+      inputView.clearFocus()
+      hideKeyboard()
+    }
+  }
+
+  override fun onAttachedToWindow() {
+    super.onAttachedToWindow()
+    viewTreeObserver.addOnGlobalLayoutListener(releaseFocusWhenClipped)
+  }
+
+  override fun onDetachedFromWindow() {
+    viewTreeObserver.removeOnGlobalLayoutListener(releaseFocusWhenClipped)
+    super.onDetachedFromWindow()
   }
 
   private fun requestKeyboardFocus() {

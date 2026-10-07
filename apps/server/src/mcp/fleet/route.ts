@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 
 import { FleetRouter } from "../FleetRouter.ts";
 import { McpInvocationContext } from "../McpInvocationContext.ts";
-import { readCaller, readMutationCaller } from "../threadAccess.ts";
+import { assertLiveCaller, readCaller } from "../threadAccess.ts";
 
 /** Operations that change the destination; their source must be allowed to mutate. */
 const MUTATIONS: ReadonlySet<FleetOperation> = new Set([
@@ -44,9 +44,9 @@ export const routeIfRemote =
       const scope = yield* McpInvocationContext;
       const environmentId = input.environmentId;
       if (environmentId === undefined || environmentId === scope.environmentId) return yield* local;
-      const { limits } = MUTATIONS.has(operation)
-        ? yield* readMutationCaller()
-        : yield* readCaller();
+      const caller = yield* readCaller();
+      if (MUTATIONS.has(operation)) yield* assertLiveCaller(caller);
+      const { limits } = caller;
       const router = yield* FleetRouter;
       const value = yield* router.invoke({ scope, limits }, { environmentId, operation, input });
       return yield* Schema.decodeUnknownEffect(success)(value).pipe(Effect.mapError(invalidResult));

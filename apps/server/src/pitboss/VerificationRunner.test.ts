@@ -1,3 +1,4 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- The test hashes fixture bytes the way the runner does.
 import * as NodeCrypto from "node:crypto";
 import { resolveAttachmentPathById } from "../attachmentStore.ts";
 import { expect, it } from "@effect/vitest";

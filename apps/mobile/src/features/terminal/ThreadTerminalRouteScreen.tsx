@@ -186,12 +186,11 @@ type TerminalToolbarAction =
       readonly modifier: PendingModifier;
     };
 
+// A blank param (a hand-typed deep link) is treated as missing, since branded
+// IDs reject whitespace-only values.
 function firstRouteParam(value: string | string[] | undefined): string | null {
-  if (Array.isArray(value)) {
-    return value[0] ?? null;
-  }
-
-  return value ?? null;
+  const first = Array.isArray(value) ? value[0] : value;
+  return first === undefined || first.trim().length === 0 ? null : first;
 }
 
 function inferHostPlatform(environmentLabel: string | null): HostPlatform {
@@ -1200,6 +1199,9 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
                 : terminalTheme.background,
             paddingBottom:
               Platform.OS === "android" && !keyboardState.isVisible ? insets.bottom : 0,
+            // The inspector column spans the full window height with no header
+            // of its own, so on Android the terminal starts below the status bar.
+            paddingTop: isInspector && Platform.OS === "android" ? insets.top : 0,
           }}
         >
           {!isEnvironmentReady ? (

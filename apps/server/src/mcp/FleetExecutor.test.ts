@@ -18,6 +18,7 @@ import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as Project from "../project/ProjectService.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { FleetExecutor, layer } from "./FleetExecutor.ts";
 import { FleetRouter, type FleetRemoteRequest } from "./FleetRouter.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
@@ -88,6 +89,7 @@ function fixture() {
     }),
     Layer.mock(Project.ProjectService)({}),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
+    Layer.mock(GitVcsDriver.GitVcsDriver)({}),
   );
   return { scopes, launched, routed, layer: layer.pipe(Layer.provideMerge(dependencies)) };
 }
@@ -121,7 +123,7 @@ it.effect("runs a relayed request as a client caller keyed by its source", () =>
       client: {
         sessionId: "fleet:laptop:source-thread",
         label: "fleet",
-        runtimeModeCeiling: "approval-required",
+        access: "approval-required",
       },
     });
     expect([...(f.scopes[0]?.capabilities ?? [])]).toEqual(["orchestration"]);
@@ -253,7 +255,7 @@ it.effect("runs CLI requests locally with full access and routes others", () => 
     yield* executor.invoke({ operation: "t3_thread_list", input: { projectId } });
     expect(f.scopes[0]).toMatchObject({
       requestNamespace: "fleet:server:cli",
-      client: { runtimeModeCeiling: "full-access" },
+      client: { access: "full-access" },
     });
     expect(f.routed).toEqual([]);
 

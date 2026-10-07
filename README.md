@@ -1,47 +1,99 @@
 # T3 Code Fold
 
-T3 Code Fold extends [T3 Code](https://github.com/pingdotgg/t3code) with a foldable Android workspace, live Codex voice, and agent handoffs between connected machines. Web, desktop, and Android share compatibility with older servers, while Fold builds use their own install and update sources.
+**T3 Code for the phone that unfolds into a laptop.**
 
-[Download Fold](https://github.com/BreakTheBeta/T3codefold/releases) · [Install a server](#installation) · [Update guide](docs/user/updating.md) · [Foldable demo](#foldable-demo)
+T3 Code Fold is a fork of [T3 Code](https://github.com/pingdotgg/t3code) built for Android foldables. Unfold your phone and you get chat, files, terminal and git side by side. Pair a Bluetooth keyboard and you get laptop shortcuts and optional Vim navigation. Codex can talk back to you, and the whole app gets splatter-paint styling. Everything still works on web, desktop and regular phones, and Fold clients connect to the same servers as upstream T3 Code.
 
-## Extra features
+[Download the Android preview](https://github.com/BreakTheBeta/T3codefold/releases) · [Install a server](#installation) · [Update guide](docs/user/updating.md)
 
-Compared with upstream `main` at [1de563c149](https://github.com/pingdotgg/t3code/commit/1de563c149), synced **21 September 2026**. These tables describe the code on Fold's `main`; an older published installer may not include every change.
+![T3 Code Fold on an unfolded phone: thread sidebar beside a conversation](docs/images/fold-hero.webp)
 
-### Agents, voice, and compatibility
+## Built for the unfolded phone
 
-| Feature                        | What you get                                                                                                                                                                                                                                                                                                        | Available in                             |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **Live Codex voice**           | Choose a speaking voice and microphone, read transcripts and agent status, mute speaker and mic separately, use shortcuts, and keep talking while navigating. Optional file/diff/question context and spoken end/task switching are supported. [Voice setup](docs/user/providers-codex.md#talk-to-codex-fold-beta). | Web · Desktop · Mobile                   |
-| **Handoffs between machines**  | An agent can discover connected environments, start or message a thread elsewhere, and read or wait for its response.                                                                                                                                                                                               | Server · Connected clients               |
-| **Fleet CLI**                  | Use `t3 fleet` to discover environments and projects, create threads, send messages, read results, and wait. Retried requests keep their original receipt.                                                                                                                                                          | CLI                                      |
-| **Task handoff skill**         | Give another thread ownership of work with its objective, progress, code location, constraints, and a return contact. [Handoff instructions](.agents/skills/t3-handoff/SKILL.md).                                                                                                                                   | Agents with T3 tools or CLI              |
-| **Older-server compatibility** | Connect the same client to pre-orchestration and current servers; browse threads, send messages, and answer approvals and questions. [Compatibility guide](docs/user/updating.md#compatibility-with-older-servers).                                                                                                 | Web · Desktop, including macOS · Android |
-| **Optional Cite bubble**       | Hide the selection bubble through **Settings → General → Show Cite on text selection**, without disabling text selection.                                                                                                                                                                                           | Web · Desktop                            |
-| **Vim keyboard mode**          | Navigate threads, responses, controls, and the composer with Zed-style modal keyboard controls. Follow the [learning guide](docs/user/vim-keyboard-mode.md) to get started.                                                                                                                                         | Web · Desktop                            |
-| **Splatter backdrop**          | Paint splatter across the whole chat canvas in your theme's colours, sized to fill anything up to 4K. Choose how much paint with the **Splatter amount** slider, and browse patterns in a scrolling preview strip under **Settings → Appearance → Splatter pattern**. [See it](#splatter-backdrop).                 | Web · Desktop · Mobile                   |
+Fold's Android app treats an unfolded screen as a workspace, not a stretched phone.
 
-### Android and foldable phones
+| Chat beside the terminal                                                                           | Chat beside your files                                                           |
+| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| ![A conversation beside a live terminal on an unfolded phone](docs/images/fold-chat-terminal.webp) | ![A conversation beside the project file tree](docs/images/fold-chat-files.webp) |
+| **Resize with the handle**                                                                         | **Maximize a pane**                                                              |
+| ![The divider handle dragged to give the side pane more room](docs/images/fold-resized.webp)       | ![The file tree maximized to the whole screen](docs/images/fold-maximized.webp)  |
 
-| Feature                              | What you get                                                                                                                                 |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Chat beside workspace tools**      | Keep chat beside Files, Terminal, or Git in wide Android windows. Tabletop posture separates chat above the fold from the composer below.    |
-| **Resizable panes**                  | Drag the divider to resize or maximize. A separating physical hinge fixes the split; use the pane's maximize button to expand or restore it. |
-| **Fold-aware navigation**            | Split sizes are remembered per posture. Enable optional thumb navigation in **Settings → Organization** to switch recent threads and panes.  |
-| **Laptop-style keyboard**            | Ctrl shortcuts work anywhere, Return sends from the composer, and optional Vim navigation moves between panes and threads.                   |
-| **Background voice calls**           | Keep talking with the screen locked, end calls from the ongoing notification, and use system speaker or Bluetooth call routing.              |
-| **Shared project colours and icons** | See automatic colours, custom icons, and emoji configured on desktop for projects on the same server.                                        |
-| **Native source tools**              | Wrap code, select and copy lines, or attach them to chat. Pinch to resize code, diffs, terminal text, and images.                            |
-| **Selectable Markdown and links**    | Select and copy across paragraphs, lists, and tables, while keeping response links clickable.                                                |
-| **Agent activity notifications**     | Get local alerts for completed or failed work, approvals, and questions; tap to return to the thread. Requires the app to remain connected.  |
+- **Side-by-side panes.** Open Files, Terminal or Git next to the conversation. When the chat would get too narrow, the thread sidebar steps aside.
+- **A real divider.** Drag the handle to resize: the panes lay out once when you let go. A separating physical hinge fixes the split; use the pane’s maximize button to expand or restore it.
+- **Fold and unfold freely.** The sidebar keeps its place when you fold and unfold. Pane sizes are remembered per posture, sidebar visibility is remembered, and Android Back steps out one layer at a time.
+- **Terminal that keeps up.** Agent CLIs and full-screen programs redraw cleanly when you resize. Hardware arrows, Esc, Tab and function keys work.
+- **Folded, it's a great phone app.** Close the phone and you're back to the compact single-column layout.
+- **Tabletop and thumb navigation.** Tabletop posture puts chat above the fold and the composer below. Enable optional thumb navigation in **Settings → Organization** to switch recent threads and panes.
+- **Native source tools.** Wrap code, select and copy lines, or attach them to chat. Pinch to resize code, diffs, terminal text, and images.
 
-### Fold installation and updates
+<img src="docs/images/fold-folded.webp" alt="The same workspace folded, as a single-column phone layout" width="300">
 
-| Feature                       | What you get                                                                                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Separate Android preview**  | Install Fold alongside the upstream Play Store app. Compatible JavaScript updates come from Fold's GitHub OTA feed and must match the native runtime.                                      |
-| **Fork-owned server updates** | Server updates, remote SSH installs, and copied commands use Fold release packages. Older updaters get a manual Fold command instead of installing upstream T3.                            |
-| **Dedicated desktop feeds**   | Windows, macOS, and Linux builds use Fold's desktop feeds, separate from APK releases. The release workflow publishes the matching server first and includes Windows WSL terminal support. |
+## A keyboard-first workspace
+
+Pair a Bluetooth keyboard and the unfolded phone works like a small laptop.
+
+- **Shortcuts work anywhere**, with Ctrl or the keyboard's Cmd key: K opens the command palette, N starts a new task, B toggles the sidebar, F searches and 1–9 jump to threads. Shift+[ / ] step between threads, and Shift+F / T / R open files, terminal or review. The terminal keeps plain Ctrl chords for the shell.
+- **The composer behaves like a desktop editor.** Return sends (or inserts a newline; you choose in **Settings → Keyboard**), Ctrl+Return sends, and Esc leaves the composer.
+- **Vim navigation (optional).** Turn on **Settings → Keyboard → Vim navigation**:
+  - `Ctrl-w h/l` moves between the sidebar, chat and side pane, and `Ctrl-w o` maximizes.
+  - `j`/`k` and `gg`/`G` move through threads or scroll the conversation.
+  - `Enter` opens a thread, `i` writes, `/` searches, and `Space` opens commands.
+
+![Vim navigation: the sidebar focused with a keyboard cursor on a thread](docs/images/fold-vim.webp)
+
+On web and desktop, [Vim keyboard mode](docs/user/vim-keyboard-mode.md) adds Zed-style modal navigation through threads, responses, controls and the composer.
+
+## Selectable responses
+
+Android's native selection handles work across a whole response: headings, paragraphs, lists, links, inline code and tables. Links stay tappable.
+
+<img src="docs/images/t3codefold-text-selection.webp" alt="Native Android text selection spanning Markdown headings, paragraphs, lists, links, inline code, and a table" width="360">
+
+## Talk to Codex
+
+Open a Codex thread and choose **Talk to Codex** for a live, two-way voice conversation.
+
+- Pick the speaking voice and microphone, and mute the speaker and mic separately.
+- Read the transcript and agent status while you talk.
+- Keep the call going while you browse other threads, files and diffs.
+- On Android, calls continue with the screen locked, can be ended from the ongoing notification, and use system speaker or Bluetooth call routing.
+
+[Voice setup and requirements](docs/user/providers-codex.md#talk-to-codex-fold-beta).
+
+## Splatter backdrop
+
+Paint splatter across the chat canvas in your theme's colours, on the unfolded phone or up to 4K on desktop.
+
+- Choose how much paint and which pattern under **Settings → Appearance**, and add an optional neon glow.
+- Turn on **Dynamic splatter** and every merged pull request adds a splat in its project's colour. The canvas wipes clean at 6am.
+
+| On an unfolded phone                                                                   | On desktop, with neon glow                                                            |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| ![Splatter behind a conversation on an unfolded phone](docs/images/fold-splatter.webp) | ![Cyberpunk theme with neon glow splatter](docs/images/t3codefold-splatter-glow.webp) |
+
+## More than upstream
+
+Compared with upstream `main` at [64275ae396](https://github.com/pingdotgg/t3code/commit/64275ae396), synced **6 October 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
+
+| Feature                              | What you get                                                                                                                                                                                                        | Available in                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **Foldable workspace**               | Side-by-side chat, files, terminal and git, with a resizable, fold-aware divider and remembered layout.                                                                                                             | Android                                  |
+| **Hardware keyboard and Vim**        | Laptop-style shortcuts, a keyboard-friendly composer and optional Vim navigation.                                                                                                                                   | Android · Web · Desktop                  |
+| **Live Codex voice**                 | Two-way voice with transcripts, separate mutes, background calls and Bluetooth routing.                                                                                                                             | Web · Desktop · Mobile                   |
+| **Handoffs between machines**        | An agent can discover connected environments, start or message a thread elsewhere, and read or wait for its response.                                                                                               | Server · Connected clients               |
+| **Fleet CLI**                        | `t3 fleet` discovers environments and projects, creates threads, sends messages, reads results and waits. Retried requests keep their original receipt.                                                             | CLI                                      |
+| **Task handoff skill**               | Give another thread ownership of work with its objective, progress, code location, constraints and a return contact. [Handoff instructions](.agents/skills/t3-handoff/SKILL.md).                                    | Agents with T3 tools or CLI              |
+| **Older-server compatibility**       | Connect the same client to pre-orchestration and current servers; browse threads, send messages, and answer approvals and questions. [Compatibility guide](docs/user/updating.md#compatibility-with-older-servers). | Web · Desktop, including macOS · Android |
+| **Agent activity notifications**     | Local alerts for completed or failed work, approvals and questions; tap to return to the thread. Requires the app to stay connected.                                                                                | Android                                  |
+| **Shared project colours and icons** | Automatic colours, custom icons and emoji configured on desktop show up for projects on the same server.                                                                                                            | Android                                  |
+| **Optional Cite bubble**             | Hide the selection bubble through **Settings → General → Show Cite on text selection**, without disabling text selection.                                                                                           | Web · Desktop                            |
+| **Splatter backdrop**                | Theme-coloured paint across the chat canvas, with patterns, amount, glow and dynamic splats.                                                                                                                        | Web · Desktop · Mobile                   |
+
+### Fold installs and updates
+
+- **Separate Android preview.** Install Fold alongside the upstream Play Store app. Compatible JavaScript updates come from Fold's GitHub OTA feed and must match the native runtime.
+- **Fork-owned server updates.** Server updates, remote SSH installs and copied commands use Fold release packages. Older updaters get a manual Fold command instead of installing upstream T3.
+- **Dedicated desktop feeds.** Windows, macOS and Linux builds use Fold's own feeds, separate from APK releases. The release workflow publishes the matching server first and includes Windows WSL terminal support.
 
 <details>
 <summary><strong>Connection and release limits</strong></summary>
@@ -70,34 +122,6 @@ Fold also includes [upstream's orchestration work](https://github.com/pingdotgg/
 Upgrading an older server also migrates its conversation transcripts into the new runtime. Read [older-thread migration](docs/user/thread-migration.md) for what carries over and how sessions resume.
 
 Upstream already supplies the core clients, remote connections, provider support, voice dictation, source-control tools, and much of the project styling. The September 9 sync also includes desktop window capture, question-answer attachments, Android wallpaper colors and optional Material You layout, minimap turn navigation, and pull-request merge defaults. These are shared upstream features, not Fold-only additions. The tables above describe Fold's additions or extensions to that foundation. Recheck them after upstream merges overlapping functionality; Pebble's separate watch app and its legacy compatibility branch are not features of this main branch.
-
-## Foldable demo
-
-| Chat + Files                                                                                        | Resizable workspace                                                                                            |
-| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| ![Chat and Files side by side on an unfolded Android phone](docs/images/t3codefold-chat-files.webp) | ![A resized T3 Code Fold workspace giving the active pane more room](docs/images/t3codefold-resized-pane.webp) |
-
-### Select across Markdown
-
-Android's native selection controls work across mixed response content, including headings, paragraphs, links, lists, inline code, and tables.
-
-<img src="docs/images/t3codefold-text-selection.webp" alt="Native Android text selection spanning Markdown headings, paragraphs, lists, links, inline code, and a table" width="420">
-
-Download the Android preview from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The preview package is separate from the Play Store build, so it can be installed for testing without replacing the production app.
-
-## Splatter backdrop
-
-Every screenshot below has the splatter backdrop turned on. Turn it on for any theme under **Settings → Appearance → Splatter backdrop**, set how much paint with **Splatter amount**, then scroll the pattern previews to pick one.
-
-Turn on **Dynamic splatter** and every pull request that merges adds a splat in its project's colour. The canvas wipes clean at 6am local time.
-
-![Cyberpunk with neon glow: splatter and bursts of spray across the whole canvas](docs/images/t3codefold-splatter-glow.webp)
-
-| Filling a 4K canvas                                                                                                | Codex, light                                                                           |
-| ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| ![Splatter spread across a 3840×2160 canvas instead of two small corners](docs/images/t3codefold-splatter-4k.webp) | ![Splatter in the Codex light theme](docs/images/t3codefold-splatter-codex-light.webp) |
-
-<img src="docs/images/t3codefold-splatter-patterns.webp" alt="Scrolling pattern previews under Settings, Appearance, Splatter pattern" width="620">
 
 ## About upstream T3 Code
 
@@ -128,8 +152,6 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 ```bash
 npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
 ```
-
-On Windows, in PowerShell:
 
 Tip: Use `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 --help` for the full CLI reference.
 

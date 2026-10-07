@@ -20,6 +20,7 @@ import {
   type PitbossTaskNextAction,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Stable operation ids need synchronous SHA-256.
 import * as NodeCrypto from "node:crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
