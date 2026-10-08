@@ -2157,6 +2157,9 @@ code {
   column-gap: var(--thread-wrap-gap);
   column-rule: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   column-fill: auto;
+  /* Lines pushed past a column break grow the split row; push as few as possible. */
+  orphans: 1;
+  widows: 1;
 }
 
 /* The window already stops above the composer. */

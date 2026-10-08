@@ -939,6 +939,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [timelineScroller, setTimelineScroller] = useState<HTMLElement | null>(null);
   const { ribbon: threadRibbon, ribbonIsAtEnd } = useThreadRibbon({
     scroller: timelineScroller,
+    threadKey: listIdentityKey,
     maxColumns: threadWrapColumns,
     composerInset: contentInsetEndAdjustment,
   });
@@ -1374,6 +1375,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
             contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
             maintainScrollAtEnd={
+              // The ribbon follows its own end. Scrolling it moves column
+              // breaks and resizes rows, which Legend would answer by snapping
+              // back to an end the user just scrolled away from.
+              threadRibbon ||
               citationPositioning ||
               (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
               anchoredEndSpace ||
