@@ -2132,14 +2132,18 @@ code {
 
 /* Thread wrapping's ribbon (useThreadRibbon). Once a thread is taller than
    one screen and the timeline fits several reading-width columns, LegendList's
-   content pins as a screen-height window of columns and scrolling feeds the
-   whole thread through them. Every row is one column wide inside it. */
+   content pins as a screen-height window and scrolling feeds the whole thread
+   through it. Rows keep their single-column layout; the hook carries each one
+   into its column with a transform and this window's clip cuts it at the
+   seams, so nothing here fragments. */
 :root[data-thread-wrap] {
   --thread-wrap-column-width: 42rem;
   --thread-wrap-gap: 3.5rem;
 }
 
 [data-thread-ribbon] > .legend-list-content-container {
+  --thread-ribbon-stride: calc(var(--thread-wrap-column-width) + var(--thread-wrap-gap));
+  --thread-ribbon-rule: color-mix(in srgb, var(--border) 80%, transparent);
   position: sticky;
   top: var(--thread-ribbon-top);
   margin-top: var(--thread-ribbon-top);
@@ -2153,13 +2157,42 @@ code {
   /* LegendList's anchored end space would only add blank columns here. */
   padding-bottom: 0 !important;
   overflow: clip;
-  column-count: var(--thread-ribbon-columns);
-  column-gap: var(--thread-wrap-gap);
-  column-rule: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  column-fill: auto;
-  /* Lines pushed past a column break grow the split row; push as few as possible. */
-  orphans: 1;
-  widows: 1;
+  /* One rule per gap; the tile after the last column falls outside the box. */
+  background-image: linear-gradient(
+    to right,
+    transparent calc(var(--thread-wrap-column-width) + var(--thread-wrap-gap) / 2),
+    var(--thread-ribbon-rule) 0,
+    var(--thread-ribbon-rule)
+      calc(var(--thread-wrap-column-width) + var(--thread-wrap-gap) / 2 + 1px),
+    transparent 0
+  );
+  background-size: var(--thread-ribbon-stride) 100%;
+  background-repeat: repeat-x;
+}
+
+/* Every row is one column wide. LegendList spans rows edge to edge inline. */
+[data-thread-ribbon-layer] > div:not([data-thread-ribbon-mirrors]),
+[data-thread-ribbon-mirrors] > div {
+  width: var(--thread-wrap-column-width) !important;
+  right: auto !important;
+}
+
+[data-thread-ribbon-mirrors] {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 0;
+}
+
+/* A mirror is a still copy of a live row: no input, no selection, no motion. */
+[data-thread-ribbon-mirror] {
+  pointer-events: none;
+  user-select: none;
+}
+
+[data-thread-ribbon-mirror] * {
+  animation: none !important;
+  transition: none !important;
 }
 
 /* The window already stops above the composer. */

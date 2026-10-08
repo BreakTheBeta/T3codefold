@@ -1137,10 +1137,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const measure = () => {
       const viewportWidth = timelineViewportElement.getBoundingClientRect().width;
       // Without a mounted row, treat the column as full width so the strip stays inert.
+      // The ribbon's window of columns is the content; a row inside it is one column.
       const contentWidth =
-        timelineViewportElement
-          .querySelector<HTMLElement>("[data-timeline-root]")
-          ?.getBoundingClientRect().width ?? viewportWidth;
+        (threadRibbon
+          ? timelineScroller?.firstElementChild
+          : timelineViewportElement.querySelector<HTMLElement>("[data-timeline-root]")
+        )?.getBoundingClientRect().width ?? viewportWidth;
       const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(
         viewportWidth,
         contentWidth,
@@ -1161,7 +1163,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth, threadWrapColumns]);
+  }, [
+    timelineViewportElement,
+    timelineScroller,
+    threadRibbon,
+    rows.length,
+    reportContentOverflow,
+    chatWidth,
+  ]);
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
@@ -1375,9 +1384,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
             contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
             maintainScrollAtEnd={
-              // The ribbon follows its own end. Scrolling it moves column
-              // breaks and resizes rows, which Legend would answer by snapping
-              // back to an end the user just scrolled away from.
+              // The ribbon follows its own end, which comes columns before
+              // the single-column end Legend would hold.
               threadRibbon ||
               citationPositioning ||
               (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
