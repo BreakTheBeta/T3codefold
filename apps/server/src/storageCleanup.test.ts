@@ -7,7 +7,12 @@ import {
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { storageCleanupActivityAt, storageCleanupThreadIdle } from "./storageCleanup.ts";
+import {
+  storageCleanupActivityAt,
+  storageCleanupIgnoredEntryRegenerable,
+  storageCleanupThreadIdle,
+  storageCleanupWorktreeIdleSince,
+} from "./storageCleanup.ts";
 
 const NOW_MS = Date.parse("2026-06-10T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -103,4 +108,89 @@ describe("V2 storage cleanup eligibility", () => {
   function candidateWithStatus(status: OrchestrationV2ThreadShell["status"]) {
     return { ...candidate(), status };
   }
+});
+
+describe("V2 storage cleanup shared worktrees", () => {
+  const onWorktree = (id: string, overrides: Partial<OrchestrationV2ThreadShell> = {}) =>
+    shell({
+      id: ThreadId.make(id),
+      branch: "feature",
+      worktreePath: "/worktrees/feature",
+      ...overrides,
+    });
+
+  it("dates a shared worktree from its most recently active thread", () => {
+    const recent = at(-3 * DAY_MS);
+    expect(
+      storageCleanupWorktreeIdleSince(
+        [
+          onWorktree("a", { latestRunCompletedAt: at(-9 * DAY_MS) }),
+          onWorktree("b", { latestRunCompletedAt: recent }),
+          onWorktree("c", { archivedAt: at(-20 * DAY_MS) }),
+        ],
+        NOW_MS,
+      ),
+    ).toBe(DateTime.toEpochMillis(recent));
+  });
+
+  it("keeps a shared worktree while any of its threads is busy", () => {
+    expect(
+      storageCleanupWorktreeIdleSince(
+        [onWorktree("a"), onWorktree("b", { status: "running" })],
+        NOW_MS,
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps a worktree whose threads disagree on branch or project", () => {
+    expect(
+      storageCleanupWorktreeIdleSince(
+        [onWorktree("a"), onWorktree("b", { branch: "other" })],
+        NOW_MS,
+      ),
+    ).toBeNull();
+    expect(
+      storageCleanupWorktreeIdleSince(
+        [onWorktree("a"), onWorktree("b", { projectId: ProjectId.make("project-2") })],
+        NOW_MS,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("V2 storage cleanup ignored files", () => {
+  it.each([
+    "node_modules/",
+    "apps/web/node_modules/",
+    ".vite-hooks/_/",
+    ".vite-hooks/_/pre-commit",
+    ".husky/_/",
+    "apps/web/tsconfig.tsbuildinfo",
+    "apps/mobile/.expo/",
+    ".generated/",
+    "apps/desktop/dist-electron/",
+    "apps/server/dist/",
+    "apps/marketing/.astro/",
+    "native/foo/target/",
+    ".turbo/",
+    "coverage/",
+    "src/__pycache__/",
+  ])("treats %s as regenerable", (entry) => {
+    expect(storageCleanupIgnoredEntryRegenerable(entry)).toBe(true);
+  });
+
+  it.each([
+    ".env",
+    ".env.local",
+    "infra/relay/.env",
+    "gen-secret",
+    ".t3/",
+    "data/",
+    "notes.md",
+    ".husky/pre-commit",
+    "node_modules",
+    "dist",
+  ])("keeps the worktree for %s", (entry) => {
+    expect(storageCleanupIgnoredEntryRegenerable(entry)).toBe(false);
+  });
 });
