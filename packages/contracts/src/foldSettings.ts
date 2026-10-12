@@ -3,6 +3,7 @@
  * `ClientSettingsPatch` in `settings.ts`, so upstream syncs touch two lines
  * there instead of every field.
  */
+import { GamingHudPosition } from "./gamingHud.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -47,6 +48,10 @@ export const ThreadWrapMaxColumns = Schema.Int.check(Schema.isBetween({ minimum:
 export const DEFAULT_THREAD_WRAP_MAX_COLUMNS = 3;
 
 export const FoldClientSettingsFields = {
+  gamingHudEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  gamingHudPosition: GamingHudPosition.pipe(
+    Schema.withDecodingDefault(Effect.succeed("top-right" as const)),
+  ),
   threadWrapEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   threadWrapMaxColumns: ThreadWrapMaxColumns.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_WRAP_MAX_COLUMNS)),
@@ -74,6 +79,8 @@ export const FoldClientSettingsFields = {
 };
 
 export const FoldClientSettingsPatchFields = {
+  gamingHudEnabled: Schema.optionalKey(Schema.Boolean),
+  gamingHudPosition: Schema.optionalKey(GamingHudPosition),
   threadWrapEnabled: Schema.optionalKey(Schema.Boolean),
   threadWrapMaxColumns: Schema.optionalKey(ThreadWrapMaxColumns),
   themeBackdropEnabled: Schema.optionalKey(Schema.Boolean),

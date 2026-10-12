@@ -1,3 +1,4 @@
+import { isGamingHudWindow } from "../gamingHud/GamingHud.ts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -291,7 +292,7 @@ function syncWindowAppearance(
   platform: NodeJS.Platform,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
-    if (window.isDestroyed()) {
+    if (window.isDestroyed() || isGamingHudWindow(window)) {
       return;
     }
 

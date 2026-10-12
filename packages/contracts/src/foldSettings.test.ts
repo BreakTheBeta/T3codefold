@@ -45,3 +45,16 @@ describe("ClientSettings thread wrapping", () => {
     expect(() => decodeClientSettingsPatch({ threadWrapMaxColumns: 5 })).toThrow();
   });
 });
+
+describe("ClientSettings gaming HUD", () => {
+  it("defaults off and persists its corner on this client", () => {
+    expect(decodeClientSettings({})).toMatchObject({
+      gamingHudEnabled: false,
+      gamingHudPosition: "top-right",
+    });
+    const patch = { gamingHudEnabled: true, gamingHudPosition: "bottom-left" };
+    expect(decodeClientSettingsPatch(patch)).toEqual(patch);
+    expect(encodeClientSettings(decodeClientSettings(patch))).toMatchObject(patch);
+    expect(() => decodeClientSettingsPatch({ gamingHudPosition: "center" })).toThrow();
+  });
+});

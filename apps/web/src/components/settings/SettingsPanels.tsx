@@ -1,3 +1,4 @@
+import { GamingHudSettings } from "./GamingHudSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { Spinner } from "~/components/ui/spinner";
@@ -571,6 +572,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.notificationMode !== DEFAULT_UNIFIED_SETTINGS.notificationMode
         ? ["Thread notifications"]
         : []),
+      ...(settings.gamingHudEnabled !== DEFAULT_UNIFIED_SETTINGS.gamingHudEnabled ||
+      settings.gamingHudPosition !== DEFAULT_UNIFIED_SETTINGS.gamingHudPosition
+        ? ["Gaming HUD"]
+        : []),
       ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
         ? ["In-app notifications"]
         : []),
@@ -731,6 +736,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.timestampFormat,
       settings.notificationMode,
       settings.inAppNotificationsEnabled,
+      settings.gamingHudEnabled,
+      settings.gamingHudPosition,
       settings.wordWrap,
       followSystem,
       theme,
@@ -807,6 +814,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
+      gamingHudEnabled: DEFAULT_UNIFIED_SETTINGS.gamingHudEnabled,
+      gamingHudPosition: DEFAULT_UNIFIED_SETTINGS.gamingHudPosition,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -2505,6 +2514,7 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="behavior" title="Behavior">
         <NotificationSettings />
+        <GamingHudSettings />
         <SettingsRow
           {...searchableSetting("in-app-notifications")}
           description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
