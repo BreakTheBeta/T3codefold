@@ -1300,7 +1300,7 @@ export function KeybindingsSettingsPanel() {
   const keybindingsConfigPath = primaryEnvironment?.serverConfig?.keybindingsConfigPath ?? null;
   const availableEditors = primaryEnvironment?.serverConfig?.availableEditors ?? [];
   const voiceControls =
-    primaryEnvironment?.serverConfig?.environment.capabilities.realtimeVoiceControls === true;
+    primaryEnvironment?.serverConfig?.environment?.capabilities.realtimeVoiceControls === true;
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
   });

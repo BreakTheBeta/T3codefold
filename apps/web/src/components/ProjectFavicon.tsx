@@ -1,6 +1,4 @@
-import type { ProjectIconColor, ProjectIconOverride } from "@t3tools/contracts";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-
 import {
   getProjectFaviconResourceKey,
   isProjectFaviconFallbackUrl,
@@ -11,7 +9,6 @@ import type { ComponentType } from "react";
 import { lazy, Suspense, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { projectFaviconUrlAtom } from "../state/assets";
-import { selectProjectIcon, type ProjectIconName } from "@t3tools/shared/projectIconModel";
 import { deriveProjectIdentity } from "../projectIdentity";
 import { projectIconColorClassName } from "../projectIconColors";
 import { ProjectMonogram } from "./ProjectMonogram";

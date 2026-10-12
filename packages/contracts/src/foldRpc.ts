@@ -34,7 +34,7 @@ import {
   ProviderRealtimeVoiceStartInput,
   ProviderRealtimeVoiceStartResult,
   ProviderRealtimeVoiceStopInput,
-} from "./provider.ts";
+} from "./realtimeVoice.ts";
 
 export const FOLD_WS_METHODS = {
   // Pitboss (GLaDOS managed work)

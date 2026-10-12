@@ -64,6 +64,7 @@ export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 export * from "./foldRpc.ts";
+export * from "./realtimeVoice.ts";
 export * from "./fleet.ts";
 export * from "./pitboss.ts";
 export * from "./pitbossPeer.ts";

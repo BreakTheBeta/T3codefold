@@ -133,6 +133,7 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import { ThreadRetentionGuard } from "./ThreadRetentionGuard.ts";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -244,27 +245,6 @@ export class OrchestratorCommandIdConflictError extends Schema.TaggedError<Orche
   }
 }
 
-export class ThreadRetentionGuardError extends Schema.TaggedError<ThreadRetentionGuardError>()(
-  "ThreadRetentionGuardError",
-  { reason: Schema.String, cause: Schema.optional(Schema.Defect()) },
-) {
-  override get message(): string {
-    return this.reason;
-  }
-}
-
-/**
- * Lets a feature outside orchestration veto a command before it is planned, for example
- * refusing to archive a thread that must stay visible. The default allows every command.
- */
-export class ThreadRetentionGuard extends Context.Reference<{
-  readonly check: (
-    command: OrchestrationV2ServerCommand,
-  ) => Effect.Effect<void, ThreadRetentionGuardError>;
-}>("t3/orchestration-v2/ThreadRetentionGuard", {
-  defaultValue: () => ({ check: () => Effect.void }),
-}) {}
-
 /**
  * A command receipt only proves that this exact command already ran for the
  * thread it was recorded against. Replaying it for a command aimed at another
@@ -290,16 +270,6 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorThreadAboveModeLimitError,
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
-
-/**
- * The server's title-completion command. `needsRefinement` marks an initial
- * generated title as provisional, so ThreadTitleRefinement regenerates it once
- * the first run completes. It is server-only and never crosses the wire.
- */
-export type ThreadTitleRegenerationCompleteCommand = Extract<
-  OrchestrationV2ServerCommand,
-  { readonly type: "thread.title.regeneration.complete" }
-> & { readonly needsRefinement?: boolean };
 
 export interface OrchestratorV2DispatchResult {
   readonly sequence: number;
@@ -3280,7 +3250,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                       titleState: {
                         source: "generated" as const,
                         version: command.commandId,
-                        // See ThreadTitleRegenerationCompleteCommand.
+                        // See ThreadTitleRefinement's ThreadTitleRegenerationCompleteCommand.
                         needsRefinement:
                           "needsRefinement" in command && command.needsRefinement === true,
                       },
@@ -11409,11 +11379,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ),
     );
 
-  // Live tail only. eventSink.stream() with no cursor replays the whole
-  // store from genesis first; domain-event subscribers (the awareness relay)
-  // react to new activity, and startup replay made them grind through the
-  // entire event history doing per-event work after every boot. The cursor is
-  // read when this effect runs, and the stream replays anything after it.
+  // streamDomainEvents' live tail, with the cursor read when this effect runs;
+  // the stream replays anything after it.
   const subscribeDomainEvents = eventSink.latestSequence().pipe(
     Effect.map((latest) =>
       eventSink.stream({ afterSequence: latest }).pipe(
@@ -11523,7 +11490,23 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             }),
         ),
       ),
-    streamDomainEvents: Stream.unwrap(subscribeDomainEvents),
+    // Live tail only. eventSink.stream() with no cursor replays the whole
+    // store from genesis first; domain-event subscribers (the awareness relay)
+    // react to new activity, and startup replay made them grind through the
+    // entire event history doing per-event work after every boot.
+    streamDomainEvents: Stream.unwrap(
+      eventSink
+        .latestSequence()
+        .pipe(Effect.map((latest) => eventSink.stream({ afterSequence: latest }))),
+    ).pipe(
+      Stream.map((stored) => stored.event),
+      Stream.mapError(
+        (cause) =>
+          new OrchestratorDomainEventStreamError({
+            cause,
+          }),
+      ),
+    ),
     subscribeDomainEvents,
   });
 });

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { foldDesktopFeed } from "@t3tools/shared/foldRelease";
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
@@ -39,6 +38,7 @@ import {
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
+import { foldDesktopFeed } from "@t3tools/shared/foldRelease";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -2666,7 +2666,8 @@ export function resolveDesktopRuntimeDependencies(
   );
 }
 
-export const resolveDesktopPublishConfig = (updateChannel: "latest" | "nightly") =>
+// Fold publishes desktop builds to fixed generic feeds on its own releases.
+export const resolveGitHubPublishConfig = (updateChannel: "latest" | "nightly") =>
   Effect.succeed(foldDesktopFeed(updateChannel));
 
 export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
@@ -2778,7 +2779,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
   if (!isDesktopPreviewVersion(version)) {
-    const publishConfig = yield* resolveDesktopPublishConfig(updateChannel);
+    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
     } else if (mockUpdates) {
@@ -2818,7 +2819,6 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           },
         ],
       },
-
       protocols: [
         {
           name: "T3 Code",

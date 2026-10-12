@@ -14,12 +14,12 @@ import {
 } from "../../provider/CodexTurnTokenUsage.ts";
 import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
 import type { CodexEffectiveRuntime } from "../../provider/CodexManagedRuntime.ts";
-import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
 import {
-  makeCodexRealtimeVoice,
-  type CodexRealtimeVoice,
-} from "../../provider/codexRealtimeVoice.ts";
-import { makeManagedCodexClient } from "./CodexManagedClient.ts";
+  codexPermissionApprovalPrompt,
+  isCodexUsageLimitCode,
+  openCodexSessionClient,
+  withCodexRealtimeVoiceFeature,
+} from "./CodexAdapterV2Fold.ts";
 import {
   buildCodexInitializeParams,
   codexAppServerEnvironment,
@@ -115,10 +115,7 @@ import {
   shouldPersistProviderEvent,
 } from "../../provider/EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
-import {
-  codexSessionAppServerArgs,
-  resolveCodexLaunchArgs,
-} from "../../provider/codexLaunchArgs.ts";
+import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -562,31 +559,6 @@ function approvalDecisionToLegacyReviewDecision(
     case "cancel":
       return "abort";
   }
-}
-
-/**
- * Prompt for an app permission request: its nonblank reason, else the paths it
- * asked for, so a reasonless request still says what it wants.
- */
-export function codexPermissionApprovalPrompt(
-  input: Pick<CodexSchema.PermissionsRequestApprovalParams, "reason" | "permissions">,
-): string | undefined {
-  const reason = input.reason?.trim();
-  if (reason) return reason;
-  const paths = [
-    ...(input.permissions.fileSystem?.read ?? []),
-    ...(input.permissions.fileSystem?.write ?? []),
-  ];
-  return paths.length > 0 ? `Access: ${paths.join(", ")}` : undefined;
-}
-
-/** Codex limit codes, plus ChatGPT sharing's own usage limit on managed sessions. */
-function isCodexUsageLimitCode(code: string | null | undefined): boolean {
-  return (
-    code === "usageLimitExceeded" ||
-    code === "rateLimitExceeded" ||
-    code === "subscription_sharing_usage_limit_exceeded"
-  );
 }
 
 function permissionsResponseFromDecision(input: {
@@ -1541,8 +1513,10 @@ export const layerAppServerClientFactory: Layer.Layer<
           };
           const command = yield* makeCodexAppServerSpawnCommand({
             command: input.settings.binaryPath || "codex",
-            args: codexSessionAppServerArgs(
-              resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
+            args: withCodexRealtimeVoiceFeature(
+              codexAppServerArgs(
+                resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
+              ),
             ),
             env: environment,
             threadId: input.threadId,
@@ -1732,49 +1706,27 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const scope = yield* Scope.Scope;
         // One Codex process per thread, so its shell gets the thread's `t3 work` credential.
         const mcpSession = yield* mcpSessions.read(input.threadId);
-        const openClient = (settings: CodexSettings, environment: NodeJS.ProcessEnv) =>
-          clientFactory.open({
-            instanceId: adapterOptions.instanceId,
-            threadId: input.threadId,
-            providerSessionId: input.providerSessionId,
-            runtimePolicy: input.runtimePolicy,
-            settings,
-            environment: McpProviderSession.providerSessionEnvironment(environment, mcpSession),
-          });
-        // One realtime voice controller per native thread, created on first use.
-        const voiceControllers = new Map<string, CodexRealtimeVoice>();
-        const isVoiceActive = Effect.gen(function* () {
-          for (const voice of voiceControllers.values()) {
-            if (yield* voice.isActive) return true;
-          }
-          return false;
+        const { client, voices, classifyManagedError } = yield* openCodexSessionClient({
+          settings: adapterOptions.settings,
+          environment: adapterOptions.environment,
+          resolveRuntime: adapterOptions.resolveRuntime,
+          onConnectionRevoked: adapterOptions.onConnectionRevoked,
+          open: (settings, environment) =>
+            clientFactory.open({
+              instanceId: adapterOptions.instanceId,
+              threadId: input.threadId,
+              providerSessionId: input.providerSessionId,
+              runtimePolicy: input.runtimePolicy,
+              settings,
+              environment: McpProviderSession.providerSessionEnvironment(environment, mcpSession),
+            }),
+          onOpenError: (cause) =>
+            new ProviderAdapter.ProviderAdapterOpenSessionError({
+              driver: CODEX_PROVIDER,
+              providerSessionId: input.providerSessionId,
+              cause,
+            }),
         });
-        const resolveRuntime = adapterOptions.resolveRuntime;
-        // Managed Codex reads its ChatGPT token from the process environment, so
-        // the managed client respawns Codex when the token rotates.
-        const client =
-          resolveRuntime === undefined
-            ? yield* openClient(adapterOptions.settings, adapterOptions.environment)
-            : yield* makeManagedCodexClient({
-                resolve: resolveRuntime,
-                open: (runtime) => openClient(runtime.config, runtime.environment),
-                onOpenError: (cause) =>
-                  new ProviderAdapter.ProviderAdapterOpenSessionError({
-                    driver: CODEX_PROVIDER,
-                    providerSessionId: input.providerSessionId,
-                    cause,
-                  }),
-                isBusy: isVoiceActive,
-              });
-        const classifyManagedError = (value: unknown) =>
-          Effect.gen(function* () {
-            if (resolveRuntime === undefined) return undefined;
-            const failure = classifyCodexManagedError(value);
-            if (failure?.revoke && adapterOptions.onConnectionRevoked) {
-              yield* adapterOptions.onConnectionRevoked;
-            }
-            return failure;
-          });
         const additionalContextByThread = yield* Ref.make(
           new Map<
             string,
@@ -6408,28 +6360,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             ),
           );
 
-        const voiceLock = yield* Semaphore.make(1);
-        const voiceForThread = (nativeThreadId: string) =>
-          voiceLock.withPermit(
-            Effect.gen(function* () {
-              const existing = voiceControllers.get(nativeThreadId);
-              if (existing) return existing;
-              const voice = yield* makeCodexRealtimeVoice(client, {
-                providerThreadId: nativeThreadId,
-              }).pipe(Effect.provideService(Scope.Scope, scope));
-              voiceControllers.set(nativeThreadId, voice);
-              return voice;
-            }),
-          );
-        yield* Effect.addFinalizer(() =>
-          Effect.forEach(voiceControllers.values(), (voice) => voice.close, { discard: true }),
-        );
-        const voiceError = (detail: string) => (cause: unknown) =>
-          new ProviderAdapter.ProviderAdapterProtocolError({
-            driver: CODEX_PROVIDER,
-            detail,
-            payload: cause,
-          });
+        const voiceMethods = yield* voices.methods({
+          client,
+          driver: CODEX_PROVIDER,
+          getNativeThreadId,
+        });
 
         // MCP Apps reach their server through Codex's own MCP client, so any
         // server the user configured for Codex works without T3 connecting to it.
@@ -6505,7 +6440,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           // against a long-delayed resume. Codex emits no resume-expected
           // signal to pin on.
           hasPendingBackgroundWork: Effect.gen(function* () {
-            if (yield* isVoiceActive) return true;
+            if (yield* voices.isActive) return true;
             for (const items of (yield* Ref.get(runningCommandItemsByTurn)).values()) {
               if (items.size > 0) {
                 return true;
@@ -7220,35 +7155,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     }),
               ),
             ),
-          listRealtimeVoices: (voiceInput) =>
-            Effect.gen(function* () {
-              const id = yield* getNativeThreadId(voiceInput.providerThread);
-              return yield* (yield* voiceForThread(id)).listVoices;
-            }).pipe(Effect.mapError(voiceError("Could not list voices."))),
-          appendRealtimeVoiceContext: (voiceInput) =>
-            Effect.gen(function* () {
-              const id = yield* getNativeThreadId(voiceInput.providerThread);
-              yield* (yield* voiceForThread(id)).appendContext(voiceInput.callId, voiceInput.text);
-            }).pipe(Effect.mapError(voiceError("Could not share voice context."))),
-          realtimeVoiceEvents: (voiceInput) =>
-            Stream.unwrap(
-              Effect.gen(function* () {
-                const id = yield* getNativeThreadId(voiceInput.providerThread);
-                return (yield* voiceForThread(id)).events;
-              }).pipe(Effect.mapError(voiceError("Could not subscribe to voice."))),
-            ),
-          startRealtimeVoice: (voiceInput) =>
-            Effect.gen(function* () {
-              const id = yield* getNativeThreadId(voiceInput.providerThread);
-              const voice = yield* voiceForThread(id);
-              return { sdp: yield* voice.startRealtimeVoice(voiceInput.sdp, voiceInput.options) };
-            }).pipe(Effect.mapError(voiceError("Codex realtime voice failed."))),
-          stopRealtimeVoice: (voiceInput) =>
-            Effect.gen(function* () {
-              const id = yield* getNativeThreadId(voiceInput.providerThread);
-              const voice = voiceControllers.get(id);
-              if (voice) yield* voice.stopRealtimeVoice;
-            }).pipe(Effect.mapError(voiceError("Codex realtime voice failed."))),
+          ...voiceMethods,
           uploadFeedback: (feedbackInput) =>
             Effect.gen(function* () {
               const threadId = yield* getNativeThreadId(feedbackInput.providerThread);

@@ -158,25 +158,6 @@ describe("CodexAdapterV2 file change approvals", () => {
   });
 });
 
-describe("CodexAdapterV2 permission approvals", () => {
-  it("prefers a nonblank reason, else names the requested paths", () => {
-    const permissions = {
-      fileSystem: { read: ["/workspace/notes.md"], write: ["/workspace/out"] },
-    };
-    assert.equal(
-      CodexAdapterV2.codexPermissionApprovalPrompt({ reason: " Read notes. ", permissions }),
-      "Read notes.",
-    );
-    assert.equal(
-      CodexAdapterV2.codexPermissionApprovalPrompt({ reason: null, permissions }),
-      "Access: /workspace/notes.md, /workspace/out",
-    );
-    assert.isUndefined(
-      CodexAdapterV2.codexPermissionApprovalPrompt({ reason: " ", permissions: {} }),
-    );
-  });
-});
-
 describe("CodexAdapterV2 context usage", () => {
   it("uses the current context rather than cumulative processed tokens", () => {
     const usage = CodexAdapterV2.codexProviderTurnTokenUsage(
@@ -798,66 +779,6 @@ describe("CodexAdapterV2 process spawning", () => {
         ["app-server", ...realtime, "--enable", "env-feature"],
       ]);
     }).pipe(Effect.provideService(HostProcess.Platform, "linux")),
-  );
-
-  it.effect("gives the app-server the thread's t3 work credential", () =>
-    Effect.gen(function* () {
-      const threadId = ThreadId.make("thread-work-env");
-      const spawnedEnv: Array<Record<string, string | undefined> | undefined> = [];
-      const spawner = ChildProcessSpawner.make((command) => {
-        if (ChildProcess.isStandardCommand(command)) spawnedEnv.push(command.options.env);
-        return Effect.fail(
-          PlatformError.systemError({ _tag: "NotFound", module: "ChildProcess", method: "spawn" }),
-        );
-      });
-      const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
-      yield* mcpSessions.set({
-        environmentId: EnvironmentId.make("environment-work-env"),
-        threadId,
-        providerSessionId: "mcp-session-work-env",
-        providerInstanceId: ProviderInstanceId.make("codex"),
-        endpoint: "http://127.0.0.1:43123/mcp",
-        authorizationHeader: "Bearer work-token",
-        browserToolsAvailable: false,
-      });
-      const adapter = yield* CodexAdapterV2.createCodexAdapterV2({
-        instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
-        displayName: undefined,
-        environment: [{ name: "CUSTOM", value: "1", sensitive: false }],
-        enabled: true,
-        config: DEFAULT_CODEX_SETTINGS,
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            CodexAdapterV2.layerAppServerClientFactory,
-            ServerConfig.layerTest(process.cwd(), { prefix: "t3-codex-work-env-" }),
-          ),
-        ),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.provideService(
-          ProviderEventLoggers.ProviderEventLoggers,
-          ProviderEventLoggers.NoOpProviderEventLoggers,
-        ),
-      );
-
-      yield* adapter
-        .openSession({
-          threadId,
-          providerSessionId: ProviderSessionId.make("provider-session-work-env"),
-          modelSelection: CODEX_TEST_MODEL_SELECTION,
-          runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
-        })
-        .pipe(Effect.scoped, Effect.exit);
-
-      assert.equal(spawnedEnv[0]?.CUSTOM, "1");
-      assert.equal(spawnedEnv[0]?.T3_WORK_ENDPOINT, "http://127.0.0.1:43123/mcp");
-      assert.equal(spawnedEnv[0]?.T3_WORK_AUTHORIZATION, "Bearer work-token");
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
-      ),
-      Effect.provideService(HostProcess.Platform, "linux"),
-    ),
   );
 
   it.effect("expands ~ in the configured binary path before spawning", () =>

@@ -203,6 +203,11 @@ function failureDetail(error: unknown): string {
   return `Workspace preparation failed: ${error instanceof Error ? error.message : String(error)}`;
 }
 
+/** Stands in for the setup script runner on launches that fall back to the project checkout. */
+const skippedSetupScripts = {
+  runForThread: (_input: unknown) => Effect.succeed({ status: "no-script" } as const),
+};
+
 const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const setupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
@@ -592,29 +597,27 @@ const make = Effect.gen(function* () {
       }
       yield* setupTracker.stageStatus(threadId, "setup-script", "running");
       // The setup script prepares new worktrees, so the project checkout skips it.
-      const setup = yield* useProjectCheckout
-        ? Effect.succeed({ status: "no-script" } as const)
-        : setupScripts
-            .runForThread({
-              threadId,
-              projectId: input.projectId,
-              projectCwd: project.workspaceRoot,
-              worktreePath: cwd,
-              ...(tracked
-                ? {
-                    observeCompletion: {
-                      onOutputLine: (line: string) =>
-                        setupTracker.appendTail(threadId, "setup-script", line),
-                    },
-                  }
-                : {}),
-              project: {
-                id: project.id,
-                workspaceRoot: project.workspaceRoot,
-                scripts: project.scripts,
-              },
-            })
-            .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
+      const setup = yield* (useProjectCheckout ? skippedSetupScripts : setupScripts)
+        .runForThread({
+          threadId,
+          projectId: input.projectId,
+          projectCwd: project.workspaceRoot,
+          worktreePath: cwd,
+          ...(tracked
+            ? {
+                observeCompletion: {
+                  onOutputLine: (line: string) =>
+                    setupTracker.appendTail(threadId, "setup-script", line),
+                },
+              }
+            : {}),
+          project: {
+            id: project.id,
+            workspaceRoot: project.workspaceRoot,
+            scripts: project.scripts,
+          },
+        })
+        .pipe(Effect.mapError(mapError(input, "run-setup-script", threadId)));
 
       let awaitAsyncSetup = Effect.void;
       if (setup.status === "started") {

@@ -50,6 +50,7 @@ import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import { withRealtimeVoiceActivity } from "./RealtimeVoiceSession.ts";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -1458,10 +1459,6 @@ export const layerWithOptions = (
           }),
         );
 
-      /** Fold: ends non-turn activity, such as a realtime voice handshake. */
-      const markActivityIdle = (providerSessionId: ProviderSessionId, activityKey: string) =>
-        withActivityError(providerSessionId, clearBusyKey(providerSessionId, activityKey));
-
       const hasBusyTurn = (entry: LiveSessionEntry, providerThreadId: ProviderThreadId) => {
         const prefix = busyTurnPrefix(providerThreadId);
         for (const turnKey of entry.busyTurns) {
@@ -1692,8 +1689,6 @@ export const layerWithOptions = (
       ): ProviderAdapter.ProviderAdapterV2SessionRuntime => {
         const providerSessionId = runtime.providerSessionId;
         const subscribeEvents = makeEventSubscription(eventSubscribers);
-        const { startRealtimeVoice, stopRealtimeVoice } = runtime;
-        let nextVoiceStartId = 0;
         // Every provider's turn operations pass through here, so this is where they are
         // counted. Only turn starts are timed: until the provider accepts the turn.
         const turnMetrics = (operation: string, model?: string) =>
@@ -1709,34 +1704,15 @@ export const layerWithOptions = (
         return {
           ...runtime,
           subscribeEvents,
-          // Voice start counts as activity so the idle reaper cannot release the
-          // session mid-handshake; the adapter keeps a live call pinned through
-          // hasPendingBackgroundWork afterwards.
-          ...(startRealtimeVoice === undefined
-            ? {}
-            : {
-                startRealtimeVoice: (input) =>
-                  Effect.suspend(() => {
-                    const activityKey = `voice:${nextVoiceStartId++}`;
-                    return Effect.acquireUseRelease(
-                      observeActivity(providerSessionId, markBusy(providerSessionId, activityKey)),
-                      () => startRealtimeVoice(input),
-                      () =>
-                        observeActivity(
-                          providerSessionId,
-                          markActivityIdle(providerSessionId, activityKey),
-                        ),
-                    );
-                  }),
-              }),
-          ...(stopRealtimeVoice === undefined
-            ? {}
-            : {
-                stopRealtimeVoice: (input) =>
-                  observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
-                    Effect.andThen(stopRealtimeVoice(input)),
-                  ),
-              }),
+          ...withRealtimeVoiceActivity(runtime, {
+            begin: (key) => observeActivity(providerSessionId, markBusy(providerSessionId, key)),
+            end: (key) =>
+              observeActivity(
+                providerSessionId,
+                withActivityError(providerSessionId, clearBusyKey(providerSessionId, key)),
+              ),
+            touch: observeActivity(providerSessionId, touchActivity(providerSessionId)),
+          }),
           events: Stream.unwrap(
             subscribeEvents.pipe(Effect.map((subscription) => subscription.events)),
           ),

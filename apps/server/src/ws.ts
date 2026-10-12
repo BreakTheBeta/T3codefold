@@ -6,12 +6,14 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Base64 from "effect/encoding/Base64";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
@@ -53,9 +55,6 @@ import {
   OrchestrationV2SearchThreadError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_V2_WS_METHODS,
-  FoldRpcGroup,
-  PitbossError,
-  ProviderRealtimeVoiceError,
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
   OrchestrationV2DispatchCommandError,
@@ -183,14 +182,7 @@ import * as StorageCleanup from "./storageCleanup.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import { withTerminalOutputWindow } from "./terminal/OutputProtocol.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
-import { FleetBroker } from "./mcp/FleetBroker.ts";
-import { FleetExecutor } from "./mcp/FleetExecutor.ts";
-import { FleetRouter } from "./mcp/FleetRouter.ts";
-import { makeRealtimeVoiceSessionResolver } from "./orchestration-v2/RealtimeVoiceSession.ts";
-import { makeHome } from "./pitboss/Home.ts";
-import { PeerService } from "./pitboss/PeerService.ts";
-import { SourceService } from "./pitboss/SourceService.ts";
-import { WorkStore } from "./pitboss/WorkStore.ts";
+import { makeFoldWsRpcLayer } from "./foldWs.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { remoteSshDeviceHosts } from "./device/localSshDeviceHost.ts";
@@ -214,6 +206,7 @@ import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts
 import * as ProjectService from "./project/ProjectService.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import { projectMutationOperation } from "./project/ProjectMutation.ts";
+import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
@@ -553,155 +546,8 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 // Handlers register per group: a single handler map for the merged group exceeds
-// TypeScript's instantiation depth.
+// TypeScript's instantiation depth. Fold's handlers live in foldWs.ts.
 const ServerUpstreamWsRpcGroup = UpstreamWsRpcGroup.middleware(RpcInstrumentation);
-const ServerFoldWsRpcGroup = FoldRpcGroup.middleware(RpcInstrumentation);
-
-/**
- * Fold's pitboss, fleet and realtime voice handlers, spread into the socket's
- * RPC handlers. The GLaDOS home and the fleet services are server-lifetime and
- * passed in, so every socket shares one home lock and one fleet broker.
- */
-export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (input: {
-  readonly sessionId: AuthSessionId;
-  readonly openGladosHome: Effect.Success<ReturnType<typeof makeHome>>;
-}) {
-  const work = yield* WorkStore;
-  const workPeers = yield* PeerService;
-  const workSources = yield* SourceService;
-  const fleetBroker = yield* FleetBroker;
-  const fleetRouter = yield* FleetRouter;
-  const fleetExecutor = yield* FleetExecutor;
-  const threadManagement = yield* ThreadManagementService.ThreadManagementService;
-  const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
-  const realtimeVoiceSession = yield* makeRealtimeVoiceSessionResolver({
-    getThreadProjection: threadManagement.getThreadProjection,
-    sessions: providerSessions,
-  });
-  const voiceError = (threadId: ThreadId, operation: ProviderRealtimeVoiceError["operation"]) =>
-    new ProviderRealtimeVoiceError({ threadId, operation });
-  const mapVoiceError = <A, E>(
-    threadId: ThreadId,
-    operation: ProviderRealtimeVoiceError["operation"],
-    effect: Effect.Effect<A, E>,
-  ) =>
-    effect.pipe(
-      Effect.tapError((cause) =>
-        Effect.logError("Provider realtime voice failed.", { threadId, operation, cause }),
-      ),
-      Effect.mapError(() => voiceError(threadId, operation)),
-    );
-
-  return FoldRpcGroup.of({
-    [WS_METHODS.pitbossPeers]: () => workPeers.list(),
-    [WS_METHODS.pitbossPeerCommand]: (command) => workPeers.execute(command),
-    [WS_METHODS.pitbossSources]: () => workSources.list(),
-    [WS_METHODS.pitbossSourceCommand]: (command) => workSources.execute(command),
-    [WS_METHODS.pitbossRead]: () => work.read(),
-    [WS_METHODS.pitbossSubscribe]: () => work.subscribe(),
-    [WS_METHODS.pitbossCommand]: (command) =>
-      Effect.gen(function* () {
-        if (command.action.type === "activate-home" || command.action.type === "reset")
-          return yield* input.openGladosHome(command);
-        if (command.action.type === "elect") {
-          yield* threadManagement
-            .getProjectThreadRecords(
-              { projectId: command.action.projectId, threadId: command.action.threadId },
-              [],
-            )
-            .pipe(
-              Effect.mapError(
-                () =>
-                  new PitbossError({
-                    code: "invalid",
-                    message: "Choose an existing thread in this project.",
-                  }),
-              ),
-            );
-        }
-        return yield* work.command(command, { type: "user" });
-      }),
-    [WS_METHODS.fleetConnect]: (connect) =>
-      Stream.unwrap(fleetBroker.connect(input.sessionId, connect)),
-    [WS_METHODS.fleetRespond]: (response) => fleetBroker.respond(input.sessionId, response),
-    [WS_METHODS.fleetExecute]: (request) => fleetExecutor.execute(request),
-    // The CLI entry runs locally or routes; FleetRouter alone refuses local targets.
-    [WS_METHODS.fleetInvoke]: (request) => fleetExecutor.invoke(request),
-    [WS_METHODS.fleetEnvironments]: () => fleetRouter.environments,
-    [WS_METHODS.providerRealtimeVoiceList]: ({ threadId }) =>
-      mapVoiceError(
-        threadId,
-        "list voices",
-        Effect.gen(function* () {
-          const { runtime, providerThread } = yield* realtimeVoiceSession(
-            threadId,
-            "list voices",
-            true,
-          );
-          if (!runtime.listRealtimeVoices) return yield* voiceError(threadId, "list voices");
-          return yield* runtime.listRealtimeVoices({ providerThread });
-        }),
-      ),
-    [WS_METHODS.providerRealtimeVoiceContext]: ({ threadId, callId, text }) =>
-      mapVoiceError(
-        threadId,
-        "share context",
-        Effect.gen(function* () {
-          const { runtime, providerThread } = yield* realtimeVoiceSession(
-            threadId,
-            "share context",
-          );
-          if (!runtime.appendRealtimeVoiceContext)
-            return yield* voiceError(threadId, "share context");
-          return yield* runtime.appendRealtimeVoiceContext({ providerThread, callId, text });
-        }),
-      ),
-    [WS_METHODS.providerRealtimeVoiceEvents]: ({ threadId }) =>
-      Stream.unwrap(
-        Effect.gen(function* () {
-          const { runtime, providerThread } = yield* realtimeVoiceSession(
-            threadId,
-            "subscribe",
-            true,
-          );
-          if (!runtime.realtimeVoiceEvents) return yield* voiceError(threadId, "subscribe");
-          return runtime.realtimeVoiceEvents({ providerThread });
-        }),
-      ).pipe(Stream.mapError(() => voiceError(threadId, "subscribe"))),
-    [WS_METHODS.providerRealtimeVoiceStart]: ({ threadId, sdp, options }) =>
-      mapVoiceError(
-        threadId,
-        "start",
-        Effect.gen(function* () {
-          const { runtime, providerThread } = yield* realtimeVoiceSession(threadId, "start", true);
-          if (!runtime.startRealtimeVoice) return yield* voiceError(threadId, "start");
-          return yield* runtime.startRealtimeVoice({
-            providerThread,
-            sdp,
-            ...(options ? { options } : {}),
-          });
-        }),
-      ),
-    // Stopping never resumes a session and must work even after the thread was archived.
-    [WS_METHODS.providerRealtimeVoiceStop]: ({ threadId }) =>
-      mapVoiceError(
-        threadId,
-        "stop",
-        Effect.gen(function* () {
-          const projection = yield* threadManagement.getThreadProjection(threadId);
-          const providerThread =
-            projection.providerThreads.find(
-              (candidate) => candidate.id === projection.thread.activeProviderThreadId,
-            ) ?? projection.providerThreads.at(-1);
-          const providerSessionId = providerThread?.providerSessionId;
-          if (!providerThread || !providerSessionId) return yield* voiceError(threadId, "stop");
-          const runtime = Option.getOrNull(yield* providerSessions.get(providerSessionId));
-          if (!runtime?.stopRealtimeVoice) return yield* voiceError(threadId, "stop");
-          return yield* runtime.stopRealtimeVoice({ providerThread });
-        }),
-      ),
-  });
-});
 
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
@@ -1349,27 +1195,6 @@ const layerWsRpc = (
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
-  openGladosHome: Effect.Success<ReturnType<typeof makeHome>>,
-) =>
-  Layer.merge(
-    ServerFoldWsRpcGroup.toLayer(
-      makeFoldWsHandlers({ sessionId: currentSession.sessionId, openGladosHome }),
-    ),
-    layerUpstreamWsRpc(
-      currentSession,
-      clientOrigin,
-      clientAnalyticsProps,
-      previewAutomationBroker,
-      serverBrowser,
-    ),
-  );
-
-const layerUpstreamWsRpc = (
-  currentSession: EnvironmentAuth.AuthenticatedSession,
-  clientOrigin: OrchestrationClientOrigin,
-  clientAnalyticsProps: Readonly<Record<string, unknown>>,
-  previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
-  serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
   ServerUpstreamWsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -1432,6 +1257,7 @@ const layerUpstreamWsRpc = (
             );
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
+      const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
       const repositoryIdentityResolver =
@@ -3358,11 +3184,7 @@ export const layer = Layer.unwrap(
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const sql = yield* SqlClient.SqlClient;
-    const fleetBroker = yield* FleetBroker;
-    const fleetRouter = yield* FleetRouter;
-    const fleetExecutor = yield* FleetExecutor;
-    const config = yield* ServerConfig.ServerConfig;
-    const openGladosHome = yield* makeHome(config.stateDir);
+    const foldWsRpc = yield* makeFoldWsRpcLayer;
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3416,18 +3238,13 @@ export const layer = Layer.unwrap(
               clientAnalyticsProps,
               previewAutomationBroker,
               serverBrowser,
-              openGladosHome,
             ).pipe(
+              Layer.merge(foldWsRpc(session.sessionId)),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
               // their defects, not the rest of the server's.
               Layer.provide(DefectReporter.layer),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
-              // Server-lifetime fleet services: a lease taken on this socket must be
-              // visible to MCP routing and to the other sockets.
-              Layer.provide(Layer.succeed(FleetBroker, fleetBroker)),
-              Layer.provide(Layer.succeed(FleetRouter, fleetRouter)),
-              Layer.provide(Layer.succeed(FleetExecutor, fleetExecutor)),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),

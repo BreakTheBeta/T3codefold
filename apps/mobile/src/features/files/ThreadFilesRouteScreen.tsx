@@ -4,15 +4,10 @@ import { environmentSession } from "../../state/session";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Alert, Platform, View } from "react-native";
+import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import {
-  ComposerContextId,
-  EnvironmentId,
-  type ProjectReadFileResult,
-  ThreadId,
-} from "@t3tools/contracts";
+import { EnvironmentId, type ProjectReadFileResult, ThreadId } from "@t3tools/contracts";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
   isWorkspaceBrowserPreviewPath,
@@ -53,9 +48,7 @@ import { ThreadInspectorContentStack } from "../threads/thread-inspector-content
 import { FileTreeBrowser } from "./FileTreeBrowser";
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
-import { uuidv4 } from "../../lib/uuid";
-import { insertComposerDraftContext } from "../../state/use-composer-drafts";
-import { sourceSelectionContext } from "./source-selection";
+import { useAttachSourceSelection } from "./useAttachSourceSelection";
 import { SourceFileSurface } from "./SourceFileSurface";
 import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
 import { ThreadFileNavigatorPane } from "./thread-file-navigator-pane";
@@ -237,28 +230,12 @@ function FileContent(props: {
   readonly truncated: boolean;
   readonly onRefresh?: () => Promise<void> | void;
 }) {
-  const navigation = useNavigation();
-  const attachSelectedLines = useCallback(
-    (selection: { readonly startIndex: number; readonly endIndex: number }) => {
-      if (props.threadId === null || props.fileContents === null) return;
-      const context = sourceSelectionContext({
-        ...selection,
-        contents: props.fileContents,
-        path: props.relativePath,
-        contextId: ComposerContextId.make(uuidv4()),
-      });
-      if (!context) return;
-      if (insertComposerDraftContext(`${props.environmentId}:${props.threadId}`, context)) {
-        navigation.navigate("Thread", {
-          environmentId: String(props.environmentId),
-          threadId: String(props.threadId),
-        });
-      } else {
-        Alert.alert("Too many context items", "Remove some context from the draft and try again.");
-      }
-    },
-    [navigation, props.environmentId, props.threadId, props.fileContents, props.relativePath],
-  );
+  const attachSelectedLines = useAttachSourceSelection({
+    environmentId: props.environmentId,
+    threadId: props.threadId,
+    contents: props.fileContents,
+    path: props.relativePath,
+  });
   // Reopening a mutable host file must not reuse a poster from an earlier visit.
   const thumbnailInstanceId = useId();
   const insets = useSafeAreaInsets();
@@ -353,7 +330,7 @@ function FileContent(props: {
         />
       ) : (
         <SourceFileSurface
-          onAttachSelectedLines={props.threadId === null ? undefined : attachSelectedLines}
+          onAttachSelectedLines={attachSelectedLines}
           contents={props.fileContents}
           path={props.relativePath}
           initialLine={props.initialLine}

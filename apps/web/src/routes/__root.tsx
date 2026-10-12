@@ -57,7 +57,7 @@ import { cn } from "../lib/utils";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
-import { ThemeBackdropSync } from "../themeBackdrop";
+import { FoldAppearanceSync } from "../foldAppearanceSync";
 import { VoiceWorkspaceProvider } from "../components/voice/VoiceWorkspaceProvider";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -182,7 +182,7 @@ function RootRouteView() {
           <ContrastAppearanceSync />
           <EnvironmentThemeSync />
           <GlassAppearanceSync />
-          <ThemeBackdropSync />
+          <FoldAppearanceSync />
           <FontAppearanceSync />
           <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
@@ -206,13 +206,11 @@ function RootRouteView() {
   }
 
   const appShell = (
-    <VoiceWorkspaceProvider>
-      <CommandPalette>
-        <AppSidebarLayout>
-          <Outlet />
-        </AppSidebarLayout>
-      </CommandPalette>
-    </VoiceWorkspaceProvider>
+    <CommandPalette>
+      <AppSidebarLayout>
+        <Outlet />
+      </AppSidebarLayout>
+    </CommandPalette>
   );
 
   // FirstRunGate holds back everything below it — including EventRouter,
@@ -226,7 +224,7 @@ function RootRouteView() {
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
-        <ThemeBackdropSync />
+        <FoldAppearanceSync />
         <FontAppearanceSync />
         <ProviderAuthCallbackCoordinator />
         <ChatGptWelcomeCoordinator />
@@ -258,7 +256,7 @@ function RootRouteView() {
           {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
           {/* Hosted Nightly is "hosted-static", not authenticated, and needs it too. */}
           <NightlyMobileBetaNotice />
-          {appShell}
+          <VoiceWorkspaceProvider>{appShell}</VoiceWorkspaceProvider>
           {/* Above the router: a theme draft is judged by walking the app, so the
               editor has to survive navigation away from settings. */}
           <ThemeEditorHost />
@@ -289,18 +287,6 @@ function ContrastAppearanceSync() {
   useEffect(() => {
     document.documentElement.dataset.chatWidth = chatWidth;
   }, [chatWidth]);
-
-  // The column limit doubles as the on switch; CSS decides whether there is room.
-  const threadWrapColumns = useClientSettings((settings) =>
-    settings.threadWrapEnabled ? settings.threadWrapMaxColumns : null,
-  );
-  useEffect(() => {
-    if (threadWrapColumns === null) {
-      delete document.documentElement.dataset.threadWrap;
-    } else {
-      document.documentElement.dataset.threadWrap = String(threadWrapColumns);
-    }
-  }, [threadWrapColumns]);
 
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);

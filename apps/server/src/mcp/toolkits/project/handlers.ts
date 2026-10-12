@@ -11,16 +11,9 @@ import * as Repositories from "../../../sourceControl/SourceControlRepositorySer
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import { routeIfRemote } from "../../fleet/route.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import {
-  newCommandId,
-  readCaller,
-  resolveProjectId,
-  retryCommandId,
-  unavailable,
-} from "../../threadAccess.ts";
-import { requireLedgerDelegation } from "../work/ledgerGuard.ts";
-import { ProjectListResult, ProjectToolkit, ThreadLaunchResult } from "./tools.ts";
-import type { ThreadLaunchParameters } from "./tools.ts";
+import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
+import { foldThreadLaunch, launchCommandId } from "./foldLaunch.ts";
+import { ProjectListResult, ProjectToolkit } from "./tools.ts";
 
 function projectFailure(error: Project.ProjectServiceError) {
   if (error._tag === "ProjectOperationError") return unavailable();
@@ -61,166 +54,137 @@ const access = Effect.gen(function* () {
   yield* readCaller();
   return yield* Project.ProjectService;
 });
-const launchLocally = (
-  input: typeof ThreadLaunchParameters.Type,
-  { runtimeMode, interactionMode }: McpToolAccess.StartedModes,
-) =>
-  Effect.gen(function* () {
-    const context = yield* readCaller();
-    const { caller } = context;
-    // A clientRequestId keys the command, thread and message ids, so a retry replays the
-    // original launch (ThreadLaunchService treats a repeated commandId as a resume).
-    const commandId =
-      input.clientRequestId === undefined
-        ? yield* newCommandId()
-        : retryCommandId(context.scope, "launch", input.clientRequestId);
-    const threadId = ThreadId.make(commandId);
-    const messageId = MessageId.make(commandId);
-    const attachments = input.attachments ?? [];
-    if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
-      return yield* new OrchestratorMcpFailure({
-        code: "invalid_request",
-        message: "A new thread accepts only pending attachment uploads.",
-      });
-    if (
-      input.scratch === true &&
-      (input.projectId !== undefined || input.workspaceStrategy !== undefined)
-    )
-      return yield* new OrchestratorMcpFailure({
-        code: "invalid_request",
-        message:
-          "scratch:true picks its own project and folder; omit projectId and workspaceStrategy.",
-      });
-    const projectId =
-      input.scratch === true
-        ? (yield* ManagedProjectFolders.ManagedProjectFolders.pipe(
-            Effect.flatMap((folders) => folders.ensureScratchProject),
-            Effect.mapError(
-              (error) =>
-                new OrchestratorMcpFailure({
-                  code: "orchestration_error",
-                  message: error.message,
-                }),
-            ),
-          )).projectId
-        : yield* resolveProjectId(context, input.projectId);
-    const readProject = Project.ProjectService.pipe(
-      Effect.flatMap((projects) => projects.getById(projectId)),
-      Effect.mapError(unavailable),
-      Effect.map(Option.getOrUndefined),
-    );
-    if (input.workspaceStrategy?.type === "existing_worktree") {
-      const project = yield* readProject;
-      if (project === undefined)
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message: "The project was not found.",
-        });
-      yield* assertProjectWorktree(project.workspaceRoot, input.workspaceStrategy.worktreePath);
-    }
-    // A launch is accepted before its worktree is provisioned, so a base
-    // ref that cannot resolve is refused while the agent can still act on it.
-    const strategy = input.workspaceStrategy;
-    if (strategy?.type === "worktree")
-      yield* ThreadLaunch.ThreadLaunchService.pipe(
-        Effect.flatMap((launches) =>
-          launches.checkWorktreeBase({ projectId, workspaceStrategy: strategy }),
-        ),
-        Effect.mapError(
-          (error) =>
-            new OrchestratorMcpFailure({
-              code: "invalid_request",
-              message: `${error.message} No thread was created. Pass a branch, tag, or commit that exists there${
-                strategy.startFromOrigin === true
-                  ? "; the project has no origin remote to fetch it from."
-                  : ", or set startFromOrigin:true if it exists only on origin."
-              }`,
-            }),
-        ),
-      );
-    const modelSelection =
-      input.modelSelection ??
-      caller?.modelSelection ??
-      (yield* readProject)?.defaultModelSelection ??
-      undefined;
-    if (modelSelection === undefined)
-      return yield* new OrchestratorMcpFailure({
-        code: "invalid_request",
-        message:
-          "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
-      });
-    const result = yield* ThreadMessageIntake.launchThread({
-      commandId,
-      threadId,
-      projectId,
-      title: input.title,
-      modelSelection,
-      runtimeMode,
-      interactionMode,
-      workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
-      ...(input.message === undefined && attachments.length === 0
-        ? {}
-        : {
-            initialMessage: {
-              messageId,
-              ...(caller === undefined ? {} : { senderThreadId: caller.id }),
-              text: input.message ?? "",
-              attachments,
-            },
-          }),
-      createdBy: "agent",
-      creationSource: "mcp",
-    }).pipe(
-      Effect.mapError((error) => {
-        if (error._tag === "AttachmentClaimError") {
-          return new OrchestratorMcpFailure({
-            code: "orchestration_error",
-            message: error.message,
-          });
-        }
-        if (error._tag === "ThreadManagementProviderInstanceDisabledError") {
-          return new OrchestratorMcpFailure({
-            code: "invalid_request",
-            message: error.message,
-          });
-        }
-        return unavailable();
-      }),
-    );
-    const thread = result.projection.thread;
-    const run = result.projection.runs.find((run) => run.userMessageId === messageId);
-    return {
-      threadId: thread.id,
-      projectId: thread.projectId,
-      modelSelection: thread.modelSelection,
-      runId: run?.id ?? null,
-      status: run?.status ?? null,
-    };
-  });
-
-/**
- * Launches a top-level thread here, or in the environment `input.environmentId`
- * names, which applies the caller's limits again. `tool` is the name the caller
- * used, for the ledger guard's refusal; t3_thread_start is an alias of this
- * launch. Callers declare it with `McpToolAccess.startsThreads`.
- */
-export const launchThread = (
-  input: typeof ThreadLaunchParameters.Type,
-  modes: McpToolAccess.StartedModes,
-  tool: string,
-) =>
-  requireLedgerDelegation(tool).pipe(
-    Effect.andThen(
-      launchLocally(input, modes).pipe(
-        routeIfRemote("t3_thread_launch", input, ThreadLaunchResult),
-      ),
-    ),
-  );
-
 export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   t3_thread_launch: McpToolAccess.startsThreads(
     (input) => input,
-    (input, modes) => launchThread(input, modes, "t3_thread_launch"),
+    (input, { runtimeMode, interactionMode }) =>
+      Effect.gen(function* () {
+        const context = yield* readCaller();
+        const { caller } = context;
+        const commandId = yield* launchCommandId(context.scope, input.clientRequestId);
+        const threadId = ThreadId.make(commandId);
+        const messageId = MessageId.make(commandId);
+        const attachments = input.attachments ?? [];
+        if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: "A new thread accepts only pending attachment uploads.",
+          });
+        if (
+          input.scratch === true &&
+          (input.projectId !== undefined || input.workspaceStrategy !== undefined)
+        )
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message:
+              "scratch:true picks its own project and folder; omit projectId and workspaceStrategy.",
+          });
+        const projectId =
+          input.scratch === true
+            ? (yield* ManagedProjectFolders.ManagedProjectFolders.pipe(
+                Effect.flatMap((folders) => folders.ensureScratchProject),
+                Effect.mapError(
+                  (error) =>
+                    new OrchestratorMcpFailure({
+                      code: "orchestration_error",
+                      message: error.message,
+                    }),
+                ),
+              )).projectId
+            : yield* resolveProjectId(context, input.projectId);
+        const readProject = Project.ProjectService.pipe(
+          Effect.flatMap((projects) => projects.getById(projectId)),
+          Effect.mapError(unavailable),
+          Effect.map(Option.getOrUndefined),
+        );
+        if (input.workspaceStrategy?.type === "existing_worktree") {
+          const project = yield* readProject;
+          if (project === undefined)
+            return yield* new OrchestratorMcpFailure({
+              code: "invalid_request",
+              message: "The project was not found.",
+            });
+          yield* assertProjectWorktree(project.workspaceRoot, input.workspaceStrategy.worktreePath);
+        }
+        // A launch is accepted before its worktree is provisioned, so a base
+        // ref that cannot resolve is refused while the agent can still act on it.
+        const strategy = input.workspaceStrategy;
+        if (strategy?.type === "worktree")
+          yield* ThreadLaunch.ThreadLaunchService.pipe(
+            Effect.flatMap((launches) =>
+              launches.checkWorktreeBase({ projectId, workspaceStrategy: strategy }),
+            ),
+            Effect.mapError(
+              (error) =>
+                new OrchestratorMcpFailure({
+                  code: "invalid_request",
+                  message: `${error.message} No thread was created. Pass a branch, tag, or commit that exists there${
+                    strategy.startFromOrigin === true
+                      ? "; the project has no origin remote to fetch it from."
+                      : ", or set startFromOrigin:true if it exists only on origin."
+                  }`,
+                }),
+            ),
+          );
+        const modelSelection =
+          input.modelSelection ??
+          caller?.modelSelection ??
+          (yield* readProject)?.defaultModelSelection ??
+          undefined;
+        if (modelSelection === undefined)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message:
+              "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
+          });
+        const result = yield* ThreadMessageIntake.launchThread({
+          commandId,
+          threadId,
+          projectId,
+          title: input.title,
+          modelSelection,
+          runtimeMode,
+          interactionMode,
+          workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
+          ...(input.message === undefined && attachments.length === 0
+            ? {}
+            : {
+                initialMessage: {
+                  messageId,
+                  ...(caller === undefined ? {} : { senderThreadId: caller.id }),
+                  text: input.message ?? "",
+                  attachments,
+                },
+              }),
+          createdBy: "agent",
+          creationSource: "mcp",
+        }).pipe(
+          Effect.mapError((error) => {
+            if (error._tag === "AttachmentClaimError") {
+              return new OrchestratorMcpFailure({
+                code: "orchestration_error",
+                message: error.message,
+              });
+            }
+            if (error._tag === "ThreadManagementProviderInstanceDisabledError") {
+              return new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: error.message,
+              });
+            }
+            return unavailable();
+          }),
+        );
+        const thread = result.projection.thread;
+        const run = result.projection.runs.find((run) => run.userMessageId === messageId);
+        return {
+          threadId: thread.id,
+          projectId: thread.projectId,
+          modelSelection: thread.modelSelection,
+          runId: run?.id ?? null,
+          status: run?.status ?? null,
+        };
+      }).pipe(foldThreadLaunch(input)),
   ),
   t3_project_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {

@@ -174,6 +174,10 @@ function TerminalHeader(props: {
   );
 }
 
+function HiddenTerminalHeader(_props: Parameters<typeof TerminalHeader>[0]) {
+  return null;
+}
+
 const DEFAULT_TERMINAL_COLS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const TERMINAL_ACCESSORY_HEIGHT = 52;
@@ -255,7 +259,8 @@ type ThreadTerminalRouteScreenProps = StaticScreenProps<{
 
 export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps) {
   const isInspector = props.presentation === "inspector";
-  const terminalBlurTarget = useRef<View>(null);
+  // In the inspector pane the thread header owns the terminal controls.
+  const TerminalHeaderSlot = isInspector ? HiddenTerminalHeader : TerminalHeader;
   const insets = useSafeAreaInsets();
   const nativeColumnMetrics = useNativeColumnLayoutMetrics();
   const navigation = useNavigation();
@@ -1130,26 +1135,24 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
           }}
         />
       ) : null}
-      {isInspector ? null : (
-        <TerminalHeader
-          canOperateTerminal={canOperateTerminal}
-          subtitle={headerSubtitle}
-          isEnvironmentReady={isEnvironmentReady}
-          fontSize={fontSize}
-          terminalId={terminalId}
-          sessions={terminalMenuSessions}
-          status={{
-            status: terminal.status,
-            hasRunningSubprocess: terminal.hasRunningSubprocess,
-          }}
-          workspaceRoot={selectedThreadProject.workspaceRoot}
-          onCloseTerminal={handleCloseTerminal}
-          onDecreaseFontSize={handleDecreaseFontSize}
-          onIncreaseFontSize={handleIncreaseFontSize}
-          onOpenNewTerminal={handleOpenNewTerminal}
-          onSelectTerminal={handleSelectTerminal}
-        />
-      )}
+      <TerminalHeaderSlot
+        canOperateTerminal={canOperateTerminal}
+        subtitle={headerSubtitle}
+        isEnvironmentReady={isEnvironmentReady}
+        fontSize={fontSize}
+        terminalId={terminalId}
+        sessions={terminalMenuSessions}
+        status={{
+          status: terminal.status,
+          hasRunningSubprocess: terminal.hasRunningSubprocess,
+        }}
+        workspaceRoot={selectedThreadProject.workspaceRoot}
+        onCloseTerminal={handleCloseTerminal}
+        onDecreaseFontSize={handleDecreaseFontSize}
+        onIncreaseFontSize={handleIncreaseFontSize}
+        onOpenNewTerminal={handleOpenNewTerminal}
+        onSelectTerminal={handleSelectTerminal}
+      />
 
       <MaterialScreenContent>
         <View

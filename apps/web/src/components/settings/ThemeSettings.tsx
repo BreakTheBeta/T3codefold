@@ -1,4 +1,4 @@
-import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
+import { COMPANION_THEMES } from "@t3tools/shared/companionThemes";
 import {
   CheckIcon,
   CopyIcon,
@@ -23,6 +23,11 @@ import {
   type ThemeAppearance,
   type ThemeDefinition,
   type ThemeHalves,
+  T3_CHAT_THEME,
+  EMBER_THEME,
+  GROVE_THEME,
+  IRIS_THEME,
+  OCEAN_THEME,
 } from "../../themePalette";
 import {
   AlertDialog,
@@ -49,6 +54,15 @@ import {
   type ThemeMode,
 } from "./ThemePreviewCircles";
 import { ThemeWireframe } from "./ThemeWireframe";
+
+const MAINTAINER_THEMES: ReadonlyArray<ThemeDefinition> = [
+  T3_CHAT_THEME,
+  GROVE_THEME,
+  OCEAN_THEME,
+  EMBER_THEME,
+  IRIS_THEME,
+  ...COMPANION_THEMES,
+];
 
 function collectionVariantLabels(themes: ReadonlyArray<ThemeDefinition>): ReadonlyArray<string> {
   if (themes.length === 0) return [];
@@ -783,7 +797,7 @@ export function ThemeLibrary({
             theme={standardTheme}
           />
         ))}
-        {BUILT_IN_THEMES.map((maintainerTheme) => {
+        {MAINTAINER_THEMES.map((maintainerTheme) => {
           const card = getThemeCardDefinition(maintainerTheme);
           return (
             <ThemeLibraryCard

@@ -205,14 +205,11 @@ import { measureRestingComposerControls } from "./restingComposerControlsMeasure
 import {
   type ComposerCitationCommentRequest,
   type ComposerPromptEditorHandle,
-  type ComposerVimModeDisplay,
   ComposerPromptEditor,
 } from "../ComposerPromptEditor";
-import {
-  type CodexRealtimeVoiceController,
-  supportsCodexRealtimeVoiceVersion,
-} from "../../hooks/useCodexRealtimeVoice";
-import { ComposerVoiceControl } from "./ComposerVoiceControl";
+import type { CodexRealtimeVoiceController } from "../../hooks/useCodexRealtimeVoice";
+import { CodexComposerVoiceControl, isComposerVoiceCallActive } from "./ComposerVoiceControl";
+import { ComposerVimModeIndicator, useComposerVimModeIndicator } from "./ComposerVimModeIndicator";
 import {
   ComposerContextActionsContext,
   composerContextRecordsFromDraft,
@@ -990,10 +987,6 @@ function useComposerRestingTransition(
   }, [clearTransitionStyles]);
 
   return elementRef;
-}
-
-function formatComposerVimDisplay(display: ComposerVimModeDisplay): string {
-  return display.pending ? `${display.mode} ${display.pending}` : display.mode;
 }
 
 function composerCommandMenuPositionsEqual(
@@ -1823,19 +1816,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     editingQueuedAttachments,
     onRemoveEditingQueuedAttachment,
   } = props;
-  // The Vim indicator is written through a ref so mode changes never re-render
-  // the composer. The editor reads the callback once at mount, so it stays stable.
-  const composerVimDisplayRef = useRef<ComposerVimModeDisplay>({ mode: "NORMAL", pending: "" });
-  const composerVimModeIndicatorRef = useRef<HTMLSpanElement | null>(null);
-  const updateComposerVimDisplay = useCallback((display: ComposerVimModeDisplay) => {
-    composerVimDisplayRef.current = display;
-    const indicator = composerVimModeIndicatorRef.current;
-    if (indicator) indicator.textContent = formatComposerVimDisplay(display);
-  }, []);
-  const setComposerVimModeIndicator = useCallback((indicator: HTMLSpanElement | null) => {
-    composerVimModeIndicatorRef.current = indicator;
-    if (indicator) indicator.textContent = formatComposerVimDisplay(composerVimDisplayRef.current);
-  }, []);
+  const composerVim = useComposerVimModeIndicator();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   const {
@@ -2260,9 +2241,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [selectedProviderEntry],
   );
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
-  const codexRealtimeVoiceVersionSupported = supportsCodexRealtimeVoiceVersion(
-    selectedProviderStatus?.version ?? null,
-  );
   // Memoized so the composer menu memo below can cache between renders.
   const selectedProviderSkills = useMemo(
     () =>
@@ -6689,26 +6667,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ],
   );
 
-  const isCodexRealtimeVoiceActive =
-    codexRealtimeVoice.status === "connecting" ||
-    codexRealtimeVoice.status === "live" ||
-    codexRealtimeVoice.status === "playback-blocked";
+  const isCodexRealtimeVoiceActive = isComposerVoiceCallActive(codexRealtimeVoice);
   const codexVoiceControl =
     routeKind === "server" &&
     selectedProvider === ProviderDriverKind.make("codex") &&
     activeThreadId ? (
-      <ComposerVoiceControl
+      <CodexComposerVoiceControl
         voice={codexRealtimeVoice}
+        providerVersion={selectedProviderStatus?.version ?? null}
         disabled={
           environmentUnavailable !== null ||
           isConnecting ||
           noProviderAvailable ||
-          projectSelectionRequired ||
-          !codexRealtimeVoiceVersionSupported
+          projectSelectionRequired
         }
-        {...(!codexRealtimeVoiceVersionSupported
-          ? { disabledReason: "Update Codex to 0.145.0 or newer to use voice" }
-          : {})}
       />
     ) : null;
 
@@ -7535,7 +7507,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerContextActionsContext value={composerContextActions}>
                   <ComposerPromptEditor
                     vimModeEnabled={settings.vimModeEnabled}
-                    onVimModeDisplayChange={updateComposerVimDisplay}
+                    onVimModeDisplayChange={composerVim.onDisplayChange}
                     ariaLabel="Message"
                     suggestionListId={composerSuggestionListId}
                     activeSuggestionId={
@@ -7701,12 +7673,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
                   {settings.vimModeEnabled ? (
-                    <span
-                      ref={setComposerVimModeIndicator}
-                      aria-live="polite"
-                      className="pointer-events-none rounded bg-primary/15 px-1.5 py-0.5 font-mono text-3xs font-semibold text-primary"
-                      data-testid="composer-vim-mode"
-                    />
+                    <ComposerVimModeIndicator attachIndicator={composerVim.attachIndicator} />
                   ) : null}
                   {showComposerAttachAction ? (
                     <>

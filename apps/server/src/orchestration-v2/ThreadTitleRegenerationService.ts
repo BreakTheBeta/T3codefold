@@ -15,10 +15,7 @@ import * as Schedule from "effect/Schedule";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
-import type {
-  OrchestratorV2Error,
-  ThreadTitleRegenerationCompleteCommand,
-} from "./Orchestrator.ts";
+import type { OrchestratorV2Error } from "./Orchestrator.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 
@@ -57,17 +54,18 @@ const make = Effect.gen(function* () {
     readonly requestId: CommandId;
     readonly title?: string;
     readonly needsRefinement?: boolean;
-  }) => {
-    const command: ThreadTitleRegenerationCompleteCommand = {
-      type: "thread.title.regeneration.complete",
-      commandId: CommandId.make(`${input.requestId}:title-complete`),
-      threadId: input.threadId,
-      requestId: input.requestId,
-      ...(input.title === undefined ? {} : { title: input.title }),
-      ...(input.needsRefinement === true ? { needsRefinement: true } : {}),
-    };
-    return threads.dispatch(command).pipe(Effect.asVoid);
-  };
+  }) =>
+    threads
+      .dispatch({
+        type: "thread.title.regeneration.complete",
+        commandId: CommandId.make(`${input.requestId}:title-complete`),
+        threadId: input.threadId,
+        requestId: input.requestId,
+        ...(input.title === undefined ? {} : { title: input.title }),
+        // Server-only; see ThreadTitleRefinement's ThreadTitleRegenerationCompleteCommand.
+        ...(input.needsRefinement === true ? { needsRefinement: true } : {}),
+      })
+      .pipe(Effect.asVoid);
 
   const execute: ThreadTitleRegenerationService["Service"]["execute"] = Effect.fn(
     "ThreadTitleRegenerationService.execute",

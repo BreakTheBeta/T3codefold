@@ -75,6 +75,7 @@ import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
 import { ELECTED_THREAD_RETENTION_REASON } from "../pitboss/OrchestrationSeams.ts";
+import { ThreadRetentionGuardError } from "./ThreadRetentionGuard.ts";
 import * as PeerService from "../pitboss/PeerService.ts";
 import * as SourceService from "../pitboss/SourceService.ts";
 import * as WorkStore from "../pitboss/WorkStore.ts";
@@ -5469,7 +5470,7 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
   );
 });
 
-const isThreadRetentionGuardError = Schema.is(Orchestrator.ThreadRetentionGuardError);
+const isThreadRetentionGuardError = Schema.is(ThreadRetentionGuardError);
 const pitbossProjectId = ProjectId.make("runtime-pitboss-project");
 const electedThreadId = ThreadId.make("runtime-pitboss-elected");
 

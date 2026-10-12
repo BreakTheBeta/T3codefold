@@ -21,9 +21,7 @@ import { AuthOrchestrationOperateScope, type EnvironmentMachineKind } from "@t3t
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
-import { Alert, Platform, Pressable, useWindowDimensions, View } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
-import Reanimated from "react-native-reanimated";
+import { Alert, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
@@ -53,7 +51,8 @@ import {
   threadListV2ThreadItemKey,
   type ThreadListV2Status,
 } from "./threadListV2";
-import { useThreadListDragTarget } from "./thread-list-drag";
+import { ThreadListDragRow, useThreadListDragTarget } from "./thread-list-drag";
+import { KeyboardFocusRing } from "../keyboard/KeyboardFocusRing";
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { shouldRecedeThreadRow } from "./thread-row-emphasis";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
@@ -1321,76 +1320,61 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   if (!canOperateThread) return rowContent(() => {});
 
   return (
-    <GestureDetector gesture={drag.gesture}>
-      <Reanimated.View ref={drag.ref} collapsable={false} style={drag.style}>
-        {customSnoozeOpen && (
-          <CustomSnoozeSheet onClose={() => setCustomSnoozeOpen(false)} onSnooze={handleSnooze} />
+    <ThreadListDragRow drag={drag}>
+      {customSnoozeOpen && (
+        <CustomSnoozeSheet onClose={() => setCustomSnoozeOpen(false)} onSnooze={handleSnooze} />
+      )}
+      <ThreadSwipeable
+        dormant={dormant}
+        threadKey={`${thread.environmentId}:${thread.id}`}
+        backgroundColor={rowAppearance.swipeBackgroundColor}
+        compactActions={variant === "slim"}
+        containerStyle={rowAppearance.swipeContainerStyle}
+        enableTrackpadSwipe
+        // Full swipe commits the advertised lifecycle action (Settle /
+        // Un-settle), never the secondary snooze action.
+        fullSwipeAction="primary"
+        fullSwipeWidth={props.fullSwipeWidth ?? windowWidth - 32}
+        onDelete={handleDelete}
+        onSwipeableClose={props.onSwipeableClose}
+        onSwipeableWillOpen={props.onSwipeableWillOpen}
+        primaryAction={primaryAction}
+        secondaryAction={secondaryAction}
+        resetKey={`${thread.environmentId}:${thread.id}:${variant}:${snoozedRow}:${thread.settledAt}:${thread.unsettledAt}:${thread.snoozedUntil}`}
+        simultaneousWith={props.simultaneousSwipeGesture}
+        threadTitle={thread.title}
+      >
+        {(close) => (
+          <ControlPillMenu
+            actions={[
+              ...(thread.branch
+                ? [
+                    {
+                      id: "new-thread-on-branch",
+                      title: getThreadListV2NewBranchMenuTitle(thread.branch),
+                      image: "square.and.pencil",
+                    },
+                  ]
+                : []),
+              { id: "copy-thread-id", title: "Copy thread ID", image: "doc.on.doc" },
+              ...(snoozedRow
+                ? snoozedMenuActions
+                : !props.settlementSupported
+                  ? legacyMenuActions
+                  : canUnsettle
+                    ? slimMenuActions
+                    : swipeActions.secondary === "snooze"
+                      ? snoozableCardMenuActions
+                      : cardMenuActions),
+            ]}
+            onPressAction={handleMenuAction}
+            onOpenMenu={drag.onMenuOpen}
+            shouldOpenOnLongPress
+          >
+            {rowContent(close)}
+          </ControlPillMenu>
         )}
-        <ThreadSwipeable
-          dormant={dormant}
-          threadKey={`${thread.environmentId}:${thread.id}`}
-          backgroundColor={rowAppearance.swipeBackgroundColor}
-          compactActions={variant === "slim"}
-          containerStyle={rowAppearance.swipeContainerStyle}
-          enableTrackpadSwipe
-          // Full swipe commits the advertised lifecycle action (Settle /
-          // Un-settle), never the secondary snooze action.
-          fullSwipeAction="primary"
-          fullSwipeWidth={props.fullSwipeWidth ?? windowWidth - 32}
-          onDelete={handleDelete}
-          onSwipeableClose={props.onSwipeableClose}
-          onSwipeableWillOpen={props.onSwipeableWillOpen}
-          primaryAction={primaryAction}
-          secondaryAction={secondaryAction}
-          resetKey={`${thread.environmentId}:${thread.id}:${variant}:${snoozedRow}:${thread.settledAt}:${thread.unsettledAt}:${thread.snoozedUntil}`}
-          simultaneousWith={props.simultaneousSwipeGesture}
-          threadTitle={thread.title}
-        >
-          {(close) => (
-            <ControlPillMenu
-              actions={[
-                ...(thread.branch
-                  ? [
-                      {
-                        id: "new-thread-on-branch",
-                        title: getThreadListV2NewBranchMenuTitle(thread.branch),
-                        image: "square.and.pencil",
-                      },
-                    ]
-                  : []),
-                { id: "copy-thread-id", title: "Copy thread ID", image: "doc.on.doc" },
-                ...(snoozedRow
-                  ? snoozedMenuActions
-                  : !props.settlementSupported
-                    ? legacyMenuActions
-                    : canUnsettle
-                      ? slimMenuActions
-                      : swipeActions.secondary === "snooze"
-                        ? snoozableCardMenuActions
-                        : cardMenuActions),
-              ]}
-              onPressAction={handleMenuAction}
-              onOpenMenu={drag.onMenuOpen}
-              shouldOpenOnLongPress
-            >
-              {rowContent(close)}
-            </ControlPillMenu>
-          )}
-        </ThreadSwipeable>
-      </Reanimated.View>
-    </GestureDetector>
+      </ThreadSwipeable>
+    </ThreadListDragRow>
   );
 });
-
-/** Outlines the row under Vim navigation's cursor, following the row's corner radius. */
-function KeyboardFocusRing() {
-  return (
-    <View
-      pointerEvents="none"
-      className={cn(
-        "absolute inset-0 border-2 border-primary",
-        Platform.OS === "android" ? "rounded-[20px]" : "rounded-xl",
-      )}
-    />
-  );
-}

@@ -1,6 +1,5 @@
 "use client";
 
-import { useOptionalVoiceWorkspace, runVoiceAction } from "./voice/VoiceWorkspaceProvider";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -58,7 +57,6 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
-  CrownIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
@@ -192,6 +190,7 @@ import {
   reduceCommandPaletteUiState,
   type SearchOverlayMode,
 } from "./CommandPalette.logic";
+import { foldGladosActionItem, useFoldVoiceActionItems } from "./foldCommandPaletteActions";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent } from "./CommandPaletteContent";
@@ -1798,27 +1797,9 @@ function OpenCommandPaletteDialog(props: {
     });
   }, [clearOpenIntent, browseNavigation, openIntent, projectThreadItems, pushPaletteView]);
 
-  const voiceWorkspace = useOptionalVoiceWorkspace();
-  const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
-  if (voiceWorkspace) {
-    for (const [command, title] of [
-      ["voice.toggle", "Start or end voice call"],
-      ["voice.mute", "Mute or unmute voice microphone"],
-      ["voice.outputMute", "Mute or unmute voice speaker"],
-    ] as const) {
-      actionItems.push({
-        kind: "action",
-        value: `action:${command}`,
-        title,
-        searchTerms: ["voice", "live", "audio", "microphone"],
-        icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
-        shortcutCommand: command,
-        run: async () => {
-          runVoiceAction(voiceWorkspace, command);
-        },
-      });
-    }
-  }
+  const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [
+    ...useFoldVoiceActionItems(),
+  ];
 
   if (projects.length > 0) {
     const activeProjectTitle =
@@ -1899,19 +1880,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push({
-    kind: "action",
-    value: "action:pitboss",
-    searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
-    title: "Set up or edit GLaDOS",
-    icon: <CrownIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      await navigate({
-        to: "/settings/glados",
-        search: activeThread ? { machine: activeThread.environmentId } : {},
-      });
-    },
-  });
+  actionItems.push(foldGladosActionItem(navigate, activeThread?.environmentId));
 
   if (
     activeThread !== null &&

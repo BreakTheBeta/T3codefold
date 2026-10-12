@@ -451,30 +451,6 @@ export function compileResolvedKeybindingsConfig(
 
 export const DEFAULT_RESOLVED_KEYBINDINGS = compileResolvedKeybindingsConfig(DEFAULT_KEYBINDINGS);
 
-/** Old clients must never receive command literals their config decoder cannot represent. */
-export function keybindingsForVoiceClient(
-  keybindings: ResolvedKeybindingsConfig,
-  voiceControls: boolean,
-): ResolvedKeybindingsConfig {
-  return voiceControls
-    ? keybindings
-    : keybindings.filter((binding) => !binding.command.startsWith("voice."));
-}
-
-/** Older hosts do not know the voice shortcuts. Host bindings retain precedence. */
-export function withDefaultVoiceKeybindings(
-  keybindings: ResolvedKeybindingsConfig,
-): ResolvedKeybindingsConfig {
-  return [
-    ...DEFAULT_RESOLVED_KEYBINDINGS.filter(
-      (binding) =>
-        binding.command.startsWith("voice.") &&
-        !keybindings.some((existing) => existing.command === binding.command),
-    ),
-    ...keybindings,
-  ];
-}
-
 export function mergeWithDefaultKeybindings(
   custom: ResolvedKeybindingsConfig,
 ): ResolvedKeybindingsConfig {
@@ -494,3 +470,5 @@ export function mergeWithDefaultKeybindings(
 
   return merged.slice(-MAX_KEYBINDINGS_COUNT);
 }
+
+export { keybindingsForVoiceClient, withDefaultVoiceKeybindings } from "./foldKeybindings.ts";

@@ -5,7 +5,6 @@ import {
   authScopeRequiredResponse,
   AssetCreateUrlInput,
   AuthAccessReadScope,
-  AuthAccessWriteScope,
   ServerSettingsPatch,
   ProviderInstanceMutation,
   requiredScopesForServerSettingsPatch,
@@ -36,6 +35,8 @@ import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 
+import { FOLD_RPC_REQUIRED_SCOPES } from "../foldRpcPolicy.ts";
+
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
 /**
@@ -44,6 +45,7 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  * runtime failure.
  */
 export const RPC_REQUIRED_SCOPES = {
+  ...FOLD_RPC_REQUIRED_SCOPES,
   ...CLIENT_GUARDED_RPC_SCOPES,
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,
@@ -114,13 +116,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverReportClientActivity]: AuthOrchestrationReadScope,
   [WS_METHODS.serverReportHostPowerState]: AuthEnvironmentMaintainScope,
   [WS_METHODS.serverGetBackgroundPolicy]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossPeers]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossPeerCommand]: AuthAccessWriteScope,
-  [WS_METHODS.pitbossSources]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossSourceCommand]: AuthAccessWriteScope,
-  [WS_METHODS.pitbossRead]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossSubscribe]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossCommand]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksList]: AuthOrchestrationReadScope,
   [WS_METHODS.scheduledTasksSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.secretsAnswerRequest]: AuthOrchestrationOperateScope,
@@ -172,11 +167,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.attachmentsCreateUploadUrl]: AuthOrchestrationOperateScope,
   [WS_METHODS.attachmentsDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerUploadFeedback]: AuthOrchestrationOperateScope,
-  [WS_METHODS.providerRealtimeVoiceStart]: AuthOrchestrationOperateScope,
-  [WS_METHODS.providerRealtimeVoiceStop]: AuthOrchestrationOperateScope,
-  [WS_METHODS.providerRealtimeVoiceList]: AuthOrchestrationOperateScope,
-  [WS_METHODS.providerRealtimeVoiceContext]: AuthOrchestrationOperateScope,
-  [WS_METHODS.providerRealtimeVoiceEvents]: AuthOrchestrationOperateScope,
   // An app's tool calls can change things on its server, like a user action.
   [WS_METHODS.mcpAppsCallTool]: AuthOrchestrationOperateScope,
   [WS_METHODS.mcpAppsToolInfo]: AuthOrchestrationReadScope,
@@ -211,11 +201,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.previewClearProfile]: AuthPreviewOperateScope,
   [WS_METHODS.previewReportProfiles]: AuthPreviewOperateScope,
   [WS_METHODS.previewReportStatus]: AuthPreviewOperateScope,
-  [WS_METHODS.fleetConnect]: AuthOrchestrationOperateScope,
-  [WS_METHODS.fleetRespond]: AuthOrchestrationOperateScope,
-  [WS_METHODS.fleetExecute]: AuthOrchestrationOperateScope,
-  [WS_METHODS.fleetInvoke]: AuthOrchestrationOperateScope,
-  [WS_METHODS.fleetEnvironments]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribePreviewEvents]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeDiscoveredLocalServers]: AuthOrchestrationReadScope,
   [WS_METHODS.deviceConfigure]: AuthSettingsWriteScope,

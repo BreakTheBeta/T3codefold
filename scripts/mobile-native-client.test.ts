@@ -6,14 +6,13 @@ import * as Path from "effect/Path";
 import { assert, describe, it } from "@effect/vitest";
 
 import {
-  NativeClientError,
   androidGradleBuildArgs,
   ccacheEnvironment,
-  clientStatus,
   incrementalPrebuildArgs,
   parseAndroidAbi,
   resolveJavaHome,
-} from "./mobile-native-client.ts";
+} from "./fold-android-native-client.ts";
+import { NativeClientError, clientStatus } from "./mobile-native-client.ts";
 
 describe("mobile native client build planning", () => {
   it("keeps prebuild incremental for both platforms", () => {

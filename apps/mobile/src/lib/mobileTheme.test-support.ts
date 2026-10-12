@@ -17,6 +17,7 @@ export function readDefaultMobileThemeVariables(
     stylesheet,
   )?.[1];
   if (variant === undefined) throw new Error(`Missing generated default ${appearance} theme.`);
+
   return Object.fromEntries(
     Array.from(variant.matchAll(/(--color-[a-z0-9-]+):\s*([^;]+);/gu), ([, name, value]) => [
       name,

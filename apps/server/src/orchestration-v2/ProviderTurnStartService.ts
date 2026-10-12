@@ -44,6 +44,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import { TurnPreamble, withTurnPreamble } from "./TurnPreamble.ts";
 import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
@@ -59,24 +60,6 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
 ) {}
 
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
-
-/**
- * Supplies text that leads a provider turn, such as managed-work rules for this thread. It is
- * keyed by attempt so a retried attempt reuses the text it started with. The default adds none.
- * It never fails: a provider that cannot read its preamble returns null so the turn still starts.
- */
-export class TurnPreamble extends Context.Reference<{
-  readonly forAttempt: (
-    threadId: ThreadId,
-    attemptId: OrchestrationV2RunAttempt["id"],
-  ) => Effect.Effect<string | null>;
-}>("t3/orchestration-v2/ProviderTurnStartService/TurnPreamble", {
-  defaultValue: () => ({ forAttempt: () => Effect.succeed(null) }),
-}) {}
-
-/** The wrapper keeps a preamble from being mistaken for text the user wrote. */
-const withTurnPreamble = (preamble: string | null, text: string) =>
-  preamble === null ? text : `${preamble}\n\n<user_request>\n${text}\n</user_request>`;
 
 /** Claude refuses to replace a process running background work before it reads the prompt. */
 const refusedBeforePrompt = (error: unknown): boolean =>
@@ -970,15 +953,12 @@ export const layer: Layer.Layer<
         text: message.text,
         records: message.context?.records ?? [],
       });
-      // Slash commands such as /compact must reach the provider verbatim. A preamble failure
-      // degrades to an ordinary turn rather than blocking the run.
-      const userText =
-        message.attachments.length === 0 && message.text.trimStart().startsWith("/")
-          ? providerText
-          : withTurnPreamble(
-              yield* turnPreamble.forAttempt(projection.thread.id, attempt.id),
-              providerText,
-            );
+      const userText = yield* withTurnPreamble(turnPreamble, {
+        threadId: projection.thread.id,
+        attemptId: attempt.id,
+        message,
+        providerText,
+      });
       // Delivered once: this run's provider turn marks the work as told. A
       // restart continuation is prompted by its own text or resumes natively.
       const noteContinuation = isRestartNoteContinuation(

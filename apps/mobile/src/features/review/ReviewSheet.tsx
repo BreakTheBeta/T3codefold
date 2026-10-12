@@ -1,4 +1,3 @@
-import { RefreshControl } from "react-native";
 import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
@@ -25,6 +24,7 @@ import {
   FlatList,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   type NativeSyntheticEvent,
   StyleSheet,

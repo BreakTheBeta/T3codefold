@@ -1,4 +1,3 @@
-import { AndroidKeyboardBackCoordinator } from "./components/AndroidKeyboardBackCoordinator";
 import { PermissionUpdateNotice } from "./components/PermissionUpdateNotice";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
@@ -28,9 +27,8 @@ import { useUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { VoiceInputProvider } from "./features/voice-input/VoiceInputProvider";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
-import { VoiceWorkspaceProvider } from "./features/voice-input/VoiceWorkspaceProvider";
-import { LocalAgentNotificationsCoordinator } from "./features/agent-awareness/localNotifications";
 import { NativeLayoutMetricsProvider } from "./native/native-layout-metrics";
+import { FoldAppShell } from "./FoldAppShell";
 
 import "../global.css";
 
@@ -98,14 +96,11 @@ function AppContent() {
                 the system is in dark mode. */}
               <GlobalVoiceInputControl>
                 <NativeLayoutMetricsProvider>
-                  {/* Live Codex voice calls; its panel docks below the navigator. */}
-                  <VoiceWorkspaceProvider>
-                    <IncomingShareProvider>
-                      <LocalAgentNotificationsCoordinator />
+                  <IncomingShareProvider>
+                    <FoldAppShell>
                       <Navigation linking={appLinking} theme={navigationTheme} />
-                      <AndroidKeyboardBackCoordinator />
-                    </IncomingShareProvider>
-                  </VoiceWorkspaceProvider>
+                    </FoldAppShell>
+                  </IncomingShareProvider>
                   <ConfirmDialogHost />
                   <ThreadArrangementHost />
                 </NativeLayoutMetricsProvider>

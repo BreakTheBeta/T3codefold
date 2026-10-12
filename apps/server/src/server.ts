@@ -61,10 +61,7 @@ import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceR
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
-import * as FleetBroker from "./mcp/FleetBroker.ts";
-import * as FleetExecutor from "./mcp/FleetExecutor.ts";
-import * as FleetRouter from "./mcp/FleetRouter.ts";
-import * as OrchestratorMcpService from "./mcp/OrchestratorMcpService.ts";
+import { layerFleet } from "./mcp/fleet/layer.ts";
 import * as PitbossPeerHttp from "./pitboss/PeerHttp.ts";
 import * as ThreadTitleRefinement from "./orchestration-v2/ThreadTitleRefinement.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
@@ -698,15 +695,6 @@ const layerCommandReadiness = HttpRouter.middleware(
       startup.awaitCommandReady.pipe(Effect.orDie, Effect.andThen(httpEffect)),
     ),
   { global: true },
-);
-
-// The MCP toolkits and the WebSocket fleet handlers share one broker, so a
-// request routed by an MCP tool reaches the client connection that leased it.
-const layerFleet = FleetExecutor.layer.pipe(
-  Layer.provide(OrchestratorMcpService.layer),
-  Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
-  Layer.provideMerge(FleetRouter.layer),
-  Layer.provideMerge(FleetBroker.layer),
 );
 
 const layerMakeRoutes = Layer.mergeAll(

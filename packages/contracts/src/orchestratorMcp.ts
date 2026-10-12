@@ -291,7 +291,7 @@ const OrchestratorMcpProjectTarget = Schema.optional(
 );
 
 /** Fleet routing: another environment reachable through a connected client. */
-const OrchestratorMcpEnvironmentTarget = Schema.optional(
+export const OrchestratorMcpEnvironmentTarget = Schema.optional(
   EnvironmentId.annotate({
     description:
       "Environment to act on, reached through a connected client. Omit for this environment.",
@@ -324,13 +324,6 @@ export const OrchestratorMcpCapabilitiesInput = Schema.Struct({
   environmentId: OrchestratorMcpEnvironmentTarget,
 });
 export type OrchestratorMcpCapabilitiesInput = typeof OrchestratorMcpCapabilitiesInput.Type;
-
-export const OrchestratorMcpProjectListInput = Schema.Struct({
-  environmentId: OrchestratorMcpEnvironmentTarget,
-  cursor: Schema.optional(NonNegativeInt),
-  limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
-});
-export type OrchestratorMcpProjectListInput = typeof OrchestratorMcpProjectListInput.Type;
 
 export const OrchestratorMcpThreadListInput = Schema.Struct({
   environmentId: OrchestratorMcpEnvironmentTarget,

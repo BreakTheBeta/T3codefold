@@ -2,6 +2,7 @@ import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
+import { withFoldAppConfig } from "./foldAppConfig.ts";
 
 type AppVariant = "development" | "preview" | "production";
 
@@ -13,13 +14,6 @@ const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
 const runtimeVersionPolicy =
   process.env.MOBILE_VERSION_POLICY ??
   (APP_VARIANT === "development" ? "appVersion" : "fingerprint");
-// EAS resolves the fingerprint policy to a real runtime version at build time. A local
-// prebuild cannot, so it emits the literal "file:fingerprint" and the binary can never match
-// a published manifest. Leaving updates on there costs a launch-time check against a runtime
-// version that will never resolve, which hangs the splash before JavaScript starts. Sideload
-// builds ship self-contained instead.
-const resolvesFingerprintRuntimeVersion =
-  runtimeVersionPolicy !== "fingerprint" || process.env.EAS_BUILD === "true";
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
@@ -96,10 +90,10 @@ const VARIANT_CONFIG = {
     assets: PREVIEW_ASSETS,
   },
   production: {
-    appName: "T3 Code Fold",
+    appName: "T3 Code",
     scheme: "t3code",
     iosBundleIdentifier: "com.t3tools.t3code",
-    androidPackage: "com.breakthebeta.t3code",
+    androidPackage: "com.t3tools.t3code",
     relyingParty: "clerk.t3.codes",
     assets: RELEASE_ASSETS,
   },
@@ -247,10 +241,8 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    // GitHub hosts the fork's protocol manifest and content-addressed assets.
-    // Fingerprinted runtimes prevent JavaScript from crossing native revisions.
-    enabled: APP_VARIANT === "preview" && resolvesFingerprintRuntimeVersion,
-    url: "https://raw.githubusercontent.com/BreakTheBeta/T3codefold/mobile-ota/manifest-android.json",
+    enabled: repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
+    url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
   },
@@ -306,7 +298,6 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    versionCode: 22,
     icon: variant.assets.appIcon,
     package: variant.androidPackage,
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
@@ -481,6 +472,7 @@ const config: ExpoConfig = {
     "./plugins/withAndroidModernPopupMenu.cjs",
     "./plugins/withAndroidModernAlertDialog.cjs",
     "./plugins/withAndroidPredictiveBackCompat.cjs",
+    "./plugins/withFoldAndroidWindow.cjs",
     "./plugins/withAndroidTabletOrientation.cjs",
     ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
   ],
@@ -515,10 +507,10 @@ const config: ExpoConfig = {
       tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
     },
     eas: {
-      projectId: "5c3bde99-9c75-4cd6-b0a0-cc5d2cf846df",
+      projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",
     },
   },
-  owner: "BreakTheBeta",
+  owner: "pingdotgg",
 };
 
-export default config;
+export default withFoldAppConfig(config, { appVariant: APP_VARIANT, runtimeVersionPolicy });

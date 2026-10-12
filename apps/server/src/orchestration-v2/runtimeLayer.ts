@@ -51,15 +51,7 @@ import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
-import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import * as ProcessRunner from "../processRunner.ts";
-import { orchestrationSeamsLayer } from "../pitboss/OrchestrationSeams.ts";
-import * as PeerService from "../pitboss/PeerService.ts";
-import * as SourceService from "../pitboss/SourceService.ts";
-import * as VerificationRunner from "../pitboss/VerificationRunner.ts";
-import * as VerificationRuntime from "../pitboss/VerificationRuntime.ts";
-import * as WorkRuntime from "../pitboss/WorkRuntime.ts";
-import * as WorkStore from "../pitboss/WorkStore.ts";
+import { layerPitboss, layerPitbossOrchestrationSeams } from "../pitboss/layer.ts";
 
 /** The shared application event log and its command receipts. */
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -357,41 +349,6 @@ export const layer = Layer.mergeAll(
   layerLegacyV1ThreadImporterProvided,
 );
 
-const layerPeerServiceProvided = PeerService.layer.pipe(
-  Layer.provide(Layer.mergeAll(WorkStore.layer, ServerSecretStore.layer)),
-);
-const layerSourceServiceProvided = SourceService.layer.pipe(
-  Layer.provide(Layer.mergeAll(WorkStore.layer, ServerSecretStore.layer)),
-);
-const layerVerificationRuntimeProvided = VerificationRuntime.layer.pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      WorkStore.layer,
-      ProjectStore.layer,
-      VerificationRunner.layer.pipe(Layer.provide(ProcessRunner.layer)),
-    ),
-  ),
-);
-const layerWorkRuntimeProvided = WorkRuntime.layer.pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      WorkStore.layer,
-      layerPeerServiceProvided,
-      layerThreadLaunchProvided,
-      layerThreadManagementProvided,
-    ),
-  ),
-);
-
-/** Pitboss services and background runtimes that run alongside orchestration. */
-const layerPitboss = Layer.mergeAll(
-  WorkStore.layer,
-  layerPeerServiceProvided,
-  layerSourceServiceProvided,
-  layerVerificationRuntimeProvided,
-  layerWorkRuntimeProvided,
-);
-
 export const layerProduction = Layer.mergeAll(
   layer.pipe(Layer.provide(layerProjectService)),
   layerProjectService,
@@ -406,11 +363,12 @@ export const layerProduction = Layer.mergeAll(
   layerProviderContinuationWorkerProvided,
   layerAgentSessionImporterProvided,
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
-  layerPitboss,
+  layerPitboss({
+    threadLaunch: layerThreadLaunchProvided,
+    threadManagement: layerThreadManagementProvided,
+  }),
 ).pipe(
-  // The orchestrator and turn-start layers read these references when they are built, so the
-  // pitboss retention guard and managed-work preamble only apply in the production graph.
-  Layer.provide(orchestrationSeamsLayer.pipe(Layer.provide(WorkStore.layer))),
+  Layer.provide(layerPitbossOrchestrationSeams),
   Layer.provide(Scheduler.layer),
   Layer.provideMerge(layerEventInfrastructure),
 );

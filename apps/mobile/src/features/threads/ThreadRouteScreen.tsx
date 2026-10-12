@@ -78,6 +78,7 @@ import { projectThreadContentPresentation } from "./threadContentPresentation";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   useAdaptiveWorkspaceLayout,
+  useAdaptiveWorkspacePaneRole,
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { useFoldWorkspaceAndroidBack } from "../layout/use-fold-workspace-android-back";
@@ -93,6 +94,11 @@ interface ThreadInspectorSelection {
   readonly routeThreadIdentity: string | null;
   readonly mode: ThreadInspectorMode;
   readonly terminalId?: string | null;
+}
+
+function InspectorPaneRoleActivation() {
+  useAdaptiveWorkspacePaneRole("inspector");
+  return null;
 }
 
 // A blank param (a hand-typed deep link) is treated as missing, since branded
@@ -486,7 +492,7 @@ function ThreadRouteContent(
       return;
     }
     setInspectorSelection({ routeThreadIdentity, mode: "git" });
-    showAuxiliaryPane();
+    showAuxiliaryPane("inspector");
   }, [
     fileInspector.supported,
     inspectorMode,
@@ -514,7 +520,7 @@ function ThreadRouteContent(
       return;
     }
     setInspectorSelection({ routeThreadIdentity, mode: nextMode });
-    showAuxiliaryPane();
+    showAuxiliaryPane("inspector");
   }, [
     fileInspector.supported,
     inspectorMode,
@@ -692,7 +698,7 @@ function ThreadRouteContent(
           mode: "terminal",
           terminalId: nextTerminalId,
         });
-        showAuxiliaryPane();
+        showAuxiliaryPane("inspector");
         return;
       }
 
@@ -1114,6 +1120,7 @@ function ThreadRouteContent(
 
   return (
     <>
+      {activeInspectorRenderer ? <InspectorPaneRoleActivation /> : null}
       <ThreadHeader
         title={selectedThread.title}
         subtitle={headerSubtitle}

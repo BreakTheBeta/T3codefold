@@ -1482,31 +1482,6 @@ describe("composer and pull request shortcuts", () => {
   );
 
   for (const platform of ["MacIntel", "Win32", "Linux"]) {
-    it(`separates queued steering and background start on ${platform}`, () => {
-      const modifier = {
-        metaKey: platform === "MacIntel",
-        ctrlKey: platform !== "MacIntel",
-      };
-      const queuedKey = event({ key: "Enter", shiftKey: true, ...modifier });
-      const backgroundKey = event({ key: "Enter", altKey: true, ...modifier });
-      assert.strictEqual(
-        resolveShortcutCommand(queuedKey, DEFAULT_RESOLVED_KEYBINDINGS, {
-          platform,
-          context: { terminalFocus: false, draftThreadRoute: false },
-        }),
-        "thread.steerQueuedMessage",
-      );
-      assert.strictEqual(
-        resolveShortcutCommand(backgroundKey, DEFAULT_RESOLVED_KEYBINDINGS, {
-          platform,
-          context: { terminalFocus: false, draftThreadRoute: true, composerFocus: true },
-        }),
-        "composer.sendBackground",
-      );
-    });
-  }
-
-  for (const platform of ["MacIntel", "Win32", "Linux"]) {
     it.each(shortcuts)(
       `resolves %s on ${platform} and leaves terminal input alone`,
       (key, command) => {
@@ -1552,25 +1527,6 @@ describe("composer and pull request shortcuts", () => {
       );
     },
   );
-
-  for (const platform of ["MacIntel", "Win32", "Linux"]) {
-    it(`edits the last queued message with Alt+ArrowUp from the composer on ${platform}`, () => {
-      const input = event({ key: "ArrowUp", altKey: true });
-      assert.strictEqual(
-        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-          platform,
-          context: { composerFocus: true },
-        }),
-        "thread.editQueuedMessage",
-      );
-      assert.isNull(
-        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-          platform,
-          context: { composerFocus: false },
-        }),
-      );
-    });
-  }
 
   for (const platform of ["MacIntel", "Win32", "Linux"]) {
     it.each([

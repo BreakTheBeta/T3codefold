@@ -20,6 +20,17 @@ re-deriving the decision.
 **Never rebase or squash a sync.** Either one throws away the merge base, and the following sync
 replays every upstream commit Fold has already integrated as a fresh conflict.
 
+## Keeping Fold's footprint small
+
+Conflicts come only from Fold's edits inside upstream-owned files; Fold-only files merge for free.
+New Fold behavior goes in a Fold-owned module (`fold*` names, `*.fold.test.ts` tests, or a feature
+folder only Fold has), and the upstream file gets a seam: one import plus a call, spread, or
+wrapper, placed on lines upstream rarely edits. `packages/contracts/src/foldRpc.ts`,
+`apps/server/src/foldWs.ts`, `apps/web/src/fold.css`, and `apps/mobile/foldAppConfig.ts` are the
+patterns to copy. When Fold must replace an upstream component wholesale, fork it into a Fold file
+and leave upstream's copy untouched rather than rewriting it in place: the copy merges cleanly,
+at the price of picking up its upstream fixes by hand.
+
 ## Resolving conflicts
 
 Fold's divergence falls into a few recurring shapes. Recognising which one a conflict is usually

@@ -6,6 +6,7 @@ import type * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 
 import { rpcRequestDuration, rpcRequestsTotal, withMetrics } from "./Metrics.ts";
+import { FOLD_RPC_AGGREGATES } from "../foldRpcPolicy.ts";
 
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
@@ -15,23 +16,7 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  * prefix. Adding an RPC to `WsRpcGroup` without a label is a type error.
  */
 const RPC_AGGREGATES = {
-  [WS_METHODS.pitbossPeers]: "pitboss",
-  [WS_METHODS.pitbossPeerCommand]: "pitboss",
-  [WS_METHODS.pitbossSources]: "pitboss",
-  [WS_METHODS.pitbossSourceCommand]: "pitboss",
-  [WS_METHODS.pitbossRead]: "pitboss",
-  [WS_METHODS.pitbossSubscribe]: "pitboss",
-  [WS_METHODS.pitbossCommand]: "pitboss",
-  [WS_METHODS.fleetConnect]: "fleet",
-  [WS_METHODS.fleetRespond]: "fleet",
-  [WS_METHODS.fleetExecute]: "fleet",
-  [WS_METHODS.fleetInvoke]: "fleet",
-  [WS_METHODS.fleetEnvironments]: "fleet",
-  [WS_METHODS.providerRealtimeVoiceStart]: "provider",
-  [WS_METHODS.providerRealtimeVoiceStop]: "provider",
-  [WS_METHODS.providerRealtimeVoiceList]: "provider",
-  [WS_METHODS.providerRealtimeVoiceContext]: "provider",
-  [WS_METHODS.providerRealtimeVoiceEvents]: "provider",
+  ...FOLD_RPC_AGGREGATES,
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: "orchestrationV2",
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: "orchestration",
