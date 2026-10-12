@@ -41,8 +41,9 @@ not dropped.
 - Typecheck every workspace touched: `npx tsc --noEmit -p <workspace>`. For `apps/server`, also
   run with `--singleThreaded`. tsgo's parallel checkers can hide a TS2589 "excessively deep"
   failure and report it as `any` in an Effect requirements channel instead.
-- Run the tests in every directory the merge changed (`NODE_ENV=test node_modules/.bin/vp test run
-<files>`). `NODE_ENV=production` in the shell breaks React `act` tests.
+- Run the tests in every directory the merge changed, with
+  `NODE_ENV=test node_modules/.bin/vp test run <files>`. `NODE_ENV=production` in the shell
+  breaks React `act` tests.
 - Walk the README's "More than upstream" table and check every feature on every surface it lists.
   For each one, confirm the implementation is wired in, and that every entry point that existed
   before the merge still exists: settings rows, command palette entries, keybindings, buttons,
