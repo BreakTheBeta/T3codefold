@@ -244,8 +244,8 @@ and their marks follow the same rules as on web and desktop.
 
 ### Review on mobile
 
-Open **Pull requests** from the pull request button in the thread list header or the command
-palette. Opening a thread's pull request from its Git actions also stays in the app. The mobile app
+Open **Pull requests** from its tab on Android, the pull request button in the thread list header
+on iPhone and iPad, or the command palette. Opening a thread's pull request from its Git actions also stays in the app. The mobile app
 reads and writes through the connected environment's host credentials, so the phone needs no GitHub
 sign-in of its own. Screenshots uploaded to a private repository load through the environment's
 GitHub credential.
