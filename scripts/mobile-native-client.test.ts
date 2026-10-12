@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as HostProcess from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -95,8 +95,8 @@ const makeJvm = Effect.fn(function* (root: string, name: string, withCompiler: b
 
 const resolve = (environment: Record<string, string>) =>
   resolveJavaHome().pipe(
-    Effect.provideService(HostProcess.HostProcessPlatform, "linux"),
-    Effect.provideService(HostProcess.HostProcessEnvironment, environment),
+    Effect.provideService(HostProcess.Platform, "linux"),
+    Effect.provideService(HostProcess.Environment, environment),
   );
 
 it.layer(NodeServices.layer)("android jdk resolution", (it) => {

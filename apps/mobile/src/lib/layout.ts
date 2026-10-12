@@ -1,6 +1,7 @@
 import { scaledTypographyLineHeight } from "./appearancePreferences";
 import { MOBILE_TYPOGRAPHY } from "./typography";
 import { constrainFoldablePaneWidth, FOLDABLE_PANE_COMPACT_WIDTH } from "./foldable-pane-layout";
+import type { NativeLayoutMetrics } from "./reserved-regions";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -56,6 +57,7 @@ export interface Layout {
   readonly variant: LayoutVariant;
   readonly usesSplitView: boolean;
   readonly listPaneWidth: number | null;
+  readonly listPaneGap?: number;
   readonly shellPadding: number;
 }
 
@@ -95,11 +97,23 @@ export function deriveLayout(input: {
   readonly width: number;
   readonly height: number;
   readonly platform?: string;
+  readonly nativeMetrics?: NativeLayoutMetrics | null;
 }): Layout {
   const { width, height } = input;
-  const wideEnoughForSplit =
-    width >= SPLIT_LAYOUT_MIN_WIDTH &&
-    height >= (input.platform === "android" ? 320 : SPLIT_LAYOUT_MIN_HEIGHT);
+  const metrics = input.nativeMetrics;
+  const usableWidth = width - (metrics?.safeArea.left ?? 0) - (metrics?.safeArea.right ?? 0);
+  // UIKit's size class supports the shorter Duo inner display. Geometry remains
+  // a floor so a narrow multitasking window cannot squeeze both columns.
+  const hasDuoGeometry =
+    metrics &&
+    (metrics.verticalBarEdge !== "none" ||
+      metrics.reservedRegions.some((region) => region.kind === "division"));
+  const wideEnoughForSplit = hasDuoGeometry
+    ? metrics.horizontalSizeClass === "regular" &&
+      usableWidth >= SPLIT_SIDEBAR_MIN_WIDTH + 320 &&
+      height >= 400
+    : width >= SPLIT_LAYOUT_MIN_WIDTH &&
+      height >= (input.platform === "android" ? 320 : SPLIT_LAYOUT_MIN_HEIGHT);
 
   if (!wideEnoughForSplit) {
     return {
@@ -110,14 +124,20 @@ export function deriveLayout(input: {
     };
   }
 
+  const division = metrics?.reservedRegions.find(
+    (region) =>
+      region.kind === "division" &&
+      region.height >= height / 2 &&
+      region.x - metrics.safeArea.left >= SPLIT_SIDEBAR_MIN_WIDTH &&
+      width - region.x - region.width - metrics.safeArea.right >= 320,
+  );
   return {
     variant: "split",
     usesSplitView: true,
-    listPaneWidth: clamp(
-      Math.round(width * 0.32),
-      SPLIT_SIDEBAR_MIN_WIDTH,
-      SPLIT_SIDEBAR_DEFAULT_MAX_WIDTH,
-    ),
+    listPaneWidth:
+      division?.x ??
+      clamp(Math.round(width * 0.32), SPLIT_SIDEBAR_MIN_WIDTH, SPLIT_SIDEBAR_DEFAULT_MAX_WIDTH),
+    ...(division ? { listPaneGap: division.width } : {}),
     shellPadding: 0,
   };
 }
@@ -145,7 +165,8 @@ export function deriveWorkspacePaneLayout(input: {
     input.auxiliaryPanePreferredVisible &&
     (input.auxiliaryPaneRegistered ?? true);
   const sidebarPreferred = input.layout.usesSplitView && input.primarySidebarPreferredVisible;
-  const listPaneWidth = input.layout.listPaneWidth ?? 0;
+  // A Duo hinge gap sits between the sidebar and chat, so it counts as sidebar width.
+  const listPaneWidth = (input.layout.listPaneWidth ?? 0) + (input.layout.listPaneGap ?? 0);
   const restingInspectorWidth = (availableWidth: number) =>
     constrainFoldablePaneWidth({
       preferredWidth:

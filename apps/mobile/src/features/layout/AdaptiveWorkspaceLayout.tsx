@@ -67,6 +67,11 @@ import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderE
 import { WORKSPACE_PANE_REVEAL_TIMING } from "./workspace-pane-animation";
 import { WorkspaceThumbNavigation, type WorkspaceThumbAction } from "./workspace-thumb-navigation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
+import {
+  NativeWorkspaceModeContext,
+  NativeWorkspaceInspectorContext,
+} from "../../native/v5-workspace-context";
+import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
 
 interface AdaptiveWorkspaceContextValue {
   readonly tabletopTopHeight: number | null;
@@ -239,7 +244,11 @@ function AdaptiveWorkspaceLayoutContent(props: {
   readonly initialPreferences: Preferences;
 }) {
   const projectGroupingMode = props.projectGroupingMode;
-  const window = useWindowDimensions();
+  const nativeWorkspace = use(NativeWorkspaceModeContext);
+  const windowDimensions = useWindowDimensions();
+  // iOS reports UIKit's window geometry (including Duo's division); elsewhere this is null.
+  const nativeMetrics = useNativeLayoutMetrics();
+  const window = nativeMetrics ?? windowDimensions;
   const safeAreaInsets = useSafeAreaInsets();
   const pathname = props.pathname;
   const navigation = useNavigation();
@@ -250,8 +259,9 @@ function AdaptiveWorkspaceLayoutContent(props: {
         width: window.width - safeAreaInsets.left - safeAreaInsets.right,
         height: window.height,
         platform: Platform.OS,
+        nativeMetrics,
       }),
-    [safeAreaInsets.left, safeAreaInsets.right, window.height, window.width],
+    [nativeMetrics, safeAreaInsets.left, safeAreaInsets.right, window.height, window.width],
   );
   // A landscape navigation bar or display cutout sits beside the panes, not under them.
   const leadingInset = layout.usesSplitView ? safeAreaInsets.left : 0;
@@ -722,6 +732,22 @@ function AdaptiveWorkspaceLayoutContent(props: {
     ],
   );
 
+  // A fold or Duo division separates the sidebar from the chat.
+  const sidebarGap = foldRegions.vertical?.gap ?? effectiveLayout.listPaneGap ?? 0;
+
+  if (nativeWorkspace) {
+    return (
+      <HomeListOptionsProvider projectGroupingMode={projectGroupingMode}>
+        <AdaptiveWorkspaceContext value={contextValue}>
+          <NativeWorkspaceInspectorContext
+            value={{ render: workspaceInspector?.render, visible: panes.auxiliaryPaneVisible }}
+          >
+            {props.children}
+          </NativeWorkspaceInspectorContext>
+        </AdaptiveWorkspaceContext>
+      </HomeListOptionsProvider>
+    );
+  }
   return (
     <HomeListOptionsProvider projectGroupingMode={projectGroupingMode}>
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
@@ -762,8 +788,8 @@ function AdaptiveWorkspaceLayoutContent(props: {
               </RenderErrorBoundary>
             )}
           </WorkspaceSidebarColumn>
-          {foldRegions.vertical && panes.primarySidebarVisible ? (
-            <View style={{ width: foldRegions.vertical.gap }} />
+          {sidebarGap > 0 && panes.primarySidebarVisible ? (
+            <View style={{ width: sidebarGap }} />
           ) : null}
           <View
             className={
@@ -843,7 +869,8 @@ function WorkspaceSidebarColumn(props: {
     wasShown.current = shown;
   }, [reveal, shown]);
   const revealStyle = useAnimatedStyle(() => ({
-    opacity: reveal.value,
+    // Fading a UIKit glass ancestor can leave remounted header effects missing.
+    opacity: Platform.OS === "ios" ? 1 : reveal.value,
     transform: [{ translateX: (reveal.value - 1) * 16 }],
   }));
 

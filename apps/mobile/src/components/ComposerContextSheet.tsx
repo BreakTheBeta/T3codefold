@@ -1,10 +1,12 @@
 import { androidKeyboardFirst } from "../lib/android-back";
+import { useOpenPullRequest } from "../native/useOpenPullRequest";
 import { SourceFileSurface } from "../features/files/SourceFileSurface";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import type {
   ComposerContextRecord,
   ElementContextSource,
   EnvironmentId,
+  ProjectId,
   ScopedThreadRef,
 } from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
@@ -12,7 +14,6 @@ import { videoMimeType } from "@t3tools/shared/video";
 import { useState } from "react";
 import {
   Alert,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -28,6 +29,7 @@ import {
   isFileBackedComposerAttachment,
   type DraftComposerAttachment,
 } from "../lib/composerImages";
+import { contextImageGallery } from "../lib/contextImageGallery";
 import { FilePreviewModal } from "./FilePreviewModal";
 import { VideoPreviewModal } from "./VideoPreviewModal";
 import { ComposerContextAttachment } from "./ComposerContextAttachment";
@@ -48,6 +50,7 @@ function ContextField(props: { label: string; value: string | null | undefined; 
           style={{ height: Math.min(260, Math.max(100, props.value.split("\n").length * 22 + 36)) }}
         >
           <SourceFileSurface
+            embedded
             contents={props.value}
             path={props.label === "HTML" ? "element.html" : "styles.css"}
           />
@@ -92,9 +95,16 @@ export function ComposerContextSheet(props: {
   readonly onOpenSkill?: () => void;
   readonly onOpenThread?: (thread: ScopedThreadRef) => void;
   readonly environmentId?: EnvironmentId;
+  readonly projectId?: ProjectId;
   readonly records?: ReadonlyArray<ComposerContextRecord>;
   readonly attachments?: ReadonlyArray<DraftComposerAttachment>;
 }) {
+  const openPullRequest = useOpenPullRequest({
+    context:
+      props.environmentId && props.projectId
+        ? { environmentId: props.environmentId, projectId: props.projectId }
+        : undefined,
+  });
   const reviewColors = useReviewCommentColors();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -161,6 +171,11 @@ export function ComposerContextSheet(props: {
               kind: record.kind === "image" || previewKind === "image" ? "image" : "pdf",
               name: record.name,
               ...source,
+              gallery: contextImageGallery(
+                props.records ?? [],
+                props.attachments ?? [],
+                props.environmentId,
+              ),
               actionsSource: { name: record.name, mimeType, ...source },
             }}
             onRequestClose={androidKeyboardFirst(props.onClose)}
@@ -411,7 +426,8 @@ export function ComposerContextSheet(props: {
               <Pressable
                 accessibilityRole="link"
                 onPress={() => {
-                  void Linking.openURL(pullRequestUrl).catch(() =>
+                  props.onClose();
+                  void openPullRequest(pullRequestUrl).catch(() =>
                     Alert.alert("Could not open pull request", "Try again when connected."),
                   );
                 }}
@@ -429,7 +445,7 @@ export function ComposerContextSheet(props: {
                 <Text className="text-foreground">Open attachment</Text>
               </Pressable>
             ) : null}
-            {props.onOpenPullRequest ? (
+            {props.onOpenPullRequest && !pullRequestUrl ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={props.onOpenPullRequest}

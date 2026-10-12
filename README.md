@@ -73,7 +73,7 @@ Paint splatter across the chat canvas in your theme's colours, on the unfolded p
 
 ## More than upstream
 
-Compared with upstream `main` at [bfec2387b8](https://github.com/pingdotgg/t3code/commit/bfec2387b8), synced **7 October 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
+Compared with upstream `main` at [6ba6a0daf4](https://github.com/pingdotgg/t3code/commit/6ba6a0daf4), synced **11 October 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
 
 | Feature                              | What you get                                                                                                                                                                                                        | Available in                             |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
@@ -157,7 +157,7 @@ Tip: Use `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3
 
 ### Desktop app
 
-Download Fold desktop builds from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The upstream Homebrew, winget, and AUR packages install regular T3 Code.
+Download Fold desktop builds from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The upstream Homebrew, winget, Scoop, and AUR packages install regular T3 Code.
 
 ## Some notes
 
@@ -179,6 +179,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Project settings](./docs/user/project-settings.md)
 - [Appearance preferences](./docs/user/appearance.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
+- [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
 - [Keeping app and server in sync](./docs/user/updating.md)
 - [Source control integrations](./docs/user/source-control.md)
 - Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
