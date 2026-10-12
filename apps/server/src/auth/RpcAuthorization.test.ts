@@ -80,15 +80,6 @@ describe("RPC authorization scopes", () => {
     );
   });
 
-  it("requires access-write for pitboss peer and source credentials", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.pitbossRead)).toBe(AuthOrchestrationReadScope);
-    expect(requiredScopeForRpcMethod(WS_METHODS.pitbossCommand)).toBe(
-      AuthOrchestrationOperateScope,
-    );
-    expect(requiredScopeForRpcMethod(WS_METHODS.pitbossPeerCommand)).toBe(AuthAccessWriteScope);
-    expect(requiredScopeForRpcMethod(WS_METHODS.pitbossSourceCommand)).toBe(AuthAccessWriteScope);
-  });
-
   it("separates ACP Registry discovery from provisioning", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.serverSearchAcpRegistry)).toBe(
       AuthOrchestrationReadScope,

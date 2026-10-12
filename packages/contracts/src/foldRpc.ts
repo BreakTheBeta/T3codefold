@@ -1,7 +1,7 @@
 /**
- * Fold-only WebSocket RPCs: pitboss (GLaDOS work), fleet routing and realtime
- * voice. `rpc.ts` spreads `FOLD_WS_METHODS` into `WS_METHODS` and merges
- * `FoldRpcGroup` into `WsRpcGroup`, so upstream syncs touch two lines there.
+ * Fold-only WebSocket RPCs: fleet routing and realtime voice. `rpc.ts` spreads
+ * `FOLD_WS_METHODS` into `WS_METHODS` and merges `FoldRpcGroup` into
+ * `WsRpcGroup`, so upstream syncs touch two lines there.
  */
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
@@ -18,15 +18,6 @@ import {
 } from "./fleet.ts";
 import { OrchestratorMcpFailure } from "./orchestratorMcp.ts";
 import {
-  PitbossCommand,
-  PitbossError,
-  PitbossReadInput,
-  PitbossSnapshot,
-  PitbossSourceRequest,
-  PitbossSourcesResult,
-} from "./pitboss.ts";
-import { PitbossPeerCommand, PitbossPeerList } from "./pitbossPeer.ts";
-import {
   ProviderRealtimeVoiceContextInput,
   ProviderRealtimeVoiceError,
   ProviderRealtimeVoiceEvent,
@@ -37,15 +28,6 @@ import {
 } from "./provider.ts";
 
 export const FOLD_WS_METHODS = {
-  // Pitboss (GLaDOS managed work)
-  pitbossPeers: "pitboss.peers",
-  pitbossPeerCommand: "pitboss.peerCommand",
-  pitbossSources: "pitboss.sources",
-  pitbossSourceCommand: "pitboss.sourceCommand",
-  pitbossRead: "pitboss.read",
-  pitbossSubscribe: "pitboss.subscribe",
-  pitbossCommand: "pitboss.command",
-
   // Fleet: orchestration across a client's connected environments
   fleetConnect: "fleet.connect",
   fleetRespond: "fleet.respond",
@@ -61,49 +43,11 @@ export const FOLD_WS_METHODS = {
   providerRealtimeVoiceEvents: "provider.realtimeVoice.events",
 } as const;
 
-const PitbossRpcError = Schema.Union([PitbossError, EnvironmentAuthorizationError]);
 const FleetRpcError = Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]);
 const RealtimeVoiceRpcError = Schema.Union([
   ProviderRealtimeVoiceError,
   EnvironmentAuthorizationError,
 ]);
-
-const WsPitbossPeersRpc = Rpc.make(FOLD_WS_METHODS.pitbossPeers, {
-  payload: PitbossReadInput,
-  success: PitbossPeerList,
-  error: PitbossRpcError,
-});
-const WsPitbossPeerCommandRpc = Rpc.make(FOLD_WS_METHODS.pitbossPeerCommand, {
-  payload: PitbossPeerCommand,
-  success: PitbossPeerList,
-  error: PitbossRpcError,
-});
-const WsPitbossSourcesRpc = Rpc.make(FOLD_WS_METHODS.pitbossSources, {
-  payload: PitbossReadInput,
-  success: PitbossSourcesResult,
-  error: PitbossRpcError,
-});
-const WsPitbossSourceCommandRpc = Rpc.make(FOLD_WS_METHODS.pitbossSourceCommand, {
-  payload: PitbossSourceRequest,
-  success: PitbossSourcesResult,
-  error: PitbossRpcError,
-});
-const WsPitbossReadRpc = Rpc.make(FOLD_WS_METHODS.pitbossRead, {
-  payload: PitbossReadInput,
-  success: PitbossSnapshot,
-  error: PitbossRpcError,
-});
-const WsPitbossSubscribeRpc = Rpc.make(FOLD_WS_METHODS.pitbossSubscribe, {
-  payload: PitbossReadInput,
-  success: PitbossSnapshot,
-  stream: true,
-  error: PitbossRpcError,
-});
-const WsPitbossCommandRpc = Rpc.make(FOLD_WS_METHODS.pitbossCommand, {
-  payload: PitbossCommand,
-  success: PitbossSnapshot,
-  error: PitbossRpcError,
-});
 
 const WsFleetConnectRpc = Rpc.make(FOLD_WS_METHODS.fleetConnect, {
   payload: FleetConnectInput,
@@ -157,13 +101,6 @@ const WsProviderRealtimeVoiceEventsRpc = Rpc.make(FOLD_WS_METHODS.providerRealti
 });
 
 export const FoldRpcGroup = RpcGroup.make(
-  WsPitbossPeersRpc,
-  WsPitbossPeerCommandRpc,
-  WsPitbossSourcesRpc,
-  WsPitbossSourceCommandRpc,
-  WsPitbossReadRpc,
-  WsPitbossSubscribeRpc,
-  WsPitbossCommandRpc,
   WsFleetConnectRpc,
   WsFleetRespondRpc,
   WsFleetExecuteRpc,

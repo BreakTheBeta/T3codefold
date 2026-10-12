@@ -235,10 +235,6 @@
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"
     },
-    "./glados-board": {
-      "types": "./src/gladosBoard.ts",
-      "default": "./src/gladosBoard.ts"
-    },
     "./realtime-voice": {
       "types": "./src/realtime-voice/controller.ts",
       "default": "./src/realtime-voice/controller.ts"
@@ -250,10 +246,6 @@
     "./realtime-voice/workspace": {
       "types": "./src/realtime-voice/workspace.ts",
       "default": "./src/realtime-voice/workspace.ts"
-    },
-    "./state/pitboss": {
-      "types": "./src/state/pitboss.ts",
-      "default": "./src/state/pitboss.ts"
     },
     "./state/realtime-voice": {
       "types": "./src/state/realtimeVoice.ts",

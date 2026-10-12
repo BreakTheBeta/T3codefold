@@ -61,7 +61,6 @@ import * as FleetBroker from "./mcp/FleetBroker.ts";
 import * as FleetExecutor from "./mcp/FleetExecutor.ts";
 import * as FleetRouter from "./mcp/FleetRouter.ts";
 import * as OrchestratorMcpService from "./mcp/OrchestratorMcpService.ts";
-import * as PitbossPeerHttp from "./pitboss/PeerHttp.ts";
 import * as ThreadTitleRefinement from "./orchestration-v2/ThreadTitleRefinement.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -698,8 +697,6 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),
-  // Peer GLaDOS environments call this directly, authenticated by enrollment credentials.
-  PitbossPeerHttp.layer,
 ).pipe(
   Layer.provide(layerFleet),
   // Both transports consume the same service instance, so caches single-flight across clients

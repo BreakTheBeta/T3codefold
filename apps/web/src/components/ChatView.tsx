@@ -23,7 +23,7 @@ import {
 } from "./ChatView.logic";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { useCodexRealtimeVoice } from "../hooks/useCodexRealtimeVoice";
-import { PitbossPanel } from "./pitboss/PitbossPanel";
+import { GladosStrip } from "./glados/GladosStrip";
 import { useVoiceViewContext } from "./voice/VoiceWorkspaceProvider";
 import { TimelineVimMode } from "~/vim/TimelineVimMode";
 import { useScratchProject } from "../hooks/useScratchProject";
@@ -11036,13 +11036,8 @@ export default function ChatView(props: ChatViewProps) {
           />
         </header>
 
-        {isServerThread && activeProject && (
-          <PitbossPanel
-            environmentId={activeThread.environmentId}
-            threadId={activeThread.id}
-            runtimeMode={activeThread.runtimeMode}
-            onComposeWork={focusComposer}
-          />
+        {isServerThread && (
+          <GladosStrip environmentId={activeThread.environmentId} threadId={activeThread.id} />
         )}
 
         {/* Main content area with optional plan sidebar */}

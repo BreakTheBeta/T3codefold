@@ -16,7 +16,6 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 import { launchThread } from "../project/handlers.ts";
-import { requireLedgerDelegation } from "../work/ledgerGuard.ts";
 
 const handlers = {
   orchestrator_capabilities: McpToolAccess.reads((input) =>
@@ -28,7 +27,6 @@ const handlers = {
   ),
   delegate_task: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      yield* requireLedgerDelegation("delegate_task");
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.delegateTask(scope, input);
@@ -88,7 +86,6 @@ const handlers = {
   ),
   create_threads: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      yield* requireLedgerDelegation("create_threads");
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.createThreads(scope, input);
@@ -101,9 +98,7 @@ const handlers = {
       interactionMode: input.interactionMode === "inherit" ? undefined : input.interactionMode,
     }),
     (input, modes) =>
-      threadStartAsLaunch(input).pipe(
-        Effect.flatMap((launch) => launchThread(launch, modes, "t3_thread_start")),
-      ),
+      threadStartAsLaunch(input).pipe(Effect.flatMap((launch) => launchThread(launch, modes))),
   ),
   t3_thread_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {

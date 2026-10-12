@@ -354,7 +354,6 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       // Pending work the dev server would otherwise pick up and run.
       yield* sql`DELETE FROM scheduled_tasks`;
       yield* sql`DELETE FROM orchestration_v2_effect_outbox`;
-      yield* sql`DELETE FROM pitboss_effects WHERE state = 'pending'`;
       yield* sql`DELETE FROM orchestration_v2_thread_launch_workflows`;
       yield* sql`DELETE FROM orchestration_command_receipts`;
       yield* sql`DELETE FROM provider_session_runtime`;

@@ -1,4 +1,3 @@
-import { PitbossPins } from "./PitbossWork";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
@@ -1005,7 +1004,6 @@ function ThreadNavigationSidebarPane(
                   <LegendList
                     ref={listRef}
                     {...dragListProps}
-                    ListHeaderComponent={<PitbossPins environments={environments} />}
                     data={listItems}
                     drawDistance={500}
                     estimatedItemSize={64}
@@ -1069,10 +1067,7 @@ function ThreadNavigationSidebarPane(
         }
       >
         {Platform.OS === "android" && listItems.length === 0 ? (
-          <View className="flex-1">
-            <PitbossPins environments={environments} />
-            <View className="flex-1 items-center justify-center">{listEmpty}</View>
-          </View>
+          <View className="flex-1 items-center justify-center">{listEmpty}</View>
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <ThreadListDragSurface
@@ -1090,7 +1085,6 @@ function ThreadNavigationSidebarPane(
                   <LegendList
                     ref={listRef}
                     {...dragListProps}
-                    ListHeaderComponent={<PitbossPins environments={environments} />}
                     data={listItems}
                     drawDistance={500}
                     estimatedItemSize={64}

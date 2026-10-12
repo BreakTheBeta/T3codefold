@@ -17,7 +17,6 @@ import {
   retryCommandId,
   unavailable,
 } from "../../threadAccess.ts";
-import { requireLedgerDelegation } from "../work/ledgerGuard.ts";
 import { ProjectListResult, ProjectToolkit, ThreadLaunchResult } from "./tools.ts";
 import type { ThreadLaunchParameters } from "./tools.ts";
 
@@ -169,27 +168,18 @@ const launchLocally = (
 
 /**
  * Launches a top-level thread here, or in the environment `input.environmentId`
- * names, which applies the caller's limits again. `tool` is the name the caller
- * used, for the ledger guard's refusal; t3_thread_start is an alias of this
- * launch. Callers declare it with `McpToolAccess.startsThreads`.
+ * names, which applies the caller's limits again. t3_thread_start is an alias
+ * of this launch. Callers declare it with `McpToolAccess.startsThreads`.
  */
 export const launchThread = (
   input: typeof ThreadLaunchParameters.Type,
   modes: McpToolAccess.StartedModes,
-  tool: string,
-) =>
-  requireLedgerDelegation(tool).pipe(
-    Effect.andThen(
-      launchLocally(input, modes).pipe(
-        routeIfRemote("t3_thread_launch", input, ThreadLaunchResult),
-      ),
-    ),
-  );
+) => launchLocally(input, modes).pipe(routeIfRemote("t3_thread_launch", input, ThreadLaunchResult));
 
 export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   t3_thread_launch: McpToolAccess.startsThreads(
     (input) => input,
-    (input, modes) => launchThread(input, modes, "t3_thread_launch"),
+    (input, modes) => launchThread(input, modes),
   ),
   t3_project_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {

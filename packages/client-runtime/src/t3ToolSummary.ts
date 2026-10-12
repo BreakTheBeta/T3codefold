@@ -332,12 +332,6 @@ export function summarizeT3ToolCalls(
     case "environment-list":
       label = phrase("Listed", "list", `T3 environments ${times}`);
       break;
-    case "work-read":
-      label = phrase("Read", "read", `managed work ${times}`);
-      break;
-    case "work-command":
-      label = phrase("Updated", "update", `managed work ${times}`);
-      break;
     case "attachment-prepare":
       label = phrase(
         "Prepared",

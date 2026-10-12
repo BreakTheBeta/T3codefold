@@ -5,6 +5,7 @@
 - [Install T3 Code](./user/install.md)
 - [Messages and context](./user/composer.md)
 - [Working with threads](./user/thread-sidebar.md)
+- [GLaDOS](./user/glados.md)
 - [Permission modes](./user/permission-modes.md)
 - [Terminal history](./user/terminal.md)
 - [Source control](./user/source-control.md)
@@ -35,7 +36,6 @@ Internal notes preserve architectural decisions, constraints, and implementation
 source alone does not explain. Most code changes do not need an internal documentation update. Follow the
 [documentation rules](../AGENTS.md#documentation) before adding one.
 
-- [GLaDOS orchestration idea library](./internals/glados/README.md) — source concepts, adoption tradeoffs and project-lead design
 - [Architecture overview](./internals/overview.md)
 - [Glossary](./internals/glossary.md)
 - [Connection runtime](./internals/connection-runtime.md)

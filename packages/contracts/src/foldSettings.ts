@@ -1,10 +1,12 @@
 /**
- * Fold-only client settings. Spread into upstream's `ClientSettingsSchema` and
- * `ClientSettingsPatch` in `settings.ts`, so upstream syncs touch two lines
- * there instead of every field.
+ * Fold-only settings. Spread into upstream's client and server settings schemas
+ * and their patches in `settings.ts`, so upstream syncs touch a few lines there
+ * instead of every field.
  */
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+
+import { ThreadId, TrimmedString } from "./baseSchemas.ts";
 
 /** Where the splatter backdrop shows: the themes that ship with it, or every theme. */
 export const ThemeBackdropScope = Schema.Literals(["featured", "all"]);
@@ -77,4 +79,19 @@ export const FoldClientSettingsPatchFields = {
   citeSelectionEnabled: Schema.optionalKey(Schema.Boolean),
   vimModeEnabled: Schema.optionalKey(Schema.Boolean),
   vimThreadPreviewEnabled: Schema.optionalKey(Schema.Boolean),
+};
+
+export const FoldServerSettingsFields = {
+  /**
+   * The thread acting as GLaDOS, this environment's coordinator. Its turns lead with the
+   * coordinator preamble; everything else about it is an ordinary thread.
+   */
+  gladosThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  /** The user's standing instructions to GLaDOS: priorities, limits and what good work looks like. */
+  gladosInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+};
+
+export const FoldServerSettingsPatchFields = {
+  gladosThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
+  gladosInstructions: Schema.optionalKey(TrimmedString),
 };

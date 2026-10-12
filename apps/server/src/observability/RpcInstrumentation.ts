@@ -15,13 +15,6 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  * prefix. Adding an RPC to `WsRpcGroup` without a label is a type error.
  */
 const RPC_AGGREGATES = {
-  [WS_METHODS.pitbossPeers]: "pitboss",
-  [WS_METHODS.pitbossPeerCommand]: "pitboss",
-  [WS_METHODS.pitbossSources]: "pitboss",
-  [WS_METHODS.pitbossSourceCommand]: "pitboss",
-  [WS_METHODS.pitbossRead]: "pitboss",
-  [WS_METHODS.pitbossSubscribe]: "pitboss",
-  [WS_METHODS.pitbossCommand]: "pitboss",
   [WS_METHODS.fleetConnect]: "fleet",
   [WS_METHODS.fleetRespond]: "fleet",
   [WS_METHODS.fleetExecute]: "fleet",

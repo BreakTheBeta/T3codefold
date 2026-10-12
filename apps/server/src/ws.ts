@@ -52,7 +52,6 @@ import {
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_V2_WS_METHODS,
   FoldRpcGroup,
-  PitbossError,
   ProviderRealtimeVoiceError,
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
@@ -181,10 +180,6 @@ import { FleetBroker } from "./mcp/FleetBroker.ts";
 import { FleetExecutor } from "./mcp/FleetExecutor.ts";
 import { FleetRouter } from "./mcp/FleetRouter.ts";
 import { makeRealtimeVoiceSessionResolver } from "./orchestration-v2/RealtimeVoiceSession.ts";
-import { makeHome } from "./pitboss/Home.ts";
-import { PeerService } from "./pitboss/PeerService.ts";
-import { SourceService } from "./pitboss/SourceService.ts";
-import { WorkStore } from "./pitboss/WorkStore.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { remoteSshDeviceHosts } from "./device/localSshDeviceHost.ts";
@@ -550,17 +545,13 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 
 /**
- * Fold's pitboss, fleet and realtime voice handlers, spread into the socket's
- * RPC handlers. The GLaDOS home and the fleet services are server-lifetime and
- * passed in, so every socket shares one home lock and one fleet broker.
+ * Fold's fleet and realtime voice handlers, spread into the socket's RPC
+ * handlers. The fleet services are server-lifetime, so every socket shares one
+ * fleet broker.
  */
 export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (input: {
   readonly sessionId: AuthSessionId;
-  readonly openGladosHome: Effect.Success<ReturnType<typeof makeHome>>;
 }) {
-  const work = yield* WorkStore;
-  const workPeers = yield* PeerService;
-  const workSources = yield* SourceService;
   const fleetBroker = yield* FleetBroker;
   const fleetRouter = yield* FleetRouter;
   const fleetExecutor = yield* FleetExecutor;
@@ -585,34 +576,6 @@ export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (
     );
 
   return FoldRpcGroup.of({
-    [WS_METHODS.pitbossPeers]: () => workPeers.list(),
-    [WS_METHODS.pitbossPeerCommand]: (command) => workPeers.execute(command),
-    [WS_METHODS.pitbossSources]: () => workSources.list(),
-    [WS_METHODS.pitbossSourceCommand]: (command) => workSources.execute(command),
-    [WS_METHODS.pitbossRead]: () => work.read(),
-    [WS_METHODS.pitbossSubscribe]: () => work.subscribe(),
-    [WS_METHODS.pitbossCommand]: (command) =>
-      Effect.gen(function* () {
-        if (command.action.type === "activate-home" || command.action.type === "reset")
-          return yield* input.openGladosHome(command);
-        if (command.action.type === "elect") {
-          yield* threadManagement
-            .getProjectThreadRecords(
-              { projectId: command.action.projectId, threadId: command.action.threadId },
-              [],
-            )
-            .pipe(
-              Effect.mapError(
-                () =>
-                  new PitbossError({
-                    code: "invalid",
-                    message: "Choose an existing thread in this project.",
-                  }),
-              ),
-            );
-        }
-        return yield* work.command(command, { type: "user" });
-      }),
     [WS_METHODS.fleetConnect]: (connect) =>
       Stream.unwrap(fleetBroker.connect(input.sessionId, connect)),
     [WS_METHODS.fleetRespond]: (response) => fleetBroker.respond(input.sessionId, response),
@@ -1338,14 +1301,12 @@ const layerWsRpc = (
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
-  openGladosHome: Effect.Success<ReturnType<typeof makeHome>>,
 ) =>
   ServerWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const foldHandlers = yield* makeFoldWsHandlers({
         sessionId: currentSessionId,
-        openGladosHome,
       });
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -3289,8 +3250,6 @@ export const layer = Layer.unwrap(
     const fleetBroker = yield* FleetBroker;
     const fleetRouter = yield* FleetRouter;
     const fleetExecutor = yield* FleetExecutor;
-    const config = yield* ServerConfig.ServerConfig;
-    const openGladosHome = yield* makeHome(config.stateDir);
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3344,7 +3303,6 @@ export const layer = Layer.unwrap(
               clientAnalyticsProps,
               previewAutomationBroker,
               serverBrowser,
-              openGladosHome,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees

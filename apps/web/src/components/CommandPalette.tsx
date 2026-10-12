@@ -87,7 +87,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateEnvironmentSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
@@ -757,6 +757,9 @@ function OpenCommandPaletteDialog(props: {
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
   const activeThreadServerConfig = useServerConfigs().get(
+    activeThread?.environmentId ?? ("" as EnvironmentId),
+  );
+  const updateActiveThreadSettings = useUpdateEnvironmentSettings(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
   const activeThreadReferenceCopyTarget =
@@ -1952,11 +1955,25 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (activeThread !== null) {
+    const isGlados = activeThreadServerConfig?.settings.gladosThreadId === activeThread.id;
+    actionItems.push({
+      kind: "action",
+      value: "action:glados-thread",
+      searchTerms: ["glados", "coordinator", "agents", "delegate"],
+      title: isGlados ? "Stop using this thread as GLaDOS" : "Make this thread GLaDOS",
+      icon: <CrownIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        updateActiveThreadSettings({ gladosThreadId: isGlados ? null : activeThread.id });
+      },
+    });
+  }
+
   actionItems.push({
     kind: "action",
-    value: "action:pitboss",
-    searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
-    title: "Set up or edit GLaDOS",
+    value: "action:glados-settings",
+    searchTerms: ["glados", "coordinator", "instructions"],
+    title: "GLaDOS settings",
     icon: <CrownIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({

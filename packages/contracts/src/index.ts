@@ -63,7 +63,5 @@ export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 export * from "./foldRpc.ts";
 export * from "./fleet.ts";
-export * from "./pitboss.ts";
-export * from "./pitbossPeer.ts";
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
