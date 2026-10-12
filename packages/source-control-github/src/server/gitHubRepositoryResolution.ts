@@ -186,7 +186,7 @@ export function gitHubApiHostForRemote(remoteUrl: string): string | null {
 }
 
 /** A caller's host hint, read the way a remote's host is: a dotless alias is not an API host. */
-export function apiHostForHint(host: string): string {
+function apiHostForHint(host: string): string {
   const normalized = host.toLowerCase();
   return !normalized.includes(".") && normalized.includes("github") ? "github.com" : normalized;
 }

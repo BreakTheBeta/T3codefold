@@ -28,7 +28,6 @@ import {
   type NormalizedGitHubPullRequestRecord,
 } from "./gitHubPullRequests.ts";
 import {
-  apiHostForHint,
   gitHubApiHostForRemote,
   parseFetchRemotes,
   parseGitHubRepositorySelector,
@@ -299,24 +298,6 @@ class GitHubFailure extends Data.TaggedError("GitHubFailure")<{
 
 const failure = (detail: string, cause?: unknown) => new GitHubFailure({ detail, cause });
 
-/**
- * A pull request target that is not `owner/repo` (or `host/owner/repo`), or that GitHub reads
- * as a different repository, such as after a rename or transfer.
- */
-export class GitHubRepositoryTargetError extends Data.TaggedError("GitHubRepositoryTargetError")<{
-  readonly repository: string;
-  readonly actualRepository?: string;
-}> {
-  get detail(): string {
-    return this.actualRepository === undefined
-      ? "Pull request creation requires an explicit owner/repository target."
-      : `GitHub resolved the intended repository as ${this.actualRepository}, not ${this.repository}.`;
-  }
-}
-
-const targetFailure = (error: GitHubRepositoryTargetError) =>
-  failure(`Cannot create the pull request: ${error.detail}`, error);
-
 const PULL_REQUEST_NOT_FOUND = "Pull request not found. Check the PR number or URL and try again.";
 const REPOSITORY_NOT_FOUND = "Repository not found. Check the owner and name and try again.";
 
@@ -558,40 +539,6 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  /**
-   * The caller's explicit `owner/repo` (or `host/owner/repo`) when given, else the repository
-   * `resolveRepository` infers. A bare `owner/repo` is read on the checkout's GitHub host.
-   */
-  const targetRepository = Effect.fn("GitHubSourceControlProvider.targetRepository")(
-    function* (input: {
-      readonly cwd: string;
-      readonly repository?: string | undefined;
-      readonly host?: string | undefined;
-      readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
-    }) {
-      if (input.repository === undefined) return yield* resolveRepository(input);
-      const hostHint = input.host ?? contextHost(input.context);
-      const defaultHost =
-        hostHint === undefined
-          ? yield* resolveRepository({ cwd: input.cwd }).pipe(
-              Effect.map((locator) => locator.host),
-              Effect.orElseSucceed(() => (environment.GH_HOST ?? "github.com").toLowerCase()),
-            )
-          : apiHostForHint(hostHint);
-      const parts = input.repository.trim().split("/");
-      const locator =
-        parts.length === 2 || parts.length === 3
-          ? parseGitHubRepositorySelector(input.repository, defaultHost)
-          : null;
-      if (locator === null) {
-        return yield* targetFailure(
-          new GitHubRepositoryTargetError({ repository: input.repository }),
-        );
-      }
-      return locator;
-    },
-  );
-
   const graphqlJson = <A>(
     input: GitHubApi.GitHubGraphQlInput,
     decode: (raw: string) => Result.Result<A, unknown>,
@@ -675,8 +622,6 @@ export const make = Effect.gen(function* () {
    */
   const listByHead = Effect.fn("GitHubSourceControlProvider.listByHead")(function* (input: {
     readonly cwd: string;
-    /** Explicit `owner/repo` to read instead of the repository inferred from `cwd`'s remotes. */
-    readonly repository?: string | undefined;
     readonly headSelector: string;
     readonly state: PullRequestListState;
     readonly limit: number;
@@ -684,7 +629,7 @@ export const make = Effect.gen(function* () {
     readonly host?: string | undefined;
     readonly allowReserve: boolean;
   }) {
-    const locator = yield* targetRepository(input);
+    const locator = yield* resolveRepository(input);
     const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
     // `owner:branch` names a fork's branch. GitHub filters on the branch name only, so the
     // owner is matched on the rows it returns.
@@ -1027,7 +972,6 @@ export const make = Effect.gen(function* () {
         Effect.flatMap((allowReserve) =>
           listByHead({
             cwd: input.cwd,
-            repository: input.repository,
             headSelector: input.headSelector,
             state: input.state,
             limit: input.limit ?? (input.state === "open" ? 1 : 20),
@@ -1050,25 +994,7 @@ export const make = Effect.gen(function* () {
       ),
     createChangeRequest: (input) =>
       Effect.gen(function* () {
-        // Publication must name its repository: the one the checkout's remotes would pick can be
-        // a fork's parent. GitHub must also read it as itself, since a renamed or transferred
-        // repository redirects and the pull request must not follow it elsewhere.
-        const repository = input.target?.repository?.trim();
-        if (!repository) {
-          return yield* targetFailure(new GitHubRepositoryTargetError({ repository: "" }));
-        }
-        const locator = yield* targetRepository({
-          cwd: input.cwd,
-          repository,
-          context: input.context,
-        });
-        const expectedRepository = `${locator.owner}/${locator.name}`;
-        const actualRepository = (yield* readRepository(locator)).full_name;
-        if (actualRepository.toLowerCase() !== expectedRepository.toLowerCase()) {
-          return yield* targetFailure(
-            new GitHubRepositoryTargetError({ repository: expectedRepository, actualRepository }),
-          );
-        }
+        const locator = yield* resolveRepository(input);
         const body = yield* fileSystem
           .readFileString(input.bodyFile)
           .pipe(
@@ -1154,9 +1080,8 @@ export const make = Effect.gen(function* () {
       ),
     getDefaultBranch: (input) =>
       Effect.gen(function* () {
-        const locator = yield* targetRepository({
+        const locator = yield* resolveRepository({
           cwd: input.cwd,
-          repository: input.repository,
           host: contextHost(input.context),
           context: input.context,
         });

@@ -444,17 +444,9 @@ describe("GitHubSourceControlProvider.getChangeRequest", () => {
 });
 
 describe("GitHubSourceControlProvider writes", () => {
-  const repositoryBody = (fullName: string) => ({
-    full_name: fullName,
-    html_url: `https://github.com/${fullName}`,
-    ssh_url: `git@github.com:${fullName}.git`,
-    default_branch: "main",
-  });
-
-  it.effect("creates a pull request in the explicit repository after validating it", () => {
+  it.effect("creates a cross-repository pull request with an owner:branch head", () => {
     const requests: Array<GitHubApi.GitHubRestInput> = [];
     const { layer } = harness({
-      // gh-style inference would pick `upstream`; the explicit target must win.
       remotes: remotesOutput(
         ["origin", "git@github.com:me/web.git"],
         ["upstream", "git@github.com:acme/web.git"],
@@ -463,9 +455,7 @@ describe("GitHubSourceControlProvider writes", () => {
         rest: (input) =>
           Effect.sync(() => {
             requests.push(input);
-            return input.method === "POST"
-              ? restResponse({ number: 1 }, 201)
-              : restResponse(repositoryBody("me/web"));
+            return restResponse({ number: 1 }, 201);
           }),
       },
     });
@@ -476,19 +466,16 @@ describe("GitHubSourceControlProvider writes", () => {
       const gh = yield* GitHubSourceControlProvider.make;
       yield* gh.createChangeRequest({
         cwd: "/repo",
-        target: { refName: "main", repository: "me/web" },
         baseRefName: "main",
         headSelector: "me:feature",
         title: "Title",
         bodyFile,
       });
-      assert.deepStrictEqual(
-        requests.map((request) => `${request.method ?? "GET"} ${request.host} ${request.path}`),
-        ["GET github.com repos/me/web", "POST github.com repos/me/web/pulls"],
-      );
+      assert.strictEqual(requests[0]!.method, "POST");
+      assert.strictEqual(requests[0]!.path, "repos/acme/web/pulls");
       // A user's own write, so the background's reserve is not held against it.
-      assert.strictEqual(requests[1]!.allowReserve, true);
-      assert.deepStrictEqual(requests[1]!.body, {
+      assert.strictEqual(requests[0]!.allowReserve, true);
+      assert.deepStrictEqual(requests[0]!.body, {
         base: "main",
         head: "me:feature",
         title: "Title",
@@ -496,110 +483,6 @@ describe("GitHubSourceControlProvider writes", () => {
         maintainer_can_modify: true,
       });
     }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
-  });
-
-  it.effect("fails closed before creating when GitHub resolves a different repository", () => {
-    const requests: Array<string> = [];
-    const { layer } = harness({
-      remotes: remotesOutput(["origin", "git@github.com:BreakTheBeta/T3codefold.git"]),
-      api: {
-        rest: (input) =>
-          Effect.sync(() => {
-            requests.push(`${input.method ?? "GET"} ${input.path}`);
-            return restResponse(repositoryBody("pingdotgg/t3code"));
-          }),
-      },
-    });
-    return Effect.gen(function* () {
-      const gh = yield* GitHubSourceControlProvider.make;
-      const error = yield* gh
-        .createChangeRequest({
-          cwd: "/repo",
-          target: { refName: "main", repository: "BreakTheBeta/T3codefold" },
-          baseRefName: "main",
-          headSelector: "fix/target",
-          title: "Title",
-          bodyFile: "/nonexistent/body.md",
-        })
-        .pipe(Effect.flip);
-      assert.include(error.detail, "pingdotgg/t3code");
-      assert.instanceOf(error.cause, GitHubSourceControlProvider.GitHubRepositoryTargetError);
-      assert.deepStrictEqual(requests, ["GET repos/BreakTheBeta/T3codefold"]);
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect.each([
-    { name: "missing", target: undefined },
-    { name: "not owner/repo", target: { refName: "main", repository: "web" } },
-  ])("refuses a $name target repository without calling GitHub", ({ target }) => {
-    let calls = 0;
-    const { layer } = harness({
-      remotes: remotesOutput(["origin", "git@github.com:me/web.git"]),
-      api: {
-        rest: () =>
-          Effect.sync(() => {
-            calls += 1;
-            return restResponse(repositoryBody("me/web"));
-          }),
-      },
-    });
-    return Effect.gen(function* () {
-      const gh = yield* GitHubSourceControlProvider.make;
-      const error = yield* gh
-        .createChangeRequest({
-          cwd: "/repo",
-          ...(target === undefined ? {} : { target }),
-          baseRefName: "main",
-          headSelector: "feature",
-          title: "Title",
-          bodyFile: "/nonexistent/body.md",
-        })
-        .pipe(Effect.flip);
-      assert.include(error.detail, "explicit owner/repository target");
-      assert.strictEqual(calls, 0);
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect("reads repository-scoped pull requests and default branch from the target", () => {
-    const graphqlVariables: Array<unknown> = [];
-    const restPaths: Array<string> = [];
-    const { layer } = harness({
-      remotes: remotesOutput(
-        ["origin", "git@github.com:me/web.git"],
-        ["upstream", "git@github.com:acme/web.git"],
-      ),
-      api: {
-        graphql: (input) =>
-          Effect.sync(() => {
-            graphqlVariables.push({ owner: input.variables?.owner, name: input.variables?.name });
-            return encodeJson({ data: { repository: { h0: { nodes: [] } } } });
-          }),
-        rest: (input) =>
-          Effect.sync(() => {
-            restPaths.push(input.path);
-            return restResponse(repositoryBody("me/web"));
-          }),
-      },
-    });
-    return Effect.gen(function* () {
-      const gh = yield* GitHubSourceControlProvider.make;
-      const open = yield* gh
-        .listChangeRequests({
-          cwd: "/repo",
-          repository: "me/web",
-          headSelector: "feature",
-          state: "open",
-        })
-        .pipe(Effect.forkChild);
-      yield* TestClock.adjust("50 millis");
-      assert.deepStrictEqual(yield* Fiber.join(open), []);
-      assert.strictEqual(
-        yield* gh.getDefaultBranch({ cwd: "/repo", repository: "me/web" }),
-        "main",
-      );
-      assert.deepStrictEqual(graphqlVariables, [{ owner: "me", name: "web" }]);
-      assert.deepStrictEqual(restPaths, ["repos/me/web"]);
-    }).pipe(Effect.provide(layer));
   });
 
   it.effect("creates a repository under an organization the viewer is not", () => {
@@ -1209,7 +1092,6 @@ it.live.each([
     yield* provider.getChangeRequest({ ...input, reference: "feature" });
     yield* provider.createChangeRequest({
       ...input,
-      target: { refName: "main", repository: "team/project" },
       baseRefName: "main",
       headSelector: "feature",
       title: "PR",
@@ -1228,7 +1110,6 @@ it.live.each([
     assert.deepStrictEqual(
       rest.map(({ host, path }) => [host, path]),
       [
-        ["code.example.test", "repos/team/project"],
         ["code.example.test", "repos/team/project/pulls"],
         ["code.example.test", "repos/team/project"],
         ["code.example.test", "repos/team/other"],
@@ -1318,17 +1199,14 @@ it.effect.each([
         },
       };
       yield* provider.getDefaultBranch(input);
-      // Publication names its repository; a bare owner/repo stays on the checkout's host.
       yield* provider.createChangeRequest({
         ...input,
-        target: { refName: "main", repository: expected },
         baseRefName: "main",
         headSelector: "me:feature",
         title: "PR",
         bodyFile,
       });
       assert.deepStrictEqual(targets, [
-        `${host}/repos/${expected}`,
         `${host}/repos/${expected}`,
         `${host}/repos/${expected}/pulls`,
       ]);
