@@ -11,11 +11,6 @@ import {
 } from "@t3tools/client-runtime/state/threads";
 import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
 import type { EnvironmentId, OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
-import {
-  collectMergedPullRequests,
-  sameMerges,
-  type MergedPullRequest,
-} from "@t3tools/shared/mergeSplatters";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
@@ -119,6 +114,12 @@ export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | n
 export function useThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadShell | null {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_SHELL_ATOM : environmentThreadShells.threadShellAtom(ref),
+  );
+}
+
+export function useChildThreadInputs(ref: ScopedThreadRef | null) {
+  return useAtomValue(
+    ref === null ? EMPTY_THREAD_SHELLS_ATOM : environmentThreadShells.childThreadInputsAtom(ref),
   );
 }
 
@@ -302,25 +303,4 @@ export function readEnvironmentThreadRefs(
 
 export function readThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return appAtomRegistry.get(environmentThreadShells.threadShellsAtom);
-}
-
-/**
- * Every merged PR across connected environments, for the dynamic splatter.
- * Hands back the previous array while the merges are unchanged, so thread
- * activity that is not a merge never re-renders its readers. Unmounted, it
- * is not computed at all.
- */
-let previousMergedPullRequests: ReadonlyArray<MergedPullRequest> = [];
-const mergedPullRequestsAtom = Atom.make((get) => {
-  const next = collectMergedPullRequests(
-    get(environmentThreadShells.threadShellsAtom),
-    get(environmentProjects.projectsAtom),
-  );
-  if (sameMerges(previousMergedPullRequests, next)) return previousMergedPullRequests;
-  previousMergedPullRequests = next;
-  return next;
-}).pipe(Atom.withLabel("web-merged-pull-requests"));
-
-export function useMergedPullRequests(): ReadonlyArray<MergedPullRequest> {
-  return useAtomValue(mergedPullRequestsAtom);
 }

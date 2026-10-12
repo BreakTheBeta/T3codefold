@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
-import { derivePendingUserInputFullScreenLayout } from "./pendingUserInputLayout";
+import { derivePendingUserInputFullScreenLayout } from "./pendingUserInputFullScreenLayout";
 import {
   PendingUserInputQuestions,
   type PendingUserInputQuestionsProps,

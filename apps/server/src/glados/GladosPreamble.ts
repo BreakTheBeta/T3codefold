@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { TurnPreamble } from "../orchestration-v2/ProviderTurnStartService.ts";
+import { TurnPreamble } from "../orchestration-v2/TurnPreamble.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
 /** What GLaDOS is for, and how to run work with T3's own tools. */

@@ -17,8 +17,14 @@
       "vitest": { "entry": [".github/**/*.test.cjs"] },
     },
     "scripts": {
-      // Knip loads its preprocessor through a CLI option; native verification runs directly.
-      "entry": ["knip-schemas.ts", "mobile-native-client.ts", "generate-canvas-grain.ts"],
+      // Knip loads its preprocessor through a CLI option; native verification and
+      // worktree setup (from t3.json) run directly.
+      "entry": [
+        "knip-schemas.ts",
+        "mobile-native-client.ts",
+        "setup-worktree.ts",
+        "generate-canvas-grain.ts",
+      ],
     },
     "apps/server": {
       // Vite+ pack entries and the launcher used by installed background services.
@@ -26,8 +32,6 @@
         "src/bin.ts!",
         "src/claude-history-worker.ts!",
         "scripts/cli.ts",
-        "scripts/probe-claude-fork-local-rollback-replay.ts",
-        "scripts/verify-background-live.ts",
         "scripts/evaluate-thread-titles.ts",
         "scripts/measure-pr-preview.ts",
         "scripts/probe-claude-fork-local-rollback-replay.ts",
@@ -37,7 +41,9 @@
       ],
       // Keep the transitive Effect runtime pinned for standalone npm installs.
       // The Vite+ web build prerequisite.
-      "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web"],
+      // Native and disk-loaded provider packages stay external to the bundle; the
+      // CLI archive and desktop sidecar stage them from this manifest.
+      "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web", "@napi-rs/keyring"],
     },
     "apps/desktop": {
       // Electron loads these bundles by filename rather than importing them.

@@ -23,16 +23,20 @@ export const unavailable = () =>
   });
 
 /** Decider string rejections are public; wrapped storage and hydration causes are not. */
-export const dispatchFailure = (error: OrchestratorV2Error) =>
-  (error._tag === "OrchestratorDispatchError" ||
-    error._tag === "OrchestratorCommandRejectedError") &&
-  typeof error.cause === "string" &&
-  error.cause.length > 0
-    ? new OrchestratorMcpFailure({
-        code: "orchestration_error",
-        message: Array.from(error.cause).slice(0, 1000).join(""),
-      })
-    : unavailable();
+export const dispatchFailure = (
+  error: OrchestratorV2Error | ThreadManagement.ThreadManagementProviderInstanceDisabledError,
+) =>
+  error._tag === "ThreadManagementProviderInstanceDisabledError"
+    ? new OrchestratorMcpFailure({ code: "invalid_request", message: error.message })
+    : (error._tag === "OrchestratorDispatchError" ||
+          error._tag === "OrchestratorCommandRejectedError") &&
+        typeof error.cause === "string" &&
+        error.cause.length > 0
+      ? new OrchestratorMcpFailure({
+          code: "orchestration_error",
+          message: Array.from(error.cause).slice(0, 1000).join(""),
+        })
+      : unavailable();
 
 /**
  * The most a caller may hand to the threads it targets. A thread caller is
@@ -202,19 +206,3 @@ export const newCommandId = Effect.fn("mcp.newCommandId")(function* () {
   const crypto = yield* Crypto.Crypto;
   return CommandId.make(`mcp:${yield* crypto.randomUUIDv4.pipe(Effect.orDie)}`);
 });
-
-/**
- * A command id that repeats for the same caller, operation and clientRequestId,
- * so a retried request replays its original command instead of acting twice.
- * Matches OrchestratorMcpService's stable ids.
- */
-export const retryCommandId = (
-  scope: McpInvocationContext.McpInvocationScope,
-  operation: string,
-  clientRequestId: string,
-) =>
-  CommandId.make(
-    ["command", "mcp", scope.requestNamespace, operation, clientRequestId]
-      .map(encodeURIComponent)
-      .join(":"),
-  );

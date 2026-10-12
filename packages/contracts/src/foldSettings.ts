@@ -44,7 +44,15 @@ export const ThemeBackdropSeed = Schema.Int.check(
 );
 export type ThemeBackdropSeed = typeof ThemeBackdropSeed.Type;
 
+/** Most columns thread wrapping may split a long reply into on very wide screens. */
+export const ThreadWrapMaxColumns = Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 4 }));
+export const DEFAULT_THREAD_WRAP_MAX_COLUMNS = 3;
+
 export const FoldClientSettingsFields = {
+  threadWrapEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  threadWrapMaxColumns: ThreadWrapMaxColumns.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_WRAP_MAX_COLUMNS)),
+  ),
   /** Paint-splatter backdrop behind the conversation, on themes that ship one. */
   themeBackdropEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   themeBackdropScope: ThemeBackdropScope.pipe(
@@ -68,6 +76,8 @@ export const FoldClientSettingsFields = {
 };
 
 export const FoldClientSettingsPatchFields = {
+  threadWrapEnabled: Schema.optionalKey(Schema.Boolean),
+  threadWrapMaxColumns: Schema.optionalKey(ThreadWrapMaxColumns),
   themeBackdropEnabled: Schema.optionalKey(Schema.Boolean),
   themeBackdropScope: Schema.optionalKey(ThemeBackdropScope),
   themeBackdropColors: Schema.optionalKey(Schema.NullOr(ThemeBackdropColors)),

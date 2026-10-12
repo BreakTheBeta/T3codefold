@@ -29,12 +29,13 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
 import * as EventSink from "./EventSink.ts";
-import * as IdAllocator from "./IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import { ProviderAdapterEventStreamError } from "./ProviderAdapter.ts";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
+import { TurnPreamble } from "./TurnPreamble.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 
@@ -372,7 +373,7 @@ function makeLocalCommandHarness(input: {
     }).pipe(
       Effect.andThen(
         Effect.fail(
-          new ProviderAdapterEventStreamError({
+          new ProviderAdapter.ProviderAdapterEventStreamError({
             driver: providerThread.driver,
             providerSessionId,
             cause: input.ensureThreadFailure,
@@ -385,7 +386,7 @@ function makeLocalCommandHarness(input: {
     driver: providerThread.driver,
     resumeThread: () =>
       Effect.fail(
-        new ProviderAdapterEventStreamError({
+        new ProviderAdapter.ProviderAdapterEventStreamError({
           driver: providerThread.driver,
           providerSessionId,
           cause: "native thread is gone",
@@ -878,9 +879,7 @@ effectIt.effect("leads a starting turn with its preamble for this thread and att
     });
     const preamble = preambleFor(Effect.succeed("<t3-glados>\nYou are GLaDOS.\n</t3-glados>"));
 
-    yield* harness.start.pipe(
-      Effect.provideService(ProviderTurnStart.TurnPreamble, preamble.turnPreamble),
-    );
+    yield* harness.start.pipe(Effect.provideService(TurnPreamble, preamble.turnPreamble));
 
     expect(preamble.calls).toEqual([
       [ThreadId.make("thread-native-account-command"), harness.attemptId],
@@ -899,10 +898,7 @@ effectIt.effect("leaves the turn text untouched without a preamble", () =>
     });
 
     yield* harness.start.pipe(
-      Effect.provideService(
-        ProviderTurnStart.TurnPreamble,
-        preambleFor(Effect.succeed(null)).turnPreamble,
-      ),
+      Effect.provideService(TurnPreamble, preambleFor(Effect.succeed(null)).turnPreamble),
     );
 
     expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe("Ship the dark mode toggle");

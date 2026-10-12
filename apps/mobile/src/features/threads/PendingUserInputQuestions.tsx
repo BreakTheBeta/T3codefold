@@ -37,9 +37,10 @@ export interface PendingUserInputQuestionsProps {
 }
 
 /**
- * The questionnaire body, shared by the card that replaces the composer and
- * the full-screen presentation. Answers live in the host's drafts, so the two
- * presentations stay in sync while both are mounted.
+ * The questionnaire body of the full-screen presentation. Its compact (non-roomy) form matches
+ * the inline body upstream's PendingUserInputCard renders, which stays inline there to keep that
+ * file close to upstream. Answers live in the host's drafts, so the card and the full screen stay
+ * in sync while both are mounted.
  */
 export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps) {
   const roomy = props.roomy === true;

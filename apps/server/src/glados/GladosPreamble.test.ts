@@ -3,7 +3,7 @@ import { RunAttemptId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { TurnPreamble } from "../orchestration-v2/ProviderTurnStartService.ts";
+import { TurnPreamble } from "../orchestration-v2/TurnPreamble.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GladosPreamble from "./GladosPreamble.ts";
 

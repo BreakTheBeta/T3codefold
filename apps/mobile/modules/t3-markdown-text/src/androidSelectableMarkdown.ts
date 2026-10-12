@@ -4,6 +4,7 @@ import {
   nativeMarkdownDocumentRuns,
   nativeMarkdownWithAuthoredWindowsPaths,
   nativeMarkdownWithPreservedSoftBreaks,
+  nativeMarkdownWithHtml,
   type NativeMarkdownTextRun,
 } from "./nativeMarkdownText";
 import type { SelectableMarkdownSkill } from "./SelectableMarkdownText.types";
@@ -24,7 +25,10 @@ export function androidSelectableMarkdownContent(
 } {
   // Same parse as the rich renderer, so Windows paths keep their authored backslashes.
   const parsed = nativeMarkdownWithAuthoredWindowsPaths(
-    parseMarkdownWithOptions(markdown, { gfm: true, html: true, math: false }),
+    nativeMarkdownWithHtml(
+      parseMarkdownWithOptions(markdown, { gfm: true, html: true, math: false }),
+      (content) => parseMarkdownWithOptions(content, { gfm: true, html: false, math: false }),
+    ),
     markdown,
   );
   const document = options.preserveSoftBreaks

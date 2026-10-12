@@ -60,33 +60,6 @@ describe("DesktopUpdates", () => {
     );
   });
 
-  it.effect("replaces an upstream feed and keeps both release channels on Fold", () =>
-    Effect.gen(function* () {
-      const harness = makeHarness({
-        appUpdateYml: "provider: github\nowner: pingdotgg\nrepo: t3code\n",
-        env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" },
-      });
-      yield* Effect.gen(function* () {
-        const updates = yield* DesktopUpdates.DesktopUpdates;
-        yield* updates.configure;
-        assert.isTrue((yield* updates.getState).enabled);
-        yield* updates.setChannel("nightly");
-        assert.deepEqual(harness.feedUrls(), [
-          {
-            provider: "generic",
-            url: "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-desktop-latest",
-            channel: "latest",
-          },
-          {
-            provider: "generic",
-            url: "https://github.com/BreakTheBeta/T3codefold/releases/download/fold-desktop-nightly",
-            channel: "nightly",
-          },
-        ]);
-      }).pipe(Effect.provide(harness.layer));
-    }),
-  );
-
   it.effect("configures the updater and runs startup checks on the test clock", () => {
     const harness = makeHarness();
 

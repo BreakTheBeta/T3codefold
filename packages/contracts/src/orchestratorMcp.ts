@@ -291,7 +291,7 @@ const OrchestratorMcpProjectTarget = Schema.optional(
 );
 
 /** Fleet routing: another environment reachable through a connected client. */
-const OrchestratorMcpEnvironmentTarget = Schema.optional(
+export const OrchestratorMcpEnvironmentTarget = Schema.optional(
   EnvironmentId.annotate({
     description:
       "Environment to act on, reached through a connected client. Omit for this environment.",
@@ -325,13 +325,6 @@ export const OrchestratorMcpCapabilitiesInput = Schema.Struct({
 });
 export type OrchestratorMcpCapabilitiesInput = typeof OrchestratorMcpCapabilitiesInput.Type;
 
-export const OrchestratorMcpProjectListInput = Schema.Struct({
-  environmentId: OrchestratorMcpEnvironmentTarget,
-  cursor: Schema.optional(NonNegativeInt),
-  limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
-});
-export type OrchestratorMcpProjectListInput = typeof OrchestratorMcpProjectListInput.Type;
-
 export const OrchestratorMcpThreadListInput = Schema.Struct({
   environmentId: OrchestratorMcpEnvironmentTarget,
   projectId: OrchestratorMcpProjectTarget,
@@ -340,6 +333,7 @@ export const OrchestratorMcpThreadListInput = Schema.Struct({
   ),
   titleContains: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
   settled: Schema.optional(Schema.Boolean),
+  snoozed: Schema.optional(Schema.Boolean),
   includeSubagents: Schema.optional(Schema.Boolean),
   cursor: Schema.optional(NonNegativeInt),
   limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(100))),
@@ -360,6 +354,9 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
   linkedPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
   settled: Schema.Boolean,
   settledAt: Schema.NullOr(IsoDateTime),
+  snoozed: Schema.Boolean,
+  /** When a snoozed thread wakes; null when it is not snoozed. */
+  snoozedUntil: Schema.NullOr(IsoDateTime),
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   itemCount: NonNegativeInt,
@@ -417,6 +414,9 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   archived: Schema.Boolean,
   settled: Schema.Boolean,
   settledAt: Schema.NullOr(IsoDateTime),
+  snoozed: Schema.Boolean,
+  /** When a snoozed thread wakes; null when it is not snoozed. */
+  snoozedUntil: Schema.NullOr(IsoDateTime),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -439,6 +439,7 @@ export const OrchestratorMcpThreadTimelineItem = Schema.Struct({
   visibility: Schema.Literals(["local", "inherited", "synthetic"]),
   sourceThreadId: ThreadId,
   itemId: TurnItemId,
+  subagentId: Schema.optional(NodeId),
   runId: Schema.NullOr(RunId),
   messageId: Schema.NullOr(MessageId),
   createdBy: Schema.NullOr(OrchestrationV2Actor),
@@ -477,6 +478,8 @@ export const OrchestratorMcpThreadSendResult = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   runId: RunId,
+  /** Fresh task for a follow-up to an app-owned child; the previous task stays terminal. */
+  taskId: Schema.optional(NodeId),
   status: OrchestrationV2RunStatus,
   delivery: Schema.Literals(["started", "queued", "steered", "restarted"]),
 });
@@ -532,6 +535,8 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
       options: Schema.optional(Schema.Array(ProviderOptionDescriptor)),
     }),
   ),
+  /** Runtime modes the provider offers; omitted when it offers all of them. */
+  runtimeModes: Schema.optional(Schema.Array(RuntimeMode)),
   canRunChildTask: Schema.Boolean,
   canRunCrossProviderChildTask: Schema.Boolean,
   constraints: Schema.Array(Schema.String),

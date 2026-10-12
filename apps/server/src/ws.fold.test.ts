@@ -14,7 +14,7 @@ import { FleetRouter } from "./mcp/FleetRouter.ts";
 import { OrchestratorProjectionError } from "./orchestration-v2/Orchestrator.ts";
 import { ProviderSessionManagerV2 } from "./orchestration-v2/ProviderSessionManager.ts";
 import { ThreadManagementService } from "./orchestration-v2/ThreadManagementService.ts";
-import { makeFoldWsHandlers } from "./ws.ts";
+import { makeFoldWsHandlers } from "./foldWs.ts";
 
 const threadId = ThreadId.make("missing");
 
