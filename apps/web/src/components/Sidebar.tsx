@@ -153,7 +153,6 @@ import {
   useEnvironmentMachines,
   usePrimaryEnvironmentId,
 } from "../state/environments";
-import { PitbossPin } from "./pitboss/PitbossPanel";
 import {
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
@@ -5057,13 +5056,6 @@ export default function Sidebar() {
     <>
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
-      {environments.map((environment) => (
-        <PitbossPin
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-          label={environment.label}
-        />
-      ))}
       <SidebarContent
         className="min-h-full"
         fixedHeader={

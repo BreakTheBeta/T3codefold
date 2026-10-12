@@ -15,7 +15,6 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
-import { requireLedgerDelegation } from "../work/ledgerGuard.ts";
 import { startThread } from "./threadStart.ts";
 
 const handlers = {
@@ -28,7 +27,6 @@ const handlers = {
   ),
   delegate_task: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      yield* requireLedgerDelegation("delegate_task");
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.delegateTask(scope, input);
@@ -108,7 +106,6 @@ const handlers = {
   ),
   create_threads: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      yield* requireLedgerDelegation("create_threads");
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.createThreads(scope, input);

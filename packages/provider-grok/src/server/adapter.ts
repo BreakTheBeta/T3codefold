@@ -280,7 +280,7 @@ export function makeGrokAcpAdapterFlavor(
           ...input,
           interruptPromptOnCancel: input.interruptPromptOnCancel ?? false,
           grokSettings: options.settings,
-          // Thread-scoped credentials (`t3 work`, MCP bridge) for this session's process.
+          // The thread's MCP bridge credentials for this session's process.
           environment:
             input.processEnvironment === undefined
               ? options.environment

@@ -1,7 +1,8 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { useNavigate } from "@tanstack/react-router";
 import { CrownIcon, SettingsIcon } from "lucide-react";
 
+import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../hooks/useSettings";
 import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "./CommandPalette.logic";
 import { runVoiceAction, useOptionalVoiceWorkspace } from "./voice/VoiceWorkspaceProvider";
 
@@ -28,22 +29,43 @@ export function useFoldVoiceActionItems(): CommandPaletteActionItem[] {
   }));
 }
 
-/** Opens GLaDOS settings, preselecting the active thread's machine. */
-export function foldGladosActionItem(
+/** Makes the active thread GLaDOS or stops it, and opens GLaDOS settings for its machine. */
+export function useFoldGladosActionItems(
   navigate: ReturnType<typeof useNavigate>,
-  environmentId: EnvironmentId | undefined,
-): CommandPaletteActionItem {
-  return {
+  activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null,
+): CommandPaletteActionItem[] {
+  const environmentId = activeThread?.environmentId ?? ("" as EnvironmentId);
+  const gladosThreadId = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.gladosThreadId,
+  );
+  const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  const settingsItem: CommandPaletteActionItem = {
     kind: "action",
-    value: "action:pitboss",
-    searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
-    title: "Set up or edit GLaDOS",
+    value: "action:glados-settings",
+    searchTerms: ["glados", "coordinator", "instructions"],
+    title: "GLaDOS settings",
     icon: <CrownIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({
         to: "/settings/glados",
-        search: environmentId ? { machine: environmentId } : {},
+        search: activeThread ? { machine: activeThread.environmentId } : {},
       });
     },
   };
+  if (activeThread === null) return [settingsItem];
+  const isGlados = gladosThreadId === activeThread.id;
+  return [
+    {
+      kind: "action",
+      value: "action:glados-thread",
+      searchTerms: ["glados", "coordinator", "agents", "delegate"],
+      title: isGlados ? "Stop using this thread as GLaDOS" : "Make this thread GLaDOS",
+      icon: <CrownIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        updateSettings({ gladosThreadId: isGlados ? null : activeThread.id });
+      },
+    },
+    settingsItem,
+  ];
 }

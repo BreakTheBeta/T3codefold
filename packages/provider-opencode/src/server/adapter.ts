@@ -959,11 +959,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           binaryPath: options.settings.binaryPath,
           directory: cwd,
           serverUrl: options.settings.serverUrl,
-          // A spawned server is this session's own, so its shell gets `t3 work`.
-          environment: McpProviderSession.providerSessionEnvironment(
-            options.environment,
-            yield* mcpSessions.read(input.threadId),
-          ),
+          environment: options.environment,
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,

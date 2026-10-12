@@ -45,7 +45,12 @@ import {
   ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
-import { FoldClientSettingsFields, FoldClientSettingsPatchFields } from "./foldSettings.ts";
+import {
+  FoldClientSettingsFields,
+  FoldClientSettingsPatchFields,
+  FoldServerSettingsFields,
+  FoldServerSettingsPatchFields,
+} from "./foldSettings.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -1326,6 +1331,7 @@ export const ServerSettings = Schema.Struct({
   usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  ...FoldServerSettingsFields,
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1625,6 +1631,7 @@ export const ServerSettingsPatch = Schema.Struct({
   usageModelAliases: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(TrimmedNonEmptyString)),
   ),
+  ...FoldServerSettingsPatchFields,
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

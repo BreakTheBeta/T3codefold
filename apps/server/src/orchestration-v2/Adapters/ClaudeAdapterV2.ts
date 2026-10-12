@@ -1071,7 +1071,7 @@ export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";
 
 // Must stay in sync with the Tool.Readonly annotations on the published
 // orchestration toolkits (orchestrator, thread, worktree, project, environment,
-// preview controls and pitboss work); ClaudeAdapterV2.test.ts cross-checks them.
+// preview controls); ClaudeAdapterV2.test.ts cross-checks them.
 export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__orchestrator_capabilities",
   "mcp__t3-code__list_scheduled_tasks",
@@ -1090,7 +1090,6 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_environment_read",
   "mcp__t3-code__t3_queue_list",
   "mcp__t3-code__t3_queue_read",
-  "mcp__t3-code__work_read",
   "mcp__t3-code__t3_environment_list",
   "mcp__t3-code__html_preview",
   "mcp__t3-code__html_render",
@@ -8283,11 +8282,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             cwd: turnInput.runtimePolicy.cwd,
             attachmentsDir,
             settings: adapterOptions.settings,
-            // Each query is a per-thread process, so the shell gets `t3 work`.
-            environment: McpProviderSession.providerSessionEnvironment(
-              adapterOptions.environment,
-              mcpSession,
-            ),
+            environment: adapterOptions.environment,
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...(mcpOverrides.allowedTools === undefined
               ? {}

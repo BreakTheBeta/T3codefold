@@ -22,7 +22,6 @@ import * as ServerConfig from "../../../config.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
-import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../../vcs/VcsProcess.ts";
 import { FleetRouter } from "../../FleetRouter.ts";
@@ -456,83 +455,6 @@ it.effect(
       expect(ids[2]?.[0]).not.toBe(ids[0]?.[0]);
       expect(ids[3]?.[0]).not.toBe(ids[4]?.[0]);
     }),
-);
-
-it.effect("keeps elected GLaDOS from launching threads outside the work ledger", () =>
-  Effect.gen(function* () {
-    const sourceThreadId = ThreadId.make("glados-thread");
-    const projectId = ProjectId.make("project");
-    const providerInstanceId = ProviderInstanceId.make("codex");
-    const caller = {
-      id: sourceThreadId,
-      projectId,
-      providerInstanceId,
-      modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
-      runtimeMode: "full-access",
-      interactionMode: "default",
-      activeRunId: "active-run",
-      archivedAt: null,
-      deletedAt: null,
-    } as OrchestrationV2ThreadShell;
-    const dependencies = Layer.mergeAll(
-      NodeCrypto.layer,
-      ServerSettings.layerTest(),
-      Layer.mock(FleetRouter)({}),
-      Layer.mock(WorkStore)({
-        read: () =>
-          Effect.succeed({
-            revision: 1,
-            role: {
-              threadId: sourceThreadId,
-              projectId,
-              generation: 1,
-              paused: false,
-              brief: {
-                priorities: "Ship",
-                quality: "Prove behavior",
-                projectIds: [projectId],
-                maxWorkers: 1,
-                maxAttempts: 1,
-                workerModel: { instanceId: providerInstanceId, model: "gpt-5" },
-              },
-            },
-            tasks: [],
-            messages: [],
-          }),
-      }),
-      Layer.succeed(McpInvocationContext.McpInvocationContext, {
-        environmentId: EnvironmentId.make("environment"),
-        requestNamespace: "session",
-        thread: { threadId: sourceThreadId, providerSessionId: "session", providerInstanceId },
-        client: undefined,
-        issuedAt: 0,
-        capabilities: new Set(["orchestration" as const]),
-      }),
-      Layer.mock(ThreadManagement.ThreadManagementService)({
-        getThreadShell: () => Effect.succeed(caller),
-      }),
-      Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
-      Layer.mock(Project.ProjectService)({}),
-      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
-      Layer.mock(GitVcsDriver.GitVcsDriver)({}),
-      NodeServices.layer,
-      ServerConfig.layerTest(process.cwd(), { prefix: "t3-glados-launch-" }).pipe(
-        Layer.provide(NodeServices.layer),
-      ),
-    );
-    const toolkit = yield* ProjectToolkit.pipe(
-      Effect.provide(
-        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
-      ),
-    );
-    const result = yield* toolkit
-      .handle("t3_thread_launch", { title: "Side quest", message: "Work" })
-      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
-    expect(result.at(-1)?.result).toMatchObject({
-      code: "orchestration_error",
-      message: expect.stringContaining("work_command"),
-    });
-  }),
 );
 
 it.effect("a launch binds only an existing checkout that is one of the project's worktrees", () =>

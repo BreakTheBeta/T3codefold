@@ -133,7 +133,6 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
-import { ThreadRetentionGuard } from "./ThreadRetentionGuard.ts";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -847,7 +846,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const runtimePolicy = yield* RuntimePolicyV2;
   const threadForkService = yield* ThreadForkServiceV2;
   const threadDispatch = yield* ThreadCommandExecutor.ThreadCommandExecutor;
-  const retentionGuard = yield* ThreadRetentionGuard;
 
   const mapDispatchError =
     (command: OrchestrationV2ServerCommand) =>
@@ -10646,16 +10644,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       "orchestration_v2.thread_id": commandThreadId(command),
     });
 
-    yield* retentionGuard.check(command).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestratorDispatchError({
-            commandId: command.commandId,
-            commandType: command.type,
-            cause,
-          }),
-      ),
-    );
     const events = yield* Ref.make<Array<OrchestrationV2DomainEvent>>([]);
     const effects = yield* Ref.make<Array<PendingOrchestrationEffectV2>>([]);
     let cancelUnsettledEffects:

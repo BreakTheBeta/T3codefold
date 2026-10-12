@@ -62,7 +62,6 @@ import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrid
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import { layerFleet } from "./mcp/fleet/layer.ts";
-import * as PitbossPeerHttp from "./pitboss/PeerHttp.ts";
 import * as ThreadTitleRefinement from "./orchestration-v2/ThreadTitleRefinement.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -727,8 +726,6 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),
-  // Peer GLaDOS environments call this directly, authenticated by enrollment credentials.
-  PitbossPeerHttp.layer,
 ).pipe(
   Layer.provide(layerFleet),
   // Guides read through the same pull request service as every other surface.

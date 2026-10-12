@@ -32,7 +32,6 @@ import * as SourceControlRepositoryService from "../../../sourceControl/SourceCo
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import { FleetRouter } from "../../FleetRouter.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
-import { WorkStore } from "../../../pitboss/WorkStore.ts";
 import * as McpSessionRegistry from "../../McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as PreviewBrowser from "../../../preview/PreviewBrowser.ts";
@@ -60,7 +59,6 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(ThreadSearch.ThreadSearch)({}),
   Layer.mock(FleetRouter)({}),
-  Layer.mock(WorkStore)({}),
 );
 
 const ToolsListPayload = Schema.fromJsonString(

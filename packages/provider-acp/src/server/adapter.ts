@@ -141,8 +141,8 @@ export interface AcpAdapterV2RuntimeInput {
   readonly acpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   /**
    * Thread-scoped credentials for the agent process and its terminals: the
-   * terminal fallback when an ACP agent drops `mcpServers`, and the `t3 work`
-   * CLI. Flavors that spawn a per-session process merge it into its env.
+   * terminal fallback when an ACP agent drops `mcpServers`. Flavors that spawn
+   * a per-session process merge it into its env.
    */
   readonly processEnvironment?: NodeJS.ProcessEnv;
   readonly resumeSessionId?: string;
@@ -718,7 +718,6 @@ function acpMcpContext(
       T3_ACP_MCP_AUTHORIZATION: session.authorizationHeader,
       T3_ACP_MCP_NODE: self.command,
       ...(self.entrypoint === undefined ? {} : { T3_ACP_MCP_ENTRYPOINT: self.entrypoint }),
-      ...McpProviderSession.workCliEnvironment(session),
     },
   };
 }

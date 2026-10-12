@@ -190,7 +190,7 @@ import {
   reduceCommandPaletteUiState,
   type SearchOverlayMode,
 } from "./CommandPalette.logic";
-import { foldGladosActionItem, useFoldVoiceActionItems } from "./foldCommandPaletteActions";
+import { useFoldGladosActionItems, useFoldVoiceActionItems } from "./foldCommandPaletteActions";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent } from "./CommandPaletteContent";
@@ -1880,7 +1880,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push(foldGladosActionItem(navigate, activeThread?.environmentId));
+  actionItems.push(...useFoldGladosActionItems(navigate, activeThread));
 
   if (
     activeThread !== null &&

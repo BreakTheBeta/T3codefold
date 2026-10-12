@@ -435,8 +435,6 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       for (const table of CLEARED_TABLES) {
         yield* sql`DELETE FROM ${sql(table)}`;
       }
-      // Fold: queued Pitboss effects are pending work too; settled history stays.
-      yield* sql`DELETE FROM pitboss_effects WHERE state = 'pending'`;
     }),
   );
 

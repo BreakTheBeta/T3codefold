@@ -66,7 +66,6 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
-import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { parsePiCompactCommand, type PiCompactCommand } from "./commands.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
@@ -543,8 +542,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       }
       const launch = buildPiRpcLaunch({
         launchArgs: resolvedLaunchArgs.args,
-        // One Pi process per session, so its shell gets `t3 work`.
-        environment: McpProviderSession.providerSessionEnvironment(options.environment, mcpSession),
+        environment: options.environment,
         mcpSession,
         extensionPath,
         runtimeMode: input.runtimePolicy.runtimeMode,

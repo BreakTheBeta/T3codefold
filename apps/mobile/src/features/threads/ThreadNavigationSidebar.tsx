@@ -1,4 +1,3 @@
-import { PitbossPins } from "./PitbossWork";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { resolveScratchProjectScopeKey } from "@t3tools/client-runtime/state/project-grouping";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -983,7 +982,6 @@ function ThreadNavigationSidebarPane(
             >
               <LegendList
                 ref={listRef}
-                ListHeaderComponent={<PitbossPins environments={environments} />}
                 data={listItems}
                 drawDistance={500}
                 estimatedItemSize={64}
@@ -1045,10 +1043,7 @@ function ThreadNavigationSidebarPane(
         }
       >
         {Platform.OS === "android" && listItems.length === 0 ? (
-          <View className="flex-1">
-            <PitbossPins environments={environments} />
-            <View className="flex-1 items-center justify-center">{listEmpty}</View>
-          </View>
+          <View className="flex-1 items-center justify-center">{listEmpty}</View>
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <HomeThreadListDrag
@@ -1064,7 +1059,6 @@ function ThreadNavigationSidebarPane(
             >
               <LegendList
                 ref={listRef}
-                ListHeaderComponent={<PitbossPins environments={environments} />}
                 data={listItems}
                 drawDistance={500}
                 estimatedItemSize={64}

@@ -141,7 +141,7 @@ import {
 import { ThreadCanvasBackdrop } from "./ThreadCanvasBackdrop";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
-import { PitbossWork } from "./PitbossWork";
+import { GladosBar } from "./GladosBar";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { useThreadQueuedCount } from "./ThreadQueueControl";
@@ -1090,11 +1090,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     composerEditorRef.current?.blur();
   }, []);
 
-  const handleComposeWork = useCallback(() => {
-    setComposerExpanded(true);
-    requestAnimationFrame(() => composerEditorRef.current?.focus());
-  }, []);
-
   const handleUseArtifactTemplate = useCallback(
     (template: CodexArtifactTemplate) => {
       const currentDraft = draftMessageRef.current;
@@ -1168,14 +1163,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     >
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
       <View style={tabletop ? { height: tabletop.feedHeight, overflow: "hidden" } : { flex: 1 }}>
-        <PitbossWork
-          connected={props.connectionStateLabel === "connected"}
-          environmentId={props.environmentId}
-          threadId={props.selectedThread.id}
-          projectId={props.selectedThread.projectId}
-          modelSelection={props.selectedThread.modelSelection}
-          onComposeWork={handleComposeWork}
-        />
+        <GladosBar environmentId={props.environmentId} threadId={props.selectedThread.id} />
         {showContent ? (
           <View
             style={{ flex: 1 }}

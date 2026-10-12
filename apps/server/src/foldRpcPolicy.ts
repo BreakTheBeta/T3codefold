@@ -12,13 +12,6 @@ type FoldRpcMethod = RpcGroup.Rpcs<typeof FoldRpcGroup>["_tag"];
 
 /** Scopes for Fold's RPCs, spread into RpcAuthorization's `RPC_REQUIRED_SCOPES`. */
 export const FOLD_RPC_REQUIRED_SCOPES = {
-  [WS_METHODS.pitbossPeers]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossPeerCommand]: AuthAccessWriteScope,
-  [WS_METHODS.pitbossSources]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossSourceCommand]: AuthAccessWriteScope,
-  [WS_METHODS.pitbossRead]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossSubscribe]: AuthOrchestrationReadScope,
-  [WS_METHODS.pitbossCommand]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerRealtimeVoiceStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerRealtimeVoiceStop]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerRealtimeVoiceList]: AuthOrchestrationOperateScope,
@@ -33,13 +26,6 @@ export const FOLD_RPC_REQUIRED_SCOPES = {
 
 /** `rpc.aggregate` labels for Fold's RPCs, spread into RpcInstrumentation's `RPC_AGGREGATES`. */
 export const FOLD_RPC_AGGREGATES = {
-  [WS_METHODS.pitbossPeers]: "pitboss",
-  [WS_METHODS.pitbossPeerCommand]: "pitboss",
-  [WS_METHODS.pitbossSources]: "pitboss",
-  [WS_METHODS.pitbossSourceCommand]: "pitboss",
-  [WS_METHODS.pitbossRead]: "pitboss",
-  [WS_METHODS.pitbossSubscribe]: "pitboss",
-  [WS_METHODS.pitbossCommand]: "pitboss",
   [WS_METHODS.fleetConnect]: "fleet",
   [WS_METHODS.fleetRespond]: "fleet",
   [WS_METHODS.fleetExecute]: "fleet",

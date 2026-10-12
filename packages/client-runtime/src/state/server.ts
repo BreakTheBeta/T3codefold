@@ -49,7 +49,6 @@ import {
 } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
-import { createPitbossEnvironmentAtoms } from "./pitboss.ts";
 import {
   applyServerConfigProjection,
   type ServerConfigProjection,
@@ -1162,7 +1161,6 @@ export function createServerEnvironmentAtoms<R, E>(
       staleTimeMs: 0,
       idleTtlMs: 0,
     }),
-    ...createPitbossEnvironmentAtoms(runtime),
     configProjection,
     welcome,
     legacyThreadMigration: createEnvironmentRpcSubscriptionAtomFamily(runtime, {

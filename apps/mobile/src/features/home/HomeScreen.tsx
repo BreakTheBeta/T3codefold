@@ -1,4 +1,3 @@
-import { PitbossPins } from "../threads/PitbossWork";
 import { AppActivityIndicator } from "../../components/AppActivityIndicator";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
@@ -982,12 +981,7 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  const listHeader = (
-    <>
-      {Platform.OS === "ios" ? null : <HomeTopContentSpacer />}
-      <PitbossPins environments={props.environments} />
-    </>
-  );
+  const listHeader = Platform.OS === "ios" ? undefined : <HomeTopContentSpacer />;
 
   // Content hidden under translucent chrome stays out of the drag auto-scroll edges.
   const dragEdgeInsets =

@@ -252,7 +252,7 @@ export const AntigravityDriver: ProviderDriver<
             installation: executable,
             profile,
             cwd: input.cwd,
-            // One agent process per session, so it gets the thread's `t3 work` credential.
+            // One agent process per session, so it gets the thread's MCP bridge credentials.
             baseEnv: withAgentDeviceEnvironment(
               input.processEnvironment === undefined
                 ? processEnvironment
