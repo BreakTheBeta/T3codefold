@@ -1,5 +1,6 @@
 import { PitbossPins } from "./PitbossWork";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
+import { resolveScratchProjectScopeKey } from "@t3tools/client-runtime/state/project-grouping";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
 import type {
@@ -16,7 +17,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutChangeEvent, TextInputInstance } from "react-native";
 import { Platform, StyleSheet, TextInput, View } from "react-native";
-import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
+import { useNativeGesture } from "react-native-gesture-handler";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SearchBarCommands } from "react-native-screens";
@@ -41,13 +42,7 @@ import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
-import { moveVimCursor, type VimEffect } from "../keyboard/vimNavigation";
-import {
-  getVimFocus,
-  setVimFocus,
-  useVimEffectHandler,
-  useVimFocus,
-} from "../keyboard/vimNavigationRuntime";
+import { useSidebarVimCursor } from "../keyboard/useSidebarVimCursor";
 import { useHomeListOptions } from "../home/home-list-options";
 import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
 import { buildHomeProjectScopes } from "../home/homeThreadList";
@@ -73,7 +68,7 @@ import {
   ThreadListV2SnoozedShelfHeader,
   ThreadListV2WorkingShelfHeader,
 } from "./thread-list-v2-items";
-import { ThreadListDragSurface } from "./thread-list-drag";
+import { HomeThreadListDrag } from "../home/HomeThreadListDrag";
 import { useThreadRowProviderInstanceResolver } from "./thread-provider-instance";
 import {
   buildThreadListV2Items,
@@ -94,7 +89,6 @@ type SidebarListItem =
   | { readonly type: "v2-show-more"; readonly key: string; readonly hiddenCount: number };
 
 const SIDEBAR_STICKY_HEADER_HEIGHT = 106;
-const SIDEBAR_VIM_EFFECTS = ["moveCursor", "cursorToEdge", "openCursor"] as const;
 
 interface ThreadNavigationSidebarProps {
   readonly width: number;
@@ -163,7 +157,6 @@ function ThreadNavigationSidebarPane(
   const searchBarRef = useRef<SearchBarCommands>(null);
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const sidebarScrollGesture = useNativeGesture();
-
   const {
     archiveThread,
     confirmDeleteThread,
@@ -195,7 +188,8 @@ function ThreadNavigationSidebarPane(
     () => new Set(environments.map((environment) => environment.environmentId)),
     [environments],
   );
-  const { options, setSelectedEnvironmentId } = useHomeListOptions(availableEnvironmentIds);
+  const { options, setSelectedEnvironmentId, setSelectedProjectKey } =
+    useHomeListOptions(availableEnvironmentIds);
   const searchEnvironmentIds = useMemo(
     () =>
       options.selectedEnvironmentId === null
@@ -225,7 +219,16 @@ function ThreadNavigationSidebarPane(
     () => new Set(threadSearch.matches.map(threadSearchMatchKey)),
     [threadSearch.matches],
   );
-  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const projectScopeKey = options.selectedProjectKey;
+  const selectedProjectKey = resolveScratchProjectScopeKey(projectScopeKey, projects, {
+    sidebarProjectGroupingMode: options.projectGroupingMode,
+    sidebarProjectGroupingOverrides: {},
+  });
+  useEffect(() => {
+    if (selectedProjectKey !== projectScopeKey) {
+      setSelectedProjectKey(selectedProjectKey);
+    }
+  }, [projectScopeKey, selectedProjectKey, setSelectedProjectKey]);
   const projectScopes = useMemo(
     () =>
       buildHomeProjectScopes({
@@ -272,7 +275,7 @@ function ThreadNavigationSidebarPane(
     ) {
       setSelectedProjectKey(null);
     }
-  }, [projectFilterOptions, selectedProjectKey]);
+  }, [projectFilterOptions, selectedProjectKey, setSelectedProjectKey]);
   const selectedProjectRefs = useMemo(
     () =>
       selectedProjectScope === null
@@ -570,7 +573,7 @@ function ThreadNavigationSidebarPane(
         return;
       }
     },
-    [environments, projectFilterOptions, setSelectedEnvironmentId],
+    [environments, projectFilterOptions, setSelectedEnvironmentId, setSelectedProjectKey],
   );
 
   const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState<number | null>(null);
@@ -615,42 +618,12 @@ function ThreadNavigationSidebarPane(
     onScrollBeginDrag: handleScrollBeginDrag,
   });
   const listRef = useRef<LegendListRef>(null);
-  const handleVimEffect = useCallback(
-    (effect: VimEffect) => {
-      const threads = listItems.flatMap((item) =>
-        item.type === "v2-thread" ? [{ item, thread: item.item.thread }] : [],
-      );
-      const keyOf = (entry: (typeof threads)[number]) =>
-        scopedThreadKey(entry.thread.environmentId, entry.thread.id);
-      const currentKey = getVimFocus().cursorThreadKey ?? props.selectedThreadKey ?? null;
-      const current = threads.find((entry) => keyOf(entry) === currentKey) ?? null;
-      if (effect.type === "openCursor") {
-        if (current !== null) handleSelectThread(current.thread);
-        return;
-      }
-      const target =
-        effect.type === "moveCursor"
-          ? moveVimCursor(threads, current, effect.delta, (a, b) => keyOf(a) === keyOf(b))
-          : effect.type === "cursorToEdge"
-            ? ((effect.edge === "first" ? threads[0] : threads.at(-1)) ?? null)
-            : current;
-      if (target === null) return;
-      setVimFocus({ cursorThreadKey: keyOf(target) });
-      const list = listRef.current;
-      const index = list?.getState().indexByKey(target.item.key);
-      const state = list?.getState();
-      if (list && state && index !== undefined && (index < state.start || index > state.end)) {
-        void list.scrollToItem({ item: target.item, animated: true, viewPosition: 0.5 });
-      }
-    },
-    [handleSelectThread, listItems, props.selectedThreadKey],
-  );
-  useVimEffectHandler(SIDEBAR_VIM_EFFECTS, handleVimEffect);
-  const vimFocus = useVimFocus();
-  const vimCursorThreadKey =
-    vimFocus.region === "sidebar"
-      ? (vimFocus.cursorThreadKey ?? props.selectedThreadKey ?? null)
-      : null;
+  const vimCursorThreadKey = useSidebarVimCursor({
+    listItems,
+    listRef,
+    selectedThreadKey: props.selectedThreadKey,
+    onSelectThread: handleSelectThread,
+  });
   // The sticky header's project shells and search maps feed row props, so
   // they have to bust the recycler's memoization — otherwise a row keeps the
   // blank favicon and fallback title it was first rendered with. The minute
@@ -917,7 +890,14 @@ function ThreadNavigationSidebarPane(
         onEnvironmentChange: setSelectedEnvironmentId,
         onProjectChange: setSelectedProjectKey,
       }),
-    [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId],
+    [
+      environments,
+      options,
+      projectFilterOptions,
+      selectedProjectKey,
+      setSelectedEnvironmentId,
+      setSelectedProjectKey,
+    ],
   );
   const nativeHeaderItems = useMemo(
     () =>
@@ -990,7 +970,8 @@ function ThreadNavigationSidebarPane(
         />
         <View className="flex-1">
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
-            <ThreadListDragSurface
+            <HomeThreadListDrag
+              gesture={sidebarScrollGesture}
               listRef={listRef}
               items={listItems}
               workingShelfEnabled={workingShelfEnabled}
@@ -1000,44 +981,39 @@ function ThreadNavigationSidebarPane(
               }
               onMoveThread={moveThread}
             >
-              {(dragListProps) => (
-                <GestureDetector gesture={sidebarScrollGesture}>
-                  <LegendList
-                    ref={listRef}
-                    {...dragListProps}
-                    ListHeaderComponent={<PitbossPins environments={environments} />}
-                    data={listItems}
-                    drawDistance={500}
-                    estimatedItemSize={64}
-                    extraData={listExtraData}
-                    getItemType={(item) => item.type}
-                    itemsAreEqual={sidebarItemsAreEqual}
-                    keyExtractor={(item) => item.key}
-                    renderItem={renderListItem}
-                    automaticallyAdjustsScrollIndicatorInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
-                    contentInsetAdjustmentBehavior={
-                      NATIVE_LIQUID_GLASS_SUPPORTED ? "automatic" : "never"
-                    }
-                    contentContainerStyle={[
-                      styles.threadListContent,
-                      Platform.OS === "android" ? { paddingHorizontal: 0 } : null,
-                      {
-                        paddingBottom: Math.max(insets.bottom, 16) + 16,
-                        paddingTop: 6,
-                      },
-                    ]}
-                    keyboardDismissMode="on-drag"
-                    keyboardShouldPersistTaps="handled"
-                    {...scrollGateHandlers}
-                    recycleItems
-                    scrollEventThrottle={16}
-                    showsVerticalScrollIndicator={false}
-                    style={styles.threadList}
-                    ListEmptyComponent={listEmpty}
-                  />
-                </GestureDetector>
-              )}
-            </ThreadListDragSurface>
+              <LegendList
+                ref={listRef}
+                ListHeaderComponent={<PitbossPins environments={environments} />}
+                data={listItems}
+                drawDistance={500}
+                estimatedItemSize={64}
+                extraData={listExtraData}
+                getItemType={(item) => item.type}
+                itemsAreEqual={sidebarItemsAreEqual}
+                keyExtractor={(item) => item.key}
+                renderItem={renderListItem}
+                automaticallyAdjustsScrollIndicatorInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
+                contentInsetAdjustmentBehavior={
+                  NATIVE_LIQUID_GLASS_SUPPORTED ? "automatic" : "never"
+                }
+                contentContainerStyle={[
+                  styles.threadListContent,
+                  Platform.OS === "android" ? { paddingHorizontal: 0 } : null,
+                  {
+                    paddingBottom: Math.max(insets.bottom, 16) + 16,
+                    paddingTop: 6,
+                  },
+                ]}
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
+                {...scrollGateHandlers}
+                recycleItems
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={false}
+                style={styles.threadList}
+                ListEmptyComponent={listEmpty}
+              />
+            </HomeThreadListDrag>
           </SwipeableScrollGateProvider>
         </View>
       </>
@@ -1075,7 +1051,8 @@ function ThreadNavigationSidebarPane(
           </View>
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
-            <ThreadListDragSurface
+            <HomeThreadListDrag
+              gesture={sidebarScrollGesture}
               listRef={listRef}
               items={listItems}
               workingShelfEnabled={workingShelfEnabled}
@@ -1085,43 +1062,38 @@ function ThreadNavigationSidebarPane(
               }
               onMoveThread={moveThread}
             >
-              {(dragListProps) => (
-                <GestureDetector gesture={sidebarScrollGesture}>
-                  <LegendList
-                    ref={listRef}
-                    {...dragListProps}
-                    ListHeaderComponent={<PitbossPins environments={environments} />}
-                    data={listItems}
-                    drawDistance={500}
-                    estimatedItemSize={64}
-                    extraData={listExtraData}
-                    getItemType={(item) => item.type}
-                    itemsAreEqual={sidebarItemsAreEqual}
-                    keyExtractor={(item) => item.key}
-                    renderItem={renderListItem}
-                    contentContainerStyle={[
-                      styles.threadListContent,
-                      Platform.OS === "android" ? { paddingHorizontal: 0 } : null,
-                      {
-                        paddingBottom:
-                          Platform.OS === "android"
-                            ? Math.max(insets.bottom, 16) + fabClearance - insets.bottom
-                            : 16 + insets.bottom,
-                        paddingTop: Platform.OS === "android" ? 6 : topListInset,
-                      },
-                    ]}
-                    keyboardDismissMode="on-drag"
-                    keyboardShouldPersistTaps="handled"
-                    {...scrollGateHandlers}
-                    recycleItems
-                    scrollEventThrottle={16}
-                    showsVerticalScrollIndicator={false}
-                    style={styles.threadList}
-                    ListEmptyComponent={listEmpty}
-                  />
-                </GestureDetector>
-              )}
-            </ThreadListDragSurface>
+              <LegendList
+                ref={listRef}
+                ListHeaderComponent={<PitbossPins environments={environments} />}
+                data={listItems}
+                drawDistance={500}
+                estimatedItemSize={64}
+                extraData={listExtraData}
+                getItemType={(item) => item.type}
+                itemsAreEqual={sidebarItemsAreEqual}
+                keyExtractor={(item) => item.key}
+                renderItem={renderListItem}
+                contentContainerStyle={[
+                  styles.threadListContent,
+                  Platform.OS === "android" ? { paddingHorizontal: 0 } : null,
+                  {
+                    paddingBottom:
+                      Platform.OS === "android"
+                        ? Math.max(insets.bottom, 16) + fabClearance - insets.bottom
+                        : 16 + insets.bottom,
+                    paddingTop: Platform.OS === "android" ? 6 : topListInset,
+                  },
+                ]}
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
+                {...scrollGateHandlers}
+                recycleItems
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={false}
+                style={styles.threadList}
+                ListEmptyComponent={listEmpty}
+              />
+            </HomeThreadListDrag>
           </SwipeableScrollGateProvider>
         )}
       </View>

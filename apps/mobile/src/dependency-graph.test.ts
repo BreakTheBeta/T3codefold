@@ -261,8 +261,7 @@ describe("mobile dependency graph", () => {
       // state -> features: thread ordering reaching the thread-list model,
       // the incoming-share store, the connection controller hook, the
       // terminal launch context, and the pending message feed.
-      // (legacy-plan-mode and thread-provider-switching were pure model logic
-      // and moved into state/.)
+      // (legacy-plan-mode was pure model logic and moved into state/.)
       ["state", "features", 6, "state must not add imports from features"],
       // lib -> features: lib/runtime.ts is the app composition root and
       // legitimately wires cloud/observability features; the appearance
@@ -275,7 +274,7 @@ describe("mobile dependency graph", () => {
       ["native", "features", 8, "native must not add imports from features"],
       // lib -> state: attachment/session plumbing that predates the cycle
       // cleanup; each remaining edge needs a real owner-side seam.
-      ["lib", "state", 11, "lib must not add imports from state"],
+      ["lib", "state", 10, "lib must not add imports from state"],
     ];
 
     for (const [from, to, ceiling, message] of ceilings) {

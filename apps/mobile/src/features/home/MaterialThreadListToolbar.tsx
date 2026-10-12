@@ -11,7 +11,7 @@ import type { MenuAction } from "@react-native-menu/menu";
 
 import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
-import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
+import { ThreadListOptionsMenu } from "./ThreadListOptionsMenu";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { MaterialSearchField } from "../../components/MaterialSearchField";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
@@ -123,45 +123,15 @@ export function MaterialThreadListToolbar(props: {
                 icon="magnifyingglass"
                 onPress={openSearch}
               />
-              <AndroidAnchoredMenu
-                title="Thread options"
-                actions={[
-                  ...(state.hasConnections
-                    ? [
-                        {
-                          id: "thread-filters",
-                          title: "Filter threads",
-                          subactions: props.filterActions,
-                        },
-                      ]
-                    : []),
-                  ...(compactActions ? [{ id: "pull-requests", title: "Pull requests" }] : []),
-                  { id: "settings", title: "Settings" },
-                ]}
-                onPressAction={(event) => {
-                  if (event.nativeEvent.event === "pull-requests") props.onOpenPullRequests();
-                  else if (event.nativeEvent.event === "settings") props.onOpenSettings();
-                  else props.onFilterAction(event);
-                }}
-              >
-                {(open) => (
-                  <View>
-                    <AndroidHeaderIconButton
-                      accessibilityLabel={
-                        props.filterCustomized ? "Thread options, filters active" : "Thread options"
-                      }
-                      icon="ellipsis"
-                      onPress={open}
-                    />
-                    {props.filterCustomized ? (
-                      <View
-                        pointerEvents="none"
-                        className="absolute right-2 top-2 size-1.5 rounded-full bg-primary"
-                      />
-                    ) : null}
-                  </View>
-                )}
-              </AndroidAnchoredMenu>
+              <ThreadListOptionsMenu
+                hasConnections={state.hasConnections}
+                filterActions={props.filterActions}
+                filterCustomized={props.filterCustomized}
+                includePullRequests={compactActions}
+                onFilterAction={props.onFilterAction}
+                onOpenPullRequests={props.onOpenPullRequests}
+                onOpenSettings={props.onOpenSettings}
+              />
             </>
           )}
         </View>

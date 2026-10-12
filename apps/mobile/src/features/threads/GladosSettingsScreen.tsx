@@ -392,7 +392,8 @@ function HowGladosWorks(props: {
   const autonomy = pitbossAutonomy(props.brief);
   const model = props.brief.workerModel;
   const modelLabel = useMemo(() => {
-    const option = buildModelOptions(props.config, model).find(
+    // The brief may span several projects, so the label reads from the unfiltered catalog.
+    const option = buildModelOptions(props.config, model, undefined, null).find(
       (entry) =>
         entry.selection.instanceId === model.instanceId && entry.selection.model === model.model,
     );

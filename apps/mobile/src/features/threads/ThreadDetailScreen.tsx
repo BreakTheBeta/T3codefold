@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useThreadReportedModelSelection } from "../../state/entities";
+import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { useNavigation } from "@react-navigation/native";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
@@ -14,6 +14,8 @@ import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
+import { NativeLayoutObserver } from "../../native/NativeLayoutObserver";
+import { deriveBottomControlInsets, type NativeLayoutMetrics } from "../../lib/reserved-regions";
 import type {
   EnvironmentId,
   MessageId,
@@ -29,7 +31,7 @@ import type {
 import {
   appendCodexArtifactTemplateUsePrompt,
   type CodexArtifactTemplate,
-} from "@t3tools/client-runtime/codex-artifact-templates";
+} from "@t3tools/shared/codexArtifactTemplates";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
 import {
   presentPendingBackgroundWork,
@@ -66,24 +68,23 @@ import {
   type GestureResponderEvent,
   type ViewInstance,
 } from "react-native";
-import {
-  KeyboardController,
-  KeyboardStickyView,
-  useKeyboardState,
-} from "react-native-keyboard-controller";
+import { KeyboardController, useKeyboardState } from "react-native-keyboard-controller";
 import Animated, {
   Easing,
   FadeInDown,
   FadeOut,
   ReduceMotion,
   useAnimatedReaction,
+  useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { VimEffect } from "../keyboard/vimNavigation";
-import { useVimEffectHandler } from "../keyboard/vimNavigationRuntime";
+import { useWorkspaceContentWidth } from "../layout/workspace-content-width";
+import { useChatVimNavigation } from "../keyboard/useChatVimNavigation";
+import { useNativeWorkspaceColumnsSupported } from "../../native/NativeWorkspaceColumns";
+import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
@@ -138,6 +139,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadCanvasBackdrop } from "./ThreadCanvasBackdrop";
+import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { PitbossWork } from "./PitbossWork";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
@@ -146,12 +148,12 @@ import { useThreadQueuedCount } from "./ThreadQueueControl";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
-import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
-import { deriveTabletopChatLayout } from "./tabletop-chat-layout";
+import { TabletopKeyboardStickyView, useTabletopChat } from "./tabletop-chat";
 
 export interface ThreadDetailScreenProps {
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
+  readonly canOperateThread: boolean;
   readonly selectedThread: EnvironmentThreadShell;
   readonly contentPresentation: ThreadContentPresentation;
   readonly screenTone: StatusTone;
@@ -171,9 +173,15 @@ export interface ThreadDetailScreenProps {
    * The server has not created this thread yet. "preparing" runs while the
    * queued creation is delivered (a worktree may be checking out); "failed"
    * is a rejected creation whose content went back to the project draft.
+   * `serverOwned` marks a thread the server already created that is still
+   * setting up its worktree; follow-ups queue on the server behind that setup.
    */
   readonly creationState:
-    | { readonly kind: "preparing"; readonly preparingWorktree: boolean }
+    | {
+        readonly kind: "preparing";
+        readonly preparingWorktree: boolean;
+        readonly serverOwned: boolean;
+      }
     | { readonly kind: "failed"; readonly reason: string; readonly onEditTask: () => void }
     | null;
   readonly activePendingApproval: PendingApproval | null;
@@ -313,29 +321,14 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
   }, [threadId, feed]);
 }
 
-const CHAT_VIM_EFFECTS = ["scroll", "scrollToEdge", "focusComposer"] as const;
-/** Pixels one j/k press scrolls the conversation. */
-const VIM_LINE_SCROLL = 56;
 const USER_INPUT_TOGGLE_TIMING = {
   duration: USER_INPUT_TOGGLE_DURATION_MS,
   easing: Easing.out(Easing.cubic),
 };
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
+  const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const navigation = useNavigation();
-  const { tabletopHingeTop, tabletopHingeHeight } = useAdaptiveWorkspaceLayout();
-  const detailViewRef = useRef<ViewInstance>(null);
-  const [detailViewport, setDetailViewport] = useState<{ top: number; height: number } | null>(
-    null,
-  );
-  const [measuredControlsHeight, setMeasuredControlsHeight] = useState(0);
-  const measureDetailViewport = useCallback(() => {
-    detailViewRef.current?.measureInWindow((_x, top, _width, height) => {
-      setDetailViewport((current) =>
-        current?.top === top && current.height === height ? current : { top, height },
-      );
-    });
-  }, []);
   const { session: voiceInputSession } = useGlobalVoiceInput();
   const reportedModelSelection = useThreadReportedModelSelection({
     environmentId: props.environmentId,
@@ -406,9 +399,17 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     }
   }, []);
   const windowHeight = useWindowDimensions().height;
-  const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + 44;
+  const navigationHeaderHeight = useContext(HeaderHeightContext) ?? insets.top + 44;
+  const [screenMetrics, setScreenMetrics] = useState<NativeLayoutMetrics | null>(null);
+  const columnMetrics = useNativeColumnLayoutMetrics();
+  const nativeMetrics = usesNativeWorkspaceColumns ? columnMetrics : screenMetrics;
+  const controlInsets = deriveBottomControlInsets(nativeMetrics);
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  const childThreadInputs = useChildThreadInputs({
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+  });
   const composerError = useAtomValue(threadComposerErrorsAtom)[selectedThreadKey]?.message ?? null;
   const queuedCount = useThreadQueuedCount({
     environmentId: props.environmentId,
@@ -516,6 +517,24 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     if (threadSyncLabel !== null) {
       return { kind: "syncing", label: threadSyncLabel };
     }
+    const childInput = childThreadInputs[0];
+    if (childInput && contentPresentationKind === "ready") {
+      return {
+        kind: "child-input",
+        label:
+          childThreadInputs.length === 1
+            ? "Subagent needs input"
+            : `${childThreadInputs.length} subagents need input`,
+        accessibilityLabel: `Open question from ${childInput.title}`,
+        onPress: () => {
+          Keyboard.dismiss();
+          navigation.navigate("Thread", {
+            environmentId: props.environmentId,
+            threadId: childInput.id,
+          });
+        },
+      };
+    }
     if (props.isCompacting && contentPresentationKind === "ready") {
       return { kind: "compacting" };
     }
@@ -569,17 +588,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       props.selectedThread.latestUserMessageAt !== null);
   const composerChrome = composerExpanded ? COMPOSER_EXPANDED_CHROME : COMPOSER_COLLAPSED_CHROME;
   const composerOverlapHeight = composerChrome + composerBottomInset;
-  const tabletop = deriveTabletopChatLayout({
-    hingeTop: tabletopHingeTop,
-    hingeHeight: tabletopHingeHeight,
-    viewportTop: detailViewport?.top ?? navigationHeaderHeight,
-    viewportHeight: detailViewport?.height ?? windowHeight - navigationHeaderHeight,
+  const floatingStatusCoverage = showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0;
+  const tabletopChat = useTabletopChat({
+    navigationHeaderHeight,
+    windowHeight,
     keyboardHeight: isKeyboardVisible && !keyboardStateSuspect ? liveKeyboardHeight : 0,
-    controlsHeight: Math.max(
-      measuredControlsHeight,
-      composerOverlapHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0),
-    ),
+    estimatedControlsHeight: composerOverlapHeight + floatingStatusCoverage,
+    floatingCoverage: floatingStatusCoverage,
   });
+  const tabletop = tabletopChat.layout;
   const tabletopFeedHeight = tabletop?.feedHeight ?? null;
   // While a user-input request is pending, the questionnaire owns the
   // composer slot outright: expanded it is the full card, collapsed it is a
@@ -590,6 +607,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const [collapsedUserInputRequestId, setCollapsedUserInputRequestId] =
     useState<RuntimeRequestId | null>(null);
   const activeUserInputRequestId = props.activePendingUserInput?.requestId ?? null;
+  // A pending user-input request or a failed creation owns the composer slot.
+  const composerSlotHidden =
+    activeUserInputRequestId !== null || props.creationState?.kind === "failed";
   // The open /usage-limits panel for this thread, model and turn. Only the open
   // moment is stored: the rows read live provider data, so a redeemed reset
   // credit or refreshed probe shows through. Anything that spends quota closes
@@ -694,6 +714,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     Math.max(0, estimatedOverlayHeight - nativeInsetOvercount),
     -nativeInsetOvercount,
     Platform.OS === "ios" ? COMPOSER_TRANSITION_DURATION_MS : 0,
+  );
+  const { onControlsLayout: onTabletopControlsLayout } = tabletopChat;
+  // The composer overlay also sizes the controls below a tabletop fold.
+  const onOverlayLayout = useCallback(
+    (event: Parameters<typeof onComposerLayout>[0]) => {
+      onComposerLayout(event);
+      onTabletopControlsLayout(event);
+    },
+    [onComposerLayout, onTabletopControlsLayout],
   );
   // The expanded questionnaire is an absolute overlay on iOS, so it never
   // changes the measured overlay height (that constancy is what keeps the
@@ -851,6 +880,20 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     : null;
   const providerSubagentCatalogModel = providerSubagentProvider?.models.find(
     (model) => model.slug === providerSubagentModelSlug,
+  );
+  const workspaceContentWidth = useWorkspaceContentWidth();
+  // Clearing animated width can retain the unfolded width after Android resumes folded.
+  // Assign both layouts explicitly so the dock always follows its current parent.
+  const composerWidthStyle = useAnimatedStyle(() =>
+    isSplitLayout && workspaceContentWidth !== null
+      ? {
+          width: Math.max(
+            0,
+            workspaceContentWidth.value - controlInsets.left - controlInsets.right,
+          ),
+          right: undefined,
+        }
+      : { width: undefined, right: controlInsets.right },
   );
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
@@ -1075,35 +1118,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     });
   }, [freeze, scrollMessageToEnd]);
 
-  const handleVimEffect = useCallback(
-    (effect: VimEffect) => {
-      const list = listRef.current;
-      switch (effect.type) {
-        case "focusComposer":
-          if (isProviderSubagent) return false;
-          composerEditorRef.current?.focus();
-          return;
-        case "scrollToEdge":
-          if (effect.edge === "bottom") handleScrollToEnd();
-          else void list?.scrollToOffset({ offset: 0, animated: true });
-          return;
-        case "scroll": {
-          const state = list?.getState();
-          if (!list || !state) return;
-          const step = effect.unit === "line" ? VIM_LINE_SCROLL : state.scrollLength / 2;
-          void list.scrollToOffset({
-            offset: Math.max(0, state.scroll + step * effect.delta),
-            animated: true,
-          });
-          return;
-        }
-        default:
-          return false;
-      }
-    },
-    [handleScrollToEnd, isProviderSubagent],
-  );
-  useVimEffectHandler(CHAT_VIM_EFFECTS, handleVimEffect);
+  useChatVimNavigation({
+    listRef,
+    composerEditorRef,
+    composerAvailable: !isProviderSubagent,
+    onScrollToEnd: handleScrollToEnd,
+  });
 
   const showScrollToEndButton = contentPresentationKind === "ready" && !endFollowEnabled;
   const { themeAppearance } = useAppearancePreferences();
@@ -1141,11 +1161,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View
-      ref={detailViewRef}
-      onLayout={measureDetailViewport}
+      ref={tabletopChat.detailViewRef}
+      onLayout={tabletopChat.measureDetailViewport}
       collapsable={false}
       className="flex-1"
     >
+      {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
       <View style={tabletop ? { height: tabletop.feedHeight, overflow: "hidden" } : { flex: 1 }}>
         <PitbossWork
           connected={props.connectionStateLabel === "connected"}
@@ -1208,7 +1229,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 submittedMessageId={submittedMessageId}
                 contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                 contentTopInset={0}
-                keyboardOffset={tabletop ? Math.max(0, windowHeight - (tabletopHingeTop ?? 0)) : 0}
+                keyboardOffset={
+                  tabletop ? Math.max(0, windowHeight - (tabletopChat.hingeTop ?? 0)) : 0
+                }
                 contentBottomInset={
                   tabletop
                     ? 12
@@ -1217,6 +1240,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 }
                 contentMaxWidth={contentMaxWidth}
                 historyControls={props.historyControls}
+                contentSideInsets={nativeMetrics?.safeArea}
                 layoutVariant={layoutVariant}
                 usesAutomaticContentInsets={props.usesAutomaticContentInsets}
                 onHeaderMaterialVisibilityChange={props.onHeaderMaterialVisibilityChange}
@@ -1245,48 +1269,37 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
       {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
       {showContent ? (
-        <View
+        <TabletopKeyboardStickyView
+          tabletop={tabletop}
+          // iOS emits a native animated height target on both will-show and
+          // will-hide, so stay subscribed for the full transition. Android
+          // retains its background/resume stale-state quarantine.
+          enabled={Platform.OS === "ios" || (isKeyboardVisible && !keyboardStateSuspect)}
           pointerEvents="box-none"
-          style={{
-            position: "absolute",
-            top: tabletop?.controlsTop ?? 0,
-            bottom: 0,
-            left: 0,
-            right: 0,
-            overflow: tabletop ? "hidden" : "visible",
-          }}
+          style={{ position: "absolute", bottom: 0, left: 0, right: 0, top: 0 }}
+          offset={{ closed: 0, opened: 0 }}
         >
-          <KeyboardStickyView
-            // iOS emits a native animated height target on both will-show and
-            // will-hide, so stay subscribed for the full transition. Android
-            // retains its background/resume stale-state quarantine.
-            enabled={Platform.OS === "ios" || (isKeyboardVisible && !keyboardStateSuspect)}
-            pointerEvents="box-none"
-            style={{ position: "absolute", bottom: 0, left: 0, right: 0, top: 0 }}
-            offset={{ closed: 0, opened: 0 }}
-          >
+          <ComposerPopoverHost hidden={composerSlotHidden}>
             {/* The fixed sticky host gives this bottom-anchored child a stable
               coordinate space. Its top and height can then animate together
               instead of the auto-sized host jumping to Yoga's destination. */}
             <Animated.View
               layout={COMPOSER_LAYOUT_TRANSITION}
               pointerEvents="box-none"
-              style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}
+              style={[
+                {
+                  position: "absolute",
+                  bottom: controlInsets.bottom,
+                  left: controlInsets.left,
+                  right: controlInsets.right,
+                },
+                composerWidthStyle,
+              ]}
             >
               {/* No paddingTop here: the overlay's measured height becomes the
                 list's bottom inset, so any padding above the pill/composer
                 pushes the resting content floor up by the same amount. */}
-              <View
-                ref={composerOverlayRef}
-                onLayout={(event) => {
-                  onComposerLayout(event);
-                  setMeasuredControlsHeight(
-                    event.nativeEvent.layout.height +
-                      (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0),
-                  );
-                }}
-                className="w-full"
-              >
+              <View ref={composerOverlayRef} onLayout={onOverlayLayout} className="w-full">
                 <FloatingWorkingControl
                   colorScheme={isDarkMode ? "dark" : "light"}
                   status={floatingStatus}
@@ -1401,6 +1414,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     >
                       {props.activePendingApproval ? (
                         <PendingApprovalCard
+                          canOperateThread={props.canOperateThread}
                           approval={props.activePendingApproval}
                           respondingApprovalId={props.respondingApprovalId}
                           onRespond={props.onRespondToApproval}
@@ -1408,6 +1422,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       ) : null}
                       {props.activePendingUserInput ? (
                         <PendingUserInputCard
+                          canOperateThread={props.canOperateThread}
                           pendingUserInput={props.activePendingUserInput}
                           maxHeight={pendingUserInputMaxHeight}
                           collapsed={userInputCollapsed}
@@ -1433,13 +1448,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 composer slot, so composer drafts and editor state survive.
                 A rejected creation has no thread to send to; the failure card
                 owns the slot instead. */}
-                <View
-                  style={
-                    activeUserInputRequestId !== null || props.creationState?.kind === "failed"
-                      ? { display: "none" }
-                      : undefined
-                  }
-                >
+                <View style={composerSlotHidden ? { display: "none" } : undefined}>
                   {isProviderSubagent ? (
                     <View
                       className="self-center px-3 pt-1.5"
@@ -1475,6 +1484,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   ) : (
                     <>
                       <ThreadComposer
+                        canOperateThread={props.canOperateThread}
                         reportedModelSelection={reportedModelSelection}
                         editorRef={composerEditorRef}
                         draftMessage={props.draftMessage}
@@ -1493,11 +1503,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         canStopThread={props.canStopThread}
                         environmentId={props.environmentId}
                         projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
-                        // Follow-ups typed during setup wait in the draft: queueing
-                        // them against a thread id the server may still reject
-                        // would strand them in the outbox.
+                        // Follow-ups typed before the server creates the thread wait in
+                        // the draft: queueing them against a thread id the server may
+                        // still reject would strand them in the outbox.
                         sendBlockedReason={
-                          props.creationState?.kind === "preparing" ? "Starting the task…" : null
+                          props.creationState?.kind === "preparing" &&
+                          !props.creationState.serverOwned
+                            ? "Starting the task…"
+                            : null
                         }
                         draftKey={props.composerDraftKey ?? undefined}
                         followUpBehavior={props.followUpBehavior}
@@ -1533,8 +1546,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 </View>
               </View>
             </Animated.View>
-          </KeyboardStickyView>
-        </View>
+          </ComposerPopoverHost>
+        </TabletopKeyboardStickyView>
       ) : null}
     </View>
   );

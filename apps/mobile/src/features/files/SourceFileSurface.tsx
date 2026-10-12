@@ -11,9 +11,10 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/AppText";
 import { LoadingStrip } from "../../components/LoadingStrip";
+import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
 import {
   type NativeReviewDiffViewProps,
   resolveNativeReviewDiffView,
@@ -39,7 +40,11 @@ import { sourceHighlightAtom } from "./sourceHighlightingState";
 interface SourceFileSurfaceProps {
   readonly contents: string;
   readonly path: string;
+  /** The enclosing sheet or card already reserves its own chrome and safe area. */
+  readonly embedded?: boolean;
   readonly initialLine?: number | null;
+  /** Override when a fixed notice already reserves the native header. */
+  readonly headerInsetTop?: number;
   /** Keep the entire document in one native text-selection scope. */
   readonly selectable?: boolean;
   /** Attach a native selection to the current thread draft. */
@@ -189,6 +194,9 @@ function NativeSourceFileSurface(
   },
 ) {
   const { NativeView, onRefresh } = props;
+  const insets = useSafeAreaInsets();
+  const columnMetrics = useNativeColumnLayoutMetrics();
+  const safeArea = columnMetrics?.safeArea ?? insets;
   const { codeSurface, codeWordBreak, nativeSourceStyle, onFontScaleCommit } =
     useAppearanceCodeSurface();
   const { themeAppearance, themeId } = useAppearancePreferences();
@@ -226,6 +234,8 @@ function NativeSourceFileSurface(
         appearanceScheme={themeAppearance}
         contentResetKey={props.path}
         contentWidth={contentWidth}
+        contentInsetTop={props.embedded ? 0 : (props.headerInsetTop ?? safeArea.top)}
+        contentInsetBottom={props.embedded ? 0 : safeArea.bottom + 8}
         initialRowIndex={targetIndex ?? -1}
         rowHeight={nativeSourceStyle.rowHeight ?? codeSurface.rowHeight}
         {...(Platform.OS === "android"
@@ -255,6 +265,7 @@ function NativeSourceFileSurface(
 }
 
 function JavaScriptSourceFileSurface(props: SourceFileSurfaceProps) {
+  const usesAutomaticInsets = Platform.OS === "ios" && !props.embedded;
   const foreground = useUniwindTheme()["--color-foreground"];
   const { codeSurface, codeWordBreak } = useAppearanceCodeSurface();
   const { normalizedContents, lines, status, targetIndex, tokens } = useSourceFileModel(props);
@@ -345,6 +356,8 @@ function JavaScriptSourceFileSurface(props: SourceFileSurfaceProps) {
   const list = (
     <FlatList
       ref={listRef}
+      contentInsetAdjustmentBehavior={usesAutomaticInsets ? "automatic" : "never"}
+      automaticallyAdjustsScrollIndicatorInsets={usesAutomaticInsets}
       refreshControl={refreshControl}
       data={lines}
       keyExtractor={(_line, index) => String(index)}
@@ -376,6 +389,8 @@ function JavaScriptSourceFileSurface(props: SourceFileSurfaceProps) {
     <ScrollView
       refreshControl={refreshControl}
       className="flex-1"
+      contentInsetAdjustmentBehavior={usesAutomaticInsets ? "automatic" : "never"}
+      automaticallyAdjustsScrollIndicatorInsets={usesAutomaticInsets}
       contentContainerStyle={{
         paddingBottom: codeSurface.rowHeight,
         paddingHorizontal: 12,

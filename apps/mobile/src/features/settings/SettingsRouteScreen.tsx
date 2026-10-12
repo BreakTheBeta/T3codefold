@@ -9,7 +9,7 @@ import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { VoiceSettings } from "../voice-input/VoiceWorkspaceProvider";
 import { LocalDictationSettings } from "../voice-input/LocalDictationSettings";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
-import { NativeHeaderToolbar } from "../../native/StackHeader";
+import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsSection } from "./components/SettingsSection";
@@ -31,14 +31,19 @@ export function SettingsRouteScreen() {
 
   return (
     <>
+      {Platform.OS === "ios" ? (
+        <NativeStackScreenOptions options={{ headerBackVisible: !layout.usesSplitView }} />
+      ) : null}
       {Platform.OS === "ios" && layout.usesSplitView ? (
-        <NativeHeaderToolbar placement="left">
-          <NativeHeaderToolbar.Button
-            accessibilityLabel="Go back"
-            icon="chevron.left"
-            onPress={() => navigation.goBack()}
-          />
-        </NativeHeaderToolbar>
+        <>
+          <NativeHeaderToolbar placement="left">
+            <NativeHeaderToolbar.Button
+              accessibilityLabel="Go back"
+              icon="chevron.left"
+              onPress={() => navigation.goBack()}
+            />
+          </NativeHeaderToolbar>
+        </>
       ) : null}
       <SettingsEnvironmentFilterHeader closeSettings />
       {Platform.OS === "android" ? (
@@ -151,6 +156,9 @@ function SettingsIndexSections() {
       <SettingsSection title="Interface">
         <SettingsRow icon="paintbrush" label="Appearance" target="SettingsAppearance" />
         <SettingsRow icon="keyboard" label="Keyboard" target="SettingsKeyboard" />
+        {Platform.OS === "ios" ? (
+          <SettingsRow icon="mic" label="Microphone" target="SettingsMicrophone" />
+        ) : null}
       </SettingsSection>
 
       <VoiceSettings />

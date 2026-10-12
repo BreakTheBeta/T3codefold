@@ -3,6 +3,8 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
 import * as OrchestrationCommandReceipts from "../persistence/OrchestrationCommandReceipts.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
+import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
+import * as McpAppRequests from "../mcpApps/McpAppRequests.ts";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
@@ -21,14 +23,14 @@ import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
-import * as IdAllocator from "./IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import * as ProviderContinuationRequests from "./ProviderContinuationRequests.ts";
+import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as ProviderContinuationService from "./ProviderContinuationService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
@@ -49,15 +51,7 @@ import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
-import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import * as ProcessRunner from "../processRunner.ts";
-import { orchestrationSeamsLayer } from "../pitboss/OrchestrationSeams.ts";
-import * as PeerService from "../pitboss/PeerService.ts";
-import * as SourceService from "../pitboss/SourceService.ts";
-import * as VerificationRunner from "../pitboss/VerificationRunner.ts";
-import * as VerificationRuntime from "../pitboss/VerificationRuntime.ts";
-import * as WorkRuntime from "../pitboss/WorkRuntime.ts";
-import * as WorkStore from "../pitboss/WorkStore.ts";
+import { layerPitboss, layerPitbossOrchestrationSeams } from "../pitboss/layer.ts";
 
 /** The shared application event log and its command receipts. */
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -150,6 +144,7 @@ const layerProviderAuthServiceProvided = ProviderAuthService.layer.pipe(
 const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
+      McpAppModelContext.layer,
       layerCheckpointServiceProvided,
       layerEventSinkProvided,
       IdAllocator.layer,
@@ -188,6 +183,7 @@ const layerCheckpointRollbackServiceProvided = CheckpointRollbackService.layer.p
       IdAllocator.layer,
       ProjectionStore.layer,
       layerProviderSessionManagerProvided,
+      ThreadCommandExecutor.layer,
       layerRuntimePolicyProvided,
     ),
   ),
@@ -245,7 +241,14 @@ const layerAgentSessionImporterProvided = AgentSessionImporter.layer.pipe(
 );
 
 const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImporter.pipe(
-  Layer.provide(Layer.merge(layerOrchestratorProvided, layerLegacyV1ThreadImporterProvided)),
+  Layer.provide(
+    Layer.mergeAll(
+      layerOrchestratorProvided,
+      layerLegacyV1ThreadImporterProvided,
+      layerCommandReceiptStoreProvided,
+      layerProviderSessionManagerProvided,
+    ),
+  ),
 );
 export const layerProjectSetupScriptRunner = ProjectSetupScriptRunner.layer.pipe(
   Layer.provide(layerProjectService),
@@ -323,8 +326,20 @@ const layerProviderRuntimeRecoveryProvided = ProviderRuntimeRecoveryService.laye
   ),
 );
 
+const layerMcpAppRequestsProvided = McpAppRequests.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      McpAppModelContext.layer,
+      layerOrchestratorProvided,
+      layerThreadManagementProvided,
+      layerProviderSessionManagerProvided,
+    ),
+  ),
+);
+
 export const layer = Layer.mergeAll(
   layerOrchestratorProvided,
+  layerMcpAppRequestsProvided,
   layerThreadManagementProvided,
   layerEffectWorkerProvided,
   layerProviderSessionManagerProvided,
@@ -332,41 +347,6 @@ export const layer = Layer.mergeAll(
   layerProviderRuntimeRecoveryProvided,
   layerProjectionMaintenanceProvided,
   layerLegacyV1ThreadImporterProvided,
-);
-
-const layerPeerServiceProvided = PeerService.layer.pipe(
-  Layer.provide(Layer.mergeAll(WorkStore.layer, ServerSecretStore.layer)),
-);
-const layerSourceServiceProvided = SourceService.layer.pipe(
-  Layer.provide(Layer.mergeAll(WorkStore.layer, ServerSecretStore.layer)),
-);
-const layerVerificationRuntimeProvided = VerificationRuntime.layer.pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      WorkStore.layer,
-      ProjectStore.layer,
-      VerificationRunner.layer.pipe(Layer.provide(ProcessRunner.layer)),
-    ),
-  ),
-);
-const layerWorkRuntimeProvided = WorkRuntime.layer.pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      WorkStore.layer,
-      layerPeerServiceProvided,
-      layerThreadLaunchProvided,
-      layerThreadManagementProvided,
-    ),
-  ),
-);
-
-/** Pitboss services and background runtimes that run alongside orchestration. */
-const layerPitboss = Layer.mergeAll(
-  WorkStore.layer,
-  layerPeerServiceProvided,
-  layerSourceServiceProvided,
-  layerVerificationRuntimeProvided,
-  layerWorkRuntimeProvided,
 );
 
 export const layerProduction = Layer.mergeAll(
@@ -383,11 +363,12 @@ export const layerProduction = Layer.mergeAll(
   layerProviderContinuationWorkerProvided,
   layerAgentSessionImporterProvided,
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
-  layerPitboss,
+  layerPitboss({
+    threadLaunch: layerThreadLaunchProvided,
+    threadManagement: layerThreadManagementProvided,
+  }),
 ).pipe(
-  // The orchestrator and turn-start layers read these references when they are built, so the
-  // pitboss retention guard and managed-work preamble only apply in the production graph.
-  Layer.provide(orchestrationSeamsLayer.pipe(Layer.provide(WorkStore.layer))),
+  Layer.provide(layerPitbossOrchestrationSeams),
   Layer.provide(Scheduler.layer),
   Layer.provideMerge(layerEventInfrastructure),
 );
