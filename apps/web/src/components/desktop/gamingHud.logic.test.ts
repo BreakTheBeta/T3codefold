@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { summarizeGamingHudThreads } from "./gamingHud.logic";
 
 const idle = {
-  title: "Thread",
   archivedAt: null,
   deletedAt: null,
   hasPendingApprovals: false,
@@ -34,7 +33,7 @@ describe("gaming HUD", () => {
     ]);
     expect(result.running).toBe(1);
     expect(result.waiting).toBe(1);
-    expect(result.attention.map((row) => row.reason)).toEqual(["Approval needed", "Input needed"]);
+    expect(result.attentionCount).toBe(2);
   });
   it("ignores archived and deleted work", () => {
     expect(
@@ -55,19 +54,17 @@ describe("gaming HUD", () => {
         { ...finished, lastVisitedAt: null },
         { ...finished, lastVisitedAt: "2026-10-12T00:00:00Z" },
         { ...finished, lineage: { relationshipToParent: "subagent" } },
-      ]).attention,
-    ).toEqual([{ title: "Thread", reason: "Finished" }]);
+      ]).attentionCount,
+    ).toBe(1);
   });
-  it("keeps the full count while capping displayed rows and puts blockers first", () => {
+  it("counts all threads needing attention", () => {
     const result = summarizeGamingHudThreads([
       ...Array.from({ length: 5 }, (): Parameters<typeof summarizeGamingHudThreads>[0][number] => ({
         ...idle,
         latestRun: { status: "completed", completedAt: "2026-10-11T00:00:00Z" },
       })),
-      { ...idle, title: "Blocked", hasPendingUserInput: true },
+      { ...idle, hasPendingUserInput: true },
     ]);
     expect(result.attentionCount).toBe(6);
-    expect(result.attention).toHaveLength(3);
-    expect(result.attention[0]?.title).toBe("Blocked");
   });
 });

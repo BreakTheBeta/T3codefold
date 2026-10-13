@@ -62,12 +62,10 @@ const state: GamingHudState = {
   position: "top-right",
   environments: [
     {
-      label: "Remote",
       connected: true,
       running: 2,
       waiting: 1,
       attentionCount: 1,
-      attention: [{ title: "<script>oops</script>", reason: "Input needed" }],
     },
   ],
 };
@@ -78,16 +76,16 @@ beforeEach(() => {
 
 it("positions on the owner's display, including negative coordinates and small displays", () => {
   expect(gamingHudBounds({ x: -1920, y: 0, width: 1920, height: 1080 }, "bottom-right")).toEqual({
-    x: -336,
-    y: 772,
-    width: 320,
-    height: 292,
+    x: -296,
+    y: 1024,
+    width: 280,
+    height: 40,
   });
   expect(gamingHudBounds({ x: 0, y: 0, width: 200, height: 150 }, "top-left")).toEqual({
     x: 0,
-    y: 0,
+    y: 16,
     width: 200,
-    height: 150,
+    height: 40,
   });
 });
 
@@ -100,7 +98,7 @@ it("shows without stealing focus, passes clicks through, reuses the window, and 
   expect(overlay.options).toMatchObject({ focusable: false, skipTaskbar: true, alwaysOnTop: true });
   expect(overlay.setIgnoreMouseEvents).toHaveBeenCalledWith(true);
   expect(overlay.showInactive).toHaveBeenCalledOnce();
-  expect(overlay.setBounds).toHaveBeenCalledWith({ x: 1684, y: 66, width: 320, height: 292 });
+  expect(overlay.setBounds).toHaveBeenCalledWith({ x: 1724, y: 66, width: 280, height: 40 });
   await hud.update({ ...state, environments: [] });
   expect(native.windows).toHaveLength(2);
   expect(overlay.webContents.executeJavaScript).toHaveBeenLastCalledWith("window.updateHud([])");

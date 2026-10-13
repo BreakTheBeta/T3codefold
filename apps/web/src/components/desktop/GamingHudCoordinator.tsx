@@ -30,12 +30,10 @@ export function GamingHudCoordinator() {
         environments: environments.map(
           (environment) =>
             summaries.get(environment.environmentId) ?? {
-              label: environment.label,
               connected: false,
               running: 0,
               waiting: 0,
               attentionCount: 0,
-              attention: [],
             },
         ),
       })
@@ -64,7 +62,6 @@ export function GamingHudCoordinator() {
     <EnvironmentHud
       key={environment.environmentId}
       environmentId={environment.environmentId}
-      label={environment.label}
       report={report}
     />
   ));
@@ -72,11 +69,9 @@ export function GamingHudCoordinator() {
 
 function EnvironmentHud({
   environmentId,
-  label,
   report,
 }: {
   environmentId: EnvironmentId;
-  label: string;
   report: (id: EnvironmentId, summary: HudEnvironment) => void;
 }) {
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
@@ -86,7 +81,7 @@ function EnvironmentHud({
       connected && Option.isSome(shell.snapshot)
         ? shell.snapshot.value.threads.map((thread) => presentThreadShell(environmentId, thread))
         : [];
-    report(environmentId, { label, connected, ...summarizeGamingHudThreads(threads) });
-  }, [shell, environmentId, label, report]);
+    report(environmentId, { connected, ...summarizeGamingHudThreads(threads) });
+  }, [shell, environmentId, report]);
   return null;
 }

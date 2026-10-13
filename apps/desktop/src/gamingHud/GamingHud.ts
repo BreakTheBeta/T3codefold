@@ -7,23 +7,22 @@ export function isGamingHudWindow(window: Electron.BrowserWindow) {
   return hudWindows.has(window);
 }
 
-// This window has no preload or app credentials. Text is assigned through
-// textContent so thread titles cannot become markup or executable code.
+// This window has no preload or app credentials and only receives activity counts.
+const HUD_WIDTH = 280;
+const HUD_HEIGHT = 40;
 const document = `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <style>
-*{box-sizing:border-box}body{margin:0;padding:8px;font:13px system-ui;color:#f4f4f5;background:transparent}
-main{padding:14px 16px;border:1px solid #ffffff28;border-radius:14px;background:#14141ee8}
-header{font-size:11px;font-weight:700;letter-spacing:1.5px;color:#b6b6c9;margin-bottom:10px}
-.counts{display:flex;gap:20px;margin-bottom:8px}.count{font-size:22px;font-weight:700}.label{font-size:11px;color:#b6b6c9}
-.running{color:#a5b4fc}.attention{color:#fbbf24}.row{border-top:1px solid #ffffff18;padding-top:7px;margin-top:7px}
-.title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.reason{font-size:11px;color:#fbbf24;margin-top:2px}
-footer{font-size:11px;color:#b6b6c9;margin-top:8px}.offline{color:#fca5a5}
-</style></head><body><main><header>T3 CODE · GAMING HUD</header>
-<div class="counts"><div><div id="running" class="count running">0</div><div class="label">RUNNING</div></div>
-<div><div id="waiting" class="count running">0</div><div class="label">WAITING</div></div>
-<div><div id="attention" class="count attention">0</div><div class="label">NEED YOU</div></div></div>
-<div id="rows"></div><footer id="footer">Connecting…</footer></main>
+*{box-sizing:border-box}body{margin:0;padding:4px;font:11px system-ui;color:#9292a3;background:transparent}
+main{height:32px;display:flex;align-items:center;justify-content:space-between;gap:4px;padding:0 8px;border:1px solid #ffffff18;border-radius:8px;background:#14141ed9;white-space:nowrap}
+.brand{font-size:10px;font-weight:600;color:#727283}.status{display:flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+b{font-weight:600;color:#dedee7}.attention[data-active="true"],.attention[data-active="true"] b{color:#fbbf24}
+.offline{width:5px;height:5px;flex-shrink:0;border-radius:50%;background:#f87171}[hidden]{display:none}
+</style></head><body><main aria-label="T3 Code agent activity"><span class="brand">T3</span>
+<span class="status"><b id="running">–</b> running</span>
+<span id="waiting-status" class="status" hidden><b id="waiting">0</b> waiting</span>
+<span id="attention-status" class="status attention"><b id="attention">–</b> need you</span>
+<span id="offline" class="offline" hidden aria-label="Environment disconnected"></span></main>
 <script>
 window.updateHud = (environments) => {
  const live = environments.filter(e => e.connected);
@@ -31,28 +30,23 @@ window.updateHud = (environments) => {
  const running = live.reduce((n,e) => n+e.running,0);
  const waiting = live.reduce((n,e) => n+e.waiting,0);
  const count = live.reduce((n,e) => n+e.attentionCount,0);
- document.getElementById('running').textContent = running;
- document.getElementById('attention').textContent = count;
- document.getElementById('waiting').textContent = waiting;
- const rows = live.flatMap(e => e.attention.map(a => ({...a, environment: e.label})));
- rows.sort((a,b) => Number(a.reason === 'Finished') - Number(b.reason === 'Finished'));
- const root = document.getElementById('rows'); root.replaceChildren();
- for (const item of rows.slice(0,3)) {
-   const row = document.createElement('div'); row.className = 'row';
-   const title = document.createElement('div'); title.className = 'title'; title.textContent = item.title;
-   const reason = document.createElement('div'); reason.className = 'reason';
-   reason.textContent = item.reason + (environments.length > 1 ? ' · ' + item.environment : '');
-   row.append(title,reason); root.append(row);
- }
- const footer = document.getElementById('footer');
- footer.className = offline || !environments.length ? 'offline' : '';
- footer.textContent = !environments.length ? 'No connected environments' : offline ? offline + ' environment(s) disconnected · counts may be incomplete' : count > 3 ? '+' + (count-3) + ' more · open T3 Code to review' : count ? 'Open T3 Code to review' : running ? 'Agents are working' : waiting ? 'Agents are monitoring background work' : 'All quiet';
+ const format = n => n > 999 ? '999+' : String(n);
+ document.getElementById('running').textContent = live.length ? format(running) : '–';
+ document.getElementById('attention').textContent = live.length ? format(count) : '–';
+ document.getElementById('waiting').textContent = format(waiting);
+ document.getElementById('waiting-status').hidden = !waiting;
+ document.getElementById('attention-status').dataset.active = String(count > 0);
+ const indicator = document.getElementById('offline');
+ indicator.hidden = !offline && environments.length > 0;
+ indicator.title = offline ? offline + ' environment(s) disconnected; counts may be incomplete' : 'No connected environments';
+ const summary = live.length ? running + ' running, ' + waiting + ' waiting, ' + count + ' need you' : 'No connected environments';
+ document.querySelector('main').setAttribute('aria-label', 'T3 Code: ' + summary + (offline ? '; ' + indicator.title : ''));
 };
 </script></body></html>`;
 
 export function gamingHudBounds(area: Electron.Rectangle, position: GamingHudState["position"]) {
-  const width = Math.min(320, area.width);
-  const height = Math.min(292, area.height);
+  const width = Math.min(HUD_WIDTH, area.width);
+  const height = Math.min(HUD_HEIGHT, area.height);
   const margin = 16;
   return {
     width,
@@ -115,8 +109,8 @@ export function createGamingHud(owner: Electron.BrowserWindow) {
       if (!window || window.isDestroyed()) {
         window = new Electron.BrowserWindow({
           title: "T3 Code Gaming HUD",
-          width: 320,
-          height: 292,
+          width: HUD_WIDTH,
+          height: HUD_HEIGHT,
           show: false,
           frame: false,
           transparent: true,
