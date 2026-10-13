@@ -97,3 +97,20 @@ view.
 
 Write updates to a temporary file and rename it into place so clients never read a partial theme.
 Invalid files are not published.
+
+## Gaming HUD
+
+Gaming HUD is a Fold desktop feature and is **off by default**. Enable it in
+**Settings → General → Gaming HUD** to see agent activity while using another app
+or playing a game. Choose a corner on the display containing
+the T3 Code window. The HUD passes clicks and keyboard input through to your game.
+Use windowed or borderless mode; exclusive fullscreen and some window managers may
+keep other windows hidden.
+
+The HUD includes connected local and remote environments. It separates running agents
+from agents waiting on background work in a small status strip. The attention count
+includes input or approval requests, failures, usage limits, and unseen completions.
+A red dot indicates disconnected environments, which are excluded from counts.
+Open T3 Code to respond, and disable **Gaming HUD** in the same settings section
+when you no longer need it. Keep the desktop app open, including
+minimized, for status updates. This preference is saved on this device.

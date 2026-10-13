@@ -3,6 +3,20 @@ import type { SettingsSearchItem } from "./settingsSearch";
 /** Settings search entries for Fold's rows (see FoldSettingsRows). */
 export const FOLD_SETTINGS_SEARCH_ITEMS = [
   {
+    id: "gaming-hud",
+    title: "Gaming HUD",
+    to: "/settings/general",
+    desktopOnly: true,
+    searchTerms: ["game overlay running agents attention always on top"],
+  },
+  {
+    id: "gaming-hud-corner",
+    title: "HUD corner",
+    to: "/settings/general",
+    desktopOnly: true,
+    searchTerms: ["gaming game overlay position screen"],
+  },
+  {
     id: "theme-backdrop",
     title: "Splatter backdrop",
     to: "/settings/appearance",

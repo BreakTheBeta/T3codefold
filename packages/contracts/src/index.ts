@@ -71,3 +71,4 @@ export * from "./pitbossPeer.ts";
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
+export * from "./gamingHud.ts";
