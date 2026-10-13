@@ -43,8 +43,8 @@ import {
 } from "../../lib/adaptive-navigation";
 import { shouldRestorePrimarySidebar } from "../../lib/fold-workspace-navigation";
 import { scopedThreadKey } from "../../lib/scopedEntities";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import type { Preferences } from "../../persistence/mobile-preferences";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import {
   DEFAULT_MOBILE_PROJECT_GROUPING_SETTINGS,
   resolveMobileProjectGroupingSettings,
@@ -58,6 +58,14 @@ import {
   VimPaneFocusMarker,
 } from "../keyboard/useWorkspaceVimNavigation";
 import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
+import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
+import {
+  AndroidWorkspaceNavigation,
+  ANDROID_WORKSPACE_RAIL_WIDTH,
+} from "../workspace/AndroidWorkspaceNavigation";
+import { AndroidWorkspaceSidebar } from "../workspace/AndroidWorkspaceSidebar";
+import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSelection";
+import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import { HomeListOptionsProvider } from "../home/home-list-options";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
@@ -228,6 +236,7 @@ export function AdaptiveWorkspaceLayout(props: {
   readonly children: ReactNode;
   readonly pathname: string;
   readonly workspaceRouteKey: string | undefined;
+  readonly selectedPullRequestKey?: string | null;
 }) {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   if (!AsyncResult.isSuccess(preferencesResult)) {
@@ -253,12 +262,14 @@ function AdaptiveWorkspaceLayoutContent(props: {
   readonly children: ReactNode;
   readonly pathname: string;
   readonly workspaceRouteKey: string | undefined;
+  readonly selectedPullRequestKey?: string | null;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   /** Pane preferences are read once; the workspace owns them while mounted. */
   readonly initialPreferences: Preferences;
 }) {
   const projectGroupingMode = props.projectGroupingMode;
   const nativeWorkspace = use(NativeWorkspaceModeContext);
+  const { scale: androidControlScale } = useAndroidControlSizing();
   const pathname = props.pathname;
   const navigation = useNavigation();
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
@@ -357,17 +368,23 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const inspectorRestingWidth =
     foldRegions.vertical?.trailingWidth ??
     (inspectorPreferredRatio !== undefined ? inspectorPreferredRatio * width : hingeSnapWidths[0]);
+  // Android's navigation rail sits before the sidebar and hides with it; panes share what is left.
+  const shouldRenderNavigationRail = Platform.OS === "android" && layout.usesSplitView;
+  const navigationRailWidth =
+    shouldRenderNavigationRail && showPrimarySidebar
+      ? ANDROID_WORKSPACE_RAIL_WIDTH * Math.max(1, androidControlScale)
+      : 0;
   const effectiveLayout = useMemo(
     () =>
       foldRegions.vertical
-        ? { ...layout, listPaneWidth: foldRegions.vertical.leadingWidth }
+        ? { ...layout, listPaneWidth: foldRegions.vertical.leadingWidth - navigationRailWidth }
         : layout,
-    [foldRegions.vertical, layout],
+    [foldRegions.vertical, layout, navigationRailWidth],
   );
   const panes = useMemo(() => {
     const derived = deriveFoldWorkspacePaneLayout({
       layout: effectiveLayout,
-      viewportWidth: width - (foldRegions.vertical?.gap ?? 0),
+      viewportWidth: width - navigationRailWidth - (foldRegions.vertical?.gap ?? 0),
       primarySidebarPreferredVisible:
         showPrimarySidebar &&
         tabletopTopHeight === null &&
@@ -388,6 +405,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
     inspectorRestingWidth,
     effectiveLayout,
     foldRegions.vertical,
+    navigationRailWidth,
     tabletopTopHeight,
     showPrimarySidebar,
     width,
@@ -531,9 +549,11 @@ function AdaptiveWorkspaceLayoutContent(props: {
     });
   }, [navigation]);
 
+  const workspaceTabs = useWorkspaceTabs();
   const handleOpenPullRequests = useCallback(() => {
-    navigation.navigate("PullRequests");
-  }, [navigation]);
+    if (workspaceTabs) workspaceTabs.dispatch({ type: "select", tab: "pullRequests" });
+    else navigation.navigate("PullRequests");
+  }, [navigation, workspaceTabs]);
 
   const handleStartNewTask = useCallback(() => {
     navigation.navigate("NewTaskSheet", { screen: "NewTask" });
@@ -577,12 +597,22 @@ function AdaptiveWorkspaceLayoutContent(props: {
     [navigation],
   );
 
+  const selectAndroidWorkspace = useAndroidWorkspaceSelection();
   const handleSelectThread = useCallback(
     (thread: EnvironmentThreadShell) => {
       const params = {
         environmentId: String(thread.environmentId),
         threadId: String(thread.id),
       };
+      if (Platform.OS === "android") {
+        // Selecting a sidebar row enters its base chat, including from that chat's nested screens.
+        // Re-selecting the open thread keeps Fold's inspector pane beside it.
+        if (scopedThreadKey(thread.environmentId, thread.id) !== selectedThreadKey) {
+          hideAuxiliaryPane();
+        }
+        selectAndroidWorkspace({ name: "Thread", params });
+        return;
+      }
       const navigationAction = resolveThreadSelectionNavigationAction({
         usesSplitView: layout.usesSplitView,
         pathname,
@@ -621,6 +651,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
       navigation,
       selectedThreadKey,
       props.workspaceRouteKey,
+      selectAndroidWorkspace,
     ],
   );
 
@@ -677,7 +708,10 @@ function AdaptiveWorkspaceLayoutContent(props: {
 
   if (nativeWorkspace) {
     return (
-      <HomeListOptionsProvider projectGroupingMode={projectGroupingMode}>
+      <HomeListOptionsProvider
+        projectGroupingMode={projectGroupingMode}
+        savedFilters={props.initialPreferences.threadListFilters}
+      >
         <AdaptiveWorkspaceContext value={contextValue}>
           <NativeWorkspaceInspectorContext
             value={{ render: workspaceInspector?.render, visible: panes.auxiliaryPaneVisible }}
@@ -689,15 +723,23 @@ function AdaptiveWorkspaceLayoutContent(props: {
     );
   }
   return (
-    <HomeListOptionsProvider projectGroupingMode={projectGroupingMode}>
+    <HomeListOptionsProvider
+      projectGroupingMode={projectGroupingMode}
+      savedFilters={props.initialPreferences.threadListFilters}
+    >
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
         <View
           ref={workspaceView}
           onLayout={onWorkspaceLayout}
           testID="adaptive-workspace-layout"
-          className="flex-1 flex-row"
+          className={Platform.OS === "android" ? "flex-1 flex-row bg-header" : "flex-1 flex-row"}
           style={{ paddingLeft: leadingInset, paddingRight: trailingInset }}
         >
+          {navigationRailWidth > 0 ? (
+            <View className="self-stretch overflow-hidden" style={{ width: navigationRailWidth }}>
+              <AndroidWorkspaceNavigation rail onSelect={revealPrimarySidebar} />
+            </View>
+          ) : null}
           <WorkspaceSidebarColumn layout={effectiveLayout} visible={panes.primarySidebarVisible}>
             {(listPaneWidth) => (
               <RenderErrorBoundary
@@ -709,22 +751,27 @@ function AdaptiveWorkspaceLayoutContent(props: {
                   />
                 )}
               >
-                <AndroidHomeFabLayout sidebar onStartNewTask={handleStartNewTask}>
-                  <ThreadNavigationSidebar
-                    width={listPaneWidth}
-                    visible={panes.primarySidebarVisible}
-                    onRequestVisibility={revealPrimarySidebar}
-                    selectedThreadKey={selectedThreadKey}
-                    onOpenSettings={handleOpenSettings}
-                    onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
-                    onOpenPullRequests={handleOpenPullRequests}
-                    onNewThreadInProject={handleNewThreadInProject}
-                    onNewThreadOnBranch={handleNewThreadOnBranch}
-                    onSelectThread={handleSelectThread}
-                    onSearchQueryChange={setPrimarySidebarSearchQuery}
-                    searchQuery={primarySidebarSearchQuery}
-                  />
-                </AndroidHomeFabLayout>
+                <AndroidWorkspaceSidebar
+                  onRequestVisibility={revealPrimarySidebar}
+                  selectedPullRequestKey={props.selectedPullRequestKey ?? null}
+                >
+                  <AndroidHomeFabLayout sidebar onStartNewTask={handleStartNewTask}>
+                    <ThreadNavigationSidebar
+                      width={listPaneWidth}
+                      visible={panes.primarySidebarVisible}
+                      onRequestVisibility={revealPrimarySidebar}
+                      selectedThreadKey={selectedThreadKey}
+                      onOpenSettings={handleOpenSettings}
+                      onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
+                      onOpenPullRequests={handleOpenPullRequests}
+                      onNewThreadInProject={handleNewThreadInProject}
+                      onNewThreadOnBranch={handleNewThreadOnBranch}
+                      onSelectThread={handleSelectThread}
+                      onSearchQueryChange={setPrimarySidebarSearchQuery}
+                      searchQuery={primarySidebarSearchQuery}
+                    />
+                  </AndroidHomeFabLayout>
+                </AndroidWorkspaceSidebar>
               </RenderErrorBoundary>
             )}
           </WorkspaceSidebarColumn>
@@ -747,7 +794,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
                 : foldRegions.vertical &&
                     !panes.primarySidebarVisible &&
                     !panes.auxiliaryPaneVisible
-                  ? { width: foldRegions.vertical.leadingWidth }
+                  ? { width: foldRegions.vertical.leadingWidth - navigationRailWidth }
                   : { flex: 1 }
             }
           >

@@ -92,8 +92,6 @@ export function HomeHeader(props: HomeHeaderProps) {
     [props],
   );
 
-  if (props.usesWorkspaceToolbar) return null;
-
   return (
     <>
       <NativeStackScreenOptions options={{ headerShown: false }} />
@@ -104,7 +102,6 @@ export function HomeHeader(props: HomeHeaderProps) {
         filterCustomized={hasCustomListOptions}
         onFilterAction={handleMenuAction}
         onOpenSettings={props.onOpenSettings}
-        onOpenPullRequests={props.onOpenPullRequests}
         onOpenEnvironments={props.onOpenEnvironments}
       />
     </>

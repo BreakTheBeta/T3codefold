@@ -1,5 +1,7 @@
 import { androidKeyboardFirst, dismissAndroidKeyboard } from "../../lib/android-back";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import { useNavigation, useNavigationState } from "@react-navigation/native";
+import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import {
   BackHandler,
   Keyboard,
@@ -17,7 +19,6 @@ import { MaterialSearchField } from "../../components/MaterialSearchField";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { WorkspaceConnectionTitle } from "./WorkspaceConnectionTitle";
 import { useWorkspaceState } from "../../state/workspace";
-import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLayout";
 
 /** One toolbar height for the compact list and expanded sidebar, including search. */
@@ -29,15 +30,16 @@ export function MaterialThreadListToolbar(props: {
   readonly onFilterAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
   readonly onOpenSettings: () => void;
   readonly onOpenEnvironments: () => void;
-  readonly onOpenPullRequests: () => void;
   readonly sidebar?: boolean;
   readonly onLayout?: (event: LayoutChangeEvent) => void;
   readonly onRequestVisibility?: () => void;
 }) {
-  const { scale } = useAndroidControlSizing();
-  const [toolbarWidth, setToolbarWidth] = useState(0);
-  // Reserve the full brand width before exposing secondary actions, including at large text sizes.
-  const compactActions = toolbarWidth < 200 * scale + 3 * 48 + 32;
+  const navigation = useNavigation();
+  const workspace = useWorkspaceTabs();
+  const isTabActive = workspace?.isTabActive;
+  const homeFocused = useNavigationState((state) => state.routes[state.index]?.name === "Home");
+  const listFocused =
+    homeFocused && (workspace === null || workspace.state.selectedTab === "threads");
   const { height: toolbarHeight, ...headerPadding } = useMaterialToolbarLayout();
   const { state } = useWorkspaceState();
   const { onRequestVisibility, onSearchQueryChange } = props;
@@ -59,14 +61,21 @@ export function MaterialThreadListToolbar(props: {
   }, [onSearchQueryChange]);
 
   useEffect(() => {
-    if (!searching) return;
+    if (!searching || !listFocused) return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (dismissAndroidKeyboard()) return true;
-      closeSearch();
+      // Frozen Home screens can keep effects alive after a detail route opens.
+      const state = navigation.getState();
+      if (
+        !state ||
+        state.routes[state.index]?.name !== "Home" ||
+        isTabActive?.("threads") === false
+      )
+        return false;
+      if (!dismissAndroidKeyboard()) closeSearch();
       return true;
     });
     return () => subscription.remove();
-  }, [closeSearch, searching]);
+  }, [closeSearch, searching, listFocused, navigation, isTabActive]);
 
   const searchField = (
     <MaterialSearchField
@@ -82,10 +91,7 @@ export function MaterialThreadListToolbar(props: {
   return (
     <>
       <View
-        onLayout={(event) => {
-          setToolbarWidth(event.nativeEvent.layout.width);
-          props.onLayout?.(event);
-        }}
+        onLayout={props.onLayout}
         className={
           props.sidebar ? "absolute inset-x-0 top-0 z-[4] bg-header px-2" : "bg-header px-2"
         }
@@ -111,13 +117,6 @@ export function MaterialThreadListToolbar(props: {
                   brand={<CompactBrandTitle allowFontScaling={false} />}
                 />
               </View>
-              {compactActions ? null : (
-                <AndroidHeaderIconButton
-                  accessibilityLabel="Pull requests"
-                  icon="arrow.triangle.pull"
-                  onPress={props.onOpenPullRequests}
-                />
-              )}
               <AndroidHeaderIconButton
                 accessibilityLabel="Search threads"
                 icon="magnifyingglass"
@@ -127,9 +126,7 @@ export function MaterialThreadListToolbar(props: {
                 hasConnections={state.hasConnections}
                 filterActions={props.filterActions}
                 filterCustomized={props.filterCustomized}
-                includePullRequests={compactActions}
                 onFilterAction={props.onFilterAction}
-                onOpenPullRequests={props.onOpenPullRequests}
                 onOpenSettings={props.onOpenSettings}
               />
             </>
