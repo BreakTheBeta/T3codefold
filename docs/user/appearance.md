@@ -100,8 +100,9 @@ Invalid files are not published.
 
 ## Gaming HUD
 
-In the desktop app, enable **Settings → General → Gaming HUD** to see agent activity
-while using another app or playing a game. Choose a corner on the display containing
+Gaming HUD is a Fold desktop feature and is **off by default**. Enable it in
+**Settings → General → Gaming HUD** to see agent activity while using another app
+or playing a game. Choose a corner on the display containing
 the T3 Code window. The HUD passes clicks and keyboard input through to your game.
 Use windowed or borderless mode; exclusive fullscreen and some window managers may
 keep other windows hidden.
