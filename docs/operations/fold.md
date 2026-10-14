@@ -28,27 +28,42 @@ run in a checkout. The cache is per checkout; a new worktree warms its own.
 
 ## Fold releases
 
-Use **Fold server release** or **Fold desktop release** in this fork's GitHub Actions.
+When asked to **do a release**, ship Linux and Android together under one visible
+**T3 Code Fold <version> — Linux & Android** release (`fold-preview-v<version>`).
+Use the next desktop/server version as the public release number. Android keeps its
+own increasing app version and versionCode for installation compatibility.
+
+1. Build both from the same release commit. Run **Fold desktop release** with the
+   version and its default Linux platform; it publishes the matching server and
+   attaches the AppImage and Debian package to `fold-preview-v<version>`.
+2. Build a standalone Fold Android release APK incrementally, with the existing
+   sideload signing certificate, bundled JavaScript and OTA disabled. Bump the
+   Android version/versionCode as needed. Do not publish a separate Android release
+   or substitute a Play-signed APK. Verify its signature and package metadata.
+3. Run `node scripts/finalize-fold-release.cjs <version> <verified-apk-path>`.
+   This attaches the APK and its checksum, writes concise Linux/Android download
+   notes, marks the combined release Latest, and archives older releases as drafts.
+   Both Linux installers must exist before it changes anything. Use `--dry-run`
+   to inspect the planned changes. Never mark a Linux-only build as a completed release.
+
+The finalizer retains the matching `fold-server-v<version>` and public rolling
+update feeds (`fold-server-latest`, `fold-server-nightly`, `fold-desktop-latest`,
+`fold-desktop-nightly`, and `mobile-ota` when present). Installed clients require
+those URLs. Older releases and PR evidence become drafts, retaining their files
+but removing public download access; restore a draft before sharing an old build.
+It saves the release metadata before archiving in an OS temporary directory.
+Never delete tags or release assets as part of routine cleanup.
+
 The upstream npm release workflow is disabled on forks. Fold is distributed from
-`BreakTheBeta/T3codefold`, not the npm `t3` package.
+`BreakTheBeta/T3codefold`, not the npm `t3` package. The server workflow builds
+self-contained CLI archives and an npm-compatible tarball; its rolling feeds retain
+`t3.tgz` for older launchers. Never reuse a version for a different commit.
 
-The server workflow builds self-contained CLI archives on macOS arm64, Linux
-arm64/x64, and Windows arm64/x64, using upstream's build and packaging scripts.
-It publishes them with `SHA256SUMS` under `fold-server-v<version>`. The
-npm-compatible `t3-<version>.tgz` remains available for older launchers, and the
-selected `fold-server-latest` or `fold-server-nightly` feed retains its `t3.tgz`.
-Never reuse a version for a different commit. Versions published before executable
-archives were introduced must be installed using their npm-compatible tarball.
-
-The desktop workflow publishes the matching server first, then builds Windows,
-macOS universal, and Linux x64 artifacts. It attaches installers to the selected
-`fold-preview-v<version>` release and publishes platform update metadata and assets
-to `fold-desktop-latest` or `fold-desktop-nightly`. Keep the platform-specific YAML
-files with their referenced installers and blockmaps. These feeds are separate
-from Android releases. macOS distribution still requires the maintainer's signing
-and notarization setup for trusted installation and automatic updates. Without those
-credentials, the workflow publishes a manual Mac download and leaves the automatic
-Mac feed unchanged.
+Desktop platform YAML files must stay with their referenced installers and
+blockmaps in `fold-desktop-latest` or `fold-desktop-nightly`. Windows and macOS are
+explicit opt-ins, not part of an ordinary Linux/Android release. macOS requires
+signing and notarization credentials for automatic updates; without them, only a
+manual download is published.
 
 Fold 0.4.0 is the first release on upstream's orchestrator v2. Its server upgrades
 an earlier Fold database in place on first start (see
@@ -57,12 +72,9 @@ so smoke-test it against a copy of real pre-0.4.0 data, and keep later versions 
 0.4.0 or above. Mobile moves to 1.4.0 (versionCode 21) on Expo SDK 58; that first
 build changes the native runtime and must ship as an APK, not an OTA update.
 
-Android APKs and the mobile OTA branch continue to use this fork's existing release
-process. OTA updates must match the installed native runtime fingerprint.
+OTA updates must match the installed native runtime fingerprint.
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
-
-This document covers the unified release workflow for stable and nightly desktop releases.
 
 ## Shared Android build caches
 

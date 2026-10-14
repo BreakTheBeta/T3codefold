@@ -4,19 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Desktop version
+        description: Fold release version (Linux and Android)
         required: true
-        default: 0.1.6
+        default: 0.4.4
       release_tag:
-        description: Existing Fold release to attach the installer to
-        required: true
-        default: fold-preview-v0.1.6
+        description: Optional release tag (defaults to fold-preview-vVERSION)
+        required: false
+        default: ""
 
       platform:
         description: Installer platform to publish
         type: choice
         options: [all, mac, linux, win]
-        default: all
+        default: linux
       desktop_only:
         description: Rebuild desktop installers using an already published server version
         type: boolean
