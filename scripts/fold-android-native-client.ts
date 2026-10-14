@@ -38,7 +38,7 @@ export const resolveJavaHome = Effect.fn("nativeClient.resolveJavaHome")(functio
   // `javac` on PATH is by definition a compiler, so its real location is a JDK
   // even when `java` beside it is not.
   const resolved = yield* resolveCommandPath(compiler).pipe(
-    Effect.flatMap((found) => fs.realPath(found)),
+    Effect.flatMap((found) => (found === null ? Effect.succeed(null) : fs.realPath(found))),
     Effect.orElseSucceed(() => null),
   );
   if (resolved) return path.dirname(path.dirname(resolved));

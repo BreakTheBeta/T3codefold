@@ -10,7 +10,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
  * upstream's npm check for "update everything". A 404 is false; network and
  * API errors stay unknown. Both re-check every few minutes.
  */
-const foldServerReleasePublishedAtom = Atom.family((version: string) =>
+export const foldServerReleasePublishedAtom = Atom.family((version: string) =>
   Atom.make(
     Effect.gen(function* () {
       const response = yield* HttpClient.get(
@@ -19,7 +19,11 @@ const foldServerReleasePublishedAtom = Atom.family((version: string) =>
       if (response.status === 404) return false;
       yield* HttpClientResponse.filterStatusOk(response);
       return true;
-    }).pipe(Effect.provide(FetchHttpClient.layer)),
+    }).pipe(
+      // Public release checks do not need tracing headers or their CORS preflight.
+      Effect.provideService(HttpClient.TracerPropagationEnabled, false),
+      Effect.provide(FetchHttpClient.layer),
+    ),
   ).pipe(
     Atom.withRefresh("5 minutes"),
     Atom.keepAlive,
