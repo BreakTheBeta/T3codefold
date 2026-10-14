@@ -4,6 +4,7 @@ import { MaterialScreenContent } from "../../components/MaterialScreenContent";
 import { PullRequestsScreen } from "../pull-requests/PullRequestsScreen";
 import { MaterialPullRequestToolbar } from "../pull-requests/MaterialPullRequestToolbar.android";
 import { WorkspaceTabsContext, useWorkspaceTabs } from "./WorkspaceTabsContext";
+import { WorkspaceTabSwitcher } from "./AndroidWorkspaceNavigation";
 
 export function AndroidWorkspaceSidebar(props: {
   readonly children: ReactNode;
@@ -17,7 +18,8 @@ export function AndroidWorkspaceSidebar(props: {
   ) : (
     <WorkspaceTabsContext value={context}>
       <View className="flex-1 bg-header">
-        <MaterialPullRequestToolbar onRequestVisibility={props.onRequestVisibility} />
+        <MaterialPullRequestToolbar sidebar onRequestVisibility={props.onRequestVisibility} />
+        <WorkspaceTabSwitcher className="px-4 pb-2" />
         <MaterialScreenContent insetHorizontal>
           <PullRequestsScreen sidebar selectedPullRequestKey={props.selectedPullRequestKey} />
         </MaterialScreenContent>

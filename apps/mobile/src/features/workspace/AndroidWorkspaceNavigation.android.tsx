@@ -12,15 +12,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardState } from "react-native-keyboard-controller";
 
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
+import { SegmentedControl } from "../../components/SegmentedControl";
 import { androidWorkspaceNavigationColors } from "./android-workspace-navigation-colors";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import type { WorkspaceTab } from "./workspace-tabs-state";
 
-export const ANDROID_WORKSPACE_RAIL_WIDTH = 80;
-
 interface NativeNavigationProps extends ViewProps {
-  readonly rail: boolean;
   readonly selectedTab: WorkspaceTab;
   readonly dark: boolean;
   readonly textScale: number;
@@ -38,37 +36,32 @@ function nativeColor(value: string) {
   return typeof color === "number" ? color : 0;
 }
 
-export function AndroidWorkspaceNavigation(props: {
-  readonly rail?: boolean;
-  readonly onSelect?: () => void;
-}) {
-  const workspace = useWorkspaceTabs()!;
+/** Switches the workspace tab and returns to its list, keeping the selection in one place. */
+function useSelectWorkspaceTab(workspace: ReturnType<typeof useWorkspaceTabs>) {
   const navigation = useNavigation();
+  return (tab: WorkspaceTab) => {
+    Keyboard.dismiss();
+    if (!workspace || tab === workspace.state.selectedTab) return;
+    workspace.dispatch({ type: "select", tab });
+    navigation.dispatch((state) => CommonActions.reset(androidWorkspaceNavigationState(state)));
+  };
+}
+
+/** Bottom navigation for the compact workspace; split layouts use the sidebar switcher. */
+export function AndroidWorkspaceNavigation() {
+  const workspace = useWorkspaceTabs()!;
+  const selectTab = useSelectWorkspaceTab(workspace);
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
   const { themeAppearance, themeVariables: colors } = useAppearancePreferences();
   const { scale } = useAndroidControlSizing();
-  const rail = Boolean(props.rail);
   const { containerColor, indicatorColor, selectedColor, unselectedColor } =
-    androidWorkspaceNavigationColors(colors, rail);
-  if (!rail && keyboardVisible) return null;
+    androidWorkspaceNavigationColors(colors);
+  if (keyboardVisible) return null;
 
   return (
-    <View
-      style={{
-        backgroundColor: containerColor,
-        ...(rail
-          ? {
-              flex: 1,
-              width: ANDROID_WORKSPACE_RAIL_WIDTH * Math.max(1, scale),
-              paddingTop: insets.top,
-              paddingBottom: insets.bottom,
-            }
-          : { paddingBottom: insets.bottom }),
-      }}
-    >
+    <View style={{ backgroundColor: containerColor, paddingBottom: insets.bottom }}>
       <NativeNavigation
-        rail={rail}
         selectedTab={workspace.state.selectedTab}
         dark={themeAppearance === "dark"}
         textScale={scale}
@@ -76,19 +69,30 @@ export function AndroidWorkspaceNavigation(props: {
         selectedColor={nativeColor(selectedColor)}
         indicatorColor={nativeColor(indicatorColor)}
         unselectedColor={nativeColor(unselectedColor)}
-        onTabSelected={(event) => {
-          Keyboard.dismiss();
-          const tab = event.nativeEvent.tab;
-          if (tab !== workspace.state.selectedTab) {
-            workspace.dispatch({ type: "select", tab });
-            navigation.dispatch((state) =>
-              CommonActions.reset(androidWorkspaceNavigationState(state)),
-            );
-          }
-          props.onSelect?.();
-        }}
-        style={rail ? { flex: 1 } : { height: 80 * Math.max(1, scale) }}
+        onTabSelected={(event) => selectTab(event.nativeEvent.tab)}
+        style={{ height: 80 * Math.max(1, scale) }}
       />
     </View>
+  );
+}
+
+const WORKSPACE_TAB_OPTIONS = [
+  { value: "threads", label: "Chats" },
+  { value: "pullRequests", label: "PRs", accessibilityLabel: "Pull requests" },
+] as const;
+
+/** Chats/PRs switcher at the top of the split-view sidebar. */
+export function WorkspaceTabSwitcher(props: { readonly className?: string }) {
+  const workspace = useWorkspaceTabs();
+  const selectTab = useSelectWorkspaceTab(workspace);
+  if (!workspace) return null;
+  return (
+    <SegmentedControl
+      role="tab"
+      options={WORKSPACE_TAB_OPTIONS}
+      selected={workspace.state.selectedTab}
+      onSelect={selectTab}
+      className={props.className}
+    />
   );
 }
