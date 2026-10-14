@@ -27,18 +27,13 @@ any, was given up, so a maintainer can object before the PR merges.
 
 ## The procedure
 
-```bash
-git fetch upstream --prune
-git switch -c sync-upstream-main origin/main
-git merge upstream/main          # resolve, then commit
-```
+Use the repository's [upstream skill](../../.agents/skills/upstream/SKILL.md) for preparation,
+resolution, verification, and delivery. It supports a local sync, a requested PR, or an explicitly
+requested direct landing on Fold's `main`. Preserve a real merge commit in every path: rebasing or
+squashing discards the merge base and makes later syncs replay integrated conflicts.
 
-Then open a PR into Fold's `main`. The merge commit message is the place to record why each
-conflict was settled the way it was — the next person to hit the same file reads that before
-re-deriving the decision.
-
-**Never rebase or squash a sync.** Either one throws away the merge base, and the following sync
-replays every upstream commit Fold has already integrated as a fresh conflict.
+The merge commit records why each non-obvious conflict was settled that way. The next maintainer
+should be able to recover the feature-preservation decision without repeating the investigation.
 
 ## Keeping Fold's footprint small
 
