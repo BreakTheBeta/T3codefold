@@ -59,8 +59,14 @@ Install dependencies once before parallel verification; give each agent a distin
 - Run explicit test files in each changed directory, plus Fold regression suites for affected
   features, with `NODE_ENV=test node_modules/.bin/vp test run --maxWorkers 2 <files>`. Use the
   workspace's test configuration where needed. Web tests that import browser workers or Ghostty
-  WASM require running from `apps/web` with `../../node_modules/.bin/vp test run --project unit
-<files>` (keep this as one shell command). Consult current configs if project names change.
+  WASM require running from `apps/web`:
+
+  ```bash
+  NODE_ENV=test ../../node_modules/.bin/vp test run --project unit --maxWorkers 2 <files>
+  ```
+
+  Consult current configs if project names change.
+
 - Run formatting and lint on changed files. Distinguish inherited lint findings from added-line
   errors; retain evidence of the baseline. Fix regressions and rerun the affected checks, without
   repeating successful unrelated suites. Keep test logs outside the repository.
