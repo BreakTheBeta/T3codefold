@@ -2,6 +2,7 @@ import { androidKeyboardFirst, dismissAndroidKeyboard } from "../../lib/android-
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
+import { WorkspaceTabSwitcher } from "../workspace/AndroidWorkspaceNavigation";
 import {
   BackHandler,
   Keyboard,
@@ -95,7 +96,8 @@ export function MaterialThreadListToolbar(props: {
         className={
           props.sidebar ? "absolute inset-x-0 top-0 z-[4] bg-header px-2" : "bg-header px-2"
         }
-        style={headerPadding}
+        // The sidebar's tab switcher sits below the header padding, matching the PR header.
+        style={props.sidebar ? { paddingTop: headerPadding.paddingTop } : headerPadding}
       >
         <View className="flex-row items-center gap-1" style={{ minHeight: toolbarHeight }}>
           {searching ? (
@@ -132,6 +134,11 @@ export function MaterialThreadListToolbar(props: {
             </>
           )}
         </View>
+        {props.sidebar ? (
+          <View style={{ paddingTop: headerPadding.paddingBottom }}>
+            <WorkspaceTabSwitcher className="px-2 pb-2" />
+          </View>
+        ) : null}
       </View>
     </>
   );

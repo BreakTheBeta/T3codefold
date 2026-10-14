@@ -58,11 +58,6 @@ import {
   VimPaneFocusMarker,
 } from "../keyboard/useWorkspaceVimNavigation";
 import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
-import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
-import {
-  AndroidWorkspaceNavigation,
-  ANDROID_WORKSPACE_RAIL_WIDTH,
-} from "../workspace/AndroidWorkspaceNavigation";
 import { AndroidWorkspaceSidebar } from "../workspace/AndroidWorkspaceSidebar";
 import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSelection";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
@@ -269,7 +264,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
 }) {
   const projectGroupingMode = props.projectGroupingMode;
   const nativeWorkspace = use(NativeWorkspaceModeContext);
-  const { scale: androidControlScale } = useAndroidControlSizing();
   const pathname = props.pathname;
   const navigation = useNavigation();
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
@@ -368,23 +362,17 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const inspectorRestingWidth =
     foldRegions.vertical?.trailingWidth ??
     (inspectorPreferredRatio !== undefined ? inspectorPreferredRatio * width : hingeSnapWidths[0]);
-  // Android's navigation rail sits before the sidebar and hides with it; panes share what is left.
-  const shouldRenderNavigationRail = Platform.OS === "android" && layout.usesSplitView;
-  const navigationRailWidth =
-    shouldRenderNavigationRail && showPrimarySidebar
-      ? ANDROID_WORKSPACE_RAIL_WIDTH * Math.max(1, androidControlScale)
-      : 0;
   const effectiveLayout = useMemo(
     () =>
       foldRegions.vertical
-        ? { ...layout, listPaneWidth: foldRegions.vertical.leadingWidth - navigationRailWidth }
+        ? { ...layout, listPaneWidth: foldRegions.vertical.leadingWidth }
         : layout,
-    [foldRegions.vertical, layout, navigationRailWidth],
+    [foldRegions.vertical, layout],
   );
   const panes = useMemo(() => {
     const derived = deriveFoldWorkspacePaneLayout({
       layout: effectiveLayout,
-      viewportWidth: width - navigationRailWidth - (foldRegions.vertical?.gap ?? 0),
+      viewportWidth: width - (foldRegions.vertical?.gap ?? 0),
       primarySidebarPreferredVisible:
         showPrimarySidebar &&
         tabletopTopHeight === null &&
@@ -405,7 +393,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
     inspectorRestingWidth,
     effectiveLayout,
     foldRegions.vertical,
-    navigationRailWidth,
     tabletopTopHeight,
     showPrimarySidebar,
     width,
@@ -735,11 +722,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
           className={Platform.OS === "android" ? "flex-1 flex-row bg-header" : "flex-1 flex-row"}
           style={{ paddingLeft: leadingInset, paddingRight: trailingInset }}
         >
-          {navigationRailWidth > 0 ? (
-            <View className="self-stretch overflow-hidden" style={{ width: navigationRailWidth }}>
-              <AndroidWorkspaceNavigation rail onSelect={revealPrimarySidebar} />
-            </View>
-          ) : null}
           <WorkspaceSidebarColumn layout={effectiveLayout} visible={panes.primarySidebarVisible}>
             {(listPaneWidth) => (
               <RenderErrorBoundary
@@ -794,7 +776,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
                 : foldRegions.vertical &&
                     !panes.primarySidebarVisible &&
                     !panes.auxiliaryPaneVisible
-                  ? { width: foldRegions.vertical.leadingWidth - navigationRailWidth }
+                  ? { width: foldRegions.vertical.leadingWidth }
                   : { flex: 1 }
             }
           >
