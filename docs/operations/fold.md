@@ -40,19 +40,21 @@ own increasing app version and versionCode for installation compatibility.
    sideload signing certificate, bundled JavaScript and OTA disabled. Bump the
    Android version/versionCode as needed. Do not publish a separate Android release
    or substitute a Play-signed APK. Verify its signature and package metadata.
-3. Run `node scripts/finalize-fold-release.cjs <version> <verified-apk-path>`.
+3. Run `node scripts/finalize-fold-release.cjs <version> <verified-apk-path> --delete-old-releases`.
    This attaches the APK and its checksum, writes concise Linux/Android download
-   notes, marks the combined release Latest, and archives older releases as drafts.
+   notes, marks the combined release Latest, and deletes older published releases and
+   their attached files so the release list stays short.
    Both Linux installers must exist before it changes anything. Use `--dry-run`
    to inspect the planned changes. Never mark a Linux-only build as a completed release.
 
 The finalizer retains the matching `fold-server-v<version>` and public rolling
 update feeds (`fold-server-latest`, `fold-server-nightly`, `fold-desktop-latest`,
 `fold-desktop-nightly`, and `mobile-ota` when present). Installed clients require
-those URLs. Older releases and PR evidence become drafts, retaining their files
-but removing public download access; restore a draft before sharing an old build.
-It saves the release metadata before archiving in an OS temporary directory.
-Never delete tags or release assets as part of routine cleanup.
+those URLs. The maintainer chose permanent cleanup of older published releases; do not keep
+adding archived drafts to the signed-in release list. Existing drafts are left alone.
+Omit `--delete-old-releases` only when recoverable drafts are explicitly wanted.
+The script saves release metadata in an OS temporary directory, not a backup of
+binaries. Never delete Git tags or the retained update-feed assets.
 
 The upstream npm release workflow is disabled on forks. Fold is distributed from
 `BreakTheBeta/T3codefold`, not the npm `t3` package. The server workflow builds

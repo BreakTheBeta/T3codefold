@@ -102,3 +102,22 @@ test("an upload failure leaves all public releases visible", (t) => {
   assert.throws(() => finalize("0.4.4", apk, { gh: failingUpload }), /upload failed/);
   assert.ok(!calls.some((args) => args.includes("PATCH") || args[1] === "edit"));
 });
+
+test("permanent cleanup deletes only former public releases after publishing both platforms", (t) => {
+  const { apk, calls, gh } = fixture(t);
+  finalize("0.4.4", apk, { gh, deleteOldReleases: true });
+  const deletions = calls.filter((args) => args.includes("DELETE"));
+  assert.deepEqual(
+    deletions.map((args) => args[3]),
+    [
+      "repos/BreakTheBeta/T3codefold/releases/5",
+      "repos/BreakTheBeta/T3codefold/releases/6",
+      "repos/BreakTheBeta/T3codefold/releases/8",
+    ],
+  );
+  assert.ok(!calls.some((args) => args.includes("PATCH")));
+  assert.ok(
+    calls.findIndex((args) => args[1] === "edit") <
+      calls.findIndex((args) => args.includes("DELETE")),
+  );
+});

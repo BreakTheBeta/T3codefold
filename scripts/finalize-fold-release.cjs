@@ -16,10 +16,10 @@ const feeds = new Set([
 ]);
 
 /** Complete one Linux/Android release, retaining the URLs installed clients use. */
-function finalize(version, apk, { dryRun = false, gh = runGh } = {}) {
+function finalize(version, apk, { dryRun = false, deleteOldReleases = false, gh = runGh } = {}) {
   if (!/^\d+\.\d+\.\d+$/.test(version ?? "") || !apk?.endsWith(".apk")) {
     throw new Error(
-      "Usage: finalize-fold-release.cjs <stable-version> <verified-apk-path> [--dry-run]",
+      "Usage: finalize-fold-release.cjs <stable-version> <verified-apk-path> [--dry-run] [--delete-old-releases]",
     );
   }
   const apkPath = path.resolve(apk);
@@ -79,7 +79,7 @@ function finalize(version, apk, { dryRun = false, gh = runGh } = {}) {
   if (dryRun) {
     console.log(notes);
     console.log(
-      `\nArchive ${archive.length} releases as drafts: ${archive.map((item) => item.tag_name).join(", ")}`,
+      `\n${deleteOldReleases ? "Delete" : "Archive as drafts"} ${archive.length} old releases: ${archive.map((item) => item.tag_name).join(", ")}`,
     );
     return;
   }
@@ -103,10 +103,21 @@ function finalize(version, apk, { dryRun = false, gh = runGh } = {}) {
     "--latest",
   ]);
   for (const item of archive) {
-    gh(["api", "--method", "PATCH", `repos/${repository}/releases/${item.id}`, "-F", "draft=true"]);
+    gh(
+      deleteOldReleases
+        ? ["api", "--method", "DELETE", `repos/${repository}/releases/${item.id}`]
+        : [
+            "api",
+            "--method",
+            "PATCH",
+            `repos/${repository}/releases/${item.id}`,
+            "-F",
+            "draft=true",
+          ],
+    );
   }
   console.log(
-    `Published ${tag}; archived ${archive.length} releases. Backup: ${staging}/release-backup.json`,
+    `Published ${tag}; ${deleteOldReleases ? "deleted" : "archived"} ${archive.length} releases. Metadata backup: ${staging}/release-backup.json`,
   );
 }
 
@@ -122,5 +133,8 @@ function runGh(args) {
 module.exports = { finalize };
 if (require.main === module) {
   const [version, apk] = process.argv.slice(2);
-  finalize(version, apk, { dryRun: process.argv.includes("--dry-run") });
+  finalize(version, apk, {
+    dryRun: process.argv.includes("--dry-run"),
+    deleteOldReleases: process.argv.includes("--delete-old-releases"),
+  });
 }
