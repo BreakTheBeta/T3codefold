@@ -108,6 +108,9 @@ html[data-theme-backdrop="on"] [data-chat-canvas] [data-chat-messages] {
 [data-thread-ribbon] > .legend-list-content-container {
   --thread-ribbon-stride: calc(var(--thread-wrap-column-width) + var(--thread-wrap-gap));
   --thread-ribbon-rule: color-mix(in srgb, var(--border) 80%, transparent);
+  /* Keep the offset on the first child from collapsing through the window
+     and shortening the scroll range. LegendList sets display: block inline. */
+  display: flow-root !important;
   position: sticky;
   top: var(--thread-ribbon-top);
   margin-top: var(--thread-ribbon-top);
