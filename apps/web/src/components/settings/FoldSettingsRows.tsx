@@ -52,6 +52,7 @@ function isThemeBackdropCustomized(settings: UnifiedSettings): boolean {
 /** Fold settings that "Restore defaults" resets. */
 export const FOLD_SETTINGS_DEFAULTS = {
   threadWrapEnabled: DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled,
+  threadWrapPortalsEnabled: DEFAULT_UNIFIED_SETTINGS.threadWrapPortalsEnabled,
   threadWrapMaxColumns: DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns,
   citeSelectionEnabled: DEFAULT_UNIFIED_SETTINGS.citeSelectionEnabled,
   vimModeEnabled: DEFAULT_UNIFIED_SETTINGS.vimModeEnabled,
@@ -66,6 +67,7 @@ export function useFoldChangedSettingLabels(settings: UnifiedSettings): Readonly
     () => [
       ...(backdropCustomized ? ["Splatter backdrop"] : []),
       ...(settings.threadWrapEnabled !== DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled ||
+      settings.threadWrapPortalsEnabled !== DEFAULT_UNIFIED_SETTINGS.threadWrapPortalsEnabled ||
       settings.threadWrapMaxColumns !== DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns
         ? ["Thread wrapping"]
         : []),
@@ -82,6 +84,7 @@ export function useFoldChangedSettingLabels(settings: UnifiedSettings): Readonly
     [
       backdropCustomized,
       settings.threadWrapEnabled,
+      settings.threadWrapPortalsEnabled,
       settings.threadWrapMaxColumns,
       settings.citeSelectionEnabled,
       settings.vimModeEnabled,
@@ -378,63 +381,84 @@ export function ThemeBackdropSettingsRows() {
   );
 }
 
-/** Appearance: newspaper-style columns for long threads on wide screens. */
+/** Appearance: connected columns for long threads on wide screens. */
 export function ThreadWrapSettingsRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   return (
-    <SettingsRow
-      {...searchableSetting("thread-wrap")}
-      description="On very wide screens, flow long threads through side-by-side columns like a newspaper."
-      resetAction={
-        settings.threadWrapEnabled !== DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled ||
-        settings.threadWrapMaxColumns !== DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns ? (
-          <SettingResetButton
-            label="thread wrapping"
-            onClick={() =>
-              updateSettings({
-                threadWrapEnabled: DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled,
-                threadWrapMaxColumns: DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns,
-              })
+    <>
+      <SettingsRow
+        {...searchableSetting("thread-wrap")}
+        description="On wide screens, scroll threads through linked columns, from the bottom of one into the top of the next."
+        resetAction={
+          settings.threadWrapEnabled !== DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled ||
+          settings.threadWrapPortalsEnabled !== DEFAULT_UNIFIED_SETTINGS.threadWrapPortalsEnabled ||
+          settings.threadWrapMaxColumns !== DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns ? (
+            <SettingResetButton
+              label="thread wrapping"
+              onClick={() =>
+                updateSettings({
+                  threadWrapEnabled: DEFAULT_UNIFIED_SETTINGS.threadWrapEnabled,
+                  threadWrapPortalsEnabled: DEFAULT_UNIFIED_SETTINGS.threadWrapPortalsEnabled,
+                  threadWrapMaxColumns: DEFAULT_UNIFIED_SETTINGS.threadWrapMaxColumns,
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
+            {settings.threadWrapEnabled ? (
+              <div className="w-full sm:w-36">
+                <Select
+                  value={String(settings.threadWrapMaxColumns)}
+                  onValueChange={(value) => {
+                    const threadWrapMaxColumns = Number(value);
+                    if (threadWrapMaxColumns >= 2 && threadWrapMaxColumns <= 4)
+                      updateSettings({ threadWrapMaxColumns });
+                  }}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="w-full min-w-0"
+                    aria-label="Maximum thread columns"
+                  >
+                    <SelectValue>Up to {settings.threadWrapMaxColumns} columns</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem value="2">Up to 2 columns</SelectItem>
+                    <SelectItem value="3">Up to 3 columns (default)</SelectItem>
+                    <SelectItem value="4">Up to 4 columns</SelectItem>
+                  </SelectPopup>
+                </Select>
+              </div>
+            ) : null}
+            <Switch
+              checked={settings.threadWrapEnabled}
+              onCheckedChange={(checked) => updateSettings({ threadWrapEnabled: Boolean(checked) })}
+              aria-label="Wrap long threads into columns on wide screens"
+            />
+          </div>
+        }
+      />
+      {settings.threadWrapEnabled ? (
+        <div className="pl-6">
+          <SettingsRow
+            title="Portals"
+            description="Show orange and blue markers where the columns connect."
+            control={
+              <Switch
+                checked={settings.threadWrapPortalsEnabled}
+                onCheckedChange={(checked) =>
+                  updateSettings({ threadWrapPortalsEnabled: Boolean(checked) })
+                }
+                aria-label="Show portals between thread columns"
+              />
             }
           />
-        ) : null
-      }
-      control={
-        <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
-          {settings.threadWrapEnabled ? (
-            <div className="w-full sm:w-36">
-              <Select
-                value={String(settings.threadWrapMaxColumns)}
-                onValueChange={(value) => {
-                  const threadWrapMaxColumns = Number(value);
-                  if (threadWrapMaxColumns >= 2 && threadWrapMaxColumns <= 4)
-                    updateSettings({ threadWrapMaxColumns });
-                }}
-              >
-                <SelectTrigger
-                  size="sm"
-                  className="w-full min-w-0"
-                  aria-label="Maximum thread columns"
-                >
-                  <SelectValue>Up to {settings.threadWrapMaxColumns} columns</SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem value="2">Up to 2 columns</SelectItem>
-                  <SelectItem value="3">Up to 3 columns (default)</SelectItem>
-                  <SelectItem value="4">Up to 4 columns</SelectItem>
-                </SelectPopup>
-              </Select>
-            </div>
-          ) : null}
-          <Switch
-            checked={settings.threadWrapEnabled}
-            onCheckedChange={(checked) => updateSettings({ threadWrapEnabled: Boolean(checked) })}
-            aria-label="Wrap long threads into columns on wide screens"
-          />
         </div>
-      }
-    />
+      ) : null}
+    </>
   );
 }
 

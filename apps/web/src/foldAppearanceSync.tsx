@@ -9,6 +9,12 @@ export function FoldAppearanceSync() {
   const threadWrapColumns = useClientSettings((settings) =>
     settings.threadWrapEnabled ? settings.threadWrapMaxColumns : null,
   );
+  const threadWrapPortalsEnabled = useClientSettings(
+    (settings) => settings.threadWrapPortalsEnabled,
+  );
+  useEffect(() => {
+    document.documentElement.dataset.threadWrapPortals = threadWrapPortalsEnabled ? "on" : "off";
+  }, [threadWrapPortalsEnabled]);
   useEffect(() => {
     if (threadWrapColumns === null) {
       delete document.documentElement.dataset.threadWrap;

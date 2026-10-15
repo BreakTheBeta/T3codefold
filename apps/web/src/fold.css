@@ -151,6 +151,55 @@ html[data-theme-backdrop="on"] [data-chat-canvas] [data-chat-messages] {
   height: 0;
 }
 
+/* Imperative overlays stay outside the measured row layer. The zero-height
+   host contributes no length to LegendList's single-column scroll range. */
+[data-thread-ribbon-portals] {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+[data-thread-ribbon-portal] {
+  position: absolute;
+  left: calc(var(--thread-ribbon-portal-column) * var(--thread-ribbon-stride));
+  width: var(--thread-wrap-column-width);
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 5px color-mix(in srgb, currentColor 55%, transparent);
+}
+
+html[data-thread-wrap-portals="off"] [data-thread-ribbon-portals] {
+  display: none;
+}
+
+[data-thread-ribbon-portal="exit"] {
+  top: calc(var(--thread-ribbon-page-height) - 2px);
+  color: var(--color-orange-400, #fb923c);
+}
+
+[data-thread-ribbon-portal="entry"] {
+  top: 0;
+  color: var(--color-sky-400, #38bdf8);
+}
+
+[data-thread-ribbon-embed] {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+[data-thread-ribbon-embed] > span {
+  padding: 0.75rem;
+}
+
 /* A mirror is a still copy of a live row: no input, no selection, no motion. */
 [data-thread-ribbon-mirror] {
   pointer-events: none;

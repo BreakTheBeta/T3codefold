@@ -33,6 +33,17 @@ The controls retreat as the composer docks after you send the first message.
 Turn on **Composer context** to keep those controls visible after the thread starts. This preference
 applies to the web and desktop clients.
 
+## Thread wrapping
+
+On web and desktop, enable **Thread wrapping** in **Settings → Appearance** to read long threads
+across two to four columns when the window is wide enough. Scroll over any column. The bottom
+of each column connects to the top of the next; scrolling backward reverses the same flow.
+Narrowing the window or turning the setting off returns to one column.
+**Portals**, below Thread wrapping, shows orange and blue markers at the connected edges by default.
+Turn it off to hide the markers while keeping the same scrolling behavior.
+
+Move the pointer over the part of an embedded app you want to use, or open the app's full view.
+
 ## Motion
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
