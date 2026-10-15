@@ -53,6 +53,7 @@ export const FoldClientSettingsFields = {
     Schema.withDecodingDefault(Effect.succeed("top-right" as const)),
   ),
   threadWrapEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  threadWrapPortalsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   threadWrapMaxColumns: ThreadWrapMaxColumns.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_WRAP_MAX_COLUMNS)),
   ),
@@ -82,6 +83,7 @@ export const FoldClientSettingsPatchFields = {
   gamingHudEnabled: Schema.optionalKey(Schema.Boolean),
   gamingHudPosition: Schema.optionalKey(GamingHudPosition),
   threadWrapEnabled: Schema.optionalKey(Schema.Boolean),
+  threadWrapPortalsEnabled: Schema.optionalKey(Schema.Boolean),
   threadWrapMaxColumns: Schema.optionalKey(ThreadWrapMaxColumns),
   themeBackdropEnabled: Schema.optionalKey(Schema.Boolean),
   themeBackdropScope: Schema.optionalKey(ThemeBackdropScope),

@@ -68,7 +68,9 @@ export const FOLD_SETTINGS_SEARCH_ITEMS = [
     id: "thread-wrap",
     title: "Thread wrapping",
     to: "/settings/appearance",
-    searchTerms: ["columns newspaper paper multi column 4k tv ultrawide large screen wrap"],
+    searchTerms: [
+      "columns portal portals connected continuous newspaper paper multi column 4k tv ultrawide large screen wrap",
+    ],
   },
   {
     id: "cite-selection",

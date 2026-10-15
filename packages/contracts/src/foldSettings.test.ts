@@ -36,7 +36,14 @@ describe("ClientSettings thread wrapping", () => {
   it("is off with three columns for existing settings", () => {
     const settings = decodeClientSettings({});
     expect(settings.threadWrapEnabled).toBe(false);
+    expect(settings.threadWrapPortalsEnabled).toBe(true);
     expect(settings.threadWrapMaxColumns).toBe(3);
+  });
+
+  it("persists an explicit choice to hide portals", () => {
+    const preference = { threadWrapPortalsEnabled: false };
+    expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+    expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
   });
 
   it("rejects column limits outside two to four", () => {
