@@ -1,8 +1,8 @@
 import { useNavigation } from "@react-navigation/native";
 import { useCallback } from "react";
 
-import { MaterialScreenContent } from "../../components/MaterialScreenContent";
-import { ScreenHeader } from "../../components/ScreenHeader";
+import { ScreenContent } from "../../components/ui/ScreenContent";
+import { AppBar } from "../../components/ui/AppBar";
 import { WorkspaceTabsProvider } from "../workspace/WorkspaceTabsContext";
 import { PullRequestsScreen } from "./PullRequestsScreen";
 
@@ -19,12 +19,12 @@ export function PullRequestsRouteScreen() {
 
   return (
     <>
-      <ScreenHeader title="Pull requests" onBack={handleBack} />
-      <MaterialScreenContent>
+      <AppBar title="Pull requests" onBack={handleBack} />
+      <ScreenContent>
         <WorkspaceTabsProvider>
           <PullRequestsScreen />
         </WorkspaceTabsProvider>
-      </MaterialScreenContent>
+      </ScreenContent>
     </>
   );
 }

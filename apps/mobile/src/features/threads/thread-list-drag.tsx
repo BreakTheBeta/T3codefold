@@ -27,7 +27,7 @@ import Reanimated, {
   type SharedValue,
 } from "react-native-reanimated";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { environmentServerConfigsAtom } from "../../state/server";

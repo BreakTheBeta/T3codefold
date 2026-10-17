@@ -6,7 +6,7 @@ on:
       version:
         description: Fold release version (Linux and Android)
         required: true
-        default: 0.4.4
+        default: 0.4.5
       release_tag:
         description: Optional release tag (defaults to fold-preview-vVERSION)
         required: false

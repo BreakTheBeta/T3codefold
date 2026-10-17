@@ -13,7 +13,7 @@ import {
   type FoldWorkspacePaneLayout,
   type PaneDividerRelease,
 } from "../../lib/foldable-pane-layout";
-import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
+import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { FoldWorkspacePaneDivider } from "./fold-workspace-pane-divider";
 import { VimPaneFocusMarker } from "../keyboard/useWorkspaceVimNavigation";

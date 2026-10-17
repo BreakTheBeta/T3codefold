@@ -12,14 +12,13 @@ export type ProjectIconGlyph =
     };
 
 /**
- * Visible glyph count for sizing monogram text. Hermes has no Intl.Segmenter, so combining
- * marks are folded into their base character instead of full grapheme segmentation.
+ * Hermes has no Intl.Segmenter, so combining marks are folded into their base
+ * character instead of full grapheme segmentation.
  */
 export function countGlyphs(text: string): number {
   return Array.from(text.replace(/\p{M}/gu, "")).length;
 }
 
-/** Mirrors the automatic monogram web derives from a project name when it has no favicon. */
 export function projectMonogram(projectName: string): string {
   const words =
     projectName

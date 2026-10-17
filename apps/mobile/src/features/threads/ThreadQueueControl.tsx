@@ -1,6 +1,7 @@
 import { type StaticScreenProps, useNavigation } from "@react-navigation/native";
 import { useAtomValue } from "@effect/atom-react";
 import type { ChatAttachment, EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useEffect, useRef, useState } from "react";
@@ -19,12 +20,12 @@ import Reanimated, {
   type SharedValue,
 } from "react-native-reanimated";
 
-import { MaterialButton } from "../../components/MaterialButton";
-import { AndroidSheetHeader } from "../../components/AndroidScreenHeader";
-import { AppText as Text } from "../../components/AppText";
-import { SymbolView } from "../../components/AppSymbol";
-import { ControlPillMenu } from "../../components/ControlPill";
-import { MaterialScreenContent } from "../../components/MaterialScreenContent";
+import { Button } from "../../components/ui/Button";
+import { AndroidSheetHeader } from "../../components/ui/AndroidScreenHeader";
+import { AppText as Text } from "../../components/ui/AppText";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { Menu } from "../../components/ui/Menu";
+import { ScreenContent } from "../../components/ui/ScreenContent";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeStackScreenOptions, nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
@@ -48,6 +49,9 @@ import { useUIThreadDrag } from "./use-ui-thread-drag";
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 const REMOVE_ACTION_WIDTH = 76;
 const THUMBNAIL_LIMIT = 3;
+const EMPTY_QUEUED_COUNT_ATOM = Atom.make(0).pipe(
+  Atom.withLabel("mobile-thread-queue-count:empty"),
+);
 
 type QueueTarget = { readonly environmentId: EnvironmentId; readonly threadId: ThreadId };
 type QueueAction = "steer" | "edit" | "up" | "down" | "remove";
@@ -57,8 +61,10 @@ export function useThreadQueueWorkflow(target: QueueTarget) {
   return useAtomValue(environmentThreadDetails.queueWorkflowAtom(target));
 }
 
-export function useThreadQueuedCount(target: QueueTarget) {
-  return useAtomValue(environmentThreadDetails.queuedCountAtom(target));
+export function useThreadQueuedCount(target: QueueTarget | null) {
+  return useAtomValue(
+    target === null ? EMPTY_QUEUED_COUNT_ATOM : environmentThreadDetails.queuedCountAtom(target),
+  );
 }
 
 export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
@@ -107,8 +113,6 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     }
   }, [order, window.width, window.height, translation]);
 
-  // Nothing left to manage: the sheet closes rather than sitting on an empty
-  // list the user has to dismiss themselves.
   const hadQueuedRuns = useRef(queuedRuns.length > 0);
   useEffect(() => {
     if (queuedRuns.length > 0) {
@@ -206,7 +210,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
       {workflow?.isHeld && queuedRuns.length > 0 ? (
         <View className="gap-2 py-3">
           <Text className="text-sm text-foreground-muted">Queue held after restart</Text>
-          <MaterialButton
+          <Button
             label="Resume queue"
             disabled={resuming || busyRunId !== null}
             onPress={async () => {
@@ -300,7 +304,6 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                       setDragRows(null);
                       translation.set(0);
                     };
-                    // A remote reorder or a newly started run invalidates this drag.
                     if (!success || started?.order !== order || started.runId !== run.id) {
                       stop();
                       return;
@@ -340,7 +343,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                 background={theme["--color-sheet"]}
                 onRemove={() => void act(run.id, "remove")}
               >
-                <ControlPillMenu
+                <Menu
                   accessibilityLabel={`Actions for queued message ${index + 1}`}
                   shouldOpenOnLongPress
                   actions={[
@@ -417,7 +420,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                       </Pressable>
                     ) : null}
                   </Pressable>
-                </ControlPillMenu>
+                </Menu>
               </QueueRowSwipeable>
             </Reanimated.View>
           </QueueShiftedRow>
@@ -465,9 +468,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
       <View collapsable={false} className="flex-1 bg-sheet">
         <NativeStackScreenOptions options={{ sheetCornerRadius: 28 }} />
         <AndroidSheetHeader title="Queued" onBack={() => navigation.goBack()} />
-        <MaterialScreenContent insetHorizontal={layout.usesSplitView}>
-          {content}
-        </MaterialScreenContent>
+        <ScreenContent insetHorizontal={layout.usesSplitView}>{content}</ScreenContent>
       </View>
     </GestureHandlerRootView>
   );
@@ -497,7 +498,6 @@ function QueueShiftedRow(props: {
   );
 }
 
-/** Swipe left to remove, the one destructive action that needs no menu. */
 function QueueRowSwipeable(props: {
   readonly enabled: boolean;
   readonly background: string;

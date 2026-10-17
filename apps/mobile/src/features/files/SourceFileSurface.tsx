@@ -12,8 +12,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AppText as Text } from "../../components/AppText";
-import { LoadingStrip } from "../../components/LoadingStrip";
+import { AppText as Text } from "../../components/ui/AppText";
+import { LoadingStrip } from "../../components/ui/LoadingStrip";
 import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
 import {
   type NativeReviewDiffViewProps,
@@ -40,12 +40,9 @@ import { sourceHighlightAtom } from "./sourceHighlightingState";
 interface SourceFileSurfaceProps {
   readonly contents: string;
   readonly path: string;
-  /** The enclosing sheet or card already reserves its own chrome and safe area. */
   readonly embedded?: boolean;
   readonly initialLine?: number | null;
-  /** Override when a fixed notice already reserves the native header. */
   readonly headerInsetTop?: number;
-  /** Keep the entire document in one native text-selection scope. */
   readonly selectable?: boolean;
   /** Attach a native selection to the current thread draft. */
   readonly onAttachSelectedLines?: (selection: {
@@ -303,11 +300,11 @@ function JavaScriptSourceFileSurface(props: SourceFileSurfaceProps) {
     [codeSurface, codeWordBreak, targetIndex, tokens],
   );
 
-  // One selectable text for the whole file. On iOS `uiTextView` renders a real `UITextView`,
-  // which selects across every line, wraps, and lays out long documents through TextKit; on
-  // Android the primitive is an RN `Text`, which selects across its nested children. Either
-  // way "select all" takes the file rather than a line, which a `FlatList` row can never do
-  // because each row is its own selection scope.
+  // On iOS `uiTextView` renders a real `UITextView`, which selects across every line,
+  // wraps, and lays out long documents through TextKit; on Android the primitive is an RN
+  // `Text`, which selects across its nested children. Either way "select all" takes the
+  // file rather than a line, which a `FlatList` row can never do because each row is its
+  // own selection scope.
   const selectableBlock = props.selectable ? (
     <SourceText
       selectable
@@ -381,8 +378,6 @@ function JavaScriptSourceFileSurface(props: SourceFileSurfaceProps) {
     />
   );
 
-  // Workspace files retain their numbered, virtualized rows, with or without a line target.
-  // Attachments opt into one selection scope for the entire document.
   const usesLineList = !props.selectable;
   const padded = (
     <ScrollView
@@ -414,7 +409,6 @@ function JavaScriptSourceFileSurface(props: SourceFileSurfaceProps) {
       ) : codeWordBreak ? (
         padded
       ) : (
-        // Without wrapping the text keeps its natural width and the reader pans to it.
         <ScrollView horizontal bounces={false} className="flex-1">
           {padded}
         </ScrollView>

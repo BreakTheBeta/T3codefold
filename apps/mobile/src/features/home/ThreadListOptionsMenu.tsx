@@ -2,8 +2,8 @@ import type { MenuAction } from "@react-native-menu/menu";
 import type { ComponentProps } from "react";
 import { View } from "react-native";
 
-import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
-import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
+import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu";
+import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
 
 /**
  * Fold's Android thread-list overflow menu: thread filters and Settings. A dot marks

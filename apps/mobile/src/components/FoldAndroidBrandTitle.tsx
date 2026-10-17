@@ -1,8 +1,8 @@
 import { View } from "react-native";
 
-import { AppText as Text } from "./AppText";
+import { AppText as Text } from "./ui/AppText";
 import { MOBILE_APP_NAME } from "../lib/mobileBranding";
-import { useAndroidControlSizing } from "./useAndroidControlSizing";
+import { useAndroidControlSizing } from "./ui/useAndroidControlSizing";
 
 /** Fold's Android header title: the app name as plain header text, without the wordmark. */
 export function FoldAndroidBrandTitle(props: {

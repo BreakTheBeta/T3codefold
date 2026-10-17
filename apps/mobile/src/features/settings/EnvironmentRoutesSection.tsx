@@ -1,3 +1,4 @@
+import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import {
   type ConnectionRoute,
@@ -14,7 +15,7 @@ import { AUTH_SCOPE_OPTIONS } from "@t3tools/shared/authScopeOptions";
 import { AsyncResult } from "effect/reactivity";
 import * as Option from "effect/Option";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Platform, Pressable, View, useWindowDimensions } from "react-native";
+import { Platform, Pressable, View, useWindowDimensions } from "react-native";
 import Reanimated, {
   ReduceMotion,
   useAnimatedStyle,
@@ -23,8 +24,8 @@ import Reanimated, {
   type SharedValue,
 } from "react-native-reanimated";
 
-import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
+import { type AppSymbolName, SymbolView } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
 import { StatusPill } from "../../components/StatusPill";
 import { environmentCatalog } from "../../connection/catalog";
 import { cn } from "../../lib/cn";
@@ -48,12 +49,6 @@ const ROUTE_ICONS: Record<ConnectionRouteKind, AppSymbolName> = {
   ssh: "terminal",
 };
 
-/**
- * The ways this device reaches an environment, preferred first. The first
- * route that answers is used, and the connection moves back up the list when
- * a better route is reachable again. Edit shows drag handles and remove
- * buttons; Add route pairs this machine over another address.
- */
 export function EnvironmentRoutesSection({
   environmentId,
   connected,
@@ -76,7 +71,6 @@ export function EnvironmentRoutesSection({
   const [editing, setEditing] = useState(false);
   const saved = entry === undefined ? [] : connectionRoutes(entry);
   const savedIds = saved.map((route) => connectionRouteId(route.target));
-  // A dropped order shows until the catalog matches it.
   const [pending, setPending] = useState<ReadonlyArray<string> | null>(null);
   const order =
     pending !== null &&
@@ -87,7 +81,6 @@ export function EnvironmentRoutesSection({
   const [drag, setDrag] = useState<{ readonly id: string; readonly translation: number } | null>(
     null,
   );
-  // Rows size to their content, so a drag measures how far it has moved past each one.
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   // Each drop remounts the rows so the new order and the cleared drag offsets
   // land in one frame. Kept rows would show their old offsets in their new
@@ -119,7 +112,6 @@ export function EnvironmentRoutesSection({
     next.splice(to, 0, moved!);
     commit(next);
   };
-  // A lifted row takes a neighbour's slot once it has moved past half of that row.
   const dropIndex = (from: number, translation: number) => {
     const step = translation > 0 ? 1 : -1;
     let to = from;
@@ -133,7 +125,7 @@ export function EnvironmentRoutesSection({
     return to;
   };
   const confirmRemove = (route: ConnectionRoute) =>
-    Alert.alert(
+    Dialog.alert(
       `Remove ${connectionRouteLabel(route)}?`,
       connectionRouteAddress(route) ?? undefined,
       [
@@ -199,7 +191,6 @@ export function EnvironmentRoutesSection({
       ) : null}
       {routes.map((route, index) => {
         const id = connectionRouteId(route.target);
-        // Rows between the lifted row and its drop slot shift to make room.
         const lifted = drag === null ? 0 : (heights.get(drag.id) ?? 0);
         const shift =
           dragFrom === -1 || index === dragFrom
@@ -240,7 +231,6 @@ export function EnvironmentRoutesSection({
               if (!cancelled) move(index, dropIndex(index, translation));
             }}
             onStep={(direction) => move(index, direction === "up" ? index - 1 : index + 1)}
-            // The last route goes with the machine, which is "Remove" on the row.
             // A learned route would be learned again, so it is only reordered.
             onRemove={
               routes.length > 1 && !isLearned(route) ? () => confirmRemove(route) : undefined
@@ -317,7 +307,6 @@ function RouteRow(props: {
         ]
           .filter((part) => part !== null)
           .join(", ")}
-        // Matches the padding of the settings rows around it.
         className={cn(
           "min-w-0 flex-1 flex-row items-center gap-4 py-4 android:py-3",
           address !== null ? "android:min-h-18" : "android:min-h-14",

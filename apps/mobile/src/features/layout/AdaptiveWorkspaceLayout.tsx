@@ -1,3 +1,4 @@
+import { WindowHingeContext } from "../../native/window-hinge-context";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -273,6 +274,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
     leadingInset,
     trailingInset,
     foldRegions,
+    windowHinge,
     tabletopTopHeight,
     hingeSnapWidths,
     workspaceView,
@@ -715,98 +717,102 @@ function AdaptiveWorkspaceLayoutContent(props: {
       savedFilters={props.initialPreferences.threadListFilters}
     >
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
-        <View
-          ref={workspaceView}
-          onLayout={onWorkspaceLayout}
-          testID="adaptive-workspace-layout"
-          className={Platform.OS === "android" ? "flex-1 flex-row bg-header" : "flex-1 flex-row"}
-          style={{ paddingLeft: leadingInset, paddingRight: trailingInset }}
-        >
-          <WorkspaceSidebarColumn layout={effectiveLayout} visible={panes.primarySidebarVisible}>
-            {(listPaneWidth) => (
-              <RenderErrorBoundary
-                renderFallback={(fallback) => (
-                  <RenderFailureView
-                    {...fallback}
-                    title="The sidebar couldn't be displayed"
-                    exit={{ label: "Open settings", onPress: handleOpenSettings }}
-                  />
-                )}
-              >
-                <AndroidWorkspaceSidebar
-                  onRequestVisibility={revealPrimarySidebar}
-                  selectedPullRequestKey={props.selectedPullRequestKey ?? null}
-                >
-                  <AndroidHomeFabLayout sidebar onStartNewTask={handleStartNewTask}>
-                    <ThreadNavigationSidebar
-                      width={listPaneWidth}
-                      visible={panes.primarySidebarVisible}
-                      onRequestVisibility={revealPrimarySidebar}
-                      selectedThreadKey={selectedThreadKey}
-                      onOpenSettings={handleOpenSettings}
-                      onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
-                      onOpenPullRequests={handleOpenPullRequests}
-                      onNewThreadInProject={handleNewThreadInProject}
-                      onNewThreadOnBranch={handleNewThreadOnBranch}
-                      onSelectThread={handleSelectThread}
-                      onSearchQueryChange={setPrimarySidebarSearchQuery}
-                      searchQuery={primarySidebarSearchQuery}
-                    />
-                  </AndroidHomeFabLayout>
-                </AndroidWorkspaceSidebar>
-              </RenderErrorBoundary>
-            )}
-          </WorkspaceSidebarColumn>
-          {sidebarGap > 0 && panes.primarySidebarVisible ? (
-            <View style={{ width: sidebarGap }} />
-          ) : null}
+        <WindowHingeContext value={windowHinge}>
           <View
-            className={
-              Platform.OS === "android" ? "overflow-hidden bg-header" : "overflow-hidden bg-screen"
-            }
-            collapsable={false}
-            accessibilityElementsHidden={panes.auxiliaryPaneMaximized}
-            importantForAccessibility={
-              panes.auxiliaryPaneMaximized ? "no-hide-descendants" : "auto"
-            }
-            // A maximized inspector collapses the chat without unmounting it.
-            style={
-              panes.auxiliaryPaneMaximized
-                ? { width: 0 }
-                : foldRegions.vertical &&
-                    !panes.primarySidebarVisible &&
-                    !panes.auxiliaryPaneVisible
-                  ? { width: foldRegions.vertical.leadingWidth }
-                  : { flex: 1 }
-            }
+            ref={workspaceView}
+            onLayout={onWorkspaceLayout}
+            testID="adaptive-workspace-layout"
+            className={Platform.OS === "android" ? "flex-1 flex-row bg-header" : "flex-1 flex-row"}
+            style={{ paddingLeft: leadingInset, paddingRight: trailingInset }}
           >
-            {props.children}
-            {Platform.OS === "android" &&
-            props.initialPreferences.workspaceThumbGesturesEnabled === true ? (
-              <WorkspaceThumbNavigation onAction={handleThumbAction} />
+            <WorkspaceSidebarColumn layout={effectiveLayout} visible={panes.primarySidebarVisible}>
+              {(listPaneWidth) => (
+                <RenderErrorBoundary
+                  renderFallback={(fallback) => (
+                    <RenderFailureView
+                      {...fallback}
+                      title="The sidebar couldn't be displayed"
+                      exit={{ label: "Open settings", onPress: handleOpenSettings }}
+                    />
+                  )}
+                >
+                  <AndroidWorkspaceSidebar
+                    onRequestVisibility={revealPrimarySidebar}
+                    selectedPullRequestKey={props.selectedPullRequestKey ?? null}
+                  >
+                    <AndroidHomeFabLayout sidebar onStartNewTask={handleStartNewTask}>
+                      <ThreadNavigationSidebar
+                        width={listPaneWidth}
+                        visible={panes.primarySidebarVisible}
+                        onRequestVisibility={revealPrimarySidebar}
+                        selectedThreadKey={selectedThreadKey}
+                        onOpenSettings={handleOpenSettings}
+                        onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
+                        onOpenPullRequests={handleOpenPullRequests}
+                        onNewThreadInProject={handleNewThreadInProject}
+                        onNewThreadOnBranch={handleNewThreadOnBranch}
+                        onSelectThread={handleSelectThread}
+                        onSearchQueryChange={setPrimarySidebarSearchQuery}
+                        searchQuery={primarySidebarSearchQuery}
+                      />
+                    </AndroidHomeFabLayout>
+                  </AndroidWorkspaceSidebar>
+                </RenderErrorBoundary>
+              )}
+            </WorkspaceSidebarColumn>
+            {sidebarGap > 0 && panes.primarySidebarVisible ? (
+              <View style={{ width: sidebarGap }} />
             ) : null}
-            <VimPaneFocusMarker region="chat" />
-          </View>
-          {foldRegions.vertical && panes.auxiliaryPaneVisible ? (
             <View
-              style={{
-                width:
-                  foldRegions.vertical.gap +
-                  (panes.auxiliaryPaneMaximized ? foldRegions.vertical.leadingWidth : 0),
-              }}
+              className={
+                Platform.OS === "android"
+                  ? "overflow-hidden bg-header"
+                  : "overflow-hidden bg-screen"
+              }
+              collapsable={false}
+              accessibilityElementsHidden={panes.auxiliaryPaneMaximized}
+              importantForAccessibility={
+                panes.auxiliaryPaneMaximized ? "no-hide-descendants" : "auto"
+              }
+              // A maximized inspector collapses the chat without unmounting it.
+              style={
+                panes.auxiliaryPaneMaximized
+                  ? { width: 0 }
+                  : foldRegions.vertical &&
+                      !panes.primarySidebarVisible &&
+                      !panes.auxiliaryPaneVisible
+                    ? { width: foldRegions.vertical.leadingWidth }
+                    : { flex: 1 }
+              }
+            >
+              {props.children}
+              {Platform.OS === "android" &&
+              props.initialPreferences.workspaceThumbGesturesEnabled === true ? (
+                <WorkspaceThumbNavigation onAction={handleThumbAction} />
+              ) : null}
+              <VimPaneFocusMarker region="chat" />
+            </View>
+            {foldRegions.vertical && panes.auxiliaryPaneVisible ? (
+              <View
+                style={{
+                  width:
+                    foldRegions.vertical.gap +
+                    (panes.auxiliaryPaneMaximized ? foldRegions.vertical.leadingWidth : 0),
+                }}
+              />
+            ) : null}
+            <FoldWorkspaceInspectorPane
+              topRegionHeight={tabletopTopHeight}
+              fixedDivider={foldRegions.vertical !== null}
+              pathname={props.pathname}
+              panes={panes}
+              renderInspector={workspaceInspector?.render}
+              snapWidths={hingeSnapWidths}
+              onDividerRelease={handleDividerRelease}
+              onToggleMaximized={toggleAuxiliaryPaneMaximized}
             />
-          ) : null}
-          <FoldWorkspaceInspectorPane
-            topRegionHeight={tabletopTopHeight}
-            fixedDivider={foldRegions.vertical !== null}
-            pathname={props.pathname}
-            panes={panes}
-            renderInspector={workspaceInspector?.render}
-            snapWidths={hingeSnapWidths}
-            onDividerRelease={handleDividerRelease}
-            onToggleMaximized={toggleAuxiliaryPaneMaximized}
-          />
-        </View>
+          </View>
+        </WindowHingeContext>
       </AdaptiveWorkspaceContext.Provider>
     </HomeListOptionsProvider>
   );

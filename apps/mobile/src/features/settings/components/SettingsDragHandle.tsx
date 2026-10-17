@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
 import type { SharedValue } from "react-native-reanimated";
 
-import { SymbolView } from "../../../components/AppSymbol";
+import { SymbolView } from "../../../components/ui/AppSymbol";
 import { useUIThreadDrag } from "../../threads/use-ui-thread-drag";
 
 interface SettingsDragHandleProps {

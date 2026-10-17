@@ -33,6 +33,12 @@ export function useFoldWorkspaceGeometry() {
   const trailingInset = layout.usesSplitView ? safeAreaInsets.right : 0;
   const width = Math.max(0, window.width - leadingInset - trailingInset);
   const posture = useWindowPosture();
+  const verticalHinge = posture.hinges.find(
+    (hinge) => hinge.orientation === "vertical" && hinge.state === "halfOpened",
+  );
+  const windowHinge = verticalHinge
+    ? { x: verticalHinge.left, width: verticalHinge.right - verticalHinge.left }
+    : null;
   const foldRegions = useMemo(
     () =>
       deriveWorkspaceFoldRegions({
@@ -68,6 +74,7 @@ export function useFoldWorkspaceGeometry() {
     leadingInset,
     trailingInset,
     foldRegions,
+    windowHinge,
     tabletopTopHeight,
     hingeSnapWidths,
     workspaceView,

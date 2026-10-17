@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { Alert, AppState, Linking } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { runtime } from "../../lib/runtime";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { requestAgentNotificationPermission } from "../agent-awareness/notificationPermissions";

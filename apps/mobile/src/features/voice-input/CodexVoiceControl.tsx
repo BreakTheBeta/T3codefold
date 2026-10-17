@@ -2,7 +2,7 @@ import { supportsCodexRealtimeVoiceVersion } from "@t3tools/client-runtime/realt
 import type { EnvironmentId, ServerProvider, ThreadId } from "@t3tools/contracts";
 import { useEffect } from "react";
 import { Alert, Platform, View } from "react-native";
-import { AppText } from "../../components/AppText";
+import { AppText } from "../../components/ui/AppText";
 import { ComposerActionButton } from "../../components/ComposerToolbar";
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import { useCodexRealtimeVoice } from "./useCodexRealtimeVoice";
