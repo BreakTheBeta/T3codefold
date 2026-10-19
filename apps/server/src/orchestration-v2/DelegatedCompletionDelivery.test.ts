@@ -22,6 +22,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as Tracer from "effect/Tracer";
+import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -920,6 +921,307 @@ const seedRestartCancelledChild = (input: {
     });
     return { taskId, childThreadId, childRunId };
   });
+
+it.effect.each([
+  "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
+  "running",
+  "waiting",
+  "retry-running",
+  "retry-completed",
+  "bound-duplicate",
+  "bound-retry-running",
+  "bound-retry-completed",
+  "unrelated-retry",
+] as const)("recovers legacy steered tasks with a %s run", (scenario) =>
+  Effect.gen(function* () {
+    const retry =
+      scenario === "retry-running" ||
+      scenario === "retry-completed" ||
+      scenario === "bound-retry-running" ||
+      scenario === "bound-retry-completed";
+    const status =
+      scenario === "retry-running" || scenario === "bound-retry-running"
+        ? "running"
+        : scenario === "retry-completed" ||
+            scenario === "bound-retry-completed" ||
+            scenario === "bound-duplicate" ||
+            scenario === "unrelated-retry"
+          ? "completed"
+          : scenario;
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const eventSink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const threadId = ThreadId.make("thread:legacy-steer-parent");
+    const projectId = ProjectId.make("project:legacy-steer");
+    const runId = RunId.make("run:legacy-steer-parent");
+    const rootNodeId = NodeId.make("node:legacy-steer-parent");
+    yield* seedParentWithTerminalTask({
+      threadId,
+      projectId,
+      runId,
+      rootNodeId,
+      taskId: NodeId.make("node:legacy-seed"),
+      deliveryState: "acknowledged",
+      now,
+    });
+    const child = yield* seedRestartCancelledChild({
+      parentThreadId: threadId,
+      projectId,
+      parentRunId: runId,
+      rootNodeId,
+      name: "legacy-steer-child",
+      completionWake: "always",
+      continuationPending: false,
+      runStatus: "completed",
+      now,
+    });
+    yield* orchestrator.recoverDelegatedTasks;
+    const original = (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
+      (task) => task.id === child.taskId,
+    )!;
+    const taskIds = [0, 1, 2, 3].map((key) =>
+      NodeId.make(
+        `node:delegated-task:${encodeURIComponent(`command:mcp:legacy:thread-send:${key}`)}`,
+      ),
+    );
+    yield* eventSink.write({
+      commandId: reconcileCommandId("legacy-steers"),
+      events: taskIds.flatMap((taskId, index) => [
+        {
+          id: EventId.make(`event:legacy-task:${index}`),
+          type: "subagent.updated" as const,
+          threadId,
+          occurredAt: now,
+          payload: {
+            ...original,
+            id: taskId,
+            status: "running" as const,
+            result: null,
+            completedAt: null,
+            completionDelivery: {
+              state: index === 0 ? ("pending" as const) : ("acknowledged" as const),
+              observedByRunId: index === 0 ? null : runId,
+            },
+          },
+        },
+        {
+          id: EventId.make(`event:legacy-item:${index}`),
+          type: "turn-item.updated" as const,
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`item:legacy:${index}`),
+            threadId,
+            runId,
+            nodeId: taskId,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: index + 1,
+            status: "running" as const,
+            title: "Historical review",
+            startedAt: now,
+            completedAt: null,
+            updatedAt: now,
+            type: "subagent" as const,
+            subagentId: taskId,
+            origin: "app_owned" as const,
+            driver,
+            providerInstanceId: modelSelection.instanceId,
+            childThreadId: child.childThreadId,
+            prompt: "Follow-up guidance",
+            result: null,
+          },
+        },
+        {
+          id: EventId.make(`event:legacy-node:${index}`),
+          type: "node.updated" as const,
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: taskId,
+            threadId,
+            runId,
+            parentNodeId: rootNodeId,
+            rootNodeId,
+            kind: "subagent" as const,
+            status: "running" as const,
+            countsForRun: false,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            runtimeRequestId: null,
+            checkpointScopeId: null,
+            startedAt: now,
+            completedAt: null,
+          },
+        },
+        {
+          id: EventId.make(`event:legacy-message:${index}`),
+          type: "message.updated" as const,
+          threadId: child.childThreadId,
+          occurredAt: now,
+          payload: {
+            id: MessageId.make(`message:mcp:legacy:thread-send:${index}`),
+            threadId: child.childThreadId,
+            runId: child.childRunId,
+            nodeId: null,
+            role: "user" as const,
+            text: "Follow-up guidance",
+            attachments: [],
+            streaming: false,
+            createdBy: "agent" as const,
+            creationSource: "mcp" as const,
+            senderThreadId: threadId,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      ]),
+    });
+    const parentRun = (yield* orchestrator.getThreadProjection(threadId)).runs.find(
+      (run) => run.id === runId,
+    )!;
+    yield* eventSink.write({
+      commandId: reconcileCommandId("legacy-parent-ended"),
+      events: [
+        {
+          id: EventId.make("event:legacy-parent-ended"),
+          type: "run.updated",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: { ...parentRun, status: "completed", completedAt: now },
+        },
+      ],
+    });
+    const before = yield* orchestrator.getThreadProjection(threadId);
+    assert.lengthOf(
+      derivePendingBackgroundWork({
+        latestRun: before.runs[0],
+        runs: before.runs,
+        turnItems: before.turnItems,
+        providerThreads: before.providerThreads,
+      }),
+      4,
+    );
+    assert.lengthOf(
+      (yield* orchestrator.getThreadShell(threadId))!.pendingBackgroundTasks ?? [],
+      4,
+    );
+    const childRun = (yield* orchestrator.getThreadProjection(child.childThreadId)).runs.find(
+      (run) => run.id === child.childRunId,
+    )!;
+    yield* eventSink.writeWithEffects({
+      commandId: reconcileCommandId("legacy-run-outcome"),
+      events: [
+        {
+          id: EventId.make("event:legacy-run-outcome"),
+          type: "run.updated",
+          threadId: child.childThreadId,
+          runId: child.childRunId,
+          occurredAt: now,
+          payload: {
+            ...childRun,
+            status: retry ? "cancelled" : status,
+            ...(scenario.startsWith("bound-") ? { delegatedTaskId: taskIds[3]! } : {}),
+            completedAt: !retry && (status === "running" || status === "waiting") ? null : now,
+          },
+        },
+        (() => {
+          const event = runEvent({
+            threadId: child.childThreadId,
+            runId: RunId.make("run:legacy-new-work"),
+            ordinal: 2,
+            status:
+              scenario === "unrelated-retry"
+                ? "cancelled"
+                : retry && status === "completed"
+                  ? "completed"
+                  : "running",
+            now,
+          });
+          return {
+            ...event,
+            payload: {
+              ...event.payload,
+              ...(retry ? { restartContinuationOfRunId: child.childRunId } : {}),
+            },
+          };
+        })(),
+      ],
+      effects:
+        scenario === "unrelated-retry"
+          ? [
+              {
+                id: "effect:restart-continuation:run:legacy-new-work",
+                commandId: reconcileCommandId("legacy-run-outcome"),
+                threadId: child.childThreadId,
+                request: {
+                  type: "provider-runtime.continue",
+                  sourceRunId: RunId.make("run:legacy-new-work"),
+                },
+              },
+            ]
+          : [],
+    });
+    yield* orchestrator.recoverDelegatedTasks;
+    const recovered = yield* orchestrator.getThreadProjection(threadId);
+    assert.deepEqual(
+      recovered.subagents.filter((task) => taskIds.includes(task.id)).map((task) => task.status),
+      taskIds.map(() => (["running", "waiting"].includes(status) ? "running" : status)),
+    );
+    assert.isTrue(
+      recovered.subagents
+        .filter((task) => taskIds.includes(task.id))
+        .every((task) =>
+          ["running", "waiting"].includes(status)
+            ? task.completedAt === null && task.result === null
+            : DateTime.toEpochMillis(task.completedAt!) === DateTime.toEpochMillis(now) &&
+              task.result !== null,
+        ),
+    );
+    assert.equal(
+      recovered.subagents.find((task) => task.id === taskIds[1])?.completionDelivery?.state,
+      "acknowledged",
+    );
+    const expectedCount = ["running", "waiting"].includes(status) ? 4 : 0;
+    assert.lengthOf(
+      derivePendingBackgroundWork({
+        latestRun: recovered.runs[0],
+        runs: recovered.runs,
+        turnItems: recovered.turnItems,
+        providerThreads: recovered.providerThreads,
+      }),
+      expectedCount,
+    );
+    assert.lengthOf(
+      (yield* orchestrator.getThreadShell(threadId))!.pendingBackgroundTasks ?? [],
+      expectedCount,
+    );
+    assert.deepEqual(
+      recovered.nodes.filter((node) => taskIds.includes(node.id)).map((node) => node.status),
+      taskIds.map(() => (["running", "waiting"].includes(status) ? "running" : status)),
+    );
+    const sequence = yield* eventSink.latestSequence();
+    yield* orchestrator.recoverDelegatedTasks;
+    assert.equal(yield* eventSink.latestSequence(), sequence);
+    assert.equal(
+      (yield* orchestrator.getThreadProjection(child.childThreadId)).runs.find(
+        (run) => run.id === RunId.make("run:legacy-new-work"),
+      )?.status,
+      scenario === "unrelated-retry"
+        ? "cancelled"
+        : retry && status === "completed"
+          ? "completed"
+          : "running",
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
 
 it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
   "subagent follow-ups",

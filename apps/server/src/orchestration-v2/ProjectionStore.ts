@@ -579,19 +579,22 @@ function needsRecovery(
         projection.thread.lineage.relationshipToParent === "subagent" &&
         parentThreadId !== null &&
         projection.thread.forkedFrom?.type === "node" &&
-        ((parent?.subagents ?? []).some(
-          (task) =>
-            task.origin === "app_owned" &&
-            task.result === null &&
-            task.childThreadId === projection.thread.id &&
-            projection.runs.some(
-              (run) =>
-                run.delegatedTaskId === task.id &&
-                ["completed", "interrupted", "failed", "cancelled", "rolled_back"].includes(
-                  run.status,
-                ),
-            ),
-        ) ||
+        ((parent?.subagents ?? []).some((task) => {
+          if (
+            task.origin !== "app_owned" ||
+            task.result !== null ||
+            task.childThreadId !== projection.thread.id
+          )
+            return false;
+          const boundRuns = projection.runs.filter((run) => run.delegatedTaskId === task.id);
+          const candidates =
+            boundRuns.length === 0 && ["pending", "running", "waiting"].includes(task.status)
+              ? projection.runs
+              : boundRuns;
+          return candidates.some((run) =>
+            ["completed", "interrupted", "failed", "cancelled", "rolled_back"].includes(run.status),
+          );
+        }) ||
           (["completed", "interrupted", "failed", "cancelled", "rolled_back"].includes(
             latestUnheldRun(projection.runs)?.status ?? "idle",
           ) &&
@@ -3703,6 +3706,22 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                       AND task.child_thread_id = child.thread_id
                       AND json_extract(task.payload_json, '$.origin') = 'app_owned'
                       AND json_extract(task.payload_json, '$.result') IS NULL
+                  ) OR EXISTS (
+                    SELECT 1 FROM orchestration_v2_projection_subagents AS task
+                    WHERE task.child_thread_id = child.thread_id
+                      AND task.origin = 'app_owned'
+                      AND task.status IN ('pending', 'running', 'waiting')
+                      AND json_extract(task.payload_json, '$.result') IS NULL
+                      AND NOT EXISTS (
+                        SELECT 1 FROM orchestration_v2_projection_runs AS bound
+                        WHERE bound.thread_id = child.thread_id
+                          AND json_extract(bound.payload_json, '$.delegatedTaskId') = task.subagent_id
+                      )
+                      AND EXISTS (
+                        SELECT 1 FROM orchestration_v2_projection_runs AS ended
+                        WHERE ended.thread_id = child.thread_id
+                          AND ended.status IN ('completed', 'interrupted', 'failed', 'cancelled', 'rolled_back')
+                      )
                   ) OR (
                     -- The original task still waits for the latest unheld work.
                     (SELECT status FROM orchestration_v2_projection_runs
