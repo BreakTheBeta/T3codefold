@@ -10253,11 +10253,46 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return;
       }
       const taskRuns = childControls.runs.filter((run) => run.delegatedTaskId === options.taskId);
+      // Before steers stopped registering tasks, the running provider could overwrite
+      // delegatedTaskId from its startup snapshot. MCP message and task ids retain
+      // the same command identity even when several steers joined that run.
+      const legacySteerMessage =
+        taskRuns.length === 0
+          ? childControls.messages.find(
+              (message) =>
+                message.role === "user" &&
+                message.creationSource === "mcp" &&
+                message.senderThreadId === childControls.thread.lineage.parentThreadId &&
+                message.id.startsWith("message:mcp:") &&
+                idAllocator.derive.delegatedTaskNode({
+                  commandId: CommandId.make(message.id.replace(/^message:/, "command:")),
+                }) === options.taskId,
+            )
+          : undefined;
+      let legacySteerRun =
+        legacySteerMessage === undefined
+          ? undefined
+          : childControls.runs.find(
+              (run) =>
+                run.id === legacySteerMessage.runId && run.userMessageId !== legacySteerMessage.id,
+            );
+      if (legacySteerRun !== undefined) {
+        const continuationIds = new Set([legacySteerRun.id]);
+        for (const run of childControls.runs.toSorted((a, b) => a.ordinal - b.ordinal)) {
+          if (
+            run.restartContinuationOfRunId !== undefined &&
+            continuationIds.has(run.restartContinuationOfRunId)
+          ) {
+            continuationIds.add(run.id);
+            legacySteerRun = run;
+          }
+        }
+      }
       const childRun =
         taskRuns.length === 0
           ? options.taskId === forkedFrom.nodeId
             ? options.resultRun
-            : undefined
+            : legacySteerRun
           : taskRuns.toSorted((a, b) => b.ordinal - a.ordinal)[0];
       if (childRun === undefined) return;
       const outcome = runOutcome(childRun);
@@ -10311,7 +10346,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           candidate.origin === "app_owned" &&
           candidate.childThreadId === childThreadId,
       );
-      if (task === undefined) {
+      if (
+        task === undefined ||
+        (legacySteerRun !== undefined && !isOrchestrationV2WorkActive(task.status))
+      ) {
         return;
       }
       const existingResultTransfer = parentProjection.contextTransfers.find(
@@ -10322,7 +10360,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           (transfer.sourcePoint.runId === childRun.id ||
             (options.taskId === forkedFrom.nodeId && transfer.sourcePoint.runId === undefined)),
       );
-      if (existingResultTransfer !== undefined) {
+      if (
+        existingResultTransfer !== undefined &&
+        (legacySteerRun === undefined || task.result !== null)
+      ) {
         return;
       }
 
@@ -10336,12 +10377,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const parentTurnItem = parentProjection.turnItems.find(
         (candidate) => candidate.type === "subagent" && candidate.subagentId === task.id,
       );
+      const completedAt = legacySteerRun?.completedAt ?? now;
       const updatedTask: OrchestrationV2Subagent = {
         ...task,
         providerThreadId: childRun.providerThreadId,
         status: terminalStatus,
         result: result.text,
-        completedAt: now,
+        completedAt,
         updatedAt: now,
       };
       const completionPlan = yield* planDelegatedCompletionDelivery({
@@ -10351,11 +10393,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         updatedTask,
         now,
       });
-      const resultTransferId = yield* idAllocator.allocate.contextTransfer({
-        sourceThreadId: childThreadId,
-        targetThreadId: parentThreadId,
-        type: "subagent_result",
-      });
+      const resultTransferId =
+        existingResultTransfer?.id ??
+        (yield* idAllocator.allocate.contextTransfer({
+          sourceThreadId: childThreadId,
+          targetThreadId: parentThreadId,
+          type: "subagent_result",
+        }));
       const childProviderThread =
         childRun.providerThreadId === null
           ? undefined
@@ -10369,6 +10413,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (candidate) => candidate.id === parentRun.providerThreadId,
             );
       const resultHandoff: OrchestrationV2ContextHandoff | null =
+        existingResultTransfer !== undefined ||
         parentRun === undefined ||
         childProviderThread === undefined ||
         parentProviderThread === undefined
@@ -10483,7 +10528,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   ...parentNode,
                   status: terminalStatus,
                   providerThreadId: childRun.providerThreadId,
-                  completedAt: now,
+                  completedAt,
                 },
               },
             ]),
@@ -10501,7 +10546,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   ...parentTurnItem,
                   status: terminalStatus,
                   result: result.text,
-                  completedAt: now,
+                  completedAt,
                   updatedAt: now,
                 },
               },
@@ -10518,14 +10563,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 payload: resultHandoff,
               },
             ]),
-        {
-          type: "context-transfer.created",
-          threadId: parentThreadId,
-          ...(parentRun === undefined ? {} : { runId: parentRun.id }),
-          providerInstanceId: childRun.providerInstanceId,
-          occurredAt: now,
-          payload: resultTransfer,
-        },
+        ...(existingResultTransfer === undefined
+          ? [
+              {
+                type: "context-transfer.created" as const,
+                threadId: parentThreadId,
+                ...(parentRun === undefined ? {} : { runId: parentRun.id }),
+                providerInstanceId: childRun.providerInstanceId,
+                occurredAt: now,
+                payload: resultTransfer,
+              },
+            ]
+          : []),
       ]);
 
       if (completionPlan.offer && completionPlan.parentRun !== undefined) {
