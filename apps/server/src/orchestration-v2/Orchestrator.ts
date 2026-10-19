@@ -10256,19 +10256,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       // Before steers stopped registering tasks, the running provider could overwrite
       // delegatedTaskId from its startup snapshot. MCP message and task ids retain
       // the same command identity even when several steers joined that run.
-      const legacySteerMessage =
-        taskRuns.length === 0
-          ? childControls.messages.find(
-              (message) =>
-                message.role === "user" &&
-                message.creationSource === "mcp" &&
-                message.senderThreadId === childControls.thread.lineage.parentThreadId &&
-                message.id.startsWith("message:mcp:") &&
-                idAllocator.derive.delegatedTaskNode({
-                  commandId: CommandId.make(message.id.replace(/^message:/, "command:")),
-                }) === options.taskId,
-            )
-          : undefined;
+      const legacySteerMessage = childControls.messages.find(
+        (message) =>
+          message.role === "user" &&
+          message.creationSource === "mcp" &&
+          message.senderThreadId === childControls.thread.lineage.parentThreadId &&
+          message.id.startsWith("message:mcp:") &&
+          idAllocator.derive.delegatedTaskNode({
+            commandId: CommandId.make(message.id.replace(/^message:/, "command:")),
+          }) === options.taskId,
+      );
       let legacySteerRun =
         legacySteerMessage === undefined
           ? undefined
@@ -10276,8 +10273,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (run) =>
                 run.id === legacySteerMessage.runId && run.userMessageId !== legacySteerMessage.id,
             );
+      const continuationIds = new Set<RunId>();
       if (legacySteerRun !== undefined) {
-        const continuationIds = new Set([legacySteerRun.id]);
+        continuationIds.add(legacySteerRun.id);
         for (const run of childControls.runs.toSorted((a, b) => a.ordinal - b.ordinal)) {
           if (
             run.restartContinuationOfRunId !== undefined &&
@@ -10289,11 +10287,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       }
       const childRun =
-        taskRuns.length === 0
-          ? options.taskId === forkedFrom.nodeId
-            ? options.resultRun
-            : legacySteerRun
-          : taskRuns.toSorted((a, b) => b.ordinal - a.ordinal)[0];
+        [...taskRuns, ...(legacySteerRun === undefined ? [] : [legacySteerRun])].toSorted(
+          (a, b) => b.ordinal - a.ordinal,
+        )[0] ?? (options.taskId === forkedFrom.nodeId ? options.resultRun : undefined);
       if (childRun === undefined) return;
       const outcome = runOutcome(childRun);
       const terminalStatus = delegatedTaskTerminalStatus(outcome);
@@ -10302,7 +10298,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       if (
         yield* childAwaitsRestartContinuation(
-          taskRuns.length === 0 ? childControls.runs : taskRuns,
+          legacySteerRun !== undefined
+            ? childControls.runs.filter(
+                (run) => continuationIds.has(run.id) || run.delegatedTaskId === options.taskId,
+              )
+            : taskRuns.length === 0
+              ? childControls.runs
+              : taskRuns,
           childRun,
           options?.settledContinuationOf,
         )
@@ -10377,7 +10379,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const parentTurnItem = parentProjection.turnItems.find(
         (candidate) => candidate.type === "subagent" && candidate.subagentId === task.id,
       );
-      const completedAt = legacySteerRun?.completedAt ?? now;
+      const completedAt = legacySteerRun === undefined ? now : (childRun.completedAt ?? now);
       const updatedTask: OrchestrationV2Subagent = {
         ...task,
         providerThreadId: childRun.providerThreadId,

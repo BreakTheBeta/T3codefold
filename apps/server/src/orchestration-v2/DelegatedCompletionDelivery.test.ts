@@ -931,13 +931,24 @@ it.effect.each([
   "waiting",
   "retry-running",
   "retry-completed",
+  "bound-duplicate",
+  "bound-retry-running",
+  "bound-retry-completed",
+  "unrelated-retry",
 ] as const)("recovers legacy steered tasks with a %s run", (scenario) =>
   Effect.gen(function* () {
-    const retry = scenario === "retry-running" || scenario === "retry-completed";
+    const retry =
+      scenario === "retry-running" ||
+      scenario === "retry-completed" ||
+      scenario === "bound-retry-running" ||
+      scenario === "bound-retry-completed";
     const status =
-      scenario === "retry-running"
+      scenario === "retry-running" || scenario === "bound-retry-running"
         ? "running"
-        : scenario === "retry-completed"
+        : scenario === "retry-completed" ||
+            scenario === "bound-retry-completed" ||
+            scenario === "bound-duplicate" ||
+            scenario === "unrelated-retry"
           ? "completed"
           : scenario;
     const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -1105,7 +1116,7 @@ it.effect.each([
     const childRun = (yield* orchestrator.getThreadProjection(child.childThreadId)).runs.find(
       (run) => run.id === child.childRunId,
     )!;
-    yield* eventSink.write({
+    yield* eventSink.writeWithEffects({
       commandId: reconcileCommandId("legacy-run-outcome"),
       events: [
         {
@@ -1117,6 +1128,7 @@ it.effect.each([
           payload: {
             ...childRun,
             status: retry ? "cancelled" : status,
+            ...(scenario.startsWith("bound-") ? { delegatedTaskId: taskIds[3]! } : {}),
             completedAt: !retry && (status === "running" || status === "waiting") ? null : now,
           },
         },
@@ -1125,7 +1137,12 @@ it.effect.each([
             threadId: child.childThreadId,
             runId: RunId.make("run:legacy-new-work"),
             ordinal: 2,
-            status: retry && status === "completed" ? "completed" : "running",
+            status:
+              scenario === "unrelated-retry"
+                ? "cancelled"
+                : retry && status === "completed"
+                  ? "completed"
+                  : "running",
             now,
           });
           return {
@@ -1137,6 +1154,20 @@ it.effect.each([
           };
         })(),
       ],
+      effects:
+        scenario === "unrelated-retry"
+          ? [
+              {
+                id: "effect:restart-continuation:run:legacy-new-work",
+                commandId: reconcileCommandId("legacy-run-outcome"),
+                threadId: child.childThreadId,
+                request: {
+                  type: "provider-runtime.continue",
+                  sourceRunId: RunId.make("run:legacy-new-work"),
+                },
+              },
+            ]
+          : [],
     });
     yield* orchestrator.recoverDelegatedTasks;
     const recovered = yield* orchestrator.getThreadProjection(threadId);
@@ -1183,7 +1214,11 @@ it.effect.each([
       (yield* orchestrator.getThreadProjection(child.childThreadId)).runs.find(
         (run) => run.id === RunId.make("run:legacy-new-work"),
       )?.status,
-      retry && status === "completed" ? "completed" : "running",
+      scenario === "unrelated-retry"
+        ? "cancelled"
+        : retry && status === "completed"
+          ? "completed"
+          : "running",
     );
   }).pipe(Effect.provide(layerTest)),
 );
