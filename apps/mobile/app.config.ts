@@ -227,7 +227,7 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
-  version: repoEnv.T3CODE_MOBILE_VERSION ?? "1.4.3",
+  version: repoEnv.T3CODE_MOBILE_VERSION ?? "1.4.4",
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
     // expensive native-project calculation there. Preview and production stay
@@ -461,6 +461,7 @@ const config: ExpoConfig = {
     "./plugins/withAndroidBuildCache.cjs",
     "./plugins/withAndroidFbjniPin.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
+    "./plugins/withAndroidFbjniVersion.cjs",
     "./plugins/withAndroidInputBackground.cjs",
     "./plugins/withAndroidModernPopupMenu.cjs",
     "./plugins/withAndroidModernAlertDialog.cjs",
@@ -504,6 +505,10 @@ const config: ExpoConfig = {
     },
   },
   owner: "pingdotgg",
+  experiments: {
+    // Metro only runs babel-plugin-react-compiler when this is set; see src/reactCompilerCoverage.test.ts.
+    reactCompiler: true,
+  },
 };
 
 export default withFoldAppConfig(config, { appVariant: APP_VARIANT, runtimeVersionPolicy });

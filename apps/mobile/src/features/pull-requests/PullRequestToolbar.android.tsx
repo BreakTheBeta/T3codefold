@@ -10,6 +10,7 @@ import { SearchField } from "../../components/ui/SearchField";
 import { WorkspaceConnectionTitle } from "../home/WorkspaceConnectionTitle";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
+import { useWorkspaceListNavigation } from "../workspace/useAndroidWorkspaceNavigation";
 
 /** PR search shares the thread list's native Android header placement. */
 export function PullRequestToolbar(props: {
@@ -23,6 +24,7 @@ export function PullRequestToolbar(props: {
   const homeFocused = useNavigationState((state) => state.routes[state.index]?.name === "Home");
   const listFocused = homeFocused && workspace.state.selectedTab === "pullRequests";
   const { onRequestVisibility } = props;
+  const showThreads = useWorkspaceListNavigation("threads");
   const tab = workspace.state.tabs.pullRequests;
   const input = useRef<TextInputInstance>(null);
   const searching = tab.searchMode !== "resting";
@@ -78,6 +80,7 @@ export function PullRequestToolbar(props: {
                 <CompactBrandTitle
                   allowFontScaling={false}
                   accessibilityLabel="T3 Code, Pull requests"
+                  fit
                 />
               }
               onPress={() =>
@@ -103,6 +106,15 @@ export function PullRequestToolbar(props: {
         searching
           ? []
           : [
+              ...(props.sidebar
+                ? [
+                    {
+                      accessibilityLabel: "Show threads",
+                      icon: "text.bubble",
+                      onPress: showThreads,
+                    } as const,
+                  ]
+                : []),
               {
                 accessibilityLabel: "Search pull requests",
                 icon: "magnifyingglass",

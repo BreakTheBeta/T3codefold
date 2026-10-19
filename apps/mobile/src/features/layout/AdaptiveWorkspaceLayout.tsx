@@ -18,6 +18,7 @@ import {
   use,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -64,6 +65,7 @@ import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSe
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import { HomeListOptionsProvider } from "../home/home-list-options";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
+import { useOpenThreadPullRequests } from "../threads/use-open-thread-pull-requests";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { useWorkspaceThumbActions, WorkspaceThumbNavigation } from "./workspace-thumb-navigation";
 import { FoldWorkspaceInspectorPane } from "./fold-workspace-inspector-pane";
@@ -168,12 +170,10 @@ const activateAuxiliaryPaneRole = () => () => undefined;
  */
 export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefined) {
   const { registerWorkspaceInspector } = useAdaptiveWorkspaceLayout();
-  // Raw context values (not the useNavigation/useRoute wrappers) so the
-  // portal re-provides exactly what this screen sees.
   const navigation = use(NavigationContext);
   const route = use(NavigationRouteContext);
 
-  const wrappedRender = useMemo(() => {
+  const wrappedRender = (() => {
     if (render === undefined) {
       return undefined;
     }
@@ -182,43 +182,36 @@ export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefi
         <NavigationRouteContext.Provider value={route}>{render()}</NavigationRouteContext.Provider>
       </NavigationContext.Provider>
     );
-  }, [navigation, render, route]);
+  })();
 
-  const wrappedRenderRef = useRef(wrappedRender);
-  wrappedRenderRef.current = wrappedRender;
   const focusedRef = useRef(false);
   const deactivateRef = useRef<(() => void) | null>(null);
 
-  const syncRegistration = useCallback(() => {
-    if (!focusedRef.current || wrappedRenderRef.current === undefined) {
+  // An effect event reads this render's pane without making the focus
+  // subscription re-run (and deactivate) every time the pane closure changes.
+  const syncRegistration = useEffectEvent(() => {
+    if (!focusedRef.current || wrappedRender === undefined) {
       deactivateRef.current?.();
       return;
     }
-    deactivateRef.current = registerWorkspaceInspector(wrappedRenderRef.current);
-  }, [registerWorkspaceInspector]);
+    deactivateRef.current = registerWorkspaceInspector(wrappedRender);
+  });
 
-  // Focus lifecycle. Blur/focus events fire even when the blurred subtree is
-  // frozen (events are navigation-driven, renders are not).
-  useFocusEffect(
-    useCallback(() => {
-      focusedRef.current = true;
+  useFocusEffect(() => {
+    focusedRef.current = true;
+    syncRegistration();
+    return () => {
+      focusedRef.current = false;
       syncRegistration();
-      return () => {
-        focusedRef.current = false;
-        syncRegistration();
-      };
-    }, [syncRegistration]),
-  );
+    };
+  });
 
-  // Content changes while focused re-register in place.
   useEffect(() => {
     if (focusedRef.current) {
       syncRegistration();
     }
-  }, [syncRegistration, wrappedRender]);
+  }, [wrappedRender]);
 
-  // Unmount: hand the pane back (owner-guarded, so a route that already
-  // took over is unaffected).
   useEffect(
     () => () => {
       deactivateRef.current?.();
@@ -531,6 +524,8 @@ function AdaptiveWorkspaceLayoutContent(props: {
     togglePrimarySidebar,
     toggleAuxiliaryPaneMaximized,
   });
+  const handleOpenThreadPullRequests = useOpenThreadPullRequests();
+
   const handleOpenSettings = useCallback(() => {
     navigation.navigate("SettingsSheet", {
       screen: "SettingsContent",
@@ -749,6 +744,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
                         onOpenSettings={handleOpenSettings}
                         onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
                         onOpenPullRequests={handleOpenPullRequests}
+                        onOpenThreadPullRequests={handleOpenThreadPullRequests}
                         onNewThreadInProject={handleNewThreadInProject}
                         onNewThreadOnBranch={handleNewThreadOnBranch}
                         onSelectThread={handleSelectThread}
