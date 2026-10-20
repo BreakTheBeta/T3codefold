@@ -1,4 +1,6 @@
 import { dismissAndroidKeyboard } from "../../lib/android-back";
+import { SheetCloseButton } from "../../components/ui/SheetHeader";
+import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import {
   deviceToolVersionLabels,
@@ -272,13 +274,9 @@ function DevicePreviewScreen({
               <AppText selectable className="text-center text-sm text-foreground-muted">
                 {state.error}
               </AppText>
-              <Pressable
-                accessibilityRole="button"
-                className="rounded-full border border-secondary-border bg-secondary px-6 py-3"
-                onPress={state.refresh}
-              >
-                <AppText className="text-secondary-foreground">Retry</AppText>
-              </Pressable>
+              <View className="items-center">
+                <Button label="Retry" tone="secondary" onPress={state.refresh} />
+              </View>
             </>
           ) : focused && foreground ? (
             <AppActivityIndicator color={themeVariables["--color-icon"]} />
@@ -301,11 +299,7 @@ function DevicePreviewScreen({
           ) : null}
           <View className="px-3" style={{ paddingTop: Math.max(insets.top, 12) }}>
             <GlassSurface className="flex-row items-center gap-1 p-1">
-              <ControlPill
-                accessibilityLabel="Close device preview"
-                icon="xmark"
-                onPress={onClose}
-              />
+              <SheetCloseButton accessibilityLabel="Close device preview" onClose={onClose} />
               <AppText numberOfLines={1} className="flex-1 text-center font-t3-medium text-base">
                 {preview?.name ?? "Devices"}
               </AppText>
@@ -401,13 +395,9 @@ function OpenDevicePreview({
           <AppText selectable className="text-center text-sm text-foreground-muted">
             {error}
           </AppText>
-          <Pressable
-            accessibilityRole="button"
-            className="rounded-full border border-secondary-border bg-secondary px-6 py-3"
-            onPress={refresh}
-          >
-            <AppText className="text-secondary-foreground">Retry</AppText>
-          </Pressable>
+          <View className="items-center">
+            <Button label="Retry" tone="secondary" onPress={refresh} />
+          </View>
         </>
       ) : (
         <>

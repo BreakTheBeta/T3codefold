@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { deriveHingeSnapWidths, deriveWorkspaceFoldRegions } from "../../lib/foldable-pane-layout";
 import { deriveLayout } from "../../lib/layout";
+import { ANDROID_WORKSPACE_RAIL_WIDTH } from "../workspace/AndroidWorkspaceNavigation";
 import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
 import { useWindowPosture } from "../../native/T3WindowPosture";
 
@@ -31,7 +32,9 @@ export function useFoldWorkspaceGeometry() {
   // A landscape navigation bar or display cutout sits beside the panes, not under them.
   const leadingInset = layout.usesSplitView ? safeAreaInsets.left : 0;
   const trailingInset = layout.usesSplitView ? safeAreaInsets.right : 0;
-  const width = Math.max(0, window.width - leadingInset - trailingInset);
+  const navigationRailWidth =
+    Platform.OS === "android" && layout.usesSplitView ? ANDROID_WORKSPACE_RAIL_WIDTH : 0;
+  const width = Math.max(0, window.width - leadingInset - trailingInset - navigationRailWidth);
   const posture = useWindowPosture();
   const verticalHinge = posture.hinges.find(
     (hinge) => hinge.orientation === "vertical" && hinge.state === "halfOpened",
@@ -45,10 +48,10 @@ export function useFoldWorkspaceGeometry() {
         hinges: posture.hinges,
         width: window.width,
         height: window.height,
-        leadingInset,
+        leadingInset: leadingInset + navigationRailWidth,
         trailingInset,
       }),
-    [posture.hinges, window.width, window.height, leadingInset, trailingInset],
+    [posture.hinges, window.width, window.height, leadingInset, trailingInset, navigationRailWidth],
   );
   const workspaceView = useRef<ViewInstance>(null);
   const [workspaceTop, setWorkspaceTop] = useState(0);
@@ -70,6 +73,7 @@ export function useFoldWorkspaceGeometry() {
   );
   return {
     layout,
+    navigationRailWidth,
     width,
     leadingInset,
     trailingInset,

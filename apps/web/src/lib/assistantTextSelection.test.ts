@@ -105,6 +105,9 @@ class SelectionNode {
       );
     });
   }
+  getAttribute(name: string) {
+    return this.attributes[name] ?? null;
+  }
   closest(selector: string): SelectionNode | null {
     return this.matches(selector) ? this : (this.parentElement?.closest(selector) ?? null);
   }
@@ -174,6 +177,12 @@ function nativeSelection(
     setEnd(node: SelectionNode, offset: number) {
       this.endContainer = node;
       this.endOffset = offset;
+    }
+    setStartBefore(node: SelectionNode) {
+      this.setStart(node.parentElement!, node.parentElement!.childNodes.indexOf(node));
+    }
+    setEndAfter(node: SelectionNode) {
+      this.setEnd(node.parentElement!, node.parentElement!.childNodes.indexOf(node) + 1);
     }
     intersectsNode(node: SelectionNode) {
       const parent = node.parentElement;
@@ -364,6 +373,31 @@ describe("captureAssistantTextSelection", () => {
 });
 
 describe("captureAssistantTextSelections", () => {
+  it("captures whole TeX formulas at both ends of a cross-message selection", () => {
+    const firstGlyph = textNode("x²");
+    const secondGlyph = textNode("y²");
+    const first = assistantSource(
+      new SelectionNode("SPAN", "", {
+        "data-markdown-math": "inline",
+        "data-markdown-copy": "$x^2$",
+      }).append(firstGlyph),
+    );
+    const second = assistantSource(
+      new SelectionNode("SPAN", "", {
+        "data-markdown-math": "inline",
+        "data-markdown-copy": "$y^2$",
+      }).append(secondGlyph),
+    );
+    const viewport = new SelectionNode("MAIN").append(first, second);
+
+    const captures = captureAssistantTextSelections(
+      viewport as unknown as HTMLElement,
+      nativeSelection([firstGlyph, 1], [secondGlyph, 1]),
+    );
+
+    expect(captures.map((entry) => entry.selector.text)).toEqual(["$x^2$", "$y^2$"]);
+  });
+
   it("splits one cross-message selection into one citation per assistant response", () => {
     const firstText = textNode("First response.");
     const secondText = textNode("Second response.");
