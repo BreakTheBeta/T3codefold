@@ -14,14 +14,22 @@ export function FoldAndroidBrandTitle(props: {
     <View
       accessible
       accessibilityRole="header"
-      accessibilityLabel={props.accessibilityLabel ?? "T3 Code Fold, Threads"}
-      style={{ minWidth: 0, flexShrink: 1 }}
+      accessibilityLabel={props.accessibilityLabel ?? `${MOBILE_APP_NAME}, Threads`}
+      style={{ minWidth: 0, maxWidth: "100%", flexShrink: 1, overflow: "hidden" }}
     >
       <Text
         allowFontScaling={props.allowFontScaling}
         numberOfLines={1}
+        ellipsizeMode="tail"
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
         className="font-t3-medium text-header-foreground"
-        style={{ fontSize: 18 * scale, lineHeight: 24 * scale, letterSpacing: -0.3 * scale }}
+        style={{
+          fontSize: 18 * scale,
+          lineHeight: 24 * scale,
+          letterSpacing: -0.3 * scale,
+          flexShrink: 1,
+        }}
       >
         {MOBILE_APP_NAME}
       </Text>

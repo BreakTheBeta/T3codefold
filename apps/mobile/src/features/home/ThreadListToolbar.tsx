@@ -1,3 +1,4 @@
+import { MOBILE_APP_NAME } from "../../lib/mobileBranding";
 import { androidKeyboardFirst, dismissAndroidKeyboard } from "../../lib/android-back";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
@@ -112,7 +113,7 @@ export function ThreadListToolbar(props: {
         onCloseSearch={androidKeyboardFirst(closeSearch)}
         onOpenSearch={openSearch}
         searchAccessibilityLabel="Search threads"
-        titleAccessibilityLabel="T3 Code, Threads"
+        titleAccessibilityLabel={`${MOBILE_APP_NAME}, Threads`}
         onOpenEnvironments={props.onOpenEnvironments}
         filter={filterButton}
       />

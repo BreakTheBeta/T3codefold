@@ -1,10 +1,12 @@
 import type { ExpoConfig } from "expo/config";
 
+import { MOBILE_APP_NAME } from "./src/lib/mobileBranding.ts";
+
 // Fold's identity and release channel, applied over upstream's Expo config so
 // app.config.ts keeps upstream's values and merges cleanly. The app `version`
 // stays in app.config.ts because fingerprint.config.js reads it from that file.
 const FOLD_ANDROID_VERSION_CODE = 26;
-const FOLD_PRODUCTION = { name: "T3 Code Fold", androidPackage: "com.breakthebeta.t3code" };
+const FOLD_PRODUCTION = { name: MOBILE_APP_NAME, androidPackage: "com.breakthebeta.t3code" };
 const FOLD_EAS_PROJECT_ID = "5c3bde99-9c75-4cd6-b0a0-cc5d2cf846df";
 const FOLD_OWNER = "BreakTheBeta";
 // GitHub hosts the fork's protocol manifest and content-addressed assets.

@@ -37,7 +37,7 @@ export function WorkspaceListToolbarRow(props: {
         </>
       ) : (
         <>
-          <View className="min-w-0 flex-1 pl-4">
+          <View className="min-w-0 flex-1 overflow-hidden pl-4">
             <WorkspaceConnectionTitle
               grow
               onPress={props.onOpenEnvironments}
