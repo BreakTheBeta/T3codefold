@@ -60,7 +60,6 @@ import {
   VimPaneFocusMarker,
 } from "../keyboard/useWorkspaceVimNavigation";
 import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
-import { AndroidWorkspaceNavigation } from "../workspace/AndroidWorkspaceNavigation";
 import { AndroidWorkspaceSidebar } from "../workspace/AndroidWorkspaceSidebar";
 import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSelection";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
@@ -261,14 +260,12 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const projectGroupingMode = props.projectGroupingMode;
   const nativeWorkspace = use(NativeWorkspaceModeContext);
   const pathname = props.pathname;
-  // Android's Settings tab is a full workspace page: the rail stays, the sidebar and
-  // auxiliary panes hide.
+  // Android's Settings tab takes the full workspace, hiding the sidebar and auxiliary panes.
   const workspacePage = Platform.OS === "android" && pathname.startsWith("/settings");
   const navigation = useNavigation();
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const {
     layout,
-    navigationRailWidth,
     width,
     leadingInset,
     trailingInset,
@@ -302,8 +299,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
     ? setPullRequestSidebarPreferredVisible
     : setPrimarySidebarPreferredVisible;
   const showPrimarySidebar = !workspacePage && (pathname === "/" || sidebarPreferredVisible);
-  const shouldRenderNavigationRail = navigationRailWidth > 0;
-  const [railOverlay, setRailOverlay] = useState(false);
   const [inspectorPreferredVisible, setInspectorPreferredVisible] = useState(true);
   const [inspectorMaximized, setInspectorMaximized] = useState(false);
   const inspectorRatios = props.initialPreferences.workspaceInspectorRatios ?? {};
@@ -730,7 +725,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
             className={Platform.OS === "android" ? "flex-1 flex-row bg-header" : "flex-1 flex-row"}
             style={{ paddingLeft: leadingInset, paddingRight: trailingInset }}
           >
-            {shouldRenderNavigationRail ? <View style={{ width: navigationRailWidth }} /> : null}
             <WorkspaceSidebarColumn layout={effectiveLayout} visible={panes.primarySidebarVisible}>
               {(listPaneWidth) => (
                 <RenderErrorBoundary
@@ -819,24 +813,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
               onDividerRelease={handleDividerRelease}
               onToggleMaximized={toggleAuxiliaryPaneMaximized}
             />
-            {shouldRenderNavigationRail && navigationRailWidth > 0 ? (
-              // The rail reserves its slot above and draws over the panes, so it can widen over
-              // the list in place. It takes the whole workspace only while it is open.
-              <View
-                className="absolute inset-y-0"
-                style={
-                  railOverlay
-                    ? { left: leadingInset, right: trailingInset }
-                    : { left: leadingInset, width: navigationRailWidth }
-                }
-              >
-                <AndroidWorkspaceNavigation
-                  rail
-                  onSelect={revealPrimarySidebar}
-                  onOverlayChange={setRailOverlay}
-                />
-              </View>
-            ) : null}
           </View>
         </WindowHingeContext>
       </AdaptiveWorkspaceContext.Provider>

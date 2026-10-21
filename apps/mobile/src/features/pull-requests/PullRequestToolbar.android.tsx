@@ -6,12 +6,16 @@ import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu";
 import { SearchField } from "../../components/ui/SearchField";
 import { useToolbarLayout } from "../../components/ui/useToolbarLayout";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
+import { WorkspaceTabSwitcher } from "../workspace/AndroidWorkspaceNavigation";
 import { WorkspaceListToolbarRow } from "../workspace/WorkspaceListToolbarRow";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import { usePullRequestFilterMenu } from "./PullRequestFilterMenuContext";
 
 /** PR search shares the thread list's Android header row. */
-export function PullRequestToolbar(props: { readonly onRequestVisibility?: () => void }) {
+export function PullRequestToolbar(props: {
+  readonly sidebar?: boolean;
+  readonly onRequestVisibility?: () => void;
+}) {
   const navigation = useNavigation();
   const filters = usePullRequestFilterMenu();
   const workspace = useWorkspaceTabs()!;
@@ -98,6 +102,7 @@ export function PullRequestToolbar(props: { readonly onRequestVisibility?: () =>
           ) : null
         }
       />
+      {props.sidebar ? <WorkspaceTabSwitcher className="px-2 pb-2" /> : null}
     </View>
   );
 }
