@@ -172,8 +172,6 @@ function WorkerModelPicker({
           instanceId={value.instanceId}
           models={entry.models}
           model={value.model}
-          prompt=""
-          onPromptChange={() => {}}
           modelOptions={value.options}
           allowPromptInjectedEffort={false}
           planModeEnabled={catalog.planModeEnabled}
@@ -480,8 +478,7 @@ function GladosSettings({ environmentId, label }: { environmentId: EnvironmentId
                 render={
                   <Button
                     size="sm"
-                    variant="ghost-muted"
-                    className="border border-dashed border-border"
+                    variant="outline"
                     disabled={busy || addableProjects.length === 0}
                   />
                 }

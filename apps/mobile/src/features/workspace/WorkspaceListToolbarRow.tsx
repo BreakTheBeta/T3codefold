@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useNavigation } from "@react-navigation/native";
 import { View } from "react-native";
 import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
@@ -23,6 +24,7 @@ export function WorkspaceListToolbarRow(props: {
   readonly filter: ReactNode;
 }) {
   const { height } = useToolbarLayout();
+  const navigation = useNavigation();
   return (
     <View className="flex-row items-center gap-1" style={{ minHeight: height }}>
       {props.searching ? (
@@ -58,6 +60,16 @@ export function WorkspaceListToolbarRow(props: {
           {props.filter}
         </>
       )}
+      <AndroidHeaderIconButton
+        accessibilityLabel="Open settings"
+        icon="gearshape"
+        onPress={() =>
+          navigation.navigate("SettingsSheet", {
+            screen: "SettingsContent",
+            params: { screen: "Settings" },
+          })
+        }
+      />
     </View>
   );
 }

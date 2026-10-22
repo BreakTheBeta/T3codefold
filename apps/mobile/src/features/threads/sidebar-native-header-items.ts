@@ -3,6 +3,7 @@ import type {
   NativeStackHeaderItemMenu,
 } from "@react-navigation/native-stack";
 
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import type { HomeListFilterMenu } from "../home/home-list-filter-menu";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 
@@ -31,23 +32,6 @@ function toNativeHeaderMenuItems(items: HomeListFilterMenu["items"]): NativeHead
   );
 }
 
-export function createSidebarFilterHeaderItem(input: {
-  readonly filterIcon: string;
-  readonly filterMenu: HomeListFilterMenu;
-}): NativeStackHeaderItemMenu {
-  return withNativeGlassHeaderItem({
-    type: "menu",
-    axisBehavior: "horizontalOnly",
-    label: "",
-    accessibilityLabel: "Filter threads",
-    icon: sfSymbolIcon(input.filterIcon),
-    menu: {
-      title: input.filterMenu.title,
-      items: toNativeHeaderMenuItems(input.filterMenu.items),
-    },
-  });
-}
-
 export function createSidebarHeaderItems(input: {
   readonly filterIcon: string;
   readonly filterMenu: HomeListFilterMenu;
@@ -55,13 +39,23 @@ export function createSidebarHeaderItems(input: {
   readonly onOpenPullRequests: () => void;
 }): NativeStackHeaderItem[] {
   return [
-    createSidebarFilterHeaderItem(input),
+    withNativeGlassHeaderItem({
+      type: "menu",
+      axisBehavior: "horizontalOnly",
+      label: "",
+      accessibilityLabel: "Filter threads",
+      icon: sfSymbolIcon(input.filterIcon),
+      menu: {
+        title: input.filterMenu.title,
+        items: toNativeHeaderMenuItems(input.filterMenu.items),
+      },
+    }),
     withNativeGlassHeaderItem({
       type: "button",
       axisBehavior: "horizontalOnly",
       label: "Pull requests",
       accessibilityLabel: "Pull requests",
-      icon: sfSymbolIcon("arrow.triangle.pull"),
+      icon: sfSymbolIcon(PullRequestGlyph.pullRequest),
       onPress: input.onOpenPullRequests,
     }),
     withNativeGlassHeaderItem({

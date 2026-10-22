@@ -17,6 +17,7 @@ import {
   createContext,
   use,
   useCallback,
+  useDeferredValue,
   useEffect,
   useEffectEvent,
   useMemo,
@@ -25,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { Platform, View } from "react-native";
+import { KeyboardController, useKeyboardState } from "react-native-keyboard-controller";
 import { AsyncResult } from "effect/reactivity";
 
 import {
@@ -104,6 +106,8 @@ interface AdaptiveWorkspaceContextValue {
   readonly setAuxiliaryPaneMaximized: (maximized: boolean) => void;
   readonly toggleAuxiliaryPaneMaximized: () => void;
   readonly togglePrimarySidebar: () => void;
+  readonly composerKeyboardActive: boolean;
+  readonly setComposerEditing: (editing: boolean) => void;
 }
 
 const compactLayout = deriveLayout({ width: 0, height: 0 });
@@ -135,6 +139,8 @@ const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
   setAuxiliaryPaneMaximized: () => undefined,
   toggleAuxiliaryPaneMaximized: () => undefined,
   togglePrimarySidebar: () => undefined,
+  composerKeyboardActive: false,
+  setComposerEditing: () => undefined,
 });
 
 export function useAdaptiveWorkspaceLayout(): AdaptiveWorkspaceContextValue {
@@ -298,7 +304,15 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const setSidebarPreferredVisible = onPullRequestRoute
     ? setPullRequestSidebarPreferredVisible
     : setPrimarySidebarPreferredVisible;
-  const showPrimarySidebar = !workspacePage && (pathname === "/" || sidebarPreferredVisible);
+  const [composerEditing, setComposerEditing] = useState(false);
+  const softKeyboardVisible = useKeyboardState((state) => state.isVisible);
+  // Hardware keyboard focus leaves room for the sidebar; Android Back hides the soft keyboard
+  // without blurring the editor. Keep the saved sidebar choice through both transitions.
+  const composerKeyboardActive = useDeferredValue(
+    Platform.OS === "android" && layout.usesSplitView && composerEditing && softKeyboardVisible,
+  );
+  const showPrimarySidebar =
+    !workspacePage && (pathname === "/" || (sidebarPreferredVisible && !composerKeyboardActive));
   const [inspectorPreferredVisible, setInspectorPreferredVisible] = useState(true);
   const [inspectorMaximized, setInspectorMaximized] = useState(false);
   const inspectorRatios = props.initialPreferences.workspaceInspectorRatios ?? {};
@@ -416,6 +430,10 @@ function AdaptiveWorkspaceLayoutContent(props: {
   }, [environmentId, threadId]);
 
   const togglePrimarySidebar = useCallback(() => {
+    if (composerKeyboardActive) {
+      void KeyboardController.dismiss();
+      if (sidebarPreferredVisible) return;
+    }
     if (tabletopTopHeight !== null && pathname !== "/") {
       navigation.navigate("Home");
       return;
@@ -441,6 +459,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
     }
     setSidebarPreferredVisible(!sidebarPreferredVisible);
   }, [
+    composerKeyboardActive,
     tabletopTopHeight,
     foldRegions.vertical,
     panes.auxiliaryPaneVisible,
@@ -453,12 +472,17 @@ function AdaptiveWorkspaceLayoutContent(props: {
     sidebarPreferredVisible,
   ]);
   const revealPrimarySidebar = useCallback(() => {
+    if (composerKeyboardActive) void KeyboardController.dismiss();
     setInspectorMaximized(false);
     if (panes.primarySidebarSuppressedByAuxiliary) {
       setInspectorPreferredVisible(false);
     }
     setSidebarPreferredVisible(true);
-  }, [panes.primarySidebarSuppressedByAuxiliary, setSidebarPreferredVisible]);
+  }, [
+    composerKeyboardActive,
+    panes.primarySidebarSuppressedByAuxiliary,
+    setSidebarPreferredVisible,
+  ]);
   const handleToggleSidebarCommand = useCallback(() => {
     togglePrimarySidebar();
     return true;
@@ -672,8 +696,11 @@ function AdaptiveWorkspaceLayoutContent(props: {
       setAuxiliaryPaneMaximized,
       toggleAuxiliaryPaneMaximized,
       togglePrimarySidebar,
+      composerKeyboardActive,
+      setComposerEditing,
     }),
     [
+      composerKeyboardActive,
       tabletopTopHeight,
       foldRegions.tabletop?.top,
       foldRegions.tabletop?.gap,
@@ -736,11 +763,11 @@ function AdaptiveWorkspaceLayoutContent(props: {
                     />
                   )}
                 >
-                  <AndroidWorkspaceSidebar
-                    onRequestVisibility={revealPrimarySidebar}
-                    selectedPullRequestKey={props.selectedPullRequestKey ?? null}
-                  >
-                    <AndroidHomeFabLayout sidebar onStartNewTask={handleStartNewTask}>
+                  <AndroidHomeFabLayout sidebar onStartNewTask={handleStartNewTask}>
+                    <AndroidWorkspaceSidebar
+                      onRequestVisibility={revealPrimarySidebar}
+                      selectedPullRequestKey={props.selectedPullRequestKey ?? null}
+                    >
                       <ThreadNavigationSidebar
                         width={listPaneWidth}
                         visible={panes.primarySidebarVisible}
@@ -757,8 +784,8 @@ function AdaptiveWorkspaceLayoutContent(props: {
                         onSearchQueryChange={setPrimarySidebarSearchQuery}
                         searchQuery={primarySidebarSearchQuery}
                       />
-                    </AndroidHomeFabLayout>
-                  </AndroidWorkspaceSidebar>
+                    </AndroidWorkspaceSidebar>
+                  </AndroidHomeFabLayout>
                 </RenderErrorBoundary>
               )}
             </WorkspaceSidebarColumn>

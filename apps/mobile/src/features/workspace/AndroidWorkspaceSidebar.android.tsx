@@ -1,5 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { PullRequestFilterMenuProvider } from "../pull-requests/PullRequestFilterMenuContext";
 import { PullRequestsScreen } from "../pull-requests/PullRequestsScreen";
@@ -13,7 +15,12 @@ export function AndroidWorkspaceSidebar(props: {
   readonly selectedPullRequestKey: string | null;
 }) {
   const workspace = useWorkspaceTabs()!;
-  const context = useMemo(() => ({ ...workspace, bottomClearance: 16 }), [workspace]);
+  const insets = useSafeAreaInsets();
+  const { fabClearance } = useAndroidControlSizing();
+  const context = useMemo(
+    () => ({ ...workspace, bottomClearance: Math.max(insets.bottom, 12) + fabClearance + 16 }),
+    [workspace, insets.bottom, fabClearance],
+  );
   return (
     <WorkspaceTabPanes
       tabs={["threads", "pullRequests"]}
