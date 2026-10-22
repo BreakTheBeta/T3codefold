@@ -62,7 +62,7 @@ Open a Codex thread and choose **Talk to Codex** for a live, two-way voice conve
 
 ## Splatter backdrop
 
-Paint splatter across the chat canvas in your theme's colours, on the unfolded phone or up to 4K on desktop.
+Paint splatter across the chat canvas in every theme's colours, on the unfolded phone or up to 4K on desktop.
 
 - Choose how much paint and which pattern under **Settings → Appearance**, and add an optional neon glow.
 - Turn on **Dynamic splatter** and every merged pull request adds a splat in its project's colour. The canvas wipes clean at 6am.

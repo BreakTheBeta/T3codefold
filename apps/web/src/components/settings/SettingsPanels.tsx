@@ -100,7 +100,7 @@ import {
   CiteSelectionSettingsRow,
   FOLD_SETTINGS_DEFAULTS,
   LiveVoiceSettingsSection,
-  useFoldChangedSettingLabels,
+  getFoldChangedSettingLabels,
   VimKeyboardSettingsRows,
 } from "./FoldSettingsRows";
 import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
@@ -398,7 +398,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
-  const foldChangedSettingLabels = useFoldChangedSettingLabels(settings);
+  const foldChangedSettingLabels = getFoldChangedSettingLabels(settings);
 
   const changedSettingLabels = [
     ...(theme !== "system" ? ["Theme"] : []),
