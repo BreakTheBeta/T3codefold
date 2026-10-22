@@ -475,7 +475,8 @@ it.effect(
         _tag: "Request",
         id: requestId,
         tag: WS_METHODS.subscribeServerConfig,
-        payload: {},
+        // This case compares the complete keybinding state, including Fold voice controls.
+        payload: { realtimeVoiceControls: true },
         headers: Headers.empty,
       });
       yield* Deferred.await(discoveryStarted);
