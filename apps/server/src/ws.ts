@@ -178,6 +178,7 @@ import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import { terminalOutputStream, withTerminalOutputWindow } from "./terminal/OutputProtocol.ts";
+import { serverConfigProtocolForClient } from "./legacyServerConfigProtocol.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import { makeFoldWsRpcLayer } from "./foldWs.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
@@ -3211,8 +3212,11 @@ export const layer = Layer.unwrap(
         yield* analytics.recordOwners(readClientOwners(request), "client");
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
           const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
+          // Reported client metadata selects only a response codec; authentication and
+          // authorization above remain authoritative even when metadata is spoofed.
+          const clientProtocol = serverConfigProtocolForClient(protocol, clientOrigin);
           yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
-            Effect.provideService(RpcServer.Protocol, withTerminalOutputWindow(protocol)),
+            Effect.provideService(RpcServer.Protocol, withTerminalOutputWindow(clientProtocol)),
             Effect.provide(
               Layer.merge(
                 RpcAuthorization.layer(session.scopes, (method, payload) => {
