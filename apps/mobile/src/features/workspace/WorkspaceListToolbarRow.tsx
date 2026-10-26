@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { useNavigation } from "@react-navigation/native";
 import { View } from "react-native";
 import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
 import { CompactBrandTitle } from "../../components/CompactBrandTitle";
 import { useToolbarLayout } from "../../components/ui/useToolbarLayout";
 import { WorkspaceConnectionTitle } from "../home/WorkspaceConnectionTitle";
+import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
 
 /**
  * The Android header row above each workspace tab's list. Both tabs draw this same row, so
@@ -24,7 +24,8 @@ export function WorkspaceListToolbarRow(props: {
   readonly filter: ReactNode;
 }) {
   const { height } = useToolbarLayout();
-  const navigation = useNavigation();
+  // Not useSelectWorkspaceTab: that imports the layout, which renders this toolbar.
+  const { openWorkspaceTab } = useAdaptiveWorkspaceLayout();
   return (
     <View className="flex-row items-center gap-1" style={{ minHeight: height }}>
       {props.searching ? (
@@ -63,12 +64,7 @@ export function WorkspaceListToolbarRow(props: {
       <AndroidHeaderIconButton
         accessibilityLabel="Open settings"
         icon="gearshape"
-        onPress={() =>
-          navigation.navigate("SettingsSheet", {
-            screen: "SettingsContent",
-            params: { screen: "Settings" },
-          })
-        }
+        onPress={() => openWorkspaceTab("settings")}
       />
     </View>
   );

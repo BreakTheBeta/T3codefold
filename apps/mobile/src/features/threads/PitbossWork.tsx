@@ -29,6 +29,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { openSettings as openSettingsPage } from "../settings/settings-navigation";
 import {
   CommandId,
   isPitbossLeadActive,
@@ -208,11 +209,7 @@ export function PitbossWork(props: {
   };
   const openSettings = () => {
     setVisible(false);
-    // "SettingsGlados" is registered in the settings content stack by the settings navigator.
-    navigation.navigate("SettingsSheet", {
-      screen: "SettingsContent",
-      params: { screen: "SettingsGlados", params: { environmentId: props.environmentId } },
-    });
+    openSettingsPage(navigation, "SettingsGlados", { environmentId: props.environmentId });
   };
   const goBack = () => {
     if (panel !== "inbox") setPanel("inbox");

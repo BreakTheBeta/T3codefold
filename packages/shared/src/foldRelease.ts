@@ -1,6 +1,8 @@
 /** Fold distributions are GitHub release assets; the npm `t3` package is upstream. */
 export const FOLD_REPOSITORY = "BreakTheBeta/T3codefold";
 const FOLD_RELEASES_URL = `https://github.com/${FOLD_REPOSITORY}/releases`;
+/** Fold's `scripts/install.sh`; upstream's t3.codes installer installs upstream T3. */
+export const FOLD_INSTALL_SCRIPT_URL = `https://raw.githubusercontent.com/${FOLD_REPOSITORY}/main/scripts/install.sh`;
 
 const EXACT_VERSION =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;

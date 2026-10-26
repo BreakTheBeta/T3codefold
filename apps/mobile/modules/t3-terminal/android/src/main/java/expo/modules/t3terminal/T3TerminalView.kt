@@ -34,7 +34,6 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   private val onInput by EventDispatcher()
   private val onResize by EventDispatcher()
   private val onCapture by EventDispatcher()
-  private val onOutputApplied by EventDispatcher()
   private val onCursorKeysChange by EventDispatcher()
   private val onFontScaleCommit by EventDispatcher()
   private var pinching = false
@@ -116,11 +115,8 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       onCapture(mapOf("text" to text))
     }
   private var terminalHandle = 0L
-
-  // The output stream the terminal holds: reset `appliedResetId` up to UTF-16
-  // offset `appliedEnd`. 0 means the terminal holds no stream yet.
-  private var appliedResetId = 0
-  private var appliedEnd = 0
+  private var fedBuffer = ""
+  private var streamedOutput: TerminalOutputBuffer? = null
   private var applicationCursorKeys = false
   private var cols = 0
   private var rows = 0
@@ -140,10 +136,11 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       recreateTerminal()
     }
 
-  var output: TerminalOutputWrite? = null
+  var initialBuffer: String = ""
     set(value) {
+      if (field == value) return
       field = value
-      applyOutput()
+      feedPendingBuffer()
     }
 
   var fontSize: Float = 10f
@@ -430,7 +427,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     }
     emitResponse(response)
     onResize(mapOf("cols" to cols, "rows" to rows))
-    applyOutput()
+    feedPendingBuffer()
     renderSnapshot()
   }
 
@@ -447,15 +444,16 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       cursorColorValue,
       paletteColors,
     )
-    appliedResetId = 0
-    appliedEnd = 0
+    fedBuffer = ""
+    // Replayed history must not answer old terminal queries, so drop its replies.
+    streamedOutput?.let { output -> feedOutput(output.data, replay = true) }
   }
 
   private fun recreateTerminal() {
     if (terminalHandle == 0L) return
     destroyTerminal()
     createTerminal()
-    applyOutput()
+    feedPendingBuffer()
     renderSnapshot()
   }
 
@@ -463,53 +461,46 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     if (terminalHandle == 0L) return
     GhosttyBridge.nativeDestroy(terminalHandle)
     terminalHandle = 0L
-    appliedResetId = 0
-    appliedEnd = 0
+    fedBuffer = ""
     terminalCanvas.resetSelectionState()
   }
 
-  /**
-   * Applies the `output` prop (see terminalSurfaceOutput.ts): a new reset id replays
-   * history into a fresh terminal, otherwise only the part past `appliedEnd` is fed.
-   * Every change is acknowledged so JS can send the next write from there.
-   */
-  private fun applyOutput() {
-    val write = output ?: return
-    if (terminalHandle == 0L) return
-    if (write.resetId != appliedResetId) {
-      // A continuation of a stream this terminal does not hold; the ack asks JS for a reset.
-      if (write.start != 0) {
-        emitOutputApplied()
-        return
-      }
-      if (appliedResetId != 0) {
-        destroyTerminal()
-        createTerminal()
-        if (terminalHandle == 0L) return
-      }
-      // Replayed history must not answer old terminal queries, so drop its replies.
-      GhosttyBridge.nativeFeed(terminalHandle, write.data.toByteArray(Charsets.UTF_8))
-      appliedResetId = write.resetId
-      appliedEnd = write.data.length
-    } else {
-      if (write.start > appliedEnd) {
-        emitOutputApplied()
-        return
-      }
-      val unapplied = appliedEnd - write.start
-      if (unapplied >= write.data.length) return
-      val suffix = write.data.substring(unapplied)
-      emitResponse(GhosttyBridge.nativeFeed(terminalHandle, suffix.toByteArray(Charsets.UTF_8)))
-      appliedEnd = write.start + write.data.length
-      // New output invalidates an active selection (matches the web drawer);
-      // otherwise the copy toolbar drifts out of sync with the grid.
-      if (terminalCanvas.hasActiveSelection()) {
-        GhosttyBridge.nativeClearSelection(terminalHandle)
-        terminalCanvas.resetSelectionState()
-      }
+  private fun feedPendingBuffer() {
+    if (streamedOutput != null || terminalHandle == 0L || initialBuffer == fedBuffer) return
+    if (!initialBuffer.startsWith(fedBuffer)) {
+      recreateTerminal()
+      if (terminalHandle == 0L) return
     }
+    val suffix = initialBuffer.substring(fedBuffer.length)
+    feedOutput(suffix.toByteArray(Charsets.UTF_8))
+    fedBuffer = initialBuffer
     renderSnapshot()
-    emitOutputApplied()
+  }
+
+  fun writeOutput(data: String, reset: Boolean) {
+    if (isCleanedUp) return
+    val output = streamedOutput ?: TerminalOutputBuffer()
+    val bytes = data.toByteArray(Charsets.UTF_8)
+    output.write(bytes, reset)
+    streamedOutput = output
+    if (reset) {
+      recreateTerminal()
+    } else if (terminalHandle != 0L) {
+      feedOutput(bytes)
+      renderSnapshot()
+    }
+  }
+
+  private fun feedOutput(data: ByteArray, replay: Boolean = false) {
+    if (terminalHandle == 0L || data.isEmpty()) return
+    val response = GhosttyBridge.nativeFeed(terminalHandle, data)
+    if (!replay) emitResponse(response)
+    // New output invalidates an active selection (matches the web drawer);
+    // otherwise the copy toolbar drifts out of sync with the grid.
+    if (terminalCanvas.hasActiveSelection()) {
+      GhosttyBridge.nativeClearSelection(terminalHandle)
+      terminalCanvas.resetSelectionState()
+    }
     syncCursorKeyMode()
   }
 
@@ -519,10 +510,6 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     if (enabled == applicationCursorKeys) return
     applicationCursorKeys = enabled
     onCursorKeysChange(mapOf("application" to enabled))
-  }
-
-  private fun emitOutputApplied() {
-    onOutputApplied(mapOf("resetId" to appliedResetId, "end" to appliedEnd))
   }
 
   private fun renderSnapshot() {

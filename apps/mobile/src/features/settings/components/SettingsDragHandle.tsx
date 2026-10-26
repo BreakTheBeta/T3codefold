@@ -42,8 +42,6 @@ function UIThreadSettingsDragHandle(
 }
 
 function JSThreadSettingsDragHandle(props: SettingsDragHandleProps) {
-  // Gesture callbacks fire outside render, so effect events give them the
-  // latest props while the gesture object itself stays stable.
   const onStart = useEffectEvent(() => props.onStart());
   const onMove = useEffectEvent((translation: number) => props.onMove(translation));
   const onEnd = useEffectEvent((translation: number, cancelled: boolean) =>

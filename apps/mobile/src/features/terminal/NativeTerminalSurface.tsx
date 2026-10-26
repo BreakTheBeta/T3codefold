@@ -1,10 +1,6 @@
+import type { TerminalOutputState } from "@t3tools/client-runtime/state/terminal";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
-  terminalOutputText,
-  type TerminalOutputState,
-} from "@t3tools/client-runtime/state/terminal";
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
-import {
-  Platform,
   Pressable,
   ScrollView,
   TextInput,
@@ -16,12 +12,14 @@ import {
 } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
-import { normalizeTerminalFontSize } from "./terminalPreferences";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
+import { normalizeTerminalFontSize } from "./terminalPreferences";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   getNativeTerminalHardwareKeyRevision,
   resolveNativeTerminalSurfaceView,
+  supportsNativeTerminalOutput,
+  type NativeTerminalSurfaceHandle,
 } from "./nativeTerminalModule";
 import {
   buildGhosttyThemeConfig,
@@ -29,7 +27,8 @@ import {
   type TerminalTheme,
 } from "./terminalTheme";
 import { terminalDebugLog } from "./terminalDebugLog";
-import { useNativeTerminalOutput } from "./terminalSurfaceOutput";
+import { useTerminalSurfaceBuffer } from "./useTerminalSurfaceBuffer";
+import { createTerminalOutputWriter } from "./terminalOutputWriter";
 
 interface TerminalInputEvent {
   readonly data: string;
@@ -42,9 +41,8 @@ interface TerminalResizeEvent {
 
 interface TerminalSurfaceProps extends ViewProps {
   readonly terminalKey: string;
-  readonly output: TerminalOutputState;
-  /** Changing this replays the retained output, e.g. after a font change. */
-  readonly replayKey: string;
+  readonly buffer: string | null;
+  readonly output: TerminalOutputState | null;
   readonly fontSize?: number;
   readonly isRunning: boolean;
   readonly readOnly?: boolean;
@@ -59,6 +57,10 @@ interface TerminalSurfaceProps extends ViewProps {
   readonly onApplicationCursorKeysChange?: (enabled: boolean) => void;
 }
 
+type ReadyTerminalSurfaceProps = Omit<TerminalSurfaceProps, "buffer"> & {
+  readonly buffer: string;
+};
+
 function estimateGridSize(input: {
   readonly width: number;
   readonly height: number;
@@ -72,12 +74,13 @@ function estimateGridSize(input: {
   };
 }
 
-const FallbackTerminalSurface = memo(function FallbackTerminalSurface(props: TerminalSurfaceProps) {
+const FallbackTerminalSurface = memo(function FallbackTerminalSurface(
+  props: ReadyTerminalSurfaceProps,
+) {
   const fontSize = props.fontSize ?? MOBILE_TYPOGRAPHY.label.fontSize;
   const inputRef = useRef<TextInputInstance>(null);
   const { themeAppearance, themeId } = useAppearancePreferences();
   const theme = props.theme ?? getMobileTerminalTheme(themeId, themeAppearance);
-  const text = useMemo(() => terminalOutputText(props.output), [props.output]);
   const statusLabel = props.readOnly
     ? "Viewing terminal output."
     : props.isRunning
@@ -135,7 +138,7 @@ const FallbackTerminalSurface = memo(function FallbackTerminalSurface(props: Ter
               lineHeight: Math.round(fontSize * 1.35),
             }}
           >
-            {text || "$ "}
+            {props.buffer || "$ "}
           </Text>
         </ScrollView>
       </View>
@@ -190,23 +193,49 @@ const FallbackTerminalSurface = memo(function FallbackTerminalSurface(props: Ter
 });
 
 export const TerminalSurface = memo(function TerminalSurface(props: TerminalSurfaceProps) {
+  const buffer = useTerminalSurfaceBuffer(props);
+  return <ReadyTerminalSurface key={props.terminalKey} {...props} buffer={buffer} />;
+});
+
+const ReadyTerminalSurface = memo(function ReadyTerminalSurface(props: ReadyTerminalSurfaceProps) {
   const fontSize = props.fontSize ?? MOBILE_TYPOGRAPHY.label.fontSize;
   const { themeAppearance, themeId, setTerminalFontSize } = useAppearancePreferences();
   const theme = props.theme ?? getMobileTerminalTheme(themeId, themeAppearance);
   const { onInput, onResize } = props;
   const NativeTerminalSurfaceView = resolveNativeTerminalSurfaceView();
   const hasNativeSurface = Boolean(NativeTerminalSurfaceView);
-  const nativeOutput = useNativeTerminalOutput(props.output, props.replayKey);
+  const streaming = supportsNativeTerminalOutput();
+  const nativeRef = useRef<NativeTerminalSurfaceHandle>(null);
+  const writerRef = useRef<ReturnType<typeof createTerminalOutputWriter> | null>(null);
+  const [nativeReady, setNativeReady] = useState(false);
+
+  useEffect(() => {
+    const view = nativeRef.current;
+    if (!streaming || !nativeReady || view === null) return;
+    const writer = createTerminalOutputWriter((data, reset) => view.writeOutput(data, reset));
+    writerRef.current = writer;
+    return () => {
+      writerRef.current = null;
+      writer.dispose();
+    };
+  }, [nativeReady, streaming]);
+
+  useEffect(() => {
+    if (!streaming || !nativeReady || props.output === null) return;
+    void writerRef.current?.write(props.output).catch((error: unknown) => {
+      console.error("Terminal output delivery failed", error);
+    });
+  }, [nativeReady, props.output, streaming]);
 
   useEffect(() => {
     terminalDebugLog("native:surface", {
       terminalKey: props.terminalKey,
       native: hasNativeSurface,
       hardwareKeyRevision: getNativeTerminalHardwareKeyRevision(),
-      outputOffset: props.output.nextOffset,
+      bufferLen: props.buffer.length,
       isRunning: props.isRunning,
     });
-  }, [hasNativeSurface, props.output.nextOffset, props.isRunning, props.terminalKey]);
+  }, [hasNativeSurface, props.buffer.length, props.isRunning, props.terminalKey]);
   const handleNativeInput = useCallback(
     (event: NativeSyntheticEvent<TerminalInputEvent>) => {
       if (!props.isRunning || props.readOnly) {
@@ -221,6 +250,8 @@ export const TerminalSurface = memo(function TerminalSurface(props: TerminalSurf
   );
   const handleNativeResize = useCallback(
     (event: NativeSyntheticEvent<TerminalResizeEvent>) => {
+      // The first grid event comes from the mounted native surface, after registration.
+      setNativeReady(true);
       onResize({
         cols: event.nativeEvent.cols,
         rows: event.nativeEvent.rows,
@@ -233,6 +264,7 @@ export const TerminalSurface = memo(function TerminalSurface(props: TerminalSurf
     return (
       <View style={props.style}>
         <NativeTerminalSurfaceView
+          ref={nativeRef}
           appearanceScheme={themeAppearance}
           autoFocus={!props.readOnly && (props.autoFocus ?? true)}
           readOnly={props.readOnly ?? false}
@@ -241,22 +273,16 @@ export const TerminalSurface = memo(function TerminalSurface(props: TerminalSurf
           foregroundColor={theme.foreground}
           mutedForegroundColor={theme.mutedForeground}
           terminalKey={props.terminalKey}
-          output={nativeOutput.write}
-          onOutputApplied={nativeOutput.handleOutputApplied}
+          initialBuffer={streaming ? "" : props.buffer}
           onCursorKeysChange={(event) =>
             props.onApplicationCursorKeysChange?.(event.nativeEvent.application)
           }
-          {...(Platform.OS === "android"
-            ? {
-                onFontScaleCommit: (event: {
-                  readonly nativeEvent: { readonly scale: number };
-                }) => {
-                  if (!Number.isFinite(event.nativeEvent.scale)) return;
-                  const next = normalizeTerminalFontSize(fontSize * event.nativeEvent.scale);
-                  if (next !== fontSize) setTerminalFontSize(next);
-                },
-              }
-            : {})}
+          // Android pinch-to-zoom; other platforms never emit it.
+          onFontScaleCommit={(event) => {
+            if (!Number.isFinite(event.nativeEvent.scale)) return;
+            const next = normalizeTerminalFontSize(fontSize * event.nativeEvent.scale);
+            if (next !== fontSize) setTerminalFontSize(next);
+          }}
           fontSize={fontSize}
           style={{ flex: 1 }}
           themeConfig={buildGhosttyThemeConfig(theme)}

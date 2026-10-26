@@ -1,10 +1,6 @@
-// GitHub's Windows runners hand out the temp directory by its 8.3 short name
-// (C:\Users\RUNNER~1\...). Anything that canonicalises a path, such as git or
-// realpath, reports the long form, so equality checks between a temp path and
-// its canonical form fail. Node reads TEMP/TMP on every os.tmpdir() call, so
-// pointing them at the long form fixes every temp directory the suite makes.
-// Resolve built-ins through the process instead of static `node:` imports so
-// browser-environment tests can load this setup before Vitest creates jsdom.
+// Windows runner temp paths use 8.3 names; canonicalize to long names before equality checks.
+// Built-ins come through the process, not static `node:` imports, so browser-environment
+// tests can load this setup before Vitest creates jsdom.
 const NodeProcess = process.getBuiltinModule("node:process");
 if (NodeProcess.platform === "win32") {
   try {

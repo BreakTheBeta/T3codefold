@@ -7,22 +7,13 @@ import * as Path from "effect/Path";
 
 import { NativeClientError, type NativePlatform } from "./mobile-native-client.ts";
 
-// Fold's incremental Android native client build: one ABI, Gradle and adb
-// directly, shared ccache across worktrees. mobile-native-client.ts calls in.
+// Fold's incremental native client build: no clean prebuild, Gradle's build
+// cache, a resolved JDK and shared ccache across worktrees. mobile-native-client.ts calls in.
 
 /**
- * The JDK Gradle should compile with.
- *
- * A module that declares no toolchain of its own compiles with whichever JVM
- * launched Gradle, and `java` is not required to be a JDK: Debian-style
- * alternatives will happily point it at a headless JRE while `javac` comes
- * from a different package. Gradle then fails deep inside a third-party
- * module with "does not provide the required capabilities: [JAVA_COMPILER]",
- * naming a JVM nobody chose and no file in this repo mentions.
- *
- * Pinning a toolchain version in Gradle instead would reject machines whose
- * only JDK is newer than the one we picked, so resolve whatever JDK is
- * actually installed and hand Gradle that.
+ * The JDK Gradle compiles with. `java` may be a headless JRE while `javac` comes from another
+ * package, which fails deep in Gradle with "[JAVA_COMPILER]"; pinning a toolchain would reject
+ * newer JDKs, so resolve the installed JDK and hand Gradle that.
  */
 export const resolveJavaHome = Effect.fn("nativeClient.resolveJavaHome")(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -102,40 +93,25 @@ type RunCommand<E, R> = (
   environmentOverrides?: Record<string, string>,
 ) => Effect.Effect<string, E, R>;
 
-/** Builds the connected emulator's ABI with Gradle and installs it by adb serial. */
-export const buildAndInstallAndroidClient = <E, R>(
-  device: string,
+/** Builds the device's ABI with Gradle; mobile-native-client.ts packages and installs the APK. */
+export const buildAndroidClient = Effect.fn("nativeClient.buildAndroid")(function* <E, R>(
+  abi: string | null,
   { mobile, repo }: { readonly mobile: string; readonly repo: string },
   command: RunCommand<E, R>,
-) =>
-  Effect.gen(function* () {
-    const path = yield* Path.Path;
-    const abi = parseAndroidAbi(
-      yield* command("adb", ["-s", device, "shell", "getprop", "ro.product.cpu.abi"]),
+) {
+  const path = yield* Path.Path;
+  const hasCcache = yield* isCommandAvailable("ccache");
+  if (!hasCcache)
+    yield* Console.error(
+      "ccache is not installed, so this build cannot reuse NDK objects compiled in another worktree. Install ccache to share them.",
     );
-    const hasCcache = yield* isCommandAvailable("ccache");
-    if (!hasCcache)
-      yield* Console.error(
-        "ccache is not installed, so this build cannot reuse NDK objects compiled in another worktree. Install ccache to share them.",
-      );
-    const gradle =
-      (yield* HostProcess.Platform) === "win32"
-        ? path.join(mobile, "android/gradlew.bat")
-        : path.join(mobile, "android/gradlew");
-    yield* command(gradle, androidGradleBuildArgs(abi), true, path.join(mobile, "android"), {
-      ANDROID_SERIAL: device,
-      JAVA_HOME: yield* resolveJavaHome(),
-      ...(hasCcache ? ccacheEnvironment(repo) : {}),
-    });
-    yield* command(
-      "adb",
-      [
-        "-s",
-        device,
-        "install",
-        "-r",
-        path.join(mobile, "android/app/build/outputs/apk/debug/app-debug.apk"),
-      ],
-      true,
-    );
-  }).pipe(Effect.withSpan("nativeClient.buildAndInstallAndroid"));
+  const android = path.join(mobile, "android");
+  const gradle = path.join(
+    android,
+    (yield* HostProcess.Platform) === "win32" ? "gradlew.bat" : "gradlew",
+  );
+  yield* command(gradle, androidGradleBuildArgs(parseAndroidAbi(abi ?? "")), true, android, {
+    JAVA_HOME: yield* resolveJavaHome(),
+    ...(hasCcache ? ccacheEnvironment(repo) : {}),
+  });
+});

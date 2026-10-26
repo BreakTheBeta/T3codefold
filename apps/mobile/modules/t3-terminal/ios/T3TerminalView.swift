@@ -22,17 +22,9 @@ private enum GhosttyRuntime {
   }
 }
 
-/// Encodes hardware-keyboard combos that UITextField never surfaces through its
-/// text-editing delegate (control combos, Escape, Tab, arrow and navigation keys,
-/// function keys) into the byte sequences a terminal expects.
-///
-/// Capture uses UIKeyCommand with `wantsPriorityOverSystemBehavior` rather than
-/// `pressesBegan`: while a text field is first responder, iPadOS routes hardware key
-/// events through the text-input system, which can consume presses before they reach
-/// responder press callbacks. Registered key commands are matched deterministically
-/// before that happens.
+/// While a text field is first responder, iPadOS may consume presses before pressesBegan.
+/// Priority UIKeyCommands capture terminal shortcuts before the text-input system handles them.
 private enum TerminalHardwareKeyEncoder {
-  /// Characters that produce a control byte when combined with Ctrl.
   private static let controlInputs = "abcdefghijklmnopqrstuvwxyz@[\\]^_-? "
 
   /// Fixed xterm sequences for keys whose encoding does not depend on terminal modes.
@@ -118,7 +110,6 @@ private enum TerminalHardwareKeyEncoder {
   private static func controlSequence(for scalar: Unicode.Scalar) -> String? {
     switch scalar {
     case "a"..."z":
-      // Ctrl+A..Z -> 0x01..0x1A (Ctrl+C = ETX, Ctrl+Z = SUB, ...).
       return UnicodeScalar(scalar.value - 96).map(String.init)
     case " ", "@":
       return "\u{00}"
@@ -225,10 +216,8 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
   private var lastViewportSize: CGSize = .zero
   private var lastContentScale: CGFloat = 0
   private var lastReportedGrid: (cols: Int, rows: Int)?
-  // The output stream the surface holds: reset `appliedResetId` up to UTF-16
-  // offset `appliedEnd`. 0 means the surface holds no stream yet.
-  private var appliedResetId = 0
-  private var appliedEnd = 0
+  private var lastAppliedBuffer = ""
+  private var streamedOutput: TerminalOutputBuffer?
   private var pendingVerticalScrollPoints: CGFloat = 0
   private var app: ghostty_app_t?
   private var surface: ghostty_surface_t?
@@ -240,7 +229,6 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
   let onInput = EventDispatcher()
   let onResize = EventDispatcher()
   let onCapture = EventDispatcher()
-  let onOutputApplied = EventDispatcher()
   var captureRequest: Double = 0 {
     didSet {
       guard captureRequest > 0, captureRequest != oldValue else { return }
@@ -276,9 +264,9 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
     }
   }
 
-  var output: TerminalOutputWrite? {
+  var initialBuffer: String = "" {
     didSet {
-      applyOutput()
+      applyRemoteBuffer(initialBuffer)
     }
   }
 
@@ -560,13 +548,16 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
     ghostty_surface_set_color_scheme(createdSurface, appearance.ghosttyColorScheme)
     setupWriteCallback()
     resizeSurface()
-    applyOutput()
+    if let streamedOutput {
+      feedData(streamedOutput.data)
+    } else {
+      feedBuffer(initialBuffer)
+    }
   }
 
   private func resetSurface() {
     destroySurface()
-    appliedResetId = 0
-    appliedEnd = 0
+    lastAppliedBuffer = ""
     lastViewportSize = .zero
     lastContentScale = 0
     lastReportedGrid = nil
@@ -591,48 +582,48 @@ public final class T3TerminalView: ExpoView, UITextFieldDelegate {
     app = nil
   }
 
-  /// Applies the `output` prop (see terminalSurfaceOutput.ts): a new reset id replays
-  /// history into a fresh surface, otherwise only the part past `appliedEnd` is fed.
-  /// Every change is acknowledged so JS can send the next write from there.
-  private func applyOutput() {
-    guard let write = output else { return }
+  private func applyRemoteBuffer(_ buffer: String) {
+    guard streamedOutput == nil else { return }
     guard surface != nil else {
       createSurfaceIfPossible()
       return
     }
 
-    let utf16 = write.data.utf16
-    if write.resetId != appliedResetId {
-      // A continuation of a stream this surface does not hold; the ack asks JS for a reset.
-      guard write.start == 0 else {
-        emitOutputApplied()
-        return
-      }
-      if appliedResetId != 0 {
-        // The new surface applies this write once it exists.
-        resetSurface()
-        createSurfaceIfPossible()
-        return
-      }
-      feedData(Data(write.data.utf8))
-      appliedResetId = write.resetId
-      appliedEnd = utf16.count
-    } else {
-      guard write.start <= appliedEnd else {
-        emitOutputApplied()
-        return
-      }
-      let unapplied = appliedEnd - write.start
-      guard unapplied < utf16.count else { return }
-      let suffixStart = utf16.index(utf16.startIndex, offsetBy: unapplied)
-      feedData(Data(write.data[suffixStart...].utf8))
-      appliedEnd = write.start + utf16.count
+    if buffer.isEmpty {
+      feedData(Data("\u{1B}[3J\u{1B}[H\u{1B}[2J".utf8))
+      lastAppliedBuffer = ""
+      return
     }
-    emitOutputApplied()
+
+    if buffer.hasPrefix(lastAppliedBuffer) {
+      let suffix = String(buffer.dropFirst(lastAppliedBuffer.count))
+      feedData(Data(suffix.utf8))
+      lastAppliedBuffer = buffer
+      return
+    }
+
+    resetSurface()
+    createSurfaceIfPossible()
   }
 
-  private func emitOutputApplied() {
-    onOutputApplied(["resetId": appliedResetId, "end": appliedEnd])
+  func writeOutput(_ data: String, reset: Bool) {
+    let output = streamedOutput ?? TerminalOutputBuffer()
+    let bytes = Data(data.utf8)
+    output.write(bytes, reset: reset)
+    streamedOutput = output
+    if reset {
+      refreshSurface()
+    } else if surface == nil {
+      createSurfaceIfPossible()
+    } else {
+      feedData(bytes)
+    }
+  }
+
+  private func feedBuffer(_ buffer: String) {
+    guard !buffer.isEmpty else { return }
+    feedData(Data(buffer.utf8))
+    lastAppliedBuffer = buffer
   }
 
   private func feedData(_ data: Data) {

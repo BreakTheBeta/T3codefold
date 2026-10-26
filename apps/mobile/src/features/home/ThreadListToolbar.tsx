@@ -3,6 +3,7 @@ import { androidKeyboardFirst, dismissAndroidKeyboard } from "../../lib/android-
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
+import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
 import {
   BackHandler,
   Keyboard,
@@ -21,7 +22,6 @@ import { WorkspaceListToolbarRow } from "../workspace/WorkspaceListToolbarRow";
 import { useWorkspaceConnectionState } from "../../state/workspace";
 import { useToolbarLayout } from "../../components/ui/useToolbarLayout";
 
-/** One toolbar height for the compact list and expanded sidebar, including search. */
 export function ThreadListToolbar(props: {
   readonly searchQuery: string;
   readonly onSearchQueryChange: (query: string) => void;
@@ -34,6 +34,8 @@ export function ThreadListToolbar(props: {
   readonly onRequestVisibility?: () => void;
 }) {
   const navigation = useNavigation();
+  // Not useSelectWorkspaceTab: that imports the layout, which renders this toolbar.
+  const { openWorkspaceTab } = useAdaptiveWorkspaceLayout();
   const workspace = useWorkspaceTabs();
   const isTabActive = workspace?.isTabActive;
   const homeFocused = useNavigationState((state) => state.routes[state.index]?.name === "Home");
@@ -92,12 +94,7 @@ export function ThreadListToolbar(props: {
       filterActions={props.filterActions}
       filterCustomized={props.filterCustomized}
       onFilterAction={props.onFilterAction}
-      onOpenSettings={() =>
-        navigation.navigate("SettingsSheet", {
-          screen: "SettingsContent",
-          params: { screen: "Settings" },
-        })
-      }
+      onOpenSettings={() => openWorkspaceTab("settings")}
     />
   );
 

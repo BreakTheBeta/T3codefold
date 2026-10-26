@@ -1,9 +1,8 @@
-import type { ComponentType } from "react";
+import type { ComponentType, Ref } from "react";
 import type { NativeSyntheticEvent, ViewProps } from "react-native";
 import { requireNativeView, requireOptionalNativeModule } from "expo";
 
 import { NativeViewResolutionError } from "../../native/nativeViewResolutionError";
-import type { TerminalSurfaceOutput, TerminalSurfaceOutputAck } from "./terminalSurfaceOutput";
 
 const NATIVE_TERMINAL_MODULE_NAME = "T3TerminalSurface";
 
@@ -23,6 +22,7 @@ interface TerminalResizeEvent {
 }
 
 export interface NativeTerminalSurfaceProps extends ViewProps {
+  readonly ref?: Ref<NativeTerminalSurfaceHandle>;
   readonly appearanceScheme?: "light" | "dark";
   readonly autoFocus?: boolean;
   readonly readOnly?: boolean;
@@ -34,16 +34,19 @@ export interface NativeTerminalSurfaceProps extends ViewProps {
   readonly foregroundColor?: string;
   readonly mutedForegroundColor?: string;
   readonly terminalKey: string;
-  readonly output: TerminalSurfaceOutput;
+  readonly initialBuffer: string;
   readonly fontSize: number;
   readonly onInput?: (event: NativeSyntheticEvent<TerminalInputEvent>) => void;
-  readonly onOutputApplied?: (event: NativeSyntheticEvent<TerminalSurfaceOutputAck>) => void;
   /** Android only: DECCKM (application cursor keys) changed. */
   readonly onCursorKeysChange?: (
     event: NativeSyntheticEvent<{ readonly application: boolean }>,
   ) => void;
   readonly onFontScaleCommit?: (event: NativeSyntheticEvent<{ readonly scale: number }>) => void;
   readonly onResize?: (event: NativeSyntheticEvent<TerminalResizeEvent>) => void;
+}
+
+export interface NativeTerminalSurfaceHandle {
+  readonly writeOutput: (data: string, reset: boolean) => Promise<void>;
 }
 
 let cachedNativeTerminalSurfaceView: ComponentType<NativeTerminalSurfaceProps> | undefined;
@@ -102,4 +105,15 @@ export function getNativeTerminalHardwareKeyRevision(): number | null {
 
 export function hasNativeTerminalSurface() {
   return resolveNativeTerminalSurfaceView() !== null;
+}
+
+export function supportsNativeTerminalOutput(): boolean {
+  try {
+    const module = requireOptionalNativeModule<{ readonly outputRevision?: number }>(
+      NATIVE_TERMINAL_MODULE_NAME,
+    );
+    return (module?.outputRevision ?? 0) >= 1 && hasNativeTerminalSurface();
+  } catch {
+    return false;
+  }
 }

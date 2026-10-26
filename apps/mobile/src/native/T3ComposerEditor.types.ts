@@ -80,10 +80,6 @@ export interface ComposerEditorProps {
   readonly enterBehavior?: ComposerEnterBehavior;
   readonly submitTitle?: string;
   readonly alternateSubmitTitle?: string;
-  /**
-   * Hardware keyboard submission. `alternate` is true for the Command-modified
-   * chord, which sends using the opposite of the configured follow-up
-   * behavior.
-   */
+  /** Command (or Android Ctrl/Meta) chords set alternate to reverse follow-up behavior. */
   readonly onSubmit?: (alternate: boolean) => void;
 }
