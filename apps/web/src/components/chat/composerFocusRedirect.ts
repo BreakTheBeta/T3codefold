@@ -69,6 +69,8 @@ export function shouldTypeToFocusComposer(event: KeyboardEvent): boolean {
   if (event.isComposing) return false;
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
   if (event.key.length !== 1) return false;
+  // Fold: in Vim mode printable keys are commands; `i` enters the composer instead.
+  if (document.querySelector("[data-timeline-vim-mode]")) return false;
   if (!shouldRedirectInputToComposer(event)) return false;
   if (isSurfaceLauncherKey(event.key)) return false;
 
