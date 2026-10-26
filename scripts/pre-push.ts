@@ -357,10 +357,12 @@ function main() {
   if (plan.typecheck.length > 0) {
     run(repoRoot, "typecheck", ["run", "--cache", ...filters(plan.typecheck), "typecheck"]);
   }
-  // Cached tasks inject a filesystem tracer that breaks browser mock imports.
+  // Cached tasks inject a filesystem tracer that breaks browser mock imports and the task
+  // cache and scripts tests that spawn nested `vp run` or inspect NODE_OPTIONS.
+  const uncachedTests = new Set(["@t3tools/web", "@t3tools/task-cache", "@t3tools/scripts"]);
   const testGroups = [
-    { names: plan.tests.filter((name) => name !== "@t3tools/web"), cache: "--cache" },
-    { names: plan.tests.filter((name) => name === "@t3tools/web"), cache: "--no-cache" },
+    { names: plan.tests.filter((name) => !uncachedTests.has(name)), cache: "--cache" },
+    { names: plan.tests.filter((name) => uncachedTests.has(name)), cache: "--no-cache" },
   ];
   // React's browser build is chosen before Vitest applies test.env.
   const testEnvironment = { ...process.env, NODE_ENV: "test" };
