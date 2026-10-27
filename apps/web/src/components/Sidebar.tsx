@@ -71,7 +71,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 
 import {
   isAtomCommandInterrupted,
@@ -124,7 +124,6 @@ import {
   useEnvironmentMachines,
   usePrimaryEnvironmentId,
 } from "../state/environments";
-import { PitbossPin } from "./pitboss/PitbossPanel";
 import {
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
@@ -2713,17 +2712,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     <>
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
-      {environments.map((environment) => (
-        <PitbossPin
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-          label={environment.label}
-        />
-      ))}
       <SidebarContent
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
+            <Link
+              to="/factory"
+              className="mx-2 mb-2 block rounded-md px-3 py-2 text-sm font-medium hover:bg-accent"
+            >
+              Factory
+            </Link>
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}

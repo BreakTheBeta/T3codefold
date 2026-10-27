@@ -1,7 +1,7 @@
 /**
- * Fold-only client settings. Spread into upstream's `ClientSettingsSchema` and
- * `ClientSettingsPatch` in `settings.ts`, so upstream syncs touch two lines
- * there instead of every field.
+ * Fold-only settings. Spread into upstream's client and server settings schemas
+ * and their patches in `settings.ts`, so upstream syncs touch a few lines there
+ * instead of every field.
  */
 import { GamingHudPosition } from "./gamingHud.ts";
 import * as Effect from "effect/Effect";

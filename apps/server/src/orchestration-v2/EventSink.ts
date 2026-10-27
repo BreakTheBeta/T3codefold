@@ -1,3 +1,4 @@
+import { acceptFactoryDelivery, type FactoryDeliveryAcceptance } from "../factory/deliveryFence.ts";
 import {
   CommandId,
   type OrchestrationV2Run,
@@ -136,6 +137,7 @@ export interface EventSinkV2Shape {
     EventSinkV2Error
   >;
   readonly commitCommand: (input: {
+    readonly factoryDelivery?: FactoryDeliveryAcceptance;
     readonly commandId: CommandId;
     readonly threadId: ThreadId;
     readonly commandType: string;
@@ -646,6 +648,12 @@ const layerBase: Layer.Layer<
             return { ...existing, committed: false as const, cancelledEffectIds: [] };
           }
 
+          if (input.factoryDelivery !== undefined)
+            yield* acceptFactoryDelivery({
+              threadId: input.threadId,
+              commandId: input.commandId,
+              delivery: input.factoryDelivery,
+            }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
           const normalized = yield* normalizeEvents(input.events);
           const storedEvents = yield* eventStore.append({
             commandId: input.commandId,

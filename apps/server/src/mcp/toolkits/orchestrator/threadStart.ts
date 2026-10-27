@@ -8,7 +8,6 @@ import { threadStartAsLaunch } from "../../FleetExecutor.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as ProjectHandlers from "../project/handlers.ts";
 import { ProjectToolkit, ThreadLaunchResult } from "../project/tools.ts";
-import { requireLedgerDelegation } from "../work/ledgerGuard.ts";
 
 const isOrchestratorMcpFailure = Schema.is(OrchestratorMcpFailure);
 const isThreadLaunchResult = Schema.is(ThreadLaunchResult);
@@ -18,12 +17,10 @@ const failure = (message: string) =>
 /**
  * `t3_thread_start`, an alias of `t3_thread_launch` kept for existing callers. It runs
  * t3_thread_launch's own handler, which applies the caller's limits ("inherit" means the
- * caller's own modes), keeps GLaDOS inside the work ledger, and routes a launch that
- * names another environment.
+ * caller's own modes), and routes a launch that names another environment.
  */
 export const startThread = (input: OrchestratorMcpThreadStartInput) =>
   threadStartAsLaunch(input).pipe(
-    Effect.tap(() => requireLedgerDelegation("t3_thread_start")),
     Effect.flatMap((launch) =>
       ProjectToolkit.pipe(
         Effect.provide(McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer)),

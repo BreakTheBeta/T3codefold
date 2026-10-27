@@ -359,11 +359,6 @@ const copySnapshot = Effect.fn("importFoldDatabase.copySnapshot")(function* (sna
             last_error = 'fork import'
         WHERE status IN ('pending', 'running')
       `;
-      // Replaying `assign` or `create-lead` would create threads that already exist.
-      yield* sql`
-        UPDATE pitboss_effects SET state = 'failed', error = 'imported'
-        WHERE state NOT IN ('done', 'failed')
-      `;
 
       // The fork's name for upstream's thread.auto-settle-set; the payload is the same thread.
       yield* sql`

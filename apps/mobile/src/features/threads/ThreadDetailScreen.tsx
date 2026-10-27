@@ -188,7 +188,6 @@ import {
 import { ThreadCanvasBackdrop } from "./ThreadCanvasBackdrop";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
-import { PitbossWork } from "./PitbossWork";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { useThreadQueuedCount } from "./ThreadQueueControl";
@@ -1325,10 +1324,6 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
     composerEditorRef.current?.blur();
   };
 
-  const handleComposeWork = () => {
-    requestAnimationFrame(() => composerEditorRef.current?.focus());
-  };
-
   const handleUseArtifactTemplate = (template: CodexArtifactTemplate) => {
     const draftMessage =
       props.composerDraftKey === null ? "" : getComposerDraftSnapshot(props.composerDraftKey).text;
@@ -1401,16 +1396,6 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
     >
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
       <View style={tabletop ? { height: tabletop.feedHeight, overflow: "hidden" } : { flex: 1 }}>
-        {props.draftMode ? null : (
-          <PitbossWork
-            connected={props.connectionStateLabel === "connected"}
-            environmentId={props.environmentId}
-            threadId={props.selectedThread.id}
-            projectId={props.selectedThread.projectId}
-            modelSelection={props.selectedThread.modelSelection}
-            onComposeWork={handleComposeWork}
-          />
-        )}
         {props.draftMode ? (
           props.draftMode.content(
             navigationHeaderHeight,

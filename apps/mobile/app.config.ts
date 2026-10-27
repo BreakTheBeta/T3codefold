@@ -300,6 +300,10 @@ const config: ExpoConfig = {
     favicon: variant.assets.appIcon,
   },
   plugins: [
+    [
+      "expo-local-authentication",
+      { faceIDPermission: "Confirm Factory outward-action decisions with Face ID." },
+    ],
     "./plugins/withRealtimeVoice.cjs",
     "expo-asset",
     "react-native-pdf-jsi",

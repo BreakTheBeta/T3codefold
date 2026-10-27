@@ -1712,8 +1712,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
     openSession: Effect.fn("CodexAdapterV2.openSession")(
       function* (input) {
         const scope = yield* Scope.Scope;
-        // One Codex process per thread, so its shell gets the thread's `t3 work` credential.
-        const mcpSession = yield* mcpSessions.read(input.threadId);
         const { client, voices, classifyManagedError } = yield* openCodexSessionClient({
           settings: adapterOptions.settings,
           environment: adapterOptions.environment,
@@ -1726,7 +1724,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               providerSessionId: input.providerSessionId,
               runtimePolicy: input.runtimePolicy,
               settings,
-              environment: McpProviderSession.providerSessionEnvironment(environment, mcpSession),
+              environment,
             }),
           onOpenError: (cause) =>
             new ProviderAdapter.ProviderAdapterOpenSessionError({

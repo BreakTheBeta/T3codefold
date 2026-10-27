@@ -1,7 +1,8 @@
+import { FactoryError } from "@t3tools/contracts";
+import * as Factory from "./factory/Factory.ts";
 import {
   type AuthSessionId,
   FoldRpcGroup,
-  PitbossError,
   ProviderRealtimeVoiceError,
   type ThreadId,
   WS_METHODS,
@@ -11,7 +12,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
-import * as ServerConfig from "./config.ts";
 import { FleetBroker } from "./mcp/FleetBroker.ts";
 import { FleetExecutor } from "./mcp/FleetExecutor.ts";
 import { FleetRouter } from "./mcp/FleetRouter.ts";
@@ -19,27 +19,20 @@ import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import { makeRealtimeVoiceSessionResolver } from "./orchestration-v2/RealtimeVoiceSession.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
-import { makeHome } from "./pitboss/Home.ts";
-import { PeerService } from "./pitboss/PeerService.ts";
-import { SourceService } from "./pitboss/SourceService.ts";
-import { WorkStore } from "./pitboss/WorkStore.ts";
 
 // Handlers register per group: a single handler map for the merged WsRpcGroup exceeds
 // TypeScript's instantiation depth, so ws.ts registers UpstreamWsRpcGroup and this file FoldRpcGroup.
 const ServerFoldWsRpcGroup = FoldRpcGroup.middleware(RpcInstrumentation);
 
 /**
- * Fold's pitboss, fleet and realtime voice handlers, spread into the socket's
- * RPC handlers. The GLaDOS home and the fleet services are server-lifetime and
- * passed in, so every socket shares one home lock and one fleet broker.
+ * Fold's fleet and realtime voice handlers, spread into the socket's RPC
+ * handlers. The fleet services are server-lifetime, so every socket shares one
+ * fleet broker.
  */
 export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (input: {
   readonly sessionId: AuthSessionId;
-  readonly openGladosHome: Effect.Success<ReturnType<typeof makeHome>>;
 }) {
-  const work = yield* WorkStore;
-  const workPeers = yield* PeerService;
-  const workSources = yield* SourceService;
+  const factory = yield* Factory.Factory;
   const fleetBroker = yield* FleetBroker;
   const fleetRouter = yield* FleetRouter;
   const fleetExecutor = yield* FleetExecutor;
@@ -64,34 +57,25 @@ export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (
     );
 
   return FoldRpcGroup.of({
-    [WS_METHODS.pitbossPeers]: () => workPeers.list(),
-    [WS_METHODS.pitbossPeerCommand]: (command) => workPeers.execute(command),
-    [WS_METHODS.pitbossSources]: () => workSources.list(),
-    [WS_METHODS.pitbossSourceCommand]: (command) => workSources.execute(command),
-    [WS_METHODS.pitbossRead]: () => work.read(),
-    [WS_METHODS.pitbossSubscribe]: () => work.subscribe(),
-    [WS_METHODS.pitbossCommand]: (command) =>
-      Effect.gen(function* () {
-        if (command.action.type === "activate-home" || command.action.type === "reset")
-          return yield* input.openGladosHome(command);
-        if (command.action.type === "elect") {
-          yield* threadManagement
-            .getProjectThreadRecords(
-              { projectId: command.action.projectId, threadId: command.action.threadId },
-              [],
-            )
-            .pipe(
-              Effect.mapError(
-                () =>
-                  new PitbossError({
-                    code: "invalid",
-                    message: "Choose an existing thread in this project.",
-                  }),
-              ),
-            );
-        }
-        return yield* work.command(command, { type: "user" });
-      }),
+    [WS_METHODS.factorySubscribeBoard]: () => factory.subscribe({ kind: "user" }),
+    [WS_METHODS.factoryEnsureCommander]: (input) => factory.ensureCommander(input.modelSelection),
+    [WS_METHODS.factoryAnswerCard]: (input) => factory.decisions.answer({ kind: "user" }, input),
+    [WS_METHODS.factoryWithdrawCard]: (input) =>
+      factory.decisions.withdraw({ kind: "user" }, input.cardId),
+    [WS_METHODS.factoryGetPayload]: (input) => factory.payload({ kind: "user" }, input.sha256),
+    [WS_METHODS.factorySetAgentLifecycle]: (input) =>
+      factory.agents.lifecycle({ kind: "user" }, input.agentId, input.state),
+    [WS_METHODS.factoryUpsertTrigger]: (input) => factory.triggers.upsert({ kind: "user" }, input),
+    [WS_METHODS.factoryRunTrigger]: (input) => factory.runTrigger({ kind: "user" }, input.id),
+    [WS_METHODS.factorySetTriggerShadow]: (input) =>
+      factory.shadowTrigger({ kind: "user" }, input.id, input.shadow),
+    [WS_METHODS.factoryRetryWake]: (input) => factory.wakes.retry(input.wakeId),
+    [WS_METHODS.factoryDeferWake]: (input) =>
+      input.until === undefined
+        ? Effect.fail(new FactoryError({ code: "invalid" }))
+        : factory.wakes.defer({ kind: "user" }, input.wakeId, input.until),
+    [WS_METHODS.factoryCancelLaneJob]: (input) => factory.lanes.cancel({ kind: "user" }, input.id),
+
     [WS_METHODS.fleetConnect]: (connect) =>
       Stream.unwrap(fleetBroker.connect(input.sessionId, connect)),
     [WS_METHODS.fleetRespond]: (response) => fleetBroker.respond(input.sessionId, response),
@@ -176,18 +160,17 @@ export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (
 
 /**
  * Builds, once per server, the factory for each socket's Fold RPC layer. ws.ts merges
- * that layer beside its own handlers. The GLaDOS home and the fleet services are
- * server-lifetime: a lease taken on one socket must be visible to MCP routing and to
- * the other sockets.
+ * that layer beside its own handlers. The fleet services are server-lifetime: a lease
+ * taken on one socket must be visible to MCP routing and to the other sockets.
  */
 export const makeFoldWsRpcLayer = Effect.gen(function* () {
+  const factory = yield* Factory.Factory;
   const fleetBroker = yield* FleetBroker;
   const fleetRouter = yield* FleetRouter;
   const fleetExecutor = yield* FleetExecutor;
-  const config = yield* ServerConfig.ServerConfig;
-  const openGladosHome = yield* makeHome(config.stateDir);
   return (sessionId: AuthSessionId) =>
-    ServerFoldWsRpcGroup.toLayer(makeFoldWsHandlers({ sessionId, openGladosHome })).pipe(
+    ServerFoldWsRpcGroup.toLayer(makeFoldWsHandlers({ sessionId })).pipe(
+      Layer.provide(Layer.succeed(Factory.Factory, factory)),
       Layer.provide(Layer.succeed(FleetBroker, fleetBroker)),
       Layer.provide(Layer.succeed(FleetRouter, fleetRouter)),
       Layer.provide(Layer.succeed(FleetExecutor, fleetExecutor)),

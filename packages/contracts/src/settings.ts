@@ -1,3 +1,4 @@
+import { FoldServerSettingsFields, FoldServerSettingsPatchFields } from "./foldServerSettings.ts";
 import { EasDeviceHostConfigs, SshDeviceHostConfigs } from "./device.ts";
 import {
   AuthOrchestrationOperateScope,
@@ -1107,6 +1108,7 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  ...FoldServerSettingsFields,
   // Null means unmigrated; empty is authoritative and must not resurrect cleared preferences.
   favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   providerModelPreferences: Schema.NullOr(ProviderModelPreferences).pipe(
@@ -1428,6 +1430,7 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  ...FoldServerSettingsPatchFields,
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
   ),

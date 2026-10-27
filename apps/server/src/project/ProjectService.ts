@@ -1,3 +1,4 @@
+import { ThreadRetentionGuard } from "../orchestration-v2/ThreadRetentionGuard.ts";
 import {
   CommandId,
   type OrchestrationProjectShell,
@@ -412,6 +413,18 @@ export const make = Effect.gen(function* () {
       commandId: CommandId.make(`${input.commandId}:delete-thread:${threadId}`),
       threadId,
     };
+    yield* (yield* ThreadRetentionGuard)
+      .check(command)
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProjectOperationError({
+              operation: "delete-thread",
+              projectId: input.projectId,
+              cause,
+            }),
+        ),
+      );
     const now = yield* DateTime.now;
     const plan = yield* planThreadDeletion({
       command,

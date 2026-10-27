@@ -1,3 +1,6 @@
+import * as Factory from "../factory/layer.ts";
+import * as FactorySeams from "../factory/FactorySeams.ts";
+import * as FactoryStore from "../factory/FactoryStore.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -55,7 +58,6 @@ import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
-import { layerPitboss, layerPitbossOrchestrationSeams } from "../pitboss/layer.ts";
 
 export const layerEventInfrastructure = Layer.mergeAll(
   OrchestrationEventStore.layer,
@@ -361,6 +363,11 @@ export const layer = Layer.mergeAll(
 );
 
 export const layerProduction = Layer.mergeAll(
+  Factory.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(layerThreadLaunchProvided, layerThreadManagementProvided, layerProjectService),
+    ),
+  ),
   layer.pipe(Layer.provide(layerProjectService)),
   layerProjectService,
   layerManagedProjectFoldersProvided,
@@ -383,13 +390,14 @@ export const layerProduction = Layer.mergeAll(
   layerProviderContinuationWorkerProvided,
   layerAgentSessionImporterProvided,
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
-  layerPitboss({
-    threadLaunch: layerThreadLaunchProvided,
-    threadManagement: layerThreadManagementProvided,
-  }),
 ).pipe(
+  Layer.provide(
+    FactorySeams.layer.pipe(
+      Layer.provide(FactoryStore.layer),
+      Layer.provide(ProjectionStore.layer),
+    ),
+  ),
   Layer.provide(ResourceCleanupService.layer.pipe(Layer.provide(layerScheduledTaskProvided))),
-  Layer.provide(layerPitbossOrchestrationSeams),
   Layer.provide(Scheduler.layer),
   Layer.provideMerge(layerEventInfrastructure),
 );

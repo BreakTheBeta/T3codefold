@@ -272,15 +272,6 @@ function useSettingsIndexSections(): SettingsListSection[] {
       ],
     },
     {
-      title: "GLaDOS",
-      rows: [
-        page("SettingsGlados", "point.3.connected.trianglepath.dotted", "GLaDOS", {
-          value: "Brief, autonomy, sources, peers",
-          disabled: noServerTargets,
-        }),
-      ],
-    },
-    {
       title: "Server settings",
       rows: [
         serverPage("SettingsProviderAccounts", "person.crop.circle", "Provider accounts"),

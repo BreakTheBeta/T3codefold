@@ -25,7 +25,6 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
-  | "/settings/glados"
   | "/settings/integrations"
   | "/settings/scheduled-tasks"
   | "/settings/source-control"
@@ -87,7 +86,6 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
-  "/settings/glados": "GLaDOS",
   "/settings/integrations": "Integrations",
   "/settings/scheduled-tasks": "Scheduled Tasks",
   "/settings/source-control": "Source Control",
@@ -1068,7 +1066,6 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
   "/settings/providers": null,
-  "/settings/glados": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",

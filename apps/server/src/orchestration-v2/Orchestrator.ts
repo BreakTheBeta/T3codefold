@@ -5247,7 +5247,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     if (
       command.notification !== undefined &&
-      (command.createdBy !== "agent" ||
+      ((command.createdBy !== "agent" &&
+        !(
+          command.createdBy === "system" &&
+          command.creationSource === "server" &&
+          command.factoryDelivery !== undefined
+        )) ||
         (command.creationSource !== "server" && command.creationSource !== "provider") ||
         (dispatchMode.type !== "queue_after_active" &&
           !(
@@ -12181,6 +12186,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: commandThreadId(command),
         commandType: command.type,
         acceptedAt,
+        ...(command.type === "message.dispatch" && command.factoryDelivery !== undefined
+          ? {
+              factoryDelivery: {
+                ...command.factoryDelivery,
+                messageId: command.messageId,
+                text: command.text,
+              },
+            }
+          : {}),
         events: plan.events,
         effects: plan.effects,
         ...(plan.cancelUnsettledEffects === undefined

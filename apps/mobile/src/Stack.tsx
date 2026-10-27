@@ -124,10 +124,10 @@ import { SettingsProjectGroupingRouteScreen } from "./features/settings/Settings
 import { SettingsProjectOverviewRouteScreen } from "./features/settings/SettingsProjectOverviewRouteScreen";
 import { UsageLimitAccountScreen } from "./features/usage/UsageLimitsPooled";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
+import { FactoryRouteScreen } from "./features/factory/FactoryRouteScreen";
 import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRouteScreen";
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
-import { GladosSettingsRouteScreen } from "./features/threads/GladosSettingsScreen";
 import { SettingsThreadsRouteScreen } from "./features/settings/SettingsThreadsRouteScreen";
 import { SettingsEnvironmentFilterProvider } from "./features/settings/settings-environment-filter";
 import { openSettings, settingsOpenIn } from "./features/settings/settings-navigation";
@@ -252,11 +252,6 @@ const SETTINGS_SCREENS = {
       headerShown: Platform.OS !== "android",
       headerBackVisible: false,
     },
-  }),
-  SettingsGlados: createNativeStackScreen({
-    screen: GladosSettingsRouteScreen,
-    linking: "settings/glados",
-    options: { ...SETTINGS_PAGE_OPTIONS, title: "GLaDOS" },
   }),
   SettingsEnvironments: createNativeStackScreen({
     screen: SettingsEnvironmentsRouteScreen,
@@ -464,6 +459,11 @@ const SETTINGS_SCREENS = {
       ...SETTINGS_PAGE_OPTIONS,
       title: "Usage",
     },
+  }),
+  Factory: createNativeStackScreen({
+    screen: FactoryRouteScreen,
+    linking: "factory/:environmentId?",
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "Factory" },
   }),
   SettingsAuth: createNativeStackScreen({
     screen: SettingsAuthRouteScreen,

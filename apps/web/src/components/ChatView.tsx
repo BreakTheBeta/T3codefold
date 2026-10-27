@@ -33,7 +33,6 @@ import {
   rememberCheckoutIsRepo,
 } from "./ChatView.logic";
 import { useCodexRealtimeVoice } from "../hooks/useCodexRealtimeVoice";
-import { PitbossPanel } from "./pitboss/PitbossPanel";
 import { useVoiceViewContext } from "./voice/VoiceWorkspaceProvider";
 import { TimelineVimMode } from "~/vim/TimelineVimMode";
 import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnvironments";
@@ -3251,15 +3250,6 @@ export default function ChatView(props: ChatViewProps) {
               : {})}
           />
         </header>
-
-        {isServerThread && activeProject && (
-          <PitbossPanel
-            environmentId={activeThread.environmentId}
-            threadId={activeThread.id}
-            runtimeMode={activeThread.runtimeMode}
-            onComposeWork={focusComposer}
-          />
-        )}
 
         {/* Main content area with optional plan sidebar */}
         <div className="relative flex min-h-0 min-w-0 flex-1">

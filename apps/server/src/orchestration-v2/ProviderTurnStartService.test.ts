@@ -1264,9 +1264,7 @@ effectIt.effect("leads a starting turn with its preamble for this thread and att
       failReadsAfterRunning: true,
     });
     const preamble = preambleFor(
-      Effect.succeed(
-        "<t3-pitboss-context>\nYou are this environment's elected GLaDOS.\n</t3-pitboss-context>",
-      ),
+      Effect.succeed("<t3-feature-context>\nYou are a feature coordinator.\n</t3-feature-context>"),
     );
 
     yield* harness.start.pipe(Effect.provideService(TurnPreamble, preamble.turnPreamble));
@@ -1275,7 +1273,7 @@ effectIt.effect("leads a starting turn with its preamble for this thread and att
       [ThreadId.make("thread-native-account-command"), harness.attemptId],
     ]);
     expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe(
-      "<t3-pitboss-context>\nYou are this environment's elected GLaDOS.\n</t3-pitboss-context>\n\n<user_request>\nShip the dark mode toggle\n</user_request>",
+      "<t3-feature-context>\nYou are a feature coordinator.\n</t3-feature-context>\n\n<user_request>\nShip the dark mode toggle\n</user_request>",
     );
   }),
 );
