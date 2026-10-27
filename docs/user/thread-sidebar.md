@@ -49,6 +49,14 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Filter by machine
+
+On web and desktop, open the sidebar filter and choose **Machine: <name>** to show
+that machine's threads across all projects. Choose **All projects and machines**
+to reset it. The selection is remembered across reloads. In the legacy sidebar,
+use the machine filter beside the project sorting controls and choose **All machines**
+to reset it.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

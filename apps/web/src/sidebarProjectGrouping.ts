@@ -66,13 +66,43 @@ export function getSidebarProjectSettingsKey(
   );
 }
 
+export function sidebarMachineScopeKey(environmentId: EnvironmentId): string {
+  return `machine:${environmentId}`;
+}
+
+export function getSidebarScopeProjectKeys(input: {
+  readonly key: string | null;
+  readonly groups: ReadonlyArray<Pick<SidebarProjectSnapshot, "projectKey" | "memberProjectRefs">>;
+  readonly projects: ReadonlyArray<Pick<Project, "environmentId" | "id">>;
+}) {
+  if (input.key === null) return null;
+  if (input.key.startsWith("machine:")) {
+    return new Set(
+      input.projects
+        .filter((project) => sidebarMachineScopeKey(project.environmentId) === input.key)
+        .map((project) => `${project.environmentId}:${project.id}`),
+    );
+  }
+  const group = input.groups.find((candidate) => candidate.projectKey === input.key);
+  return group
+    ? new Set(group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`))
+    : null;
+}
+
 export function resolveSidebarProjectScopeKey(input: {
   readonly groups: ReadonlyArray<SidebarProjectSnapshot>;
   readonly key: string | null;
   readonly settings?: ProjectGroupingSettings;
   readonly canClearMissingScope?: boolean;
+  readonly environments?: ReadonlyArray<{ readonly environmentId: EnvironmentId }>;
 }): string | null {
   if (input.key === null) return null;
+  if (
+    input.environments?.some(
+      (environment) => sidebarMachineScopeKey(environment.environmentId) === input.key,
+    )
+  )
+    return input.key;
   const group =
     input.groups.find((candidate) => candidate.projectKey === input.key) ??
     input.groups.find(

@@ -213,6 +213,7 @@ import {
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarMachineFilter } from "./sidebar/SidebarMachineFilter";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
@@ -229,6 +230,7 @@ import {
 } from "../logicalProject";
 import type { SidebarThreadSummary } from "../types";
 import {
+  sidebarMachineScopeKey,
   buildPhysicalToLogicalProjectKeyMap,
   buildSidebarProjectSnapshots,
   type SidebarProjectGroupMember,
@@ -2925,6 +2927,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
           <div className="flex items-center gap-1">
+            <SidebarMachineFilter />
             <ProjectSortMenu
               projectSortOrder={projectSortOrder}
               threadSortOrder={threadSortOrder}
@@ -3054,6 +3057,7 @@ function openAddProjectCommandPalette() {
 function useLegacySidebarProjects() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const scopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -3079,19 +3083,25 @@ function useLegacySidebarProjects() {
       legacyProjectCwdPreferenceKey(project.workspaceRoot),
     ],
   });
+  const selectedMachine = environments.find(
+    (environment) => sidebarMachineScopeKey(environment.environmentId) === scopeKey,
+  );
+  const visibleProjects = selectedMachine
+    ? orderedProjects.filter((project) => project.environmentId === selectedMachine.environmentId)
+    : orderedProjects;
   const physicalToLogicalKey = buildPhysicalToLogicalProjectKeyMap({
-    projects: orderedProjects,
+    projects: visibleProjects,
     settings: projectGroupingSettings,
     primaryEnvironmentId,
   });
   const projectPhysicalKeyByScopedRef = new Map(
-    orderedProjects.map((project) => [
+    visibleProjects.map((project) => [
       scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
       derivePhysicalProjectKey(project),
     ]),
   );
   const sidebarProjects: SidebarProjectSnapshot[] = buildSidebarProjectSnapshots({
-    projects: orderedProjects,
+    projects: visibleProjects,
     settings: projectGroupingSettings,
     primaryEnvironmentId,
     resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,

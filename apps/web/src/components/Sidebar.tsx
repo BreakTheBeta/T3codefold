@@ -59,7 +59,14 @@ import {
 } from "@t3tools/contracts";
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
-import { ChevronDownIcon, FolderIcon, ListFilterIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  FolderIcon,
+  ListFilterIcon,
+  MonitorIcon,
+  PlusIcon,
+  SettingsIcon,
+} from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -98,6 +105,8 @@ import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import {
   projectGroupsSpanEnvironments,
+  sidebarMachineScopeKey,
+  getSidebarScopeProjectKeys,
   resolveSidebarProjectScopeKey,
   getSidebarProjectSettingsKey,
   type SidebarProjectSnapshot,
@@ -727,7 +736,11 @@ function useSidebarLookups() {
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
   const projectScopeItems = [
-    { value: "all", label: "All projects" },
+    { value: "all", label: "All projects and machines" },
+    ...environments.map((environment) => ({
+      value: sidebarMachineScopeKey(environment.environmentId),
+      label: `Machine: ${environment.label}`,
+    })),
     ...projectGroups.map((project) => ({ value: project.projectKey, label: project.displayName })),
   ];
   return {
@@ -958,6 +971,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const chosenProjectScopeKey = resolveSidebarProjectScopeKey({
     groups: projectGroups,
     key: persistedProjectScopeKey,
+    environments,
     settings: projectGroupingSettings,
     canClearMissingScope: allProjectSnapshotsReady && allProjectConfigsReady,
   });
@@ -965,14 +979,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     chosenProjectScopeKey === null
       ? null
       : (projectGroups.find((project) => project.projectKey === chosenProjectScopeKey) ?? null);
-  const chosenScopeProjectKeys =
-    chosenProjectGroup === null
-      ? null
-      : new Set(
-          chosenProjectGroup.memberProjectRefs.map(
-            (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-          ),
-        );
+  const chosenMachine = environments.find(
+    (environment) => sidebarMachineScopeKey(environment.environmentId) === chosenProjectScopeKey,
+  );
+  const chosenScopeProjectKeys = getSidebarScopeProjectKeys({
+    key: chosenProjectScopeKey,
+    groups: projectGroups,
+    projects,
+  });
   const threads = useQuietThreadShells();
   const routeRowThreadKey =
     routeThreadRef === null
@@ -1035,9 +1049,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
   const scopedProjectGroup = revealWidensScope ? null : chosenProjectGroup;
+  const scopedMachine = revealWidensScope ? undefined : chosenMachine;
   const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
   const threadSearch = useThreadSearch(
-    searchEnvironmentIds,
+    scopedMachine
+      ? searchEnvironmentIds.filter(
+          (environmentId) => environmentId === scopedMachine.environmentId,
+        )
+      : searchEnvironmentIds,
     threadSearchQuery,
     scopedProjectGroup === null
       ? {}
@@ -2697,20 +2716,25 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     <>
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
-      {environments.map((environment) => (
-        <PitbossPin
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-          label={environment.label}
-        />
-      ))}
+      {environments
+        .filter(
+          (environment) =>
+            !scopedMachine || environment.environmentId === scopedMachine.environmentId,
+        )
+        .map((environment) => (
+          <PitbossPin
+            key={environment.environmentId}
+            environmentId={environment.environmentId}
+            label={environment.label}
+          />
+        ))}
       <SidebarContent
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
-              hasProjects={projectGroups.length > 0}
+              hasProjects={projectGroups.length > 0 || environments.length > 1}
               projectScope={
                 <Combobox
                   items={projectScopeItems}
@@ -2740,14 +2764,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     render={
                       <SidebarHeaderIconButton
                         label={
-                          scopedProjectGroup
-                            ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
+                          scopedMachine
+                            ? `Filter threads by machine: ${scopedMachine.label}`
+                            : scopedProjectGroup
+                              ? `Filter threads by project: ${scopedProjectGroup.displayName}`
+                              : "Filter threads by project or machine"
                         }
                       />
                     }
                   >
-                    {scopedProjectGroup ? (
+                    {scopedMachine ? (
+                      <MonitorIcon className="size-4" />
+                    ) : scopedProjectGroup ? (
                       <span className="flex shrink-0">
                         <ProjectFavicon project={scopedProjectGroup} className="size-4" />
                       </span>
@@ -2761,8 +2789,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
                   >
                     <ComboboxSearchInput
-                      aria-label="Search projects"
-                      placeholder="Search projects..."
+                      aria-label="Search projects or machines"
+                      placeholder="Search projects or machines..."
                       value={projectScopeMenuState.query}
                       onKeyDown={(event) => {
                         if (
@@ -2786,7 +2814,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         })
                       }
                     />
-                    <ComboboxEmpty>No matching projects.</ComboboxEmpty>
+                    <ComboboxEmpty>No matching projects or machines.</ComboboxEmpty>
                     <ComboboxList>
                       {(item: (typeof projectScopeItems)[number]) => {
                         const project = projectGroupByScopeKey.get(item.value) ?? null;
@@ -2799,7 +2827,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               if (project) handleProjectSettings(event, project);
                             }}
                           >
-                            {project ? (
+                            {item.value.startsWith("machine:") ? (
+                              <MonitorIcon className="size-4 shrink-0" />
+                            ) : project ? (
                               <ProjectFavicon project={project} className="size-4 shrink-0" />
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
