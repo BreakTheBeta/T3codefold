@@ -412,15 +412,8 @@ const buildDatabase = Effect.fn("importFoldDatabase.buildDatabase")(function* (
   }).pipe(Effect.provide(maintenance));
 });
 
-/**
- * Replaces a fork-ledgered database with an upstream-ledgered one holding the same rows.
- *
- * Runs before the persistence layer migrates. The fork database is snapshotted under an exclusive
- * lock, copied into a fresh upstream schema (plus the fold ledger), verified, and renamed over the
- * original. The snapshot is kept beside it as `<name>.fold-backup-<timestamp>.sqlite`. A failure
- * before the rename leaves the original untouched, and the next start retries. Once published the
- * ledger is upstream's, so later starts are no-ops.
- */
+// Snapshot and verify before replacing the fork ledger; failed imports leave the original intact.
+// Keep the snapshot beside the database for recovery after publication.
 export const importFoldDatabase = Effect.fn("importFoldDatabase")(function* (
   databasePath: string,
   options: ImportFoldDatabaseOptions = {},
