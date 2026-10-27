@@ -104,29 +104,39 @@ const make = Effect.gen(function* () {
       );
     },
   );
-  const cancel: CommandLanes["Service"]["cancel"] = Effect.fn("CommandLanes.cancel")(
-    function* (actor, id) {
-      const job = yield* store.get("jobs", id);
-      if (!job) return yield* new FactoryError({ code: "not-found", entityId: id });
-      if (actor.kind === "agent" && (yield* actorAgent(actor)).id !== job.ownerId)
-        return yield* new FactoryError({ code: "forbidden" });
-      if (job.state === "queued")
-        yield* store.transaction(
-          store.put("jobs", {
-            ...job,
-            state: "terminal",
-            status: "cancelled",
-            updatedAt: DateTime.toEpochMillis(yield* DateTime.now),
-          }),
-        );
-      else if (job.state !== "terminal") yield* supervisor.status(job, true);
-    },
+  const cancel: CommandLanes["Service"]["cancel"] = Effect.fn("CommandLanes.cancel")((actor, id) =>
+    store.transaction(
+      Effect.gen(function* () {
+        const job = yield* store.get("jobs", id);
+        if (!job) return yield* new FactoryError({ code: "not-found", entityId: id });
+        if (actor.kind === "agent" && (yield* actorAgent(actor)).id !== job.ownerId)
+          return yield* new FactoryError({ code: "forbidden" });
+        if (job.state === "terminal" || job.cancelRequested) return;
+        const now = DateTime.toEpochMillis(yield* DateTime.now);
+        yield* store.put("jobs", {
+          ...job,
+          cancelRequested: true,
+          updatedAt: now,
+          ...(job.state === "queued"
+            ? { state: "terminal" as const, status: "cancelled" as const }
+            : {}),
+        });
+        if (job.state === "queued")
+          yield* wakes.enqueue({
+            id: `lane-complete:${job.id}`,
+            targetId: job.ownerId,
+            refKind: "lane",
+            refId: job.id,
+            text: `Command cancelled before launch: ${job.argv.join(" ")}`.slice(0, 16_384),
+          });
+      }),
+    ),
   );
   const tick = Effect.gen(function* () {
     for (const job of (yield* store.list("jobs")).filter(
       (j) => !["queued", "terminal"].includes(j.state),
     )) {
-      const status = yield* supervisor.status(job);
+      const status = yield* supervisor.status(job, job.cancelRequested === true);
       yield* store.transaction(
         Effect.gen(function* () {
           const latest = (yield* store.get("jobs", job.id))!;

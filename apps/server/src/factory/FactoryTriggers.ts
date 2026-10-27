@@ -19,8 +19,13 @@ import * as Projects from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 
-const watchValue = (value: unknown): string =>
-  Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(value ?? null);
+const decodeSummary = Schema.decodeOption(
+  Schema.fromJsonString(Schema.Struct({ _summary: Schema.Unknown })),
+);
+
+const encodeWatchValue = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeItem = Schema.decodeEffect(Schema.fromJsonString(FactoryCheckItem));
+const watchValue = (value: unknown): string => encodeWatchValue(value ?? null);
 
 export class FactoryTriggers extends Context.Service<
   FactoryTriggers,
@@ -224,12 +229,10 @@ const make = Effect.gen(function* () {
         for (const line of output.stdout.split("\n").filter((l) => l.trim())) {
           if (line.length > 16_384 || items.length >= 200)
             return yield* new FactoryError({ code: "invalid" });
-          const summary = Schema.decodeOption(
-            Schema.fromJsonString(Schema.Struct({ _summary: Schema.Unknown })),
-          )(line);
+          const summary = decodeSummary(line);
           if (summary._tag === "Some") continue;
           items.push(
-            yield* Schema.decodeEffect(Schema.fromJsonString(FactoryCheckItem))(line).pipe(
+            yield* decodeItem(line).pipe(
               Effect.mapError((cause) => new FactoryError({ code: "invalid", cause })),
             ),
           );

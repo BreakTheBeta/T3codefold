@@ -318,6 +318,7 @@ export const FactoryLaneJob = Schema.Struct({
   rc: Schema.NullOr(Schema.Number),
   outputPath: Schema.String,
   supervisor: Schema.NullOr(Schema.String),
+  cancelRequested: Schema.optionalKey(Schema.Boolean),
 });
 export type FactoryLaneJob = typeof FactoryLaneJob.Type;
 export const FactoryStall = Schema.Struct({

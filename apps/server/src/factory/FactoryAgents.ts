@@ -16,6 +16,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { FactoryStore } from "./FactoryStore.ts";
+import { WakeQueue, cancelPendingClaim } from "./WakeQueue.ts";
 import { callerAgent, inSubtree, requireAgentControl, type FactoryActor } from "./access.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -53,6 +54,7 @@ export class FactoryAgents extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const wakes = yield* WakeQueue;
   const config = yield* ServerConfig.ServerConfig;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const environmentId = yield* environment.getEnvironmentId;
@@ -81,7 +83,8 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           const latest = yield* store.get("spawns", current.id);
           if (!latest) return yield* new FactoryError({ code: "not-found", entityId: current.id });
-          if (["reserved", "launching", "launched"].includes(latest.state)) return latest;
+          if (["reserved", "launching", "launched", "cancelled"].includes(latest.state))
+            return latest;
           const limits = provider.usageLimits;
           const recent = (yield* store.list("spawns")).filter(
             (s) =>
@@ -128,9 +131,12 @@ const make = Effect.gen(function* () {
           });
         }),
       );
-      if (reservation.state === "held" || reservation.state === "launched") return reservation;
+      if (["held", "launched", "cancelled"].includes(reservation.state)) return reservation;
       const registered = yield* store.transaction(
         Effect.gen(function* () {
+          const latest = yield* store.get("spawns", current.id);
+          if (!latest || latest.state === "cancelled")
+            return yield* new FactoryError({ code: "conflict", entityId: current.id });
           let agent = yield* store.get("agents", current.agentId);
           if (!agent)
             agent = yield* store.put("agents", {
@@ -178,6 +184,25 @@ const make = Effect.gen(function* () {
           threadId: current.threadId,
         })
         .pipe(Effect.mapError(external));
+      yield* store.transaction(
+        Effect.gen(function* () {
+          const latest = yield* store.get("spawns", current.id);
+          const agent = yield* store.get("agents", current.agentId);
+          if (
+            !latest ||
+            latest.state === "cancelled" ||
+            !agent ||
+            ["closed", "retired"].includes(agent.lifecycle)
+          )
+            return yield* new FactoryError({ code: "conflict", entityId: current.id });
+          if (latest.state !== "launching")
+            yield* store.put("spawns", {
+              ...latest,
+              state: "launching",
+              updatedAt: DateTime.toEpochMillis(yield* DateTime.now),
+            });
+        }),
+      );
       yield* launches
         .launch({
           commandId: CommandId.make(`factory:initial:${current.id}`),
@@ -203,7 +228,12 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(external));
       return yield* store.transaction(
         Effect.gen(function* () {
+          const latest = yield* store.get("spawns", current.id);
+          if (!latest) return yield* new FactoryError({ code: "not-found", entityId: current.id });
+          if (latest.state === "cancelled") return latest;
           const latestAgent = yield* store.get("agents", registered.id);
+          if (!latestAgent || ["closed", "retired"].includes(latestAgent.lifecycle))
+            return yield* new FactoryError({ code: "conflict", entityId: current.id });
           if (latestAgent)
             yield* store.put("agents", {
               ...latestAgent,
@@ -211,8 +241,6 @@ const make = Effect.gen(function* () {
               next: "Working",
               updatedAt: now,
             });
-          const latest = yield* store.get("spawns", current.id);
-          if (!latest) return yield* new FactoryError({ code: "not-found", entityId: current.id });
           return yield* store.put("spawns", { ...latest, state: "launched", updatedAt: now });
         }),
       );
@@ -338,22 +366,79 @@ const make = Effect.gen(function* () {
           if (agent.role === "commander" && state === "closed")
             return yield* new FactoryError({ code: "invalid", entityId: id });
           const now = DateTime.toEpochMillis(yield* DateTime.now);
+          if (agent.lifecycle === state) return agent;
           if (state === "closed") {
-            for (const child of all.filter((a) => inSubtree(agent, a, all))) {
-              if (child.id !== id)
-                yield* store.put("agents", { ...child, lifecycle: "closed", updatedAt: now });
-              for (const card of yield* store.list("cards"))
-                if (card.ownerId === child.id && card.state === "open")
-                  yield* store.put("cards", { ...card, state: "withdrawn", updatedAt: now });
-              for (const wake of yield* store.list("wakes"))
-                if (wake.targetId === child.id && !["acked", "cancelled"].includes(wake.state))
-                  yield* store.put("wakes", { ...wake, state: "cancelled", updatedAt: now });
-              for (const trigger of yield* store.list("triggers"))
-                if (trigger.ownerId === child.id)
-                  yield* store.put("triggers", { ...trigger, enabled: false, updatedAt: now });
+            const closedIds = new Set(all.filter((a) => inSubtree(agent, a, all)).map((a) => a.id));
+            for (const child of all.filter((a) => closedIds.has(a.id))) {
+              if (child.id !== id && child.lifecycle !== "closed")
+                yield* store.put("agents", {
+                  ...child,
+                  lifecycle: "closed",
+                  needs: null,
+                  updatedAt: now,
+                });
             }
+            const cards = yield* store.list("cards");
+            const cardIds = new Set(cards.filter((c) => closedIds.has(c.ownerId)).map((c) => c.id));
+            for (const card of cards)
+              if (closedIds.has(card.ownerId) && card.state === "open") {
+                yield* wakes.revokeSource(`card:${card.id}:${card.revision}`);
+                yield* store.put("cards", { ...card, state: "withdrawn", updatedAt: now });
+              }
+            for (const trigger of yield* store.list("triggers"))
+              if (closedIds.has(trigger.ownerId)) {
+                yield* wakes.revokeSource(`trigger:${trigger.id}`);
+                if (trigger.enabled)
+                  yield* store.put("triggers", { ...trigger, enabled: false, updatedAt: now });
+              }
+            for (const candidate of yield* store.list("wakes"))
+              if (closedIds.has(candidate.targetId)) {
+                let wake = (yield* store.get("wakes", candidate.id))!;
+                if (["acked", "cancelled"].includes(wake.state)) continue;
+                const shared = (yield* store.list("wakes")).some(
+                  (w) =>
+                    w.sourceId === wake.sourceId &&
+                    !closedIds.has(w.targetId) &&
+                    !["acked", "cancelled"].includes(w.state),
+                );
+                if (!shared) yield* wakes.revokeSource(wake.sourceId);
+                else {
+                  yield* cancelPendingClaim(store, wake.deliveryId, now);
+                  wake = (yield* store.get("wakes", candidate.id))!;
+                  yield* store.put("wakes", { ...wake, state: "cancelled", updatedAt: now });
+                }
+              }
+            for (const spawn of yield* store.list("spawns"))
+              if (
+                (closedIds.has(spawn.agentId) ||
+                  (spawn.parentId !== null && closedIds.has(spawn.parentId))) &&
+                !["launched", "cancelled"].includes(spawn.state)
+              )
+                yield* store.put("spawns", { ...spawn, state: "cancelled", updatedAt: now });
+            for (const notification of yield* store.list("notifications"))
+              if (cardIds.has(notification.cardId) && notification.state === "pending")
+                yield* store.put("notifications", {
+                  ...notification,
+                  state: "cancelled",
+                  updatedAt: now,
+                });
+            for (const job of yield* store.list("jobs"))
+              if (closedIds.has(job.ownerId) && job.state !== "terminal" && !job.cancelRequested)
+                yield* store.put("jobs", {
+                  ...job,
+                  cancelRequested: true,
+                  updatedAt: now,
+                  ...(job.state === "queued"
+                    ? { state: "terminal" as const, status: "cancelled" as const }
+                    : {}),
+                });
           }
-          return yield* store.put("agents", { ...agent, lifecycle: state, updatedAt: now });
+          return yield* store.put("agents", {
+            ...agent,
+            lifecycle: state,
+            needs: state === "closed" ? null : agent.needs,
+            updatedAt: now,
+          });
         }),
       ),
   );
