@@ -11,7 +11,6 @@ import {
   CheckpointRef,
   CommandId,
   ContextTransferId,
-  EnvironmentId,
   EventId,
   MessageId,
   NodeId,
@@ -39,7 +38,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
-import * as Schema from "effect/Schema";
+
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -48,9 +47,7 @@ import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import { CloudManagedEndpointRuntime } from "../cloud/ManagedEndpointRuntime.ts";
-import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
+
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -76,14 +73,9 @@ import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
-import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
-import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+
 import * as TerminalManager from "../terminal/Manager.ts";
-import * as TextGeneration from "../textGeneration/TextGeneration.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import { FetchHttpClient } from "effect/http";
+
 import { shellStreamItemFromThreadShell } from "./ShellStream.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";

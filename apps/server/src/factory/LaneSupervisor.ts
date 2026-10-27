@@ -18,6 +18,10 @@ const Status = Schema.Struct({
   status: FactoryLaneJob.fields.status,
   rc: Schema.NullOr(Schema.Number),
 });
+const encodeSupervisorInput = Schema.encodeEffect(
+  Schema.fromJsonString(Schema.Struct({ job: FactoryLaneJob, nonce: Schema.String })),
+);
+const decodeStatus = Schema.decodeEffect(Schema.fromJsonString(Status));
 export class LaneSupervisor extends Context.Service<
   LaneSupervisor,
   {
@@ -42,9 +46,9 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(failure));
     const script = path.join(job.outputPath, "supervisor.mjs");
     const input = path.join(job.outputPath, "input.json");
-    const encoded = yield* Schema.encodeEffect(
-      Schema.fromJsonString(Schema.Struct({ job: FactoryLaneJob, nonce: Schema.String })),
-    )({ job, nonce: job.supervisor }).pipe(Effect.mapError(failure));
+    const encoded = yield* encodeSupervisorInput({ job, nonce: job.supervisor }).pipe(
+      Effect.mapError(failure),
+    );
     yield* fs
       .writeFileString(script, laneSupervisorSource, { mode: 0o600 })
       .pipe(Effect.mapError(failure));
@@ -70,9 +74,7 @@ const make = Effect.gen(function* () {
       .readFileString(path.join(job.outputPath, "status.json"))
       .pipe(Effect.orElseSucceed(() => ""));
     if (!raw) return undefined;
-    const saved = yield* Schema.decodeEffect(Schema.fromJsonString(Status))(raw).pipe(
-      Effect.mapError(failure),
-    );
+    const saved = yield* decodeStatus(raw).pipe(Effect.mapError(failure));
     if (saved.nonce !== job.supervisor)
       return yield* new FactoryError({ code: "conflict", entityId: job.id });
     if (saved.phase === "terminal") return saved;
@@ -103,9 +105,7 @@ const make = Effect.gen(function* () {
       catch: failure,
     });
     if (!response) return undefined;
-    const live = yield* Schema.decodeEffect(Schema.fromJsonString(Status))(response).pipe(
-      Effect.mapError(failure),
-    );
+    const live = yield* decodeStatus(response).pipe(Effect.mapError(failure));
     return live.nonce === job.supervisor ? live : undefined;
   });
   return LaneSupervisor.of({ launch, status });

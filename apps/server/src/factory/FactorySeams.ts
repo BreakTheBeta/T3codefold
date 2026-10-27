@@ -11,6 +11,8 @@ import {
 } from "../orchestration-v2/ThreadRetentionGuard.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
+const isThreadRetentionGuardError = Schema.is(ThreadRetentionGuardError);
+
 const preamble = Layer.effect(
   TurnPreamble,
   Effect.gen(function* () {
@@ -91,7 +93,7 @@ const retention = Layer.effect(
             });
         },
         Effect.mapError((cause) =>
-          Schema.is(ThreadRetentionGuardError)(cause)
+          isThreadRetentionGuardError(cause)
             ? cause
             : new ThreadRetentionGuardError({
                 reason: "Factory retention state is unavailable.",

@@ -13,6 +13,12 @@ import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+const decodeDelivery = Schema.decodeEffect(Schema.fromJsonString(FactoryDelivery));
+const decodeSource = Schema.decodeEffect(Schema.fromJsonString(FactorySource));
+const decodeWake = Schema.decodeEffect(Schema.fromJsonString(FactoryWake));
+const encodeWake = Schema.encodeEffect(Schema.fromJsonString(FactoryWake));
+const encodeDelivery = Schema.encodeEffect(Schema.fromJsonString(FactoryDelivery));
+
 export interface FactoryDeliveryAcceptance extends FactoryDeliveryMetadata {
   readonly messageId: MessageId;
   readonly text: string;
@@ -30,9 +36,7 @@ export const acceptFactoryDelivery = Effect.fn("Factory.acceptDelivery")(functio
     payload_json: string;
   }>`SELECT payload_json FROM factory_wake_deliveries WHERE id = ${input.delivery.deliveryId}`;
   if (!rows[0]) return yield* fail();
-  const claim = yield* Schema.decodeEffect(Schema.fromJsonString(FactoryDelivery))(
-    rows[0].payload_json,
-  );
+  const claim = yield* decodeDelivery(rows[0].payload_json);
   if (
     claim.state !== "claimed" ||
     claim.threadId !== input.threadId ||
@@ -48,9 +52,7 @@ export const acceptFactoryDelivery = Effect.fn("Factory.acceptDelivery")(functio
     payload_json: string;
   }>`SELECT payload_json FROM factory_delivery_sources WHERE id = ${claim.sourceId}`;
   if (!sources[0]) return yield* fail();
-  const source = yield* Schema.decodeEffect(Schema.fromJsonString(FactorySource))(
-    sources[0].payload_json,
-  );
+  const source = yield* decodeSource(sources[0].payload_json);
   if (source.state === "revoked" || source.epoch !== claim.sourceEpoch) return yield* fail();
   const now = DateTime.toEpochMillis(yield* DateTime.now);
   for (const id of claim.wakeIds) {
@@ -58,9 +60,7 @@ export const acceptFactoryDelivery = Effect.fn("Factory.acceptDelivery")(functio
       payload_json: string;
     }>`SELECT payload_json FROM factory_wakes WHERE id = ${id}`;
     if (!wakes[0]) return yield* fail();
-    const wake = yield* Schema.decodeEffect(Schema.fromJsonString(FactoryWake))(
-      wakes[0].payload_json,
-    );
+    const wake = yield* decodeWake(wakes[0].payload_json);
     if (
       wake.sourceId !== claim.sourceId ||
       wake.sourceEpoch !== claim.sourceEpoch ||
@@ -79,7 +79,7 @@ export const acceptFactoryDelivery = Effect.fn("Factory.acceptDelivery")(functio
       updatedAt: now,
       nextAttemptAt: now + 30 * 60_000,
     };
-    const json = yield* Schema.encodeEffect(Schema.fromJsonString(FactoryWake))(updated);
+    const json = yield* encodeWake(updated);
     yield* sql`UPDATE factory_wakes SET version = ${updated.version}, payload_json = ${json} WHERE id = ${id}`;
     yield* sql`INSERT INTO factory_events (kind, entity_id, payload_json, occurred_at) VALUES ('wakes', ${id}, ${json}, ${now})`;
   }
@@ -89,7 +89,7 @@ export const acceptFactoryDelivery = Effect.fn("Factory.acceptDelivery")(functio
     state: "accepted" as const,
     updatedAt: now,
   };
-  const json = yield* Schema.encodeEffect(Schema.fromJsonString(FactoryDelivery))(accepted);
+  const json = yield* encodeDelivery(accepted);
   yield* sql`UPDATE factory_wake_deliveries SET version = ${accepted.version}, payload_json = ${json} WHERE id = ${claim.id}`;
   yield* sql`INSERT INTO factory_events (kind, entity_id, payload_json, occurred_at) VALUES ('deliveries', ${claim.id}, ${json}, ${now})`;
 });

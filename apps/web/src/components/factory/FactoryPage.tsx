@@ -389,20 +389,33 @@ function CardDetail({
         <div className="space-y-2 text-sm">
           <h3 className="font-medium">Why</h3>
           <p className="text-muted-foreground">{card.body.rationale}</p>
-          {card.body.caveats.map((text, i) => (
-            <p key={i} className="text-muted-foreground">
+          {[...new Set(card.body.caveats)].map((text) => (
+            <p key={text} className="text-muted-foreground">
               {text}
             </p>
           ))}
         </div>
         <div className="flex flex-wrap gap-3 text-sm">
-          {card.body.links.map((link, i) =>
+          {Array.from(
+            new Map(
+              card.body.links.map((link) => [`${link.kind}:${link.ref}:${link.label ?? ""}`, link]),
+            ).values(),
+          ).map((link) =>
             /^https?:\/\//.test(link.ref) ? (
-              <a key={i} href={link.ref} target="_blank" rel="noreferrer" className="underline">
+              <a
+                key={`${link.kind}:${link.ref}:${link.label ?? ""}`}
+                href={link.ref}
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
                 {link.label ?? link.ref}
               </a>
             ) : (
-              <span key={i} className="text-muted-foreground">
+              <span
+                key={`${link.kind}:${link.ref}:${link.label ?? ""}`}
+                className="text-muted-foreground"
+              >
                 {link.label ?? link.ref}
               </span>
             ),

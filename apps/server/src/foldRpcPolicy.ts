@@ -1,5 +1,4 @@
 import {
-  AuthAccessWriteScope,
   type AuthEnvironmentScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,

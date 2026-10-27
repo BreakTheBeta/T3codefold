@@ -255,8 +255,8 @@ function MobileCard({
         </View>
       ))}
       <Text>{card.body.rationale}</Text>
-      {card.body.caveats.map((c, i) => (
-        <Text key={i} className="text-foreground-muted">
+      {[...new Set(card.body.caveats)].map((c) => (
+        <Text key={c} className="text-foreground-muted">
           {c}
         </Text>
       ))}

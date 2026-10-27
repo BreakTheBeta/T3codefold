@@ -13,6 +13,8 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+const isFactoryError = Schema.is(FactoryError);
+
 const tables = {
   agents: "factory_agents",
   cards: "factory_cards",
@@ -127,7 +129,7 @@ const make = Effect.gen(function* () {
   const transaction: FactoryStore["Service"]["transaction"] = Effect.fn("FactoryStore.transaction")(
     <A, R>(work: Effect.Effect<A, FactoryError, R>) =>
       sql.withTransaction(work).pipe(
-        Effect.mapError((cause) => (Schema.is(FactoryError)(cause) ? cause : storage(cause))),
+        Effect.mapError((cause) => (isFactoryError(cause) ? cause : storage(cause))),
         Effect.tap(() => PubSub.publish(changes, undefined)),
       ),
   );
