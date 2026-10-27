@@ -5,7 +5,7 @@ import { MOBILE_APP_NAME } from "./src/lib/mobileBranding.ts";
 // Fold's identity and release channel, applied over upstream's Expo config so
 // app.config.ts keeps upstream's values and merges cleanly. The app `version`
 // stays in app.config.ts because fingerprint.config.js reads it from that file.
-const FOLD_ANDROID_VERSION_CODE = 27;
+const FOLD_ANDROID_VERSION_CODE = 28;
 const FOLD_PRODUCTION = { name: MOBILE_APP_NAME, androidPackage: "com.breakthebeta.t3code" };
 const FOLD_EAS_PROJECT_ID = "5c3bde99-9c75-4cd6-b0a0-cc5d2cf846df";
 const FOLD_OWNER = "BreakTheBeta";
@@ -18,11 +18,7 @@ export function withFoldAppConfig(
   config: ExpoConfig,
   options: { readonly appVariant: string; readonly runtimeVersionPolicy: string },
 ): ExpoConfig {
-  // EAS resolves the fingerprint policy to a real runtime version at build time. A local
-  // prebuild cannot, so it emits the literal "file:fingerprint" and the binary can never match
-  // a published manifest. Leaving updates on there costs a launch-time check against a runtime
-  // version that will never resolve, which hangs the splash before JavaScript starts. Sideload
-  // builds ship self-contained instead.
+  // Local prebuilds emit an unresolved fingerprint runtime; sideload builds bundle JS and disable OTA.
   const resolvesFingerprintRuntimeVersion =
     options.runtimeVersionPolicy !== "fingerprint" || process.env.EAS_BUILD === "true";
   const isProduction = options.appVariant === "production";

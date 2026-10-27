@@ -145,25 +145,24 @@ export const startFleetBridge = Effect.gen(function* () {
                       descriptors,
                       connect: (environments) =>
                         session.client[WS_METHODS.fleetConnect]({ clientId, environments }),
-                      execute: (input) =>
-                        Effect.gen(function* () {
-                          const available = yield* SubscriptionRef.get(descriptors);
-                          if (
-                            !available.some(
-                              (target) => target.environmentId === input.environmentId,
-                            )
-                          ) {
-                            return yield* new OrchestratorMcpFailure({
-                              code: "orchestration_error",
-                              message:
-                                "The destination environment is no longer connected to this client.",
-                            });
-                          }
-                          return yield* registry.run(
-                            input.environmentId,
-                            request(WS_METHODS.fleetExecute, input),
-                          );
-                        }),
+                      execute: Effect.fn("fleetBridge.execute")(function* (
+                        input: FleetExecuteInput,
+                      ) {
+                        const available = yield* SubscriptionRef.get(descriptors);
+                        if (
+                          !available.some((target) => target.environmentId === input.environmentId)
+                        ) {
+                          return yield* new OrchestratorMcpFailure({
+                            code: "orchestration_error",
+                            message:
+                              "The destination environment is no longer connected to this client.",
+                          });
+                        }
+                        return yield* registry.run(
+                          input.environmentId,
+                          request(WS_METHODS.fleetExecute, input),
+                        );
+                      }),
                       // Bind replies to the lease's original authenticated session, including during reconnect.
                       respond: (response) => session.client[WS_METHODS.fleetRespond](response),
                     }).pipe(Stream.ensuring(advertise(environment, false)));

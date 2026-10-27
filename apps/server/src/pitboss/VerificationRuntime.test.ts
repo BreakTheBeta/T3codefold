@@ -110,7 +110,7 @@ it.effect.each([
             Layer.mergeAll(
               Layer.succeed(WorkStore, store),
               Layer.mock(ProjectStoreV2, {
-                get: () => Effect.succeed(Option.some(project)),
+                get: () => Effect.succeedSome(project),
               }),
               Layer.succeed(VerificationRunner, {
                 run: ({ root }) =>
@@ -223,7 +223,7 @@ it.effect("acts on a change that lands while startup is still reading the store"
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(WorkStore, racingStore),
-            Layer.mock(ProjectStoreV2, { get: () => Effect.succeed(Option.some(project)) }),
+            Layer.mock(ProjectStoreV2, { get: () => Effect.succeedSome(project) }),
             Layer.succeed(VerificationRunner, {
               run: () =>
                 Effect.sync(() => {

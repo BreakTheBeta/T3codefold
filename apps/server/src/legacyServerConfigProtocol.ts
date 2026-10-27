@@ -93,7 +93,7 @@ export function withLegacyServerConfigProtocol(
       protocol.run((clientId, message) =>
         Effect.sync(() => track(clientId, message)).pipe(Effect.andThen(write(clientId, message))),
       ),
-    send: (clientId, response, transferables) => {
+    send: Effect.fn("send")(function (clientId, response, transferables) {
       const requests = configRequests.get(clientId);
       const kind = "requestId" in response ? requests?.get(response.requestId) : undefined;
       if (kind === undefined) return protocol.send(clientId, response, transferables);
@@ -116,7 +116,7 @@ export function withLegacyServerConfigProtocol(
         removeRequest(clientId, response.requestId);
       }
       return protocol.send(clientId, compatibleResponse, transferables);
-    },
+    }),
     end: (clientId) => {
       configRequests.delete(clientId);
       return protocol.end(clientId);

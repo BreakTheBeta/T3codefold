@@ -6,7 +6,6 @@ import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { ScreenContent } from "../../components/ui/ScreenContent";
-import { PullRequestFilterMenuProvider } from "../pull-requests/PullRequestFilterMenuContext";
 import { PullRequestsScreen } from "../pull-requests/PullRequestsScreen";
 import { PullRequestToolbar } from "../pull-requests/PullRequestToolbar.android";
 import { WorkspaceTabsContext, useWorkspaceTabs } from "./WorkspaceTabsContext";
@@ -37,17 +36,20 @@ export function AndroidWorkspaceSidebar(props: {
           <View className="flex-1 bg-screen" />
         ) : (
           <WorkspaceTabsContext value={context}>
-            <PullRequestFilterMenuProvider>
-              <View className="flex-1 bg-header">
-                <PullRequestToolbar sidebar onRequestVisibility={props.onRequestVisibility} />
-                <ScreenContent insetHorizontal>
-                  <PullRequestsScreen
+            <PullRequestsScreen
+              sidebar
+              selectedPullRequestKey={props.selectedPullRequestKey}
+              renderFrame={(filters, list) => (
+                <View className="flex-1 bg-header">
+                  <PullRequestToolbar
                     sidebar
-                    selectedPullRequestKey={props.selectedPullRequestKey}
+                    filters={filters}
+                    onRequestVisibility={props.onRequestVisibility}
                   />
-                </ScreenContent>
-              </View>
-            </PullRequestFilterMenuProvider>
+                  <ScreenContent insetHorizontal>{list}</ScreenContent>
+                </View>
+              )}
+            />
           </WorkspaceTabsContext>
         )
       }

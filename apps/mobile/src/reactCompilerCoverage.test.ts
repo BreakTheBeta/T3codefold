@@ -23,21 +23,14 @@ const KNOWN_BAILOUTS: Record<string, string> = {
   "src/features/settings/SettingsNotificationsRouteScreen.tsx": "unsupported try/finally syntax",
   "src/features/threads/GladosSettingsScreen.tsx": "unsupported try/finally syntax",
   "src/features/threads/PitbossWork.tsx": "unsupported try/finally syntax",
-  "src/features/threads/ThreadDetailScreen.tsx": "Fold tabletop viewport refs",
   "src/features/threads/thread-list-drag.tsx": "ref read during render",
   "src/features/threads/use-ui-thread-drag.ts": "mutates a frozen value",
   "src/features/voice-input/VoiceWorkspaceProvider.tsx": "unsupported try/finally syntax",
-  "src/components/ComposerAttachmentStrip.tsx": "unsupported syntax",
-  "src/components/ui/AndroidAnchoredMenu.tsx": "ref read during render",
   "src/components/ui/Menu.tsx": "ref read during render",
   "src/features/diffs/nativeReviewDiffSurface.ts": "ref read during render",
   "src/features/home/thread-swipe-actions.tsx": "ref read during render",
-  "src/features/terminal/ThreadTerminalRouteScreen.tsx": "ref read during render",
-  "src/features/threads/PendingUserInputCard.tsx": "mutates a frozen value",
   "src/features/threads/ThreadArrangementSheet.tsx": "ref read during render",
-  "src/features/voice-input/VoiceInputProvider.tsx": "ref read during render",
   "src/features/voice-input/useVoiceInputController.ts": "ref read during render",
-  "src/native/StackHeader.tsx": "ref read during render",
   "src/native/T3ComposerEditor.ios.tsx": "ref read during render",
   "src/native/T3ComposerEditor.native.tsx": "ref read during render",
 };
@@ -198,6 +191,16 @@ describe("React Compiler coverage", () => {
   it("caches the thread feed derivation", () => {
     expect(
       compilerCachedCalls("src/features/threads/ThreadFeed.tsx", "deriveThreadFeedPresentation"),
+    ).toEqual([true]);
+  });
+
+  // An uncached registration would re-register the workspace inspector on every render.
+  it("registers the workspace inspector only when its renderer changes", () => {
+    expect(
+      compilerCachedCalls(
+        "src/features/layout/AdaptiveWorkspaceLayout.tsx",
+        "registerWorkspaceInspector",
+      ),
     ).toEqual([true]);
   });
 

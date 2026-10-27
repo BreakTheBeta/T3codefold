@@ -8,10 +8,7 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import {
-  threadSearchMatchKey,
-  type EnvironmentThreadSearchMatch,
-} from "@t3tools/client-runtime/state/thread-search";
+import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "./threadListAnimations";
@@ -37,6 +34,7 @@ import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useProjects, useNavigationThreadShells } from "../../state/entities";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
+import { useThreadListNow } from "./use-thread-list-now";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
 import { usePendingNewTasks, type PendingNewTask } from "../../state/use-pending-new-tasks";
@@ -285,15 +283,7 @@ function ThreadNavigationSidebarPane(
     toggleSnoozedShelf,
     toggleWorkingShelf,
   } = useThreadListV2ShelfPreferences();
-  // Keep time in state; the compiler would cache a render-time new Date().
-  const [now, setNow] = useState(() => new Date().toISOString());
-  const nowMinute = now.slice(0, 16);
-  const [snoozeWakeTick, bumpSnoozeWakeTick] = useState(0);
-  useEffect(() => {
-    setNow(new Date().toISOString());
-    const id = setInterval(() => setNow(new Date().toISOString()), 60_000);
-    return () => clearInterval(id);
-  }, []);
+  const now = useThreadListNow(threads);
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
   const {
     providersByEnvironmentId,
@@ -307,7 +297,7 @@ function ThreadNavigationSidebarPane(
     titleRegenerationEnvironmentIds,
   } = listEnvironments;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
-  const pendingOrder = usePendingThreadOrder(nowMinute, snoozeWakeTick);
+  const pendingOrder = usePendingThreadOrder();
   const {
     layout: threadListV2Layout,
     items: threadListV2Items,
@@ -335,19 +325,6 @@ function ThreadNavigationSidebarPane(
     settledShelfExpanded,
     selectedThreadKey: props.selectedThreadKey ?? null,
   });
-  const nextSnoozeWakeAt = threadListV2Layout.nextSnoozeWakeAt;
-  useEffect(() => {
-    if (nextSnoozeWakeAt === null) return;
-    const wakeAtMs = Date.parse(nextSnoozeWakeAt);
-    if (Number.isNaN(wakeAtMs)) return;
-    const delayMs = Math.min(Math.max(0, wakeAtMs - Date.now()) + 50, 2_147_483_647);
-    const id = setTimeout(() => {
-      setNow(new Date().toISOString());
-      bumpSnoozeWakeTick((tick) => tick + 1);
-    }, delayMs);
-    return () => clearTimeout(id);
-    // snoozeWakeTick re-arms clamped timers even when the wake date exceeds 32-bit setTimeout and stays unchanged.
-  }, [nextSnoozeWakeAt, snoozeWakeTick]);
   const listItems: readonly SidebarListItem[] =
     settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0
       ? [
@@ -500,6 +477,7 @@ function ThreadNavigationSidebarPane(
   // Recycle equality needs project/search data for titles and favicons; keep the minute clock on items to limit updates.
   const listExtraData = {
     activeNewTask,
+    vimCursorThreadKey,
     selectedThreadKey: props.selectedThreadKey ?? "",
     projectByKey,
     projectTitleByProjectKey,
@@ -589,7 +567,6 @@ function ThreadNavigationSidebarPane(
             snoozeWakeLabelText={item.snoozeWakeLabelText}
             timeLabel={item.timeLabel}
             project={projectByKey.get(scopeKey) ?? null}
-            projectTitle={projectTitleByProjectKey.get(scopeKey)}
             providerInstance={resolveProviderInstance(thread)}
             providers={providersByEnvironmentId.get(thread.environmentId)}
             environmentLabel={
@@ -613,6 +590,9 @@ function ThreadNavigationSidebarPane(
             }
             searchQuery={threadSearch.query}
             pane="sidebar"
+            keyboardFocused={
+              scopedThreadKey(thread.environmentId, thread.id) === vimCursorThreadKey
+            }
             selected={
               !activeNewTask &&
               scopedThreadKey(thread.environmentId, thread.id) === props.selectedThreadKey

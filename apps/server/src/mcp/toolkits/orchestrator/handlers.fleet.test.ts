@@ -15,6 +15,7 @@ import * as Stream from "effect/Stream";
 import type { Tool, Toolkit } from "effect/ai";
 
 import * as ServerConfig from "../../../config.ts";
+import * as DocumentText from "../../../provider/DocumentText.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -109,6 +110,7 @@ const setup = (remoteResult: unknown) => {
     Layer.mock(ThreadLaunch.ThreadLaunchService)({
       launch: () => Effect.die("must not launch locally"),
     }),
+    Layer.mock(DocumentText.DocumentText)({}),
     Layer.mock(Project.ProjectService)({}),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
     Layer.mock(GitVcsDriver.GitVcsDriver)({}),

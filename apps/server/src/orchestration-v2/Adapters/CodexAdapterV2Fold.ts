@@ -76,7 +76,7 @@ type VoiceMethods = Pick<
  * `hasPendingBackgroundWork` can keep a live call's process; `methods` binds the
  * session runtime's voice methods once the client is open.
  */
-export const makeCodexSessionVoices = () => {
+const makeCodexSessionVoices = () => {
   const controllers = new Map<string, CodexRealtimeVoice>();
   const isActive = Effect.gen(function* () {
     for (const voice of controllers.values()) {
@@ -116,16 +116,20 @@ export const makeCodexSessionVoices = () => {
       });
     const { getNativeThreadId } = input;
     return {
-      listRealtimeVoices: (voiceInput) =>
-        Effect.gen(function* () {
+      listRealtimeVoices: Effect.fn("listRealtimeVoices")(
+        function* (voiceInput) {
           const id = yield* getNativeThreadId(voiceInput.providerThread);
           return yield* (yield* voiceForThread(id)).listVoices;
-        }).pipe(Effect.mapError(voiceError("Could not list voices."))),
-      appendRealtimeVoiceContext: (voiceInput) =>
-        Effect.gen(function* () {
+        },
+        Effect.mapError(voiceError("Could not list voices.")),
+      ),
+      appendRealtimeVoiceContext: Effect.fn("appendRealtimeVoiceContext")(
+        function* (voiceInput) {
           const id = yield* getNativeThreadId(voiceInput.providerThread);
           yield* (yield* voiceForThread(id)).appendContext(voiceInput.callId, voiceInput.text);
-        }).pipe(Effect.mapError(voiceError("Could not share voice context."))),
+        },
+        Effect.mapError(voiceError("Could not share voice context.")),
+      ),
       realtimeVoiceEvents: (voiceInput) =>
         Stream.unwrap(
           Effect.gen(function* () {
@@ -133,18 +137,22 @@ export const makeCodexSessionVoices = () => {
             return (yield* voiceForThread(id)).events;
           }).pipe(Effect.mapError(voiceError("Could not subscribe to voice."))),
         ),
-      startRealtimeVoice: (voiceInput) =>
-        Effect.gen(function* () {
+      startRealtimeVoice: Effect.fn("startRealtimeVoice")(
+        function* (voiceInput) {
           const id = yield* getNativeThreadId(voiceInput.providerThread);
           const voice = yield* voiceForThread(id);
           return { sdp: yield* voice.startRealtimeVoice(voiceInput.sdp, voiceInput.options) };
-        }).pipe(Effect.mapError(voiceError("Codex realtime voice failed."))),
-      stopRealtimeVoice: (voiceInput) =>
-        Effect.gen(function* () {
+        },
+        Effect.mapError(voiceError("Codex realtime voice failed.")),
+      ),
+      stopRealtimeVoice: Effect.fn("stopRealtimeVoice")(
+        function* (voiceInput) {
           const id = yield* getNativeThreadId(voiceInput.providerThread);
           const voice = controllers.get(id);
           if (voice) yield* voice.stopRealtimeVoice;
-        }).pipe(Effect.mapError(voiceError("Codex realtime voice failed."))),
+        },
+        Effect.mapError(voiceError("Codex realtime voice failed.")),
+      ),
     } satisfies VoiceMethods;
   });
   return { isActive, methods };
@@ -187,13 +195,12 @@ export const openCodexSessionClient = Effect.fn("CodexAdapterV2.openSessionClien
             onOpenError: input.onOpenError,
             isBusy: voices.isActive,
           });
-    const classifyManagedError = (value: unknown) =>
-      Effect.gen(function* () {
-        if (resolveRuntime === undefined) return undefined;
-        const failure = classifyCodexManagedError(value);
-        if (failure?.revoke && onConnectionRevoked) yield* onConnectionRevoked;
-        return failure;
-      });
+    const classifyManagedError = Effect.fn("classifyManagedError")(function* (value: unknown) {
+      if (resolveRuntime === undefined) return undefined;
+      const failure = classifyCodexManagedError(value);
+      if (failure?.revoke && onConnectionRevoked) yield* onConnectionRevoked;
+      return failure;
+    });
     return { client, voices, classifyManagedError };
   },
 );

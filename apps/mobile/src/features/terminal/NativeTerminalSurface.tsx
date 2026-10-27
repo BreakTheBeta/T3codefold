@@ -1,5 +1,13 @@
 import type { TerminalOutputState } from "@t3tools/client-runtime/state/terminal";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import {
   Pressable,
   ScrollView,
@@ -39,7 +47,13 @@ interface TerminalResizeEvent {
   readonly rows: number;
 }
 
+export interface TerminalSurfaceHandle {
+  /** The text fallback focuses its input; the native view follows `keyboardFocusRequest`. */
+  readonly focusKeyboard: () => void;
+}
+
 interface TerminalSurfaceProps extends ViewProps {
+  readonly ref?: Ref<TerminalSurfaceHandle>;
   readonly terminalKey: string;
   readonly buffer: string | null;
   readonly output: TerminalOutputState | null;
@@ -74,9 +88,10 @@ function estimateGridSize(input: {
   };
 }
 
-const FallbackTerminalSurface = memo(function FallbackTerminalSurface(
-  props: ReadyTerminalSurfaceProps,
-) {
+const FallbackTerminalSurface = memo(function FallbackTerminalSurface({
+  ref,
+  ...props
+}: ReadyTerminalSurfaceProps) {
   const fontSize = props.fontSize ?? MOBILE_TYPOGRAPHY.label.fontSize;
   const inputRef = useRef<TextInputInstance>(null);
   const { themeAppearance, themeId } = useAppearancePreferences();
@@ -92,15 +107,14 @@ const FallbackTerminalSurface = memo(function FallbackTerminalSurface(
     props.onResize(estimateGridSize({ width, height, fontSize }));
   };
 
-  useEffect(() => {
-    if (!props.readOnly && (props.keyboardFocusRequest ?? 0) > 0) {
+  useImperativeHandle(ref, () => ({
+    focusKeyboard: () => {
+      if (props.readOnly) return;
+      // Blur first so a focused input still raises the keyboard; focus lands after the blur commits.
       inputRef.current?.blur();
-      const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
-      return () => cancelAnimationFrame(focusFrame);
-    }
-
-    return undefined;
-  }, [props.keyboardFocusRequest, props.readOnly]);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    },
+  }));
 
   return (
     <View
@@ -263,6 +277,7 @@ const ReadyTerminalSurface = memo(function ReadyTerminalSurface(props: ReadyTerm
   if (NativeTerminalSurfaceView) {
     return (
       <View style={props.style}>
+        {/* oxlint-disable-next-line react/static-components -- The resolver returns a cached native component with stable identity. */}
         <NativeTerminalSurfaceView
           ref={nativeRef}
           appearanceScheme={themeAppearance}

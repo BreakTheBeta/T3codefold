@@ -25,12 +25,12 @@ export const ELECTED_THREAD_RETENTION_REASON =
  * dispatch, so it filters by command type before reading the work store, and fails closed when
  * the store cannot be read.
  */
-export const threadRetentionGuardLayer = Layer.effect(
+const threadRetentionGuardLayer = Layer.effect(
   ThreadRetentionGuard,
   Effect.gen(function* () {
     const store = yield* WorkStore;
     return {
-      check: (command) => {
+      check: Effect.fn("ThreadRetentionGuard.check")(function (command) {
         if (!HIDING_COMMANDS.has(command.type) || !("threadId" in command)) return Effect.void;
         return store.read().pipe(
           Effect.mapError(
@@ -48,7 +48,7 @@ export const threadRetentionGuardLayer = Layer.effect(
               : Effect.void,
           ),
         );
-      },
+      }),
     };
   }),
 );
@@ -57,19 +57,20 @@ export const threadRetentionGuardLayer = Layer.effect(
  * Leads coordinator, lead and worker turns with their managed-work packet. Packets are keyed by
  * attempt, so a retried attempt reuses the text it first saw.
  */
-export const turnPreambleLayer = Layer.effect(
+const turnPreambleLayer = Layer.effect(
   TurnPreamble,
   Effect.gen(function* () {
     const store = yield* WorkStore;
     return {
       // An unreadable packet must not block the turn; it starts without one.
-      forAttempt: (threadId, attemptId) =>
-        store.context(threadId, attemptId).pipe(
+      forAttempt: Effect.fn("TurnPreamble.forAttempt")(function (threadId, attemptId) {
+        return store.context(threadId, attemptId).pipe(
           Effect.tapError((error) =>
             Effect.logWarning("pitboss turn preamble unavailable", { threadId, attemptId, error }),
           ),
           Effect.orElseSucceed(() => null),
-        ),
+        );
+      }),
     };
   }),
 );

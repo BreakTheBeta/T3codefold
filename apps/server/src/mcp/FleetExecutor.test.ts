@@ -10,8 +10,8 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
+import * as DocumentText from "../provider/DocumentText.ts";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -40,6 +40,7 @@ function fixture() {
   const routed: Array<[unknown, FleetRemoteRequest]> = [];
   const dependencies = Layer.mergeAll(
     NodeCrypto.layer,
+    Layer.mock(DocumentText.DocumentText)({}),
     NodeServices.layer,
     ServerConfig.layerTest(process.cwd(), { prefix: "t3-fleet-executor-" }).pipe(
       Layer.provide(NodeServices.layer),
@@ -82,14 +83,19 @@ function fixture() {
           return {
             threadId: input.threadId,
             projection: {
-              thread: { id: input.threadId, projectId: input.projectId, modelSelection },
+              thread: {
+                id: input.threadId,
+                title: input.title,
+                projectId: input.projectId,
+                modelSelection,
+              },
               runs: [],
             },
             resumed: false,
           } as unknown as ThreadLaunch.ThreadLaunchResult;
         }),
     }),
-    Layer.mock(Project.ProjectService)({ getById: () => Effect.succeed(Option.none()) }),
+    Layer.mock(Project.ProjectService)({ getById: () => Effect.succeedNone }),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
     Layer.mock(GitVcsDriver.GitVcsDriver)({}),
     ServerSettings.layerTest(),

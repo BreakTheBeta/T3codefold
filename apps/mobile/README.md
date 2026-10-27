@@ -46,6 +46,11 @@ connected device's ABI. Rerun the command after an interruption rather than star
 See [shared Android build caches](../../docs/operations/fold.md#shared-android-build-caches)
 for what is and is not reused between worktrees.
 
+`--session <name>` installs into an agent-device session opened elsewhere, such as a device pool
+or a cloud simulator, instead of a local device: `vp run mobile:install android --session pool-1
+--metro http://<this-machine>:8081`. It uses only the cached build (x86_64 by default; `--abi`
+for ARM) and fails with the next step when no machine has built this fingerprint yet.
+
 For a read-only decision, run `node ../../scripts/mobile-native-client.ts check <ios|android>
 [device]`: exit 0 means compatible, 2 means an install is needed, and 1 means an operational error.
 Run it on the simulator host; no EAS login is required.
