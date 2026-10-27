@@ -3,7 +3,7 @@ import type { LocalDictationBackend } from "../../native/localDictation";
 import { createVoiceInputTarget } from "./voiceInputSession";
 import { StreamingVoiceInputSession } from "./streamingVoiceInputSession";
 
-function fixture() {
+function fixture(activity?: ConstructorParameters<typeof StreamingVoiceInputSession>[2]) {
   let callbacks: Parameters<LocalDictationBackend["start"]>[0] | undefined;
   let signal: AbortSignal | undefined;
   let text = "hello world";
@@ -24,7 +24,7 @@ function fixture() {
     getStatus: () => ({ isRecording: true, metering: -20, durationMillis: 0 }),
     configure: vi.fn(async () => {}),
   };
-  const session = new StreamingVoiceInputSession(backend, vi.fn());
+  const session = new StreamingVoiceInputSession(backend, vi.fn(), activity);
   const target = createVoiceInputTarget(
     "thread:first",
     () => text,
@@ -178,4 +178,43 @@ describe("phone-local streaming dictation", () => {
     expect(f.session.currentState.errorAction).toBe("settings");
     expect(f.text()).toBe("hello world");
   });
+});
+
+it("publishes local dictation snapshots, focus and uncapped recording activity", async () => {
+  vi.useFakeTimers();
+  const release = vi.fn();
+  const keepAwake = vi.fn(() => release);
+  const publishAudioLevels = vi.fn();
+  let durationMillis = 0;
+  const f = fixture({
+    keepAwake,
+    publishAudioLevels,
+    sampleRecording: () => ({ durationMillis, metering: 0 }),
+  });
+  const listener = vi.fn();
+  const unsubscribe = f.session.subscribe(listener);
+  try {
+    f.session.setOwnerFocused(f.target.ownerKey, true);
+    expect(f.session.getSnapshot().focusedOwners.has(f.target.ownerKey)).toBe(true);
+    await f.session.start(f.target);
+    expect(f.session.getSnapshot()).toMatchObject({
+      state: { phase: "recording" },
+      ownerKey: f.target.ownerKey,
+    });
+    expect(keepAwake).toHaveBeenCalledTimes(1);
+    durationMillis = 600_000;
+    vi.advanceTimersByTime(80);
+    expect(f.session.getSnapshot().elapsedSeconds).toBe(600);
+    expect(publishAudioLevels).toHaveBeenLastCalledWith(expect.arrayContaining([1]));
+    await f.session.stop();
+    expect(release).toHaveBeenCalledTimes(1);
+    const published = listener.mock.calls.length;
+    vi.advanceTimersByTime(800);
+    expect(listener).toHaveBeenCalledTimes(published);
+    expect(f.session.getSnapshot().state.phase).toBe("idle");
+  } finally {
+    unsubscribe();
+    f.session.dispose();
+    vi.useRealTimers();
+  }
 });

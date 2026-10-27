@@ -31,6 +31,7 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ServerConfig from "../config.ts";
+import * as DocumentText from "../provider/DocumentText.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import { FleetRouter } from "./FleetRouter.ts";
@@ -159,6 +160,7 @@ const layerMemorySecretStore = Layer.sync(ServerSecretStore.ServerSecretStore, (
 
 // Fold's t3_thread_start alias registers t3_thread_launch's dependencies; these cases never launch.
 const layerUnusedThreadStartStubs = Layer.mergeAll(
+  Layer.mock(DocumentText.DocumentText)({}),
   Layer.mock(FleetRouter)({}),
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),

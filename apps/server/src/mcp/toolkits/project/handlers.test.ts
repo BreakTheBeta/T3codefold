@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
+import * as DocumentText from "../../../provider/DocumentText.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ServerConfig from "../../../config.ts";
@@ -54,6 +55,7 @@ it.effect("attributes a launched thread's first message to the calling thread", 
       ServerSettings.layerTest(),
       NodeCrypto.layer,
       Layer.mock(FleetRouter)({}),
+      Layer.mock(DocumentText.DocumentText)({}),
       Layer.succeed(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment"),
         requestNamespace: "session",
@@ -127,6 +129,7 @@ it.effect("launches a scratch thread into the Scratch project", () =>
       ServerSettings.layerTest(),
       NodeCrypto.layer,
       Layer.mock(FleetRouter)({}),
+      Layer.mock(DocumentText.DocumentText)({}),
       Layer.succeed(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment"),
         requestNamespace: "session",
@@ -231,6 +234,7 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
       ServerSettings.layerTest(),
       NodeCrypto.layer,
       Layer.mock(FleetRouter)({}),
+      Layer.mock(DocumentText.DocumentText)({}),
       Layer.succeed(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment"),
         requestNamespace: "session",
@@ -385,7 +389,7 @@ const clientLaunchHarness = (input: {
         ),
     }),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
-    NodeServices.layer,
+    DocumentText.layer.pipe(Layer.provideMerge(NodeServices.layer)),
   ).pipe(
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provideMerge(VcsProcess.layer),

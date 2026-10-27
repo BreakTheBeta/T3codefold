@@ -187,26 +187,24 @@ const acquireImportLock = Effect.fn("importFoldDatabase.acquireImportLock")(func
     new FoldDatabaseImportError({ databasePath, reason: "import-running", detail });
   yield* Effect.acquireRelease(
     create.pipe(
-      Effect.catch((error) =>
-        error.reason._tag !== "AlreadyExists"
-          ? Effect.fail(error)
-          : Effect.gen(function* () {
-              const holder = Number.parseInt(
-                yield* fs.readFileString(lockPath).pipe(Effect.orElseSucceed(() => "")),
-                10,
-              );
-              if (Number.isInteger(holder) && holder > 0 && isProcessAlive(holder)) {
-                return yield* held(`pid ${holder}`);
-              }
-              yield* fs.remove(lockPath, { force: true });
-              yield* create.pipe(
-                Effect.mapError((retryError) =>
-                  retryError.reason._tag === "AlreadyExists"
-                    ? held(`lock ${lockPath}`)
-                    : retryError,
-                ),
-              );
-            }),
+      Effect.catchIf(
+        (error) => !(error.reason._tag !== "AlreadyExists"),
+        () =>
+          Effect.gen(function* () {
+            const holder = Number.parseInt(
+              yield* fs.readFileString(lockPath).pipe(Effect.orElseSucceed(() => "")),
+              10,
+            );
+            if (Number.isInteger(holder) && holder > 0 && isProcessAlive(holder)) {
+              return yield* held(`pid ${holder}`);
+            }
+            yield* fs.remove(lockPath, { force: true });
+            yield* create.pipe(
+              Effect.mapError((retryError) =>
+                retryError.reason._tag === "AlreadyExists" ? held(`lock ${lockPath}`) : retryError,
+              ),
+            );
+          }),
       ),
       Effect.mapError((cause) =>
         isFoldDatabaseImportError(cause)
@@ -412,8 +410,8 @@ const buildDatabase = Effect.fn("importFoldDatabase.buildDatabase")(function* (
   }).pipe(Effect.provide(maintenance));
 });
 
-// Snapshot and verify before replacing the fork ledger; failed imports leave the original intact.
-// Keep the snapshot beside the database for recovery after publication.
+// Import under an exclusive lock before persistence migrates. Preserve the snapshot beside
+// the database; failures before publication leave the original untouched and retry on start.
 export const importFoldDatabase = Effect.fn("importFoldDatabase")(function* (
   databasePath: string,
   options: ImportFoldDatabaseOptions = {},

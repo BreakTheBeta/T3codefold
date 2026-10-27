@@ -1,8 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { AboutSettingsPanel } from "../components/settings/SettingsPanels";
 
-/** Old Fold settings URL; its content lives at /settings/general again. */
-export const Route = createFileRoute("/_chat/settings/about")({
-  beforeLoad: ({ location }) => {
-    throw redirect({ to: "/settings/general", search: {}, hash: location.hash, replace: true });
-  },
-});
+export const Route = createFileRoute("/_chat/settings/about")({ component: AboutSettingsPanel });

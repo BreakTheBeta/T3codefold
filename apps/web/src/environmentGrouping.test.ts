@@ -4,6 +4,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { deriveLogicalProjectKeyFromSettings } from "./logicalProject";
 import {
   buildSidebarProjectPickerEntries,
+  getSidebarScopeProjectKeys,
+  sidebarMachineScopeKey,
   buildSidebarProjectSnapshots,
   resolveSidebarProjectScopeKey,
   getSidebarProjectSettingsKey,
@@ -44,6 +46,66 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 }
 
 describe("environment grouping", () => {
+  it("limits a machine scope to all of that machine's projects, including shared repositories", () => {
+    const projects = [
+      makeProject({ repositoryIdentity }),
+      makeProject({ environmentId: remoteEnvironmentId, repositoryIdentity }),
+      makeProject({
+        environmentId: remoteEnvironmentId,
+        id: ProjectId.make("other"),
+        workspaceRoot: "/tmp/other",
+      }),
+    ];
+    const groups = buildSidebarProjectSnapshots({
+      projects,
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+    expect(
+      getSidebarScopeProjectKeys({
+        key: sidebarMachineScopeKey(remoteEnvironmentId),
+        groups,
+        projects,
+      }),
+    ).toEqual(new Set([`${remoteEnvironmentId}:project-1`, `${remoteEnvironmentId}:other`]));
+    const repository = groups.find((group) => group.memberProjectRefs.length === 2)!;
+    expect(getSidebarScopeProjectKeys({ key: repository.projectKey, groups, projects })).toEqual(
+      new Set([`${primaryEnvironmentId}:project-1`, `${remoteEnvironmentId}:project-1`]),
+    );
+    expect(getSidebarScopeProjectKeys({ key: null, groups, projects })).toBeNull();
+  });
+
+  it("shows no threads for an empty machine instead of widening to every machine", () => {
+    expect(
+      getSidebarScopeProjectKeys({
+        key: sidebarMachineScopeKey(remoteEnvironmentId),
+        groups: [],
+        projects: [],
+      }),
+    ).toEqual(new Set());
+    expect(
+      resolveSidebarProjectScopeKey({
+        key: sidebarMachineScopeKey(remoteEnvironmentId),
+        groups: [],
+        environments: [],
+        canClearMissingScope: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps a selected machine scope after project snapshots load", () => {
+    const key = `machine:${remoteEnvironmentId}`;
+    expect(
+      resolveSidebarProjectScopeKey({
+        groups: [],
+        key,
+        environments: [{ environmentId: remoteEnvironmentId }],
+        canClearMissingScope: true,
+      }),
+    ).toBe(key);
+  });
+
   it("opens physical scratch settings from the merged filter, including a remote thread target", () => {
     const local = makeProject({
       title: "No project",

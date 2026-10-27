@@ -272,6 +272,7 @@ function useNativeReviewDiffPayload(
         cancelAnimationFrame(frame);
       }
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new resetKey redelivers an unchanged payload after the diff surface resets.
   }, [method, nativeRef, payload, resetKey, onFailure, onDelivered]);
 }
 
@@ -396,6 +397,7 @@ function NativeReviewDiffContent(
     return null;
   }
 
+  /* oxlint-disable react/refs -- The native view receives this ref; only event callbacks access its current value. */
   return createElement(RawNativeView, {
     ...nativeProps,
     refreshEnabled: props.onPullToRefresh !== undefined,
@@ -408,6 +410,7 @@ function NativeReviewDiffContent(
     },
     ref: nativeRef,
   });
+  /* oxlint-enable react/refs */
 }
 
 export function resolveNativeReviewDiffView(): ComponentType<NativeReviewDiffViewProps> | null {

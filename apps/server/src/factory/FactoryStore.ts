@@ -66,7 +66,7 @@ const make = Effect.gen(function* () {
       FactorySchemas[kind] as unknown as Schema.Codec<FactoryEntityMap[K], unknown>,
     );
   const decode = <K extends FactoryEntityKind>(kind: K, json: string): FactoryEntityMap[K] =>
-    Schema.decodeUnknownSync(codec(kind))(json);
+    Schema.decodeSync(codec(kind))(json);
   const storage = (cause: unknown) => new FactoryError({ code: "storage", cause });
   const get = Effect.fn("FactoryStore.get")(function* <K extends FactoryEntityKind>(
     kind: K,
@@ -121,13 +121,9 @@ const make = Effect.gen(function* () {
     id: string,
     now: number,
   ) {
-    yield* sql
-      .unsafe(`DELETE FROM ${tables[kind]} WHERE id = ?`, [id])
-      .pipe(Effect.mapError(storage));
-    yield* sql`INSERT OR REPLACE INTO factory_tombstones (kind, entity_id, purged_at) VALUES (${kind}, ${id}, ${now})`.pipe(
-      Effect.mapError(storage),
-    );
-  });
+    yield* sql.unsafe(`DELETE FROM ${tables[kind]} WHERE id = ?`, [id]);
+    yield* sql`INSERT OR REPLACE INTO factory_tombstones (kind, entity_id, purged_at) VALUES (${kind}, ${id}, ${now})`;
+  }, Effect.mapError(storage));
   const transaction: FactoryStore["Service"]["transaction"] = Effect.fn("FactoryStore.transaction")(
     <A, R>(work: Effect.Effect<A, FactoryError, R>) =>
       sql.withTransaction(work).pipe(

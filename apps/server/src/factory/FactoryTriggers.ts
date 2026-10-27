@@ -224,7 +224,7 @@ const make = Effect.gen(function* () {
         for (const line of output.stdout.split("\n").filter((l) => l.trim())) {
           if (line.length > 16_384 || items.length >= 200)
             return yield* new FactoryError({ code: "invalid" });
-          const summary = Schema.decodeUnknownOption(
+          const summary = Schema.decodeOption(
             Schema.fromJsonString(Schema.Struct({ _summary: Schema.Unknown })),
           )(line);
           if (summary._tag === "Some") continue;

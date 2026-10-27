@@ -121,6 +121,7 @@ export function HardwareKeyboardCommandProvider({
       if (pathname.split("/")[4] !== "terminal") commands.add("copyThreadReference");
     }
     return [...commands];
+    // oxlint-disable-next-line react/memo-dependencies -- registrationVersion invalidates the snapshot of the external keyboard-command registry.
   }, [activeThreadRef, pathname, registrationVersion, navigation]);
 
   const vimKeysEnabled = useVimKeysEnabled({ pathname, paletteOpen, setPaletteOpen });

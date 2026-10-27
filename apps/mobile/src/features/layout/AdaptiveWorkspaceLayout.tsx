@@ -1,7 +1,7 @@
 import { WindowHingeContext } from "../../native/window-hinge-context";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdaptiveWorkspaceContext, useAdaptiveWorkspaceLayout } from "./adaptive-workspace-context";
-import { createDeferredNavigation } from "./deferred-navigation";
+import { threadSelectionDeferral } from "./deferred-navigation";
 import { uuidv4 } from "../../lib/uuid";
 import type {
   EnvironmentProject,
@@ -41,6 +41,7 @@ import type { Preferences } from "../../persistence/mobile-preferences";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { useProjects } from "../../state/entities";
+import { useThreadCwd } from "../../state/use-selected-thread-worktree";
 import { environmentThreadShells } from "../../state/threads";
 import {
   DEFAULT_MOBILE_PROJECT_GROUPING_SETTINGS,
@@ -86,9 +87,13 @@ import {
   currentWorkspaceSelections,
   workspaceSelectionCheck,
 } from "../workspace/workspace-selection-store";
-import { workspaceTabNavigationState } from "../workspace/workspace-tab-navigation";
+import {
+  workspaceTabColumns,
+  workspaceTabNavigationState,
+} from "../workspace/workspace-tab-navigation";
 import type { WorkspaceTab } from "../workspace/workspace-tabs-state";
 import { workspaceRoutesOf } from "./workspace-overlay-routes";
+import { SettingsWorkspaceLayout } from "../settings/SettingsWorkspaceLayout";
 
 export { useAdaptiveWorkspaceLayout };
 
@@ -147,6 +152,7 @@ export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefi
     if (focusedRef.current) {
       syncRegistration();
     }
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- The effect event reads the new renderer without re-subscribing to focus.
   }, [wrappedRender]);
 
   useEffect(
@@ -162,6 +168,8 @@ export function AdaptiveWorkspaceLayout(props: {
   readonly children: ReactNode;
   readonly pathname: string;
   readonly workspaceRouteKey: string | undefined;
+  readonly workspaceRouteName: string | undefined;
+  readonly workspaceRouteKeys: ReadonlyArray<string>;
   readonly selectedPullRequestKey?: string | null;
 }) {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
@@ -189,6 +197,8 @@ function AdaptiveWorkspaceLayoutContent(props: {
   readonly pathname: string;
   readonly workspaceRouteKey: string | undefined;
   readonly selectedPullRequestKey?: string | null;
+  readonly workspaceRouteName: string | undefined;
+  readonly workspaceRouteKeys: ReadonlyArray<string>;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   /** Pane preferences are read once; the workspace owns them while mounted. */
   readonly initialPreferences: Preferences;
@@ -295,14 +305,16 @@ function AdaptiveWorkspaceLayoutContent(props: {
     width,
   ]);
   const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
-  useEffect(() => {
-    if (!shouldRestorePrimarySidebar({ usesSplitView: layout.usesSplitView, pathname })) {
-      return;
+  const sidebarRoute = `${layout.usesSplitView}:${pathname}`;
+  const [restoredSidebarRoute, setRestoredSidebarRoute] = useState<string | null>(null);
+  if (restoredSidebarRoute !== sidebarRoute) {
+    setRestoredSidebarRoute(sidebarRoute);
+    if (shouldRestorePrimarySidebar({ usesSplitView: layout.usesSplitView, pathname })) {
+      setPrimarySidebarPreferredVisibleState(true);
+      setInspectorPreferredVisible(false);
+      setInspectorMaximized(false);
     }
-    setPrimarySidebarPreferredVisibleState(true);
-    setInspectorPreferredVisible(false);
-    setInspectorMaximized(false);
-  }, [layout.usesSplitView, pathname]);
+  }
 
   // Wrapped in an object: bare functions in useState would be treated as
   // lazy initializers/updaters.
@@ -377,17 +389,51 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const activeThread = useMemo(() => parseActiveThreadPath(pathname), [pathname]);
   const environmentId = activeThread?.environmentId ?? null;
   const threadId = activeThread?.threadId ?? null;
-  const selectedThreadKey = useMemo(() => {
+  const selectedThreadRef = (() => {
     if (environmentId === null || threadId === null) {
       return null;
     }
     try {
-      return scopedThreadKey(EnvironmentId.make(environmentId), ThreadId.make(threadId));
+      return {
+        environmentId: EnvironmentId.make(environmentId),
+        threadId: ThreadId.make(threadId),
+      };
     } catch {
       return null;
     }
-  }, [environmentId, threadId]);
-
+  })();
+  const selectedThreadKey =
+    selectedThreadRef === null
+      ? null
+      : scopedThreadKey(selectedThreadRef.environmentId, selectedThreadRef.threadId);
+  const isFilesRoute = props.workspaceRouteName === "ThreadFiles";
+  // Same resolution the Files screen uses: without a cwd it shows "Files unavailable" and
+  // registers no inspector, so revealing would only hide the sidebar beside that screen.
+  const filesCwd = useThreadCwd(isFilesRoute && fileInspector.supported ? selectedThreadRef : null);
+  // Opening a review or the files route reveals its inspector once per route and thread.
+  // Routes still on the stack remember their reveal, so going back to one keeps the user's choice.
+  const revealsInspector =
+    props.workspaceRouteName === "ThreadReview" || (isFilesRoute && filesCwd !== null);
+  const [revealedInspectors, setRevealedInspectors] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
+  if (
+    revealsInspector &&
+    props.workspaceRouteKey !== undefined &&
+    selectedThreadKey !== null &&
+    revealedInspectors.get(props.workspaceRouteKey) !== selectedThreadKey
+  ) {
+    const next = new Map<string, string>();
+    for (const routeKey of props.workspaceRouteKeys) {
+      const revealedThreadKey = revealedInspectors.get(routeKey);
+      if (revealedThreadKey !== undefined) {
+        next.set(routeKey, revealedThreadKey);
+      }
+    }
+    next.set(props.workspaceRouteKey, selectedThreadKey);
+    setRevealedInspectors(next);
+    setInspectorPreferredVisible(true);
+  }
   const setPrimarySidebarVisible = useCallback(
     (visible: boolean) => {
       if (layout.primarySidebarOverlaysContent) {
@@ -539,7 +585,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
         tab,
         currentWorkspaceSelections(),
         {
-          columns: Platform.OS === "ios" && (options?.columns ?? layout.usesSplitView),
+          columns: workspaceTabColumns(Platform.OS, tab, options?.columns ?? layout.usesSplitView),
           check: workspaceSelectionCheck,
           overlays,
         },
@@ -561,11 +607,10 @@ function AdaptiveWorkspaceLayoutContent(props: {
     workspace.dispatch({ type: "select", tab: "pullRequests" });
   }, [navigation, openWorkspaceTab, workspace]);
 
-  const deferredThreadSelection = useMemo(() => createDeferredNavigation(), []);
   /** The one way to show a page in the detail column; see `selectWorkspaceDetail`. */
   const handleSelectDetail = useCallback(
     (detail: WorkspaceDetail, sheet?: WorkspaceDetailSheet) => {
-      deferredThreadSelection.run(() => {
+      threadSelectionDeferral.run(() => {
         if (Platform.OS === "android") Keyboard.dismiss();
         // Re-selecting the open thread keeps Fold's inspector pane beside it.
         const params = detail.params as { environmentId?: unknown; threadId?: unknown } | undefined;
@@ -589,7 +634,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
       });
     },
     [
-      deferredThreadSelection,
       hideAuxiliaryPane,
       layout.primarySidebarOverlaysContent,
       navigation,
@@ -619,26 +663,29 @@ function AdaptiveWorkspaceLayoutContent(props: {
         : undefined;
     const first = (value: string | string[] | undefined) =>
       Array.isArray(value) ? value[0] : value;
-    const thread = appAtomRegistry
-      .get(environmentThreadShells.navigationThreadShellsAtom)
-      .find(
-        (candidate) =>
-          candidate.environmentId === first(params?.environmentId) &&
-          candidate.id === first(params?.threadId),
-      );
-    const draft = params?.draft;
-    const draftEnvironmentId = first(draft?.environmentId);
-    const draftProjectId = first(draft?.projectId);
-    const currentProject = thread
-      ? { environmentId: thread.environmentId, id: thread.projectId }
-      : projects.find(
-          (project) =>
-            project.environmentId === draftEnvironmentId && project.id === draftProjectId,
-        );
+    const environmentId = first(params?.environmentId);
+    const threadId = first(params?.threadId);
+    // The full index, not the sidebar list: subagent and archived threads are current threads too.
+    const projectId =
+      environmentId && threadId
+        ? appAtomRegistry
+            .get(
+              environmentThreadShells.environmentThreadIndexAtom(EnvironmentId.make(environmentId)),
+            )
+            .get(ThreadId.make(threadId))?.projectId
+        : undefined;
+    const preferences = appAtomRegistry.get(mobilePreferencesAtom);
+    const saved = AsyncResult.isSuccess(preferences) ? preferences.value : undefined;
     handleSelectThreadRoute(
-      newTaskDestination(layout.usesSplitView, projects, currentProject, uuidv4()),
+      newTaskDestination({
+        projects,
+        requestId: uuidv4(),
+        useLastProject: saved?.useLastProjectForNewThreads,
+        currentProject: environmentId && projectId ? { environmentId, projectId } : undefined,
+        lastProject: saved?.lastThreadProject,
+      }),
     );
-  }, [handleSelectThreadRoute, layout.usesSplitView, navigation, projects]);
+  }, [handleSelectThreadRoute, navigation, projects]);
 
   useHardwareKeyboardCommand("newTask", () => {
     handleStartNewTask();
@@ -712,7 +759,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
       fileInspector,
       primarySidebarSearchQuery,
       startNewTask: handleStartNewTask,
-      deferThreadSelectionUntil: deferredThreadSelection.waitFor,
+      deferThreadSelectionUntil: threadSelectionDeferral.waitFor,
       selectDetail: handleSelectDetail,
       activateAuxiliaryPaneRole,
       registerWorkspaceInspector,
@@ -733,7 +780,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
       setComposerEditing,
     }),
     [
-      deferredThreadSelection.waitFor,
       handleSelectDetail,
       handleStartNewTask,
       openWorkspaceTab,
@@ -856,7 +902,9 @@ function AdaptiveWorkspaceLayoutContent(props: {
               <SafeAreaInsetsContext
                 value={compactAndroidSettings ? { ...safeAreaInsets, bottom: 0 } : safeAreaInsets}
               >
-                <View className="flex-1">{props.children}</View>
+                <View className="flex-1">
+                  <SettingsWorkspaceLayout>{props.children}</SettingsWorkspaceLayout>
+                </View>
               </SafeAreaInsetsContext>
               {compactAndroidSettings ? (
                 <AndroidWorkspaceNavigation onNewThread={handleStartNewTask} />

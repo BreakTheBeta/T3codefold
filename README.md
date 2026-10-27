@@ -73,7 +73,7 @@ Paint splatter across the chat canvas in every theme's colours, on the unfolded 
 
 ## More than upstream
 
-Compared with upstream `main` at [1a13127c15](https://github.com/pingdotgg/t3code/commit/1a13127c15), synced **26 October 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
+Compared with upstream `main` at [edf5a24b56](https://github.com/pingdotgg/t3code/commit/edf5a24b56), synced **27 October 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
 
 | Feature                              | What you get                                                                                                                                                                                                                                  | Available in                             |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
@@ -161,6 +161,8 @@ We are (mostly) not accepting contributions yet. Small fixes may be considered. 
 Full docs live in [docs/](./docs). There's no docs site yet.
 
 - [T3 Pebble integration notes](./docs/integrations/t3pebble.md)
+
+- [FAQ](./docs/user/faq.md)
 - [Install and first run](./docs/user/install.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)

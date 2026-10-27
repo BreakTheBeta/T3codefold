@@ -1,7 +1,6 @@
 export {
   getLatestThreadForProject,
   getThreadSortTimestamp,
-  resolveSettledThreadTimestamp,
   sortThreads,
   toSortableTimestamp,
   type SettledThreadTimestampInput,

@@ -92,35 +92,36 @@ const toolInput = (request: FleetExecuteInput): unknown =>
  * fully named target (provider instance plus model) translates to a model
  * selection; anything else needs t3_thread_launch's modelSelection.
  */
-export const threadStartAsLaunch = (input: OrchestratorMcpThreadStartInput) =>
-  Effect.gen(function* () {
-    const target = input.target;
-    if (
-      target !== undefined &&
-      (target.driverKind !== undefined ||
-        target.options !== undefined ||
-        (target.providerInstanceId === undefined) !== (target.model === undefined))
-    )
-      return yield* invalid(
-        "t3_thread_start accepts only target.providerInstanceId with target.model. Use t3_thread_launch with modelSelection for other targets.",
-      );
-    return {
-      ...(input.environmentId === undefined ? {} : { environmentId: input.environmentId }),
-      ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
-      title: input.title ?? "New thread",
-      message: input.prompt,
-      ...(target?.providerInstanceId !== undefined && target.model !== undefined
-        ? { modelSelection: { instanceId: target.providerInstanceId, model: target.model } }
-        : {}),
-      ...(input.runtimeMode === undefined || input.runtimeMode === "inherit"
-        ? {}
-        : { runtimeMode: input.runtimeMode }),
-      ...(input.interactionMode === undefined || input.interactionMode === "inherit"
-        ? {}
-        : { interactionMode: input.interactionMode }),
-      ...(input.clientRequestId === undefined ? {} : { clientRequestId: input.clientRequestId }),
-    };
-  });
+export const threadStartAsLaunch = Effect.fn("threadStartAsLaunch")(function* (
+  input: OrchestratorMcpThreadStartInput,
+) {
+  const target = input.target;
+  if (
+    target !== undefined &&
+    (target.driverKind !== undefined ||
+      target.options !== undefined ||
+      (target.providerInstanceId === undefined) !== (target.model === undefined))
+  )
+    return yield* invalid(
+      "t3_thread_start accepts only target.providerInstanceId with target.model. Use t3_thread_launch with modelSelection for other targets.",
+    );
+  return {
+    ...(input.environmentId === undefined ? {} : { environmentId: input.environmentId }),
+    ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+    title: input.title ?? "New thread",
+    message: input.prompt,
+    ...(target?.providerInstanceId !== undefined && target.model !== undefined
+      ? { modelSelection: { instanceId: target.providerInstanceId, model: target.model } }
+      : {}),
+    ...(input.runtimeMode === undefined || input.runtimeMode === "inherit"
+      ? {}
+      : { runtimeMode: input.runtimeMode }),
+    ...(input.interactionMode === undefined || input.interactionMode === "inherit"
+      ? {}
+      : { interactionMode: input.interactionMode }),
+    ...(input.clientRequestId === undefined ? {} : { clientRequestId: input.clientRequestId }),
+  };
+});
 
 /**
  * Runs fleet requests on this (the destination) environment. A request runs
@@ -140,7 +141,7 @@ export class FleetExecutor extends Context.Service<
   }
 >()("t3/mcp/FleetExecutor") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment;
   const orchestrator = yield* OrchestratorMcpService;
   const router = yield* FleetRouter;

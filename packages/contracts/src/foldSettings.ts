@@ -45,7 +45,7 @@ export type ThemeBackdropSeed = typeof ThemeBackdropSeed.Type;
 
 /** Most columns thread wrapping may split a long reply into on very wide screens. */
 export const ThreadWrapMaxColumns = Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 4 }));
-export const DEFAULT_THREAD_WRAP_MAX_COLUMNS = 3;
+const DEFAULT_THREAD_WRAP_MAX_COLUMNS = 3;
 
 export const FoldClientSettingsFields = {
   gamingHudEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
