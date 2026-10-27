@@ -14,6 +14,20 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 
+async function confirmOutwardDecision(): Promise<string | null> {
+  if (
+    !(await LocalAuthentication.hasHardwareAsync()) ||
+    !(await LocalAuthentication.isEnrolledAsync())
+  )
+    return "Enrol biometrics to answer an outward-action card here, or answer on desktop.";
+  const auth = await LocalAuthentication.authenticateAsync({
+    promptMessage: "Confirm Factory decision",
+    disableDeviceFallback: true,
+    biometricsSecurityLevel: "strong",
+  });
+  return auth.success ? null : "Biometric confirmation was not completed. Nothing was sent.";
+}
+
 export function FactoryPin() {
   const navigation = useNavigation();
   return (
@@ -178,43 +192,30 @@ function MobileCard({
       : null,
   );
   const send = async () => {
-    if (busy || !allowed || (!option && !note.trim())) return;
+    if (busy || !allowed || (!option && !note.trim()) || (card.body.action && !payload.data))
+      return;
     setBusy(true);
     setError(null);
-    try {
-      if (card.body.action) {
-        if (!payload.data) return;
-        if (
-          !(await LocalAuthentication.hasHardwareAsync()) ||
-          !(await LocalAuthentication.isEnrolledAsync())
-        ) {
-          setError("Enrol biometrics to answer an outward-action card here, or answer on desktop.");
-          return;
-        }
-        const auth = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Confirm Factory decision",
-          disableDeviceFallback: true,
-          biometricsSecurityLevel: "strong",
-        });
-        if (!auth.success) {
-          setError("Biometric confirmation was not completed. Nothing was sent.");
-          return;
-        }
-      }
-      await answer({
-        environmentId,
-        input: {
-          cardId: card.id,
-          revision: card.revision,
-          ...(option === "default" ? { yourCall: true } : option ? { optionId: option } : {}),
-          ...(note.trim() ? { note } : {}),
-        },
-      });
-    } catch {
-      setError("The decision could not be sent. Reload it before trying again.");
-    } finally {
+    const approvalError = card.body.action
+      ? await confirmOutwardDecision().catch(
+          () => "Biometric confirmation is unavailable. Nothing was sent.",
+        )
+      : null;
+    if (approvalError) {
+      setError(approvalError);
       setBusy(false);
+      return;
     }
+    await answer({
+      environmentId,
+      input: {
+        cardId: card.id,
+        revision: card.revision,
+        ...(option === "default" ? { yourCall: true } : option ? { optionId: option } : {}),
+        ...(note.trim() ? { note } : {}),
+      },
+    }).catch(() => setError("The decision could not be sent. Reload it before trying again."));
+    setBusy(false);
   };
   return (
     <View className="gap-4">
