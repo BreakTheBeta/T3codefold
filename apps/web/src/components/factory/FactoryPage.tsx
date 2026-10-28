@@ -266,16 +266,11 @@ function CommanderSetup({ environmentId }: { readonly environmentId: Environment
           onClick={async () => {
             if (!selected) return;
             setBusy(true);
-            try {
-              await ensure({
-                environmentId,
-                input: {
-                  modelSelection: { instanceId: selected.instanceId, model: selected.model },
-                },
-              });
-            } finally {
-              setBusy(false);
-            }
+            await ensure({
+              environmentId,
+              input: { modelSelection: { instanceId: selected.instanceId, model: selected.model } },
+            });
+            setBusy(false);
           }}
         >
           {busy ? "Starting…" : "Start Commander"}
@@ -423,23 +418,20 @@ export function CardDetail({
     )
       return;
     setBusy(true);
-    try {
-      await answer({
-        environmentId,
-        input: {
-          cardId: card.id,
-          revision: card.revision,
-          ...(staged === "default"
-            ? { yourCall: true }
-            : staged && staged !== "ruled"
-              ? { optionId: staged }
-              : {}),
-          ...(note.trim() ? { note } : {}),
-        },
-      });
-    } finally {
-      setBusy(false);
-    }
+    await answer({
+      environmentId,
+      input: {
+        cardId: card.id,
+        revision: card.revision,
+        ...(staged === "default"
+          ? { yourCall: true }
+          : staged && staged !== "ruled"
+            ? { optionId: staged }
+            : {}),
+        ...(note.trim() ? { note } : {}),
+      },
+    });
+    setBusy(false);
   };
   return (
     <section className="flex min-h-full min-w-0 flex-col" aria-label={card.body.title}>
