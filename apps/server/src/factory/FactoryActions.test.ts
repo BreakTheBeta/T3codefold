@@ -140,6 +140,38 @@ it.effect(
         assert.equal((yield* actions.execute(actor, explicit.id)).state, "succeeded");
       }
       assert.lengthOf(yield* store.list("executions"), 2);
+      const outside = yield* decisions.payload(actor, {
+        version: 1,
+        kind: "external-post",
+        repository: "acme/app",
+        target: "issue:1",
+        cwd: "/other-project/worktree",
+        count: 1,
+        request: {
+          type: "external-post",
+          adapter: "github-comment",
+          issueNumber: 1,
+          body: "Release evidence",
+        },
+      });
+      const outsideCard = yield* decisions.file(actor, {
+        id: "outside-workspace",
+        body: { ...card.body, action: { optionId: "A", payloadSha256: outside } },
+      });
+      yield* decisions.answer(
+        { kind: "user" },
+        { cardId: outsideCard.id, revision: outsideCard.revision, optionId: "A" },
+      );
+      assert.isTrue(
+        Exit.isFailure(yield* actions.execute(actor, outsideCard.id).pipe(Effect.exit)),
+      );
+      const refused = (yield* store.list("executions")).find(
+        (execution) => execution.cardId === outsideCard.id,
+      )!;
+      assert.equal(refused.state, "failed");
+      assert.include(refused.result, "before external dispatch");
+      assert.equal((yield* actions.execute(actor, outsideCard.id)).state, "failed");
+      assert.lengthOf(yield* store.list("executions"), 3);
     }).pipe(Effect.provide(ActionTestLayer)),
 );
 
@@ -171,6 +203,8 @@ const ActionTestLayer = Layer.mergeAll(Actions.layer, Decisions.layer).pipe(
     Layer.mock(ProcessRunner)({
       run: (input) =>
         Effect.sync(() => {
+          if (input.command === "git")
+            return output("", { code: ChildProcessSpawner.ExitCode(128) });
           assert.equal(input.command, "gh");
           assert.include(input.args ?? [], "repos/acme/app/issues/1/comments");
           return output("{}");

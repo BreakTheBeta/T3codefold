@@ -109,117 +109,152 @@ const make = Effect.gen(function* () {
         }),
       );
       if (!reserved.launch) return reserved.execution;
-      const envelope = reserved.envelope;
-      const invalid = () => new FactoryError({ code: "invalid", entityId: cardId });
-      if (
-        envelope.kind !== envelope.request.type ||
-        !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(envelope.repository)
-      )
-        return yield* invalid();
-      const project = yield* projects
-        .getById(owner.projectId)
-        .pipe(Effect.mapError((cause) => new FactoryError({ code: "unavailable", cause })));
-      if (project._tag === "None") return yield* invalid();
-      const cwd = yield* fs
-        .realPath(envelope.cwd)
-        .pipe(Effect.mapError((cause) => new FactoryError({ code: "invalid", cause })));
-      const root = yield* fs
-        .realPath(project.value.workspaceRoot)
-        .pipe(Effect.mapError((cause) => new FactoryError({ code: "invalid", cause })));
-      if (cwd !== root) {
-        const worktrees = yield* runner
-          .run({ command: "git", args: ["worktree", "list", "--porcelain"], cwd: root })
+      const prepared = yield* Effect.gen(function* () {
+        const envelope = reserved.envelope;
+        const invalid = (detail?: string) =>
+          new FactoryError({ code: "invalid", entityId: cardId, ...(detail ? { detail } : {}) });
+        if (
+          envelope.kind !== envelope.request.type ||
+          !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(envelope.repository)
+        )
+          return yield* invalid();
+        const project = yield* projects
+          .getById(owner.projectId)
+          .pipe(Effect.mapError((cause) => new FactoryError({ code: "unavailable", cause })));
+        if (project._tag === "None")
+          return yield* invalid("The action owner project is unavailable.");
+        const cwd = yield* fs
+          .realPath(envelope.cwd)
           .pipe(Effect.mapError((cause) => new FactoryError({ code: "invalid", cause })));
-        if (!worktrees.stdout.split("\n").includes(`worktree ${cwd}`)) return yield* invalid();
-      }
-      const request = envelope.request;
-      const api = `repos/${envelope.repository}`;
-      let command = "gh";
-      let args: string[];
-      let verifyPush: Effect.Effect<boolean, FactoryError> | undefined;
-      switch (request.type) {
-        case "push": {
-          const push = yield* prepareFactoryPush(
-            { repository: envelope.repository, target: envelope.target, request },
-            cwd,
-          ).pipe(
-            Effect.provideService(Processes.ProcessRunner, runner),
-            Effect.provideService(FileSystem.FileSystem, fs),
-          );
-          command = "git";
-          args = push.args;
-          verifyPush = push.verify;
-          break;
-        }
-        case "merge":
-          if (
-            !/^[a-f0-9]{40,64}$/i.test(request.approvedHeadSha) ||
-            !Number.isSafeInteger(request.prNumber) ||
-            request.prNumber < 1
-          )
-            return yield* invalid();
-          args = [
-            "api",
-            "--method",
-            "PUT",
-            `${api}/pulls/${request.prNumber}/merge`,
-            "--raw-field",
-            `sha=${request.approvedHeadSha}`,
-            "--raw-field",
-            `merge_method=${request.method}`,
-          ];
-          break;
-        case "open-pr":
-          args = [
-            "api",
-            "--method",
-            "POST",
-            `${api}/pulls`,
-            "--raw-field",
-            `head=${request.head}`,
-            "--raw-field",
-            `base=${request.base}`,
-            "--raw-field",
-            `title=${request.title}`,
-            "--raw-field",
-            `body=${request.body}`,
-            "--field",
-            `draft=${request.draft}`,
-          ];
-          break;
-        case "external-post":
-          if (!Number.isSafeInteger(request.issueNumber) || request.issueNumber < 1)
-            return yield* invalid();
-          args = [
-            "api",
-            "--method",
-            "POST",
-            `${api}/issues/${request.issueNumber}/comments`,
-            "--raw-field",
-            `body=${request.body}`,
-          ];
-          break;
-        case "force-push":
-        case "delete-branch": {
-          if (
-            !request.destinationRef.startsWith("refs/heads/") ||
-            !/^[a-f0-9]{40,64}$/i.test(request.expectedOldOid) ||
-            (request.type === "force-push" && !/^[a-f0-9]{40,64}$/i.test(request.newOid))
-          )
-            return yield* invalid();
-          const validRef = yield* runner
-            .run({ command: "git", args: ["check-ref-format", request.destinationRef], cwd })
+        const root = yield* fs
+          .realPath(project.value.workspaceRoot)
+          .pipe(Effect.mapError((cause) => new FactoryError({ code: "invalid", cause })));
+        if (cwd !== root) {
+          const worktrees = yield* runner
+            .run({ command: "git", args: ["worktree", "list", "--porcelain"], cwd: root })
             .pipe(Effect.mapError((cause) => new FactoryError({ code: "invalid", cause })));
-          if (validRef.code !== 0) return yield* invalid();
-          command = "git";
-          args = [
-            "push",
-            `--force-with-lease=${request.destinationRef}:${request.expectedOldOid}`,
-            `https://github.com/${envelope.repository}.git`,
-            `${request.type === "force-push" ? request.newOid : ""}:${request.destinationRef}`,
-          ];
+          if (
+            worktrees.code !== 0 ||
+            worktrees.stdoutTruncated ||
+            worktrees.stdoutInvalidUtf8 ||
+            !worktrees.stdout.split("\n").includes(`worktree ${cwd}`)
+          )
+            return yield* invalid(
+              "The approved working directory is not the action owner project or one of its registered worktrees.",
+            );
         }
+        const request = envelope.request;
+        const api = `repos/${envelope.repository}`;
+        let command = "gh";
+        let args: string[];
+        let verifyPush: Effect.Effect<boolean, FactoryError> | undefined;
+        switch (request.type) {
+          case "push": {
+            const push = yield* prepareFactoryPush(
+              { repository: envelope.repository, target: envelope.target, request },
+              cwd,
+            ).pipe(
+              Effect.provideService(Processes.ProcessRunner, runner),
+              Effect.provideService(FileSystem.FileSystem, fs),
+            );
+            command = "git";
+            args = push.args;
+            verifyPush = push.verify;
+            break;
+          }
+          case "merge":
+            if (
+              !/^[a-f0-9]{40,64}$/i.test(request.approvedHeadSha) ||
+              !Number.isSafeInteger(request.prNumber) ||
+              request.prNumber < 1
+            )
+              return yield* invalid();
+            args = [
+              "api",
+              "--method",
+              "PUT",
+              `${api}/pulls/${request.prNumber}/merge`,
+              "--raw-field",
+              `sha=${request.approvedHeadSha}`,
+              "--raw-field",
+              `merge_method=${request.method}`,
+            ];
+            break;
+          case "open-pr":
+            args = [
+              "api",
+              "--method",
+              "POST",
+              `${api}/pulls`,
+              "--raw-field",
+              `head=${request.head}`,
+              "--raw-field",
+              `base=${request.base}`,
+              "--raw-field",
+              `title=${request.title}`,
+              "--raw-field",
+              `body=${request.body}`,
+              "--field",
+              `draft=${request.draft}`,
+            ];
+            break;
+          case "external-post":
+            if (!Number.isSafeInteger(request.issueNumber) || request.issueNumber < 1)
+              return yield* invalid();
+            args = [
+              "api",
+              "--method",
+              "POST",
+              `${api}/issues/${request.issueNumber}/comments`,
+              "--raw-field",
+              `body=${request.body}`,
+            ];
+            break;
+          case "force-push":
+          case "delete-branch": {
+            if (
+              !request.destinationRef.startsWith("refs/heads/") ||
+              !/^[a-f0-9]{40,64}$/i.test(request.expectedOldOid) ||
+              (request.type === "force-push" && !/^[a-f0-9]{40,64}$/i.test(request.newOid))
+            )
+              return yield* invalid();
+            const validRef = yield* runner
+              .run({ command: "git", args: ["check-ref-format", request.destinationRef], cwd })
+              .pipe(Effect.mapError((cause) => new FactoryError({ code: "invalid", cause })));
+            if (validRef.code !== 0) return yield* invalid();
+            command = "git";
+            args = [
+              "push",
+              `--force-with-lease=${request.destinationRef}:${request.expectedOldOid}`,
+              `https://github.com/${envelope.repository}.git`,
+              `${request.type === "force-push" ? request.newOid : ""}:${request.destinationRef}`,
+            ];
+          }
+        }
+        return { command, args, cwd, verifyPush };
+      }).pipe(Effect.result);
+      if (prepared._tag === "Failure") {
+        yield* store.transaction(
+          Effect.gen(function* () {
+            const latest = yield* store.get("executions", reserved.execution.id);
+            if (!latest)
+              return yield* new FactoryError({
+                code: "not-found",
+                entityId: reserved.execution.id,
+              });
+            if (latest.state !== "claimed") return latest;
+            return yield* store.put("executions", {
+              ...latest,
+              state: "failed",
+              updatedAt: DateTime.toEpochMillis(yield* DateTime.now),
+              result: `Refused before external dispatch: ${prepared.failure.message}`,
+            });
+          }),
+        );
+        return yield* prepared.failure;
       }
+      const { command, args, cwd, verifyPush } = prepared.success;
+      const envelope = reserved.envelope;
       const executing = yield* store.transaction(
         Effect.gen(function* () {
           yield* control.requireEnabled;
