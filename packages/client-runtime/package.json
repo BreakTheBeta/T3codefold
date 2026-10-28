@@ -459,10 +459,6 @@
       "types": "./src/pullRequestMarkdown.ts",
       "default": "./src/pullRequestMarkdown.ts"
     },
-    "./glados-board": {
-      "types": "./src/gladosBoard.ts",
-      "default": "./src/gladosBoard.ts"
-    },
     "./realtime-voice": {
       "types": "./src/realtime-voice/controller.ts",
       "default": "./src/realtime-voice/controller.ts"
@@ -474,10 +470,6 @@
     "./realtime-voice/workspace": {
       "types": "./src/realtime-voice/workspace.ts",
       "default": "./src/realtime-voice/workspace.ts"
-    },
-    "./state/pitboss": {
-      "types": "./src/state/pitboss.ts",
-      "default": "./src/state/pitboss.ts"
     },
     "./state/realtime-voice": {
       "types": "./src/state/realtimeVoice.ts",
@@ -506,6 +498,10 @@
     "./provider-clients": {
       "types": "./src/providerClients.ts",
       "default": "./src/providerClients.ts"
+    },
+    "./factory-view": {
+      "types": "./src/factory-view.ts",
+      "default": "./src/factory-view.ts"
     }
   },
   "scripts": {

@@ -1,4 +1,3 @@
-import { PitbossPins } from "./PitbossWork";
 import { useActiveNewTask } from "../../state/active-new-task";
 import { ThreadUndoNotice } from "../home/ThreadUndoNotice";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
@@ -759,7 +758,6 @@ function ThreadNavigationSidebarPane(
             >
               <AnimatedLegendList
                 ref={listRef}
-                ListHeaderComponent={<PitbossPins environments={environments} />}
                 renderScrollComponent={Platform.OS === "ios" ? NativeScrollView : undefined}
                 itemLayoutAnimation={THREAD_SIDEBAR_ROW_LAYOUT}
                 data={listItems}
@@ -825,10 +823,7 @@ function ThreadNavigationSidebarPane(
         }
       >
         {Platform.OS === "android" && listItems.length === 0 ? (
-          <View className="flex-1">
-            <PitbossPins environments={environments} />
-            <View className="flex-1 items-center justify-center">{listEmpty}</View>
-          </View>
+          <View className="flex-1 items-center justify-center">{listEmpty}</View>
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <HomeThreadListDrag
@@ -845,7 +840,6 @@ function ThreadNavigationSidebarPane(
               {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- Only the non-native workspace layout (Android and the fallback) renders this sidebar, which has no native header to register with. */}
               <AnimatedLegendList
                 ref={listRef}
-                ListHeaderComponent={<PitbossPins environments={environments} />}
                 itemLayoutAnimation={THREAD_SIDEBAR_ROW_LAYOUT}
                 data={listItems}
                 drawDistance={500}

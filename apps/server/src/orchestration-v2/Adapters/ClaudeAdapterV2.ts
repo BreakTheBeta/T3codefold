@@ -1582,20 +1582,22 @@ const readClaudeAppendSystemPromptFile = Effect.fnUntraced(function* (input: {
 export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";
 
 // Keep in sync with Tool.Readonly annotations on the published orchestration toolkits (orchestrator,
-// thread, worktree, project, environment, preview controls, pitboss work); ClaudeAdapterV2.test.ts checks.
+// thread, worktree, project, environment, preview controls); ClaudeAdapterV2.test.ts checks.
 export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__orchestrator_capabilities",
   "mcp__t3-code__list_scheduled_tasks",
   "mcp__t3-code__t3_thread_list",
   "mcp__t3-code__t3_thread_wait",
   "mcp__t3-code__t3_worktree_status",
+  "mcp__t3-code__factory_board",
+  "mcp__t3-code__factory_card_show",
+  "mcp__t3-code__factory_trigger_list",
   "mcp__t3-code__t3_worktree_list",
   "mcp__t3-code__t3_project_list",
   "mcp__t3-code__t3_project_read",
   "mcp__t3-code__t3_thread_search",
   "mcp__t3-code__t3_preview_list",
   "mcp__t3-code__t3_environment_read",
-  "mcp__t3-code__work_read",
   "mcp__t3-code__t3_environment_list",
   "mcp__t3-code__html_preview",
   "mcp__t3-code__html_render",
@@ -9740,7 +9742,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             attachmentsDir,
             settings: adapterOptions.settings,
             environment: claudeQueryEnvironment(
-              McpProviderSession.providerSessionEnvironment(adapterOptions.environment, mcpSession),
+              adapterOptions.environment,
               turnInput.appThread,
               turnInput.appThread.lineage.relationshipToParent === "subagent"
                 ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)

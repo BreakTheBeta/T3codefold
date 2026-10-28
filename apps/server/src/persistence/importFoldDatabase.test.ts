@@ -24,7 +24,7 @@ import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
 import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenance.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
-import PitbossMigration from "./FoldMigrations/001_Pitboss.ts";
+import PitbossMigration from "./fixtures/legacyFoldMigration.ts";
 import { foldMigrationEntries } from "./FoldMigrations.ts";
 import * as SqlitePersistence from "./Sqlite.ts";
 import { migrationManifest, runMigrations } from "./Migrations.ts";
@@ -325,7 +325,7 @@ describe("importFoldDatabase", () => {
             "checkpoint_diff_blobs",
           ]);
           for (const [table, count] of Object.entries(backup.counts)) {
-            if (retiredV1Tables.has(table)) {
+            if (retiredV1Tables.has(table) || table.startsWith("pitboss_")) {
               assert.isUndefined(counts[table], table);
             } else {
               assert.equal(counts[table], count, table);
@@ -338,7 +338,6 @@ describe("importFoldDatabase", () => {
               .map((row) => [String(row.name), Number(row.seq)]),
           );
           assert.equal(sequences.orchestration_events, 5000);
-          assert.equal(sequences.pitboss_events, 900);
           assert.deepEqual(
             database
               .prepare(
@@ -350,18 +349,6 @@ describe("importFoldDatabase", () => {
               { effect_id: "effect:done", status: "succeeded", last_error: null },
               { effect_id: "effect:pending", status: "cancelled", last_error: "fork import" },
               { effect_id: "effect:running", status: "cancelled", last_error: "fork import" },
-            ],
-          );
-          assert.deepEqual(
-            database
-              .prepare(
-                "SELECT operation_id, state, error FROM pitboss_effects ORDER BY operation_id",
-              )
-              .all()
-              .map((row) => ({ ...row })),
-            [
-              { operation_id: "op:done", state: "done", error: null },
-              { operation_id: "op:pending", state: "failed", error: "imported" },
             ],
           );
           assert.deepEqual(
@@ -426,10 +413,6 @@ describe("importFoldDatabase", () => {
                 .get(),
             },
             { thread_id: "legacy-thread", repository: "acme/repo", number: 7 },
-          );
-          assert.equal(
-            Number(database.prepare("SELECT count(*) AS count FROM pitboss_events").get()?.count),
-            1,
           );
         });
       }),

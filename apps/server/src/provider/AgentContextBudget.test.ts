@@ -13,7 +13,7 @@ import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import { FleetRouter } from "../mcp/FleetRouter.ts";
-import { WorkStore } from "../pitboss/WorkStore.ts";
+import { Factory } from "../factory/Factory.ts";
 import { PreviewAutomationBroker } from "../mcp/PreviewAutomationBroker.ts";
 import {
   CLAUDE_PROVIDER,
@@ -42,9 +42,43 @@ import { ProviderRegistry } from "./ProviderRegistry.ts";
 import budget from "./agentContextBudget.json" with { type: "json" };
 
 // Registration only stores tool definitions, so the handlers' services are never called.
+const unexpectedFactoryCall = () =>
+  Effect.die(new Error("Factory calls are outside the prompt budget fixture"));
+
 const toolHandlerServices = Layer.mergeAll(
   Layer.mock(FleetRouter)({}),
-  Layer.mock(WorkStore)({}),
+  Layer.mock(Factory)({
+    agents: {
+      ensureCommander: unexpectedFactoryCall,
+      spawn: unexpectedFactoryCall,
+      resume: unexpectedFactoryCall,
+      lifecycle: unexpectedFactoryCall,
+      update: unexpectedFactoryCall,
+    },
+    decisions: {
+      file: unexpectedFactoryCall,
+      answer: unexpectedFactoryCall,
+      withdraw: unexpectedFactoryCall,
+      payload: unexpectedFactoryCall,
+    },
+    actions: { execute: unexpectedFactoryCall, recover: unexpectedFactoryCall() },
+    triggers: {
+      upsert: unexpectedFactoryCall,
+      run: unexpectedFactoryCall,
+      runDue: unexpectedFactoryCall(),
+    },
+    wakes: {
+      drain: unexpectedFactoryCall(),
+      acknowledge: unexpectedFactoryCall,
+      defer: unexpectedFactoryCall,
+      retry: unexpectedFactoryCall,
+    },
+    lanes: {
+      enqueue: unexpectedFactoryCall,
+      cancel: unexpectedFactoryCall,
+      tick: unexpectedFactoryCall(),
+    },
+  }),
   Layer.mock(DeviceService)({}),
   Layer.mock(DocumentText)({}),
   Layer.mock(GitVcsDriver)({}),

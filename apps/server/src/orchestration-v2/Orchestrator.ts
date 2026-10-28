@@ -165,6 +165,7 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import { ThreadActivityGuard } from "./ThreadActivityGuard.ts";
 import { ThreadRetentionGuard } from "./ThreadRetentionGuard.ts";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
@@ -994,6 +995,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const threadForkService = yield* ThreadForkServiceV2;
   const threadDispatch = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const retentionGuard = yield* ThreadRetentionGuard;
+  const activityGuard = yield* ThreadActivityGuard;
 
   /** The driver when this provider runs `/goal` natively, else undefined. */
   const goalDriverFor = Effect.fn("Orchestrator.goalDriverFor")(function* (
@@ -5314,7 +5316,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     if (
       command.notification !== undefined &&
-      (command.createdBy !== "agent" ||
+      ((command.createdBy !== "agent" &&
+        !(
+          command.createdBy === "system" &&
+          command.creationSource === "server" &&
+          command.factoryDelivery !== undefined
+        )) ||
         (command.creationSource !== "server" && command.creationSource !== "provider") ||
         (dispatchMode.type !== "queue_after_active" &&
           !(
@@ -11894,6 +11901,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       "orchestration_v2.thread_id": commandThreadId(command),
     });
 
+    if (
+      command.type === "message.dispatch" ||
+      command.type === "queued-run.start" ||
+      command.type === "queue.resume"
+    )
+      yield* activityGuard.check(command.threadId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestratorDispatchError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause,
+            }),
+        ),
+      );
     yield* retentionGuard.check(command).pipe(
       Effect.mapError(
         (cause) =>
@@ -12414,6 +12436,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: commandThreadId(command),
         commandType: command.type,
         acceptedAt,
+        ...(command.type === "message.dispatch" && command.factoryDelivery !== undefined
+          ? {
+              factoryDelivery: {
+                ...command.factoryDelivery,
+                messageId: command.messageId,
+                text: command.text,
+              },
+            }
+          : {}),
         events: plan.events,
         effects: plan.effects,
         ...(plan.cancelUnsettledEffects === undefined

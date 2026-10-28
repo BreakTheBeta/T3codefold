@@ -183,7 +183,7 @@ import {
   reduceCommandPaletteSearchState,
   type SearchOverlayMode,
 } from "./CommandPalette.logic";
-import { foldGladosActionItem, useFoldVoiceActionItems } from "./foldCommandPaletteActions";
+import { useFoldVoiceActionItems } from "./foldCommandPaletteActions";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent } from "./CommandPaletteContent";
 import {
@@ -1264,6 +1264,17 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
+  actionItems.push({
+    kind: "action",
+    value: "action:factory",
+    title: "Open Factory",
+    searchTerms: ["factory", "decisions", "agents", "commander"],
+    icon: <LinkIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/factory" });
+    },
+  });
+
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({
       kind: "action",
@@ -1280,8 +1291,6 @@ function OpenCommandPaletteDialog(props: {
       run: copyActiveThreadReference,
     });
   }
-
-  actionItems.push(foldGladosActionItem(navigate, activeThread?.environmentId));
 
   if (
     activeThread !== null &&

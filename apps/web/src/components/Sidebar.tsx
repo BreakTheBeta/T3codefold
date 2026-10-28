@@ -62,6 +62,7 @@ import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 import {
   ChevronDownIcon,
   FolderIcon,
+  FactoryIcon,
   ListFilterIcon,
   MonitorIcon,
   PlusIcon,
@@ -78,7 +79,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { type AnyRouter, useRouter } from "@tanstack/react-router";
+import { Link, type AnyRouter, useRouter, useRouterState } from "@tanstack/react-router";
 
 import {
   isAtomCommandInterrupted,
@@ -133,7 +134,6 @@ import {
   useEnvironmentMachines,
   usePrimaryEnvironmentId,
 } from "../state/environments";
-import { PitbossPin } from "./pitboss/PitbossPanel";
 import {
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
@@ -227,7 +227,14 @@ import {
   ComboboxTrigger,
   useComboboxFilter,
 } from "./ui/combobox";
-import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  useSidebar,
+} from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { TooltipProvider } from "./ui/tooltip";
@@ -807,6 +814,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectScopeItems,
   } = useSidebarLookups();
   const router = useRouter();
+  const isFactoryRoute = useRouterState({
+    select: (state) => state.location.pathname === "/factory",
+  });
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
@@ -2716,22 +2726,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     <>
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
-      {environments
-        .filter(
-          (environment) =>
-            !scopedMachine || environment.environmentId === scopedMachine.environmentId,
-        )
-        .map((environment) => (
-          <PitbossPin
-            key={environment.environmentId}
-            environmentId={environment.environmentId}
-            label={environment.label}
-          />
-        ))}
       <SidebarContent
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  render={<Link to="/factory" />}
+                  isActive={isFactoryRoute}
+                  onClick={() => {
+                    if (isMobile) setOpenMobile(false);
+                  }}
+                >
+                  <FactoryIcon />
+                  <span>Factory</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0 || environments.length > 1}

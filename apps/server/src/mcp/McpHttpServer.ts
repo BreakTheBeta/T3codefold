@@ -1,3 +1,5 @@
+import { FactoryToolkit } from "./toolkits/factory/tools.ts";
+import * as FactoryHandlers from "./toolkits/factory/handlers.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -54,8 +56,6 @@ import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
-import * as WorkHandlers from "./toolkits/work/handlers.ts";
-import { WorkToolkit } from "./toolkits/work/tools.ts";
 import * as PreviewHandlers from "./toolkits/preview/handlers.ts";
 import {
   PreviewSnapshotTool,
@@ -1048,9 +1048,6 @@ const layerPreviewControlsRegistration = toolkitRegistration(
   PreviewControlsHandlers.layer,
 );
 
-/** Pitboss work tools, for agents inside T3 threads only. */
-const layerWorkToolkit = toolkitRegistration(WorkToolkit, WorkHandlers.layer);
-
 export const layerEnvironmentToolkit = toolkitRegistration(
   EnvironmentToolkit,
   EnvironmentHandlers.layer,
@@ -1094,8 +1091,8 @@ export const layerMcpTransport = McpServer.layerHttp({
 /** Every tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
 export const layerTools = Layer.mergeAll(
   layerPreviewToolkit,
+  toolkitRegistration(FactoryToolkit, FactoryHandlers.layer),
   layerOrchestratorToolkit,
-  layerWorkToolkit,
   layerThreadToolkit,
   layerAttachmentToolkit,
   layerProjectRegistration,

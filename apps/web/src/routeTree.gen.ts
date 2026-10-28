@@ -21,6 +21,7 @@ import { Route as ChatUsageRouteImport } from './routes/_chat.usage'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
+import { Route as ChatFactoryRouteImport } from './routes/_chat.factory'
 import { Route as ChatSettingsWorktreesRouteImport } from './routes/_chat.settings.worktrees'
 import { Route as ChatSettingsToolsRouteImport } from './routes/_chat.settings.tools'
 import { Route as ChatSettingsThreadsRouteImport } from './routes/_chat.settings.threads'
@@ -35,7 +36,6 @@ import { Route as ChatSettingsMaintenanceRouteImport } from './routes/_chat.sett
 import { Route as ChatSettingsLabsRouteImport } from './routes/_chat.settings.labs'
 import { Route as ChatSettingsKeybindingsRouteImport } from './routes/_chat.settings.keybindings'
 import { Route as ChatSettingsIntegrationsRouteImport } from './routes/_chat.settings.integrations'
-import { Route as ChatSettingsGladosRouteImport } from './routes/_chat.settings.glados'
 import { Route as ChatSettingsGitRouteImport } from './routes/_chat.settings.git'
 import { Route as ChatSettingsGeneralRouteImport } from './routes/_chat.settings.general'
 import { Route as ChatSettingsDiffsRouteImport } from './routes/_chat.settings.diffs'
@@ -112,6 +112,11 @@ const ChatNewRoute = ChatNewRouteImport.update({
   path: '/new',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatFactoryRoute = ChatFactoryRouteImport.update({
+  id: '/factory',
+  path: '/factory',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatSettingsWorktreesRoute = ChatSettingsWorktreesRouteImport.update({
   id: '/worktrees',
   path: '/worktrees',
@@ -186,11 +191,6 @@ const ChatSettingsIntegrationsRoute =
     path: '/integrations',
     getParentRoute: () => ChatSettingsRoute,
   } as any)
-const ChatSettingsGladosRoute = ChatSettingsGladosRouteImport.update({
-  id: '/glados',
-  path: '/glados',
-  getParentRoute: () => ChatSettingsRoute,
-} as any)
 const ChatSettingsGitRoute = ChatSettingsGitRouteImport.update({
   id: '/git',
   path: '/git',
@@ -280,6 +280,7 @@ export interface FileRoutesByFullPath {
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
+  '/factory': typeof ChatFactoryRoute
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/settings': typeof ChatSettingsRouteWithChildren
@@ -301,7 +302,6 @@ export interface FileRoutesByFullPath {
   '/settings/diffs': typeof ChatSettingsDiffsRoute
   '/settings/general': typeof ChatSettingsGeneralRoute
   '/settings/git': typeof ChatSettingsGitRoute
-  '/settings/glados': typeof ChatSettingsGladosRoute
   '/settings/integrations': typeof ChatSettingsIntegrationsRoute
   '/settings/keybindings': typeof ChatSettingsKeybindingsRoute
   '/settings/labs': typeof ChatSettingsLabsRoute
@@ -323,6 +323,7 @@ export interface FileRoutesByTo {
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
+  '/factory': typeof ChatFactoryRoute
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/settings': typeof ChatSettingsRouteWithChildren
@@ -345,7 +346,6 @@ export interface FileRoutesByTo {
   '/settings/diffs': typeof ChatSettingsDiffsRoute
   '/settings/general': typeof ChatSettingsGeneralRoute
   '/settings/git': typeof ChatSettingsGitRoute
-  '/settings/glados': typeof ChatSettingsGladosRoute
   '/settings/integrations': typeof ChatSettingsIntegrationsRoute
   '/settings/keybindings': typeof ChatSettingsKeybindingsRoute
   '/settings/labs': typeof ChatSettingsLabsRoute
@@ -369,6 +369,7 @@ export interface FileRoutesById {
   '/guest': typeof GuestRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
+  '/_chat/factory': typeof ChatFactoryRoute
   '/_chat/new': typeof ChatNewRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/_chat/settings': typeof ChatSettingsRouteWithChildren
@@ -391,7 +392,6 @@ export interface FileRoutesById {
   '/_chat/settings/diffs': typeof ChatSettingsDiffsRoute
   '/_chat/settings/general': typeof ChatSettingsGeneralRoute
   '/_chat/settings/git': typeof ChatSettingsGitRoute
-  '/_chat/settings/glados': typeof ChatSettingsGladosRoute
   '/_chat/settings/integrations': typeof ChatSettingsIntegrationsRoute
   '/_chat/settings/keybindings': typeof ChatSettingsKeybindingsRoute
   '/_chat/settings/labs': typeof ChatSettingsLabsRoute
@@ -416,6 +416,7 @@ export interface FileRouteTypes {
     | '/guest'
     | '/pair'
     | '/welcome'
+    | '/factory'
     | '/new'
     | '/pull-requests'
     | '/settings'
@@ -437,7 +438,6 @@ export interface FileRouteTypes {
     | '/settings/diffs'
     | '/settings/general'
     | '/settings/git'
-    | '/settings/glados'
     | '/settings/integrations'
     | '/settings/keybindings'
     | '/settings/labs'
@@ -459,6 +459,7 @@ export interface FileRouteTypes {
     | '/guest'
     | '/pair'
     | '/welcome'
+    | '/factory'
     | '/new'
     | '/pull-requests'
     | '/settings'
@@ -481,7 +482,6 @@ export interface FileRouteTypes {
     | '/settings/diffs'
     | '/settings/general'
     | '/settings/git'
-    | '/settings/glados'
     | '/settings/integrations'
     | '/settings/keybindings'
     | '/settings/labs'
@@ -504,6 +504,7 @@ export interface FileRouteTypes {
     | '/guest'
     | '/pair'
     | '/welcome'
+    | '/_chat/factory'
     | '/_chat/new'
     | '/_chat/pull-requests'
     | '/_chat/settings'
@@ -526,7 +527,6 @@ export interface FileRouteTypes {
     | '/_chat/settings/diffs'
     | '/_chat/settings/general'
     | '/_chat/settings/git'
-    | '/_chat/settings/glados'
     | '/_chat/settings/integrations'
     | '/_chat/settings/keybindings'
     | '/_chat/settings/labs'
@@ -639,6 +639,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatNewRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/factory': {
+      id: '/_chat/factory'
+      path: '/factory'
+      fullPath: '/factory'
+      preLoaderRoute: typeof ChatFactoryRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/settings/worktrees': {
       id: '/_chat/settings/worktrees'
       path: '/worktrees'
@@ -735,13 +742,6 @@ declare module '@tanstack/react-router' {
       path: '/integrations'
       fullPath: '/settings/integrations'
       preLoaderRoute: typeof ChatSettingsIntegrationsRouteImport
-      parentRoute: typeof ChatSettingsRoute
-    }
-    '/_chat/settings/glados': {
-      id: '/_chat/settings/glados'
-      path: '/glados'
-      fullPath: '/settings/glados'
-      preLoaderRoute: typeof ChatSettingsGladosRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
     '/_chat/settings/git': {
@@ -874,7 +874,6 @@ interface ChatSettingsRouteChildren {
   ChatSettingsDiffsRoute: typeof ChatSettingsDiffsRoute
   ChatSettingsGeneralRoute: typeof ChatSettingsGeneralRoute
   ChatSettingsGitRoute: typeof ChatSettingsGitRoute
-  ChatSettingsGladosRoute: typeof ChatSettingsGladosRoute
   ChatSettingsIntegrationsRoute: typeof ChatSettingsIntegrationsRoute
   ChatSettingsKeybindingsRoute: typeof ChatSettingsKeybindingsRoute
   ChatSettingsLabsRoute: typeof ChatSettingsLabsRoute
@@ -906,7 +905,6 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsDiffsRoute: ChatSettingsDiffsRoute,
   ChatSettingsGeneralRoute: ChatSettingsGeneralRoute,
   ChatSettingsGitRoute: ChatSettingsGitRoute,
-  ChatSettingsGladosRoute: ChatSettingsGladosRoute,
   ChatSettingsIntegrationsRoute: ChatSettingsIntegrationsRoute,
   ChatSettingsKeybindingsRoute: ChatSettingsKeybindingsRoute,
   ChatSettingsLabsRoute: ChatSettingsLabsRoute,
@@ -928,6 +926,7 @@ const ChatSettingsRouteWithChildren = ChatSettingsRoute._addFileChildren(
 )
 
 interface ChatRouteChildren {
+  ChatFactoryRoute: typeof ChatFactoryRoute
   ChatNewRoute: typeof ChatNewRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRoute
   ChatSettingsRoute: typeof ChatSettingsRouteWithChildren
@@ -938,6 +937,7 @@ interface ChatRouteChildren {
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
+  ChatFactoryRoute: ChatFactoryRoute,
   ChatNewRoute: ChatNewRoute,
   ChatPullRequestsRoute: ChatPullRequestsRoute,
   ChatSettingsRoute: ChatSettingsRouteWithChildren,

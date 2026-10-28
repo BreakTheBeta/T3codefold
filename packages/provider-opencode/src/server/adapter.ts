@@ -55,7 +55,7 @@ import * as Stream from "effect/Stream";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
-import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import {
@@ -929,11 +929,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           binaryPath: options.settings.binaryPath,
           directory: cwd,
           serverUrl: options.settings.serverUrl,
-          // A spawned server is this session's own, so its shell gets `t3 work`.
-          environment: McpProviderSession.providerSessionEnvironment(
-            options.environment,
-            yield* mcpSessions.read(input.threadId),
-          ),
+          environment: options.environment,
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,

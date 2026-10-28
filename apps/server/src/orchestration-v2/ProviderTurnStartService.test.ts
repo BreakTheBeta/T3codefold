@@ -47,6 +47,7 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
+import { ThreadActivityGuard, ThreadActivityGuardError } from "./ThreadActivityGuard.ts";
 import { TurnPreamble } from "./TurnPreamble.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
@@ -263,6 +264,7 @@ it.each([
 });
 
 function makeLocalCommandHarness(input: {
+  readonly providerStart?: () => Effect.Effect<void>;
   readonly text: string;
   readonly worktreePath?: string;
   readonly worktreesDir?: string;
@@ -614,6 +616,7 @@ function makeLocalCommandHarness(input: {
                     updatedAt: now,
                     lastError: null,
                   },
+                  startTurn: input.providerStart ?? (() => Effect.void),
                   ensureThread: () => Effect.succeed(providerThread),
                   resumeThread: () => Effect.succeed(projection.providerThreads[0]),
                 } as never)
@@ -1440,9 +1443,7 @@ effectIt.effect("leads a starting turn with its preamble for this thread and att
       failReadsAfterRunning: true,
     });
     const preamble = preambleFor(
-      Effect.succeed(
-        "<t3-pitboss-context>\nYou are this environment's elected GLaDOS.\n</t3-pitboss-context>",
-      ),
+      Effect.succeed("<t3-feature-context>\nYou are a feature coordinator.\n</t3-feature-context>"),
     );
 
     yield* harness.start.pipe(Effect.provideService(TurnPreamble, preamble.turnPreamble));
@@ -1451,7 +1452,7 @@ effectIt.effect("leads a starting turn with its preamble for this thread and att
       [ThreadId.make("thread-native-account-command"), harness.attemptId],
     ]);
     expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe(
-      "<t3-pitboss-context>\nYou are this environment's elected GLaDOS.\n</t3-pitboss-context>\n\n<user_request>\nShip the dark mode toggle\n</user_request>",
+      "<t3-feature-context>\nYou are a feature coordinator.\n</t3-feature-context>\n\n<user_request>\nShip the dark mode toggle\n</user_request>",
     );
   }),
 );
@@ -1468,5 +1469,54 @@ effectIt.effect("leaves the turn text untouched without a preamble", () =>
     );
 
     expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe("Ship the dark mode toggle");
+  }),
+);
+
+effectIt.effect("refuses disabled thread activity before provider preparation", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({ text: "Work", failReadsAfterRunning: true });
+    const result = yield* harness.start.pipe(
+      Effect.provideService(ThreadActivityGuard, {
+        check: () => Effect.fail(new ThreadActivityGuardError({ reason: "Disabled" })),
+        admit: (_threadId, work) => work,
+      }),
+      Effect.result,
+    );
+    expect(result._tag).toBe("Failure");
+    expect(harness.open).not.toHaveBeenCalled();
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+  }),
+);
+
+effectIt.effect("rechecks admission at provider release even without handoffs", () =>
+  Effect.gen(function* () {
+    const started = vi.fn();
+    const harness = makeLocalCommandHarness({
+      text: "Work",
+      failReadsAfterRunning: true,
+      providerStart: () =>
+        Effect.sync(() => {
+          started();
+        }),
+    });
+    harness.startRootRun.mockImplementation((input) =>
+      input.session
+        .startTurn({
+          threadId: input.appThread.id,
+          providerThread: input.providerThread,
+          runId: input.run.id,
+        } as ProviderAdapter.ProviderAdapterV2TurnInput)
+        .pipe(Effect.ignore),
+    );
+    yield* harness.start.pipe(
+      Effect.provideService(ThreadActivityGuard, {
+        check: () => Effect.void,
+        admit: () =>
+          Effect.fail(new ThreadActivityGuardError({ reason: "Disabled after preparation" })),
+      }),
+    );
+    expect(harness.open).toHaveBeenCalled();
+    expect(harness.startRootRun).toHaveBeenCalled();
+    expect(started).not.toHaveBeenCalled();
   }),
 );

@@ -1,3 +1,4 @@
+import type { FactoryDeliveryMetadata, OrchestrationV2Notification } from "@t3tools/contracts";
 import type {
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -130,6 +131,8 @@ export interface ThreadManagementSendInput {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly modelSelection?: ModelSelection;
   readonly mode: ThreadManagementSendMode;
+  readonly factoryDelivery?: FactoryDeliveryMetadata;
+  readonly notification?: OrchestrationV2Notification;
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
 }
@@ -817,6 +820,8 @@ const make = Effect.gen(function* () {
       ...(input.scheduledTaskId === undefined ? {} : { scheduledTaskId: input.scheduledTaskId }),
       ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
       text: input.text,
+      ...(input.factoryDelivery === undefined ? {} : { factoryDelivery: input.factoryDelivery }),
+      ...(input.notification === undefined ? {} : { notification: input.notification }),
       attachments: input.attachments,
       ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
       dispatchMode,

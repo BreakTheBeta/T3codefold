@@ -1,6 +1,4 @@
-import type { EnvironmentId } from "@t3tools/contracts";
-import type { useNavigate } from "@tanstack/react-router";
-import { CrownIcon, SettingsIcon } from "lucide-react";
+import { SettingsIcon } from "lucide-react";
 
 import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "./CommandPalette.logic";
 import { runVoiceAction, useOptionalVoiceWorkspace } from "./voice/VoiceWorkspaceProvider";
@@ -26,24 +24,4 @@ export function useFoldVoiceActionItems(): CommandPaletteActionItem[] {
       runVoiceAction(voiceWorkspace, command);
     },
   }));
-}
-
-/** Opens GLaDOS settings, preselecting the active thread's machine. */
-export function foldGladosActionItem(
-  navigate: ReturnType<typeof useNavigate>,
-  environmentId: EnvironmentId | undefined,
-): CommandPaletteActionItem {
-  return {
-    kind: "action",
-    value: "action:pitboss",
-    searchTerms: ["glados", "pitboss", "agents", "coordinator", "brief", "summon"],
-    title: "Set up or edit GLaDOS",
-    icon: <CrownIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      await navigate({
-        to: "/settings/glados",
-        search: environmentId ? { machine: environmentId } : {},
-      });
-    },
-  };
 }

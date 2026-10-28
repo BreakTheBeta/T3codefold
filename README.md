@@ -89,7 +89,6 @@ Compared with upstream `main` at [edf5a24b56](https://github.com/pingdotgg/t3cod
 | **Shared project colours and icons** | Automatic colours, custom icons and emoji configured on desktop show up for projects on the same server.                                                                                                                                      | Android                                  |
 | **Optional Cite bubble**             | Hide the selection bubble through **Settings → General → Show Cite on text selection**, without disabling text selection.                                                                                                                     | Web · Desktop                            |
 | **Splatter backdrop**                | Theme-coloured paint across the chat canvas, with patterns, amount, glow and dynamic splats.                                                                                                                                                  | Web · Desktop · Mobile                   |
-| **GLaDOS**                           | An elected, pinned coordinator thread per environment that keeps your priorities, hands bounded tasks to worker threads, and reviews their evidence. Workers use the `t3 work` CLI and MCP tools. Set it up in **Settings → GLaDOS**.         | Web · Desktop · Mobile                   |
 | **Thread wrapping**                  | On very wide screens, a long conversation flows into 2–4 side-by-side columns. Set the maximum in **Settings → Appearance**.                                                                                                                  | Web · Desktop                            |
 | **On-device dictation**              | Dictate into the composer with a downloaded Moonshine model that runs offline on the phone. [Voice input on Android](docs/user/composer.md#voice-input-on-android).                                                                           | Android                                  |
 
@@ -158,8 +157,6 @@ We are very very early in this project. Expect bugs.
 We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
 
 ## Documentation
-
-- [GLaDOS orchestration idea library](docs/internals/glados/README.md): Gas City, pstack, Cursor, Hermes, model routing and project leadership.
 
 Full docs live in [docs/](./docs). There's no docs site yet.
 

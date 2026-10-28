@@ -31,8 +31,8 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import {
   createAtomCommandScheduler,
   createEnvironmentRpcCommand,
-  createEnvironmentQueryAtomFamily,
   createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
   createEnvironmentSubscriptionAtomFamily,
   createRuntimeCommand,
@@ -54,7 +54,6 @@ import {
 } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
-import { createPitbossEnvironmentAtoms } from "./pitboss.ts";
 import {
   applyServerConfigProjection,
   reuseUnchanged,
@@ -1164,6 +1163,59 @@ export function createServerEnvironmentAtoms<R, E>(
 
   return {
     configValueAtom,
+    factorySetEnabled: createEnvironmentRpcCommand(runtime, {
+      label: "factory:SetEnabled",
+      tag: WS_METHODS.factorySetEnabled,
+    }),
+    factoryBoard: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "factory:board",
+      tag: WS_METHODS.factorySubscribeBoard,
+    }),
+    factoryPayload: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "factory:payload",
+      tag: WS_METHODS.factoryGetPayload,
+    }),
+    factoryEnsureCommander: createEnvironmentRpcCommand(runtime, {
+      label: "factory:EnsureCommander",
+      tag: WS_METHODS.factoryEnsureCommander,
+    }),
+    factoryAnswerCard: createEnvironmentRpcCommand(runtime, {
+      label: "factory:AnswerCard",
+      tag: WS_METHODS.factoryAnswerCard,
+    }),
+    factoryWithdrawCard: createEnvironmentRpcCommand(runtime, {
+      label: "factory:WithdrawCard",
+      tag: WS_METHODS.factoryWithdrawCard,
+    }),
+    factorySetAgentLifecycle: createEnvironmentRpcCommand(runtime, {
+      label: "factory:SetAgentLifecycle",
+      tag: WS_METHODS.factorySetAgentLifecycle,
+    }),
+    factoryUpsertTrigger: createEnvironmentRpcCommand(runtime, {
+      label: "factory:UpsertTrigger",
+      tag: WS_METHODS.factoryUpsertTrigger,
+    }),
+    factoryRunTrigger: createEnvironmentRpcCommand(runtime, {
+      label: "factory:RunTrigger",
+      tag: WS_METHODS.factoryRunTrigger,
+    }),
+    factorySetTriggerShadow: createEnvironmentRpcCommand(runtime, {
+      label: "factory:SetTriggerShadow",
+      tag: WS_METHODS.factorySetTriggerShadow,
+    }),
+    factoryRetryWake: createEnvironmentRpcCommand(runtime, {
+      label: "factory:RetryWake",
+      tag: WS_METHODS.factoryRetryWake,
+    }),
+    factoryDeferWake: createEnvironmentRpcCommand(runtime, {
+      label: "factory:DeferWake",
+      tag: WS_METHODS.factoryDeferWake,
+    }),
+    factoryCancelLaneJob: createEnvironmentRpcCommand(runtime, {
+      label: "factory:CancelLaneJob",
+      tag: WS_METHODS.factoryCancelLaneJob,
+    }),
+
     runStorageCleanup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:run-storage-cleanup",
       tag: WS_METHODS.serverRunStorageCleanup,
@@ -1323,7 +1375,6 @@ export function createServerEnvironmentAtoms<R, E>(
       // Reopening Add provider reuses recent results; submitting the same search refreshes it.
       staleTimeMs: 5 * 60_000,
     }),
-    ...createPitbossEnvironmentAtoms(runtime),
     configProjection,
     welcome,
     legacyThreadMigration: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
