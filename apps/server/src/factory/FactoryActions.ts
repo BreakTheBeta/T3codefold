@@ -9,6 +9,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
+import { prepareFactoryPush } from "./FactoryPush.ts";
 import { canonicalAction } from "./FactoryDecisions.ts";
 import { callerAgent, type FactoryActor } from "./access.ts";
 import * as Processes from "../processRunner.ts";
@@ -23,6 +24,7 @@ export function factoryActionOutcome(
 ): "succeeded" | "failed" | "unknown" {
   if (result.code !== 0 || result.timedOut || result.stdoutTruncated || result.stdoutInvalidUtf8)
     return "unknown";
+  if (kind === "push" && (result.stderrTruncated || result.stderrInvalidUtf8)) return "unknown";
   if (kind !== "merge") return "succeeded";
   const response = decodeMergeResult(result.stdout);
   return Option.isNone(response) ? "unknown" : response.value.merged ? "succeeded" : "failed";
@@ -134,7 +136,21 @@ const make = Effect.gen(function* () {
       const api = `repos/${envelope.repository}`;
       let command = "gh";
       let args: string[];
+      let verifyPush: Effect.Effect<boolean, FactoryError> | undefined;
       switch (request.type) {
+        case "push": {
+          const push = yield* prepareFactoryPush(
+            { repository: envelope.repository, target: envelope.target, request },
+            cwd,
+          ).pipe(
+            Effect.provideService(Processes.ProcessRunner, runner),
+            Effect.provideService(FileSystem.FileSystem, fs),
+          );
+          command = "git";
+          args = push.args;
+          verifyPush = push.verify;
+          break;
+        }
         case "merge":
           if (
             !/^[a-f0-9]{40,64}$/i.test(request.approvedHeadSha) ||
@@ -236,6 +252,9 @@ const make = Effect.gen(function* () {
           outputMode: "truncate",
         })
         .pipe(Effect.result);
+      const verified = verifyPush
+        ? yield* verifyPush.pipe(Effect.orElseSucceed(() => false))
+        : true;
       return yield* store.transaction(
         Effect.gen(function* () {
           const latest = yield* store.get("executions", executing.id);
@@ -246,13 +265,16 @@ const make = Effect.gen(function* () {
             ...latest,
             updatedAt: DateTime.toEpochMillis(yield* DateTime.now),
             state:
-              result._tag === "Failure"
+              result._tag === "Failure" || !verified
                 ? "unknown"
                 : factoryActionOutcome(envelope.kind, result.success),
             result:
               result._tag === "Failure"
                 ? "External outcome unknown; reconcile on the host before any new action."
-                : `${result.success.stdout}\n${result.success.stderr}`.slice(0, 16_384),
+                : `${result.success.stdout}\n${result.success.stderr}${verifyPush ? `\nApproved remote head verified: ${verified}` : ""}`.slice(
+                    0,
+                    16_384,
+                  ),
           });
         }),
       );

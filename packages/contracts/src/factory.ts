@@ -60,12 +60,26 @@ export type FactoryAgent = typeof FactoryAgent.Type;
 
 export const FactoryActionEnvelope = Schema.Struct({
   version: Schema.Literal(1),
-  kind: Schema.Literals(["merge", "open-pr", "force-push", "delete-branch", "external-post"]),
+  kind: Schema.Literals([
+    "merge",
+    "open-pr",
+    "push",
+    "force-push",
+    "delete-branch",
+    "external-post",
+  ]),
   repository: TrimmedNonEmptyString,
   target: TrimmedNonEmptyString,
   cwd: TrimmedNonEmptyString,
   count: Schema.Literal(1),
   request: Schema.Union([
+    Schema.Struct({
+      type: Schema.Literal("push"),
+      sourceRef: TrimmedNonEmptyString,
+      destinationRef: TrimmedNonEmptyString,
+      expectedOldOid: Schema.NullOr(TrimmedNonEmptyString),
+      newOid: TrimmedNonEmptyString,
+    }),
     Schema.Struct({
       type: Schema.Literal("merge"),
       prNumber: Schema.Number,
