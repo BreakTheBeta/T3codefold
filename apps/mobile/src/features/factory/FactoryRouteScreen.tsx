@@ -13,6 +13,9 @@ import { Linking, TextInput, View, type TextInputInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
+import { ScreenScrollViewSurface } from "../../components/ui/ScreenScrollView";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { ThreadCanvasBackdrop } from "../threads/ThreadCanvasBackdrop";
 import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
 import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
@@ -65,28 +68,35 @@ function FactoryScreen({
   const { environment, cardId } = selectFactoryTarget(environments, selected, destination);
   return (
     <SettingsScreen title="Factory">
-      <View className="flex-row flex-wrap gap-2 px-4 py-3">
-        {environments.map((e) => (
-          <Button
-            key={e.environmentId}
-            label={e.label}
-            tone={environment?.environmentId === e.environmentId ? "primary" : "secondary"}
-            onPress={() => setSelected(e.environmentId)}
-          />
-        ))}
+      <View className="flex-1 overflow-hidden">
+        <View pointerEvents="none" className="absolute inset-0 overflow-hidden bg-screen">
+          <ThreadCanvasBackdrop />
+        </View>
+        <ScreenScrollViewSurface value="bg-transparent">
+          <View className="flex-row flex-wrap gap-2 border-b border-border-subtle bg-card px-4 py-3">
+            {environments.map((e) => (
+              <Button
+                key={e.environmentId}
+                label={e.label}
+                tone={environment?.environmentId === e.environmentId ? "primary" : "secondary"}
+                onPress={() => setSelected(e.environmentId)}
+              />
+            ))}
+          </View>
+          {environment ? (
+            <FactoryInbox
+              key={environment.environmentId}
+              environmentId={environment.environmentId}
+              environmentLabel={environment.label}
+              cardId={cardId}
+            />
+          ) : (
+            <Text className="p-5 text-foreground-muted">
+              Connect this environment before opening its Factory.
+            </Text>
+          )}
+        </ScreenScrollViewSurface>
       </View>
-      {environment ? (
-        <FactoryInbox
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-          environmentLabel={environment.label}
-          cardId={cardId}
-        />
-      ) : (
-        <Text className="p-5 text-foreground-muted">
-          Connect this environment before opening its Factory.
-        </Text>
-      )}
     </SettingsScreen>
   );
 }
@@ -116,7 +126,19 @@ function FactoryInbox({
       contentContainerClassName="gap-4 px-4 py-4"
       contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
     >
-      <Text className="font-t3-bold">{environmentLabel}</Text>
+      <View className="flex-row items-center justify-between gap-3 rounded-xl border border-border-subtle bg-card px-4 py-3">
+        <View className="flex-1 gap-1">
+          <Text className="text-xs text-foreground-muted">FACTORY</Text>
+          <Text className="font-t3-bold" numberOfLines={1}>
+            {environmentLabel}
+          </Text>
+        </View>
+        {query.data && (
+          <Text className="text-xs text-foreground-muted">
+            {query.data.status.stopping ? "Stopping" : query.data.status.enabled ? "On" : "Off"}
+          </Text>
+        )}
+      </View>
       {query.error && (
         <Text accessibilityRole="alert" className="text-danger">
           {query.error}
@@ -125,10 +147,14 @@ function FactoryInbox({
       {!query.data ? (
         <Text className="text-foreground-muted">Loading Factory…</Text>
       ) : !query.data.status.enabled ? (
-        <View className="gap-3">
-          <Text className="font-t3-bold text-lg">Factory is off</Text>
-          <Text className="text-foreground-muted">
-            Factory starts disabled on every server. Your regular T3 threads continue normally.
+        <View className="gap-4 rounded-[22px] border border-border-subtle bg-card p-5">
+          <Text className="text-xs text-foreground-muted">
+            OFF BY DEFAULT · YOUR SERVER, YOUR CALL
+          </Text>
+          <Text className="font-t3-bold text-2xl">A workspace for your agents.</Text>
+          <Text className="leading-relaxed text-foreground-muted">
+            Review decisions. Follow your crew. Open their threads. Enable Factory for this server
+            when you’re ready; your regular T3 threads continue normally.
           </Text>
           <Text className="text-foreground-muted">
             {query.data.status.forcedOff
@@ -150,9 +176,12 @@ function FactoryInbox({
       ) : (
         <>
           <FactoryPowerControl environmentId={environmentId} status={query.data.status} />
-          <Text className="font-t3-bold text-lg">
-            {cards.length} need you · {cards.filter((c) => c.body.blocking).length} blocking
-          </Text>
+          <View className="flex-row items-center justify-between gap-3 rounded-xl border border-border-subtle bg-card p-4">
+            <Text className="font-t3-bold text-lg">Needs you · {cards.length}</Text>
+            <Text className="text-xs text-foreground-muted">
+              {cards.filter((c) => c.body.blocking).length} blocking
+            </Text>
+          </View>
           {query.data.executions.some((execution) => execution.state === "unknown") && (
             <Text accessibilityRole="alert" className="text-danger">
               An action result is unknown. Verify its external result before authorising another
@@ -194,12 +223,15 @@ function FactoryInbox({
           ) : (
             <>
               {!cards.length && (
-                <Text className="text-foreground-muted">No decisions need your answer.</Text>
+                <EmptyState
+                  title="You’re all caught up."
+                  detail="Your agents can keep working. New questions will appear here when they need your input."
+                />
               )}
               {cards.map((c) => (
                 <View
                   key={c.id}
-                  className="gap-2 rounded-xl border border-border-subtle bg-card p-3"
+                  className="gap-3 rounded-2xl border border-border-subtle bg-card p-4"
                 >
                   <Text className="text-foreground-muted">
                     {FACTORY_CARD_KIND_LABEL[c.body.kind]} · {c.ownerId} · {c.body.urgency}
@@ -215,7 +247,7 @@ function FactoryInbox({
               {factoryAgentRows(query.data.agents).map(({ agent: a, depth }) => (
                 <View
                   key={a.id}
-                  className="gap-1 border-b border-border-subtle py-2"
+                  className="gap-2 rounded-xl border border-border-subtle bg-card px-3 py-3"
                   style={{ marginLeft: Math.min(depth, 3) * 12 }}
                 >
                   <Button
@@ -239,7 +271,10 @@ function FactoryInbox({
               ))}
               <Text className="font-t3-bold text-lg">Triggers</Text>
               {query.data.triggers.map((t) => (
-                <Text key={t.id} className="text-foreground-muted">
+                <Text
+                  key={t.id}
+                  className="rounded-xl border border-border-subtle bg-card p-3 text-foreground-muted"
+                >
                   {t.id} · {t.shadow ? "shadow" : "live"} · {t.failing ? "failing" : "healthy"}
                 </Text>
               ))}
@@ -338,7 +373,7 @@ function MobileCard({
     setBusy(false);
   };
   return (
-    <View className="gap-4">
+    <View className="gap-4 rounded-2xl border border-border-subtle bg-card p-4">
       <Text className="font-t3-bold text-xl">{card.body.title}</Text>
       <Text className="text-foreground-muted">
         {FACTORY_CARD_KIND_LABEL[card.body.kind]} · {card.ownerId} · revision {card.revision}
@@ -391,7 +426,7 @@ function MobileCard({
       <Text>Why you: {card.body.context.whyNotMe}</Text>
       <Text>Waiting: {card.body.context.costOfWaiting}</Text>
       {card.body.action && (
-        <View className="gap-2 rounded-xl border border-border-subtle bg-card p-4">
+        <View className="gap-3 rounded-2xl border border-border-subtle bg-card p-4">
           <Text className="font-t3-medium">Exact action awaiting your decision</Text>
           <Text selectable className="text-xs text-foreground-muted">
             SHA-256 {card.body.action.payloadSha256}
@@ -404,7 +439,7 @@ function MobileCard({
         </View>
       )}
       {card.body.options.map((o) => (
-        <View key={o.id} className="gap-2 rounded-xl border border-border-subtle bg-card p-4">
+        <View key={o.id} className="gap-3 rounded-2xl border border-border-subtle bg-card p-4">
           <Button
             label={`${option === o.id ? "Selected: " : ""}${o.id} · ${o.label}${o.recommended ? " · recommended" : ""}`}
             tone={option === o.id ? "primary" : "secondary"}
