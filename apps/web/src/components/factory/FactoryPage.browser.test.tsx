@@ -5,7 +5,10 @@ import { render } from "../../../test/render";
 import { CardDetail, Decisions } from "./FactoryPage";
 
 const { answer } = vi.hoisted(() => ({ answer: vi.fn(async () => undefined) }));
-vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
+vi.mock("@effect/atom-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@effect/atom-react")>()),
+  useAtomValue: () => true,
+}));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => answer }));
 vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: undefined }) }));
 vi.mock("../../state/server", () => ({
