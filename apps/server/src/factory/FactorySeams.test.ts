@@ -109,7 +109,7 @@ it.effect(
       assert.include(next ?? "", "thread:original");
       assert.include(next ?? "", "/shared/tasks/initiative/work.md");
       assert.include(next ?? "", "DEFAULTED");
-      assert.isAtMost((next ?? "").length, 9000);
+      assert.isAtMost((next ?? "").length, 12000);
       assert.notInclude(next ?? "", "review decision");
     }).pipe(
       Effect.provide(
@@ -120,4 +120,63 @@ it.effect(
         ),
       ),
     ),
+);
+
+it.effect(
+  "existing Commander capsules receive the current coordination policy without replacing their mission",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* Store.FactoryStore;
+      yield* (yield* Control.FactoryControl).setEnabled(true);
+      const legacy = {
+        ...agent,
+        capsule:
+          "Legacy mission: coordinate preview delivery; tracker /shared/tasks/preview/work.md",
+        capsuleRevision: 1,
+      };
+      yield* store.transaction(store.put("agents", legacy));
+      const preamble = yield* TurnPreamble;
+      const text =
+        (yield* preamble.forAttempt(agent.threadId, RunAttemptId.make("legacy-commander-next"))) ??
+        "";
+      assert.include(text, "Commander coordination policy");
+      assert.include(text, "Do not edit code, run tests/builds or repair local tooling");
+      assert.include(text, "Reuse the existing responsible owner");
+      assert.include(text, "3 runnable delivery assignments");
+      assert.include(text, "Legacy mission: coordinate preview delivery");
+      assert.include(text, "/shared/tasks/preview/work.md");
+      assert.equal((yield* store.get("agents", agent.id))?.capsule, legacy.capsule);
+      assert.equal((yield* store.get("agents", agent.id))?.capsuleRevision, 1);
+    }).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect("Commander policy is not assigned to workers and full legacy context stays bounded", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.FactoryStore;
+    yield* (yield* Control.FactoryControl).setEnabled(true);
+    yield* store.transaction(
+      Effect.gen(function* () {
+        yield* store.put("agents", { ...agent, capsule: "x".repeat(6000) });
+        yield* store.put("agents", {
+          ...agent,
+          id: "worker",
+          threadId: ThreadId.make("worker-policy"),
+          role: "worker",
+          parentId: agent.id,
+        });
+      }),
+    );
+    const preamble = yield* TurnPreamble;
+    const commanderText =
+      (yield* preamble.forAttempt(agent.threadId, RunAttemptId.make("long-policy"))) ?? "";
+    assert.include(commanderText, "Commander coordination policy");
+    assert.isAtMost(commanderText.length, 12000);
+    const workerText =
+      (yield* preamble.forAttempt(
+        ThreadId.make("worker-policy"),
+        RunAttemptId.make("worker-policy-attempt"),
+      )) ?? "";
+    assert.notInclude(workerText, "Commander coordination policy");
+    assert.include(workerText, "DEFAULTED");
+  }).pipe(Effect.provide(TestLayer)),
 );

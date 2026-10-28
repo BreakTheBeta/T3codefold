@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
+import * as Schema from "effect/Schema";
 import { assert, expect, it } from "@effect/vitest";
 
 import {
@@ -8,7 +11,7 @@ import {
   gradeSample,
   makeSample,
   ranCalls,
-  type McpToolUseCase,
+  McpToolUseCase,
   mockOutput,
   normalizeToolInput,
   normalizeToolName,
@@ -18,6 +21,8 @@ import {
   t3SystemAppend,
 } from "./run.ts";
 import { taskPrompt } from "../../apps/server/src/mcp/OrchestratorMcpService.ts";
+
+const decodeCommanderEvalCase = Schema.decodeSync(Schema.fromJsonString(McpToolUseCase));
 
 it("grades Codex shell and subagent calls with the shared rules", () => {
   const calls = [
@@ -367,4 +372,87 @@ it("stops a sample only once a must-not check has failed", () => {
   assert.isFalse(failedEarly(expect, run("Bash")));
   assert.isTrue(failedEarly(expect, run("watch_pull_request")));
   assert.isTrue(failedEarly({ textMustNot: ["paste"] }, run("Bash", "paste it here")));
+});
+
+it("offline Commander case graders reject execution/thread churn and accept owner-routed dispositions", () => {
+  const cases = NodeFS.readFileSync(
+    new URL("./cases/factory-commander.ndjson", import.meta.url),
+    "utf8",
+  )
+    .trim()
+    .split("\n")
+    .map((line) => decodeCommanderEvalCase(line));
+  const traces: Record<string, SampleRun> = {
+    "factory-commander-reuses-owner-after-completion": {
+      calls: [
+        {
+          step: 0,
+          tool: "t3_thread_send",
+          input: {
+            threadId: "preview-owner",
+            message: "Implement the reviewed local patch and return the test evidence.",
+          },
+        },
+      ],
+      text: "The preview owner retains delivery responsibility.",
+      stopReason: "end_turn",
+    },
+    "factory-commander-wip-limit-no-thread-churn": {
+      calls: [],
+      text: "Setup optimization is queued behind the three current delivery assignments.",
+      stopReason: "end_turn",
+    },
+    "factory-commander-local-recovery-stays-worker-owned": {
+      calls: [
+        {
+          step: 0,
+          tool: "t3_thread_send",
+          input: {
+            threadId: "cache-owner",
+            message: "Use the checkout-local executable within the bounded recovery budget.",
+          },
+        },
+      ],
+      text: "The cache owner retains local recovery.",
+      stopReason: "end_turn",
+    },
+    "factory-commander-ready-patch-real-publication-gate": {
+      calls: [],
+      text: "Preview speed is tested locally; publication is blocked by the missing typed push capability. The preview owner retains it; the Factory owner must supply that adapter.",
+      stopReason: "end_turn",
+    },
+    "factory-commander-summary-product-context": {
+      calls: [],
+      text: "Preview work avoids unnecessary installs. The cache fix prevents stale task results. Both are ready locally; publication needs your exact approval once the push action is supported.",
+      stopReason: "end_turn",
+    },
+  };
+  for (const testCase of cases) {
+    const trace = traces[testCase.id]!;
+    assert.deepEqual(failed(testCase.expect, trace), [], testCase.id);
+    assert.isNotEmpty(
+      failed(testCase.expect, {
+        ...trace,
+        calls: [...trace.calls, { step: 1, tool: "factory_spawn", input: {} }],
+      }),
+      `${testCase.id}: needless new thread must fail`,
+    );
+    assert.isNotEmpty(
+      failed(testCase.expect, {
+        ...trace,
+        calls: [...trace.calls, { step: 1, tool: "Edit", input: {} }],
+      }),
+      `${testCase.id}: Commander execution must fail`,
+    );
+  }
+  const completion = cases.find(
+    (testCase) => testCase.id === "factory-commander-reuses-owner-after-completion",
+  )!;
+  assert.isNotEmpty(
+    failed(completion.expect, {
+      calls: [],
+      text: "Recorded DONE. Waiting.",
+      stopReason: "end_turn",
+    }),
+  );
 });

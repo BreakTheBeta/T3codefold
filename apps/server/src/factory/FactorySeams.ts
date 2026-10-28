@@ -20,7 +20,7 @@ import {
   ThreadRetentionGuardError,
 } from "../orchestration-v2/ThreadRetentionGuard.ts";
 import { inSubtree } from "./access.ts";
-import { FACTORY_AUTHORITY } from "./FactoryPrompts.ts";
+import { FACTORY_AUTHORITY, FACTORY_COMMANDER_POLICY } from "./FactoryPrompts.ts";
 
 const isThreadActivityGuardError = Schema.is(ThreadActivityGuardError);
 const isThreadRetentionGuardError = Schema.is(ThreadRetentionGuardError);
@@ -97,7 +97,8 @@ Pending wakes (${pending.length}; first 8; read factory_board for all):
 ${wakeLines}
 Read the durable mission/tracker and current card revisions before acting after handover.
 `.slice(0, 2800);
-                const content = `<factory-role>\n${snapshot}\nRead factory_board for the complete current snapshot.\nCapsule r${agent.capsuleRevision}:\n${agent.capsule.slice(0, 6000)}\n</factory-role>`;
+                const policy = agent.role === "commander" ? `${FACTORY_COMMANDER_POLICY}\n` : "";
+                const content = `<factory-role>\n${policy}${snapshot}\nRead factory_board for the complete current snapshot.\nPersisted mission/capsule r${agent.capsuleRevision} (current server role policy governs responsibility):\n${agent.capsule.slice(0, 6000)}\n</factory-role>`;
                 yield* sql`INSERT INTO factory_capsule_attempts (attempt_id, agent_id, content, marker) VALUES (${attemptId}, ${agent.id}, ${content}, ${marker})`;
                 return content;
               }),
