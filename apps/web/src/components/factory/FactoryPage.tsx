@@ -618,6 +618,23 @@ export function CardDetail({
           </h2>
         </div>
         <dl className="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-3 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+          {(
+            [
+              ["Product", card.body.context.product],
+              ["Benefit", card.body.context.benefit],
+              ["Delivered", card.body.context.delivered],
+              ["Choice", card.body.context.choice],
+              ["Authority", card.body.context.authority],
+              ["Recovery", card.body.context.recovery],
+            ] as const
+          ).map(([label, value]) =>
+            value ? (
+              <div key={label} className="col-span-2 grid grid-cols-subgrid">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ) : null,
+          )}
           <dt className="text-muted-foreground">Doing</dt>
           <dd>{card.body.context.doing}</dd>
           <dt className="text-muted-foreground">Why you</dt>
@@ -915,7 +932,8 @@ function Fleet({
         Your crew
       </h2>
       <p className="text-xs text-muted-foreground">
-        Factory roles and lifecycle. Open a thread for its live activity.
+        Assignment reports are separate from live thread activity. A completed assignment can leave
+        initiative work for its parent.
       </p>
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card/95 shadow-sm">
         {factoryAgentRows(board.agents).map(({ agent, depth }) => (
@@ -935,11 +953,14 @@ function Fleet({
               </Link>
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">{agent.role}</Badge>
-                <Badge variant={agent.needs ? "warning" : "outline"}>{agent.lifecycle}</Badge>
+                <Badge variant="outline">{agent.lifecycle}</Badge>
+                <Badge variant={agent.workState === "blocked" ? "warning" : "secondary"}>
+                  {agent.workState ? `Assignment ${agent.workState}` : "Assignment unreported"}
+                </Badge>
               </div>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {agent.next || "No next step recorded"}
+              Next: {agent.next || "No next deliverable recorded"}
             </p>
             {agent.needs && (
               <p className="mt-1 text-sm text-warning-foreground">Needs: {agent.needs}</p>

@@ -47,6 +47,12 @@ export const layer = Access.toLayer(FactoryToolkit, {
       return yield* factory.agents.update(actor, input);
     }),
   ),
+  factory_report: Access.writes((input) =>
+    Effect.gen(function* () {
+      const { factory, actor } = yield* caller;
+      return yield* factory.agents.report(actor, input);
+    }),
+  ),
   factory_card_file: Access.writes((input) =>
     Effect.gen(function* () {
       const { factory, actor } = yield* caller;

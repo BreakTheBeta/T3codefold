@@ -67,7 +67,12 @@ const make = Effect.gen(function* () {
           yield* control.requireEnabled;
           const owner = yield* actorAgent(actor);
           if (!validateFactoryCard(input.body))
-            return yield* new FactoryError({ code: "invalid", entityId: input.id });
+            return yield* new FactoryError({
+              code: "invalid",
+              entityId: input.id,
+              detail:
+                "Decision cards need product, benefit, delivered state, exact choice and authority context; outward decisions also need a bound action. Include evidence, rationale and complete A..Z options with one recommendation.",
+            });
           const existing = yield* store.get("cards", input.id);
           if (
             existing &&
@@ -143,7 +148,7 @@ const make = Effect.gen(function* () {
             refKind: "card",
             refId: card.id,
             sourceId: `card:${card.id}:${card.revision}`,
-            text: `${outcome}: ${card.body.title}${selected ? `: option ${selected}` : ""}${input.note ? `\nUser note: ${input.note}` : ""}`,
+            text: `${outcome === "DEFAULTED" ? "DEFAULTED (not explicit approval; do not execute outward actions)" : outcome}: ${card.body.title}${selected ? `: option ${selected}` : ""}${input.note ? `\nUser note: ${input.note}` : ""}`,
           });
           for (const notification of yield* store.list("notifications")) {
             if (notification.cardId === card.id && notification.state === "pending")
@@ -154,7 +159,7 @@ const make = Effect.gen(function* () {
               });
           }
           const owner = yield* store.get("agents", card.ownerId);
-          if (owner?.needs === card.id)
+          if (outcome !== "DEFAULTED" && owner?.needs === card.id)
             yield* store.put("agents", { ...owner, needs: null, updatedAt: now });
           return saved;
         }),

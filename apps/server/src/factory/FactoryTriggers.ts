@@ -132,7 +132,11 @@ const make = Effect.gen(function* () {
           });
     } else if (name === "stall-watch") {
       for (const agent of agents.filter(
-        (a) => a.role !== "commander" && a.lifecycle === "active",
+        (a) =>
+          a.role !== "commander" &&
+          a.lifecycle === "active" &&
+          a.workState !== "done" &&
+          a.workState !== "blocked",
       )) {
         const shell = yield* threads
           .getThreadShell(agent.threadId)

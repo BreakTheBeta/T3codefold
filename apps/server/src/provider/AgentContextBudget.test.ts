@@ -54,6 +54,7 @@ const toolHandlerServices = Layer.mergeAll(
       resume: unexpectedFactoryCall,
       lifecycle: unexpectedFactoryCall,
       update: unexpectedFactoryCall,
+      report: unexpectedFactoryCall,
     },
     decisions: {
       file: unexpectedFactoryCall,

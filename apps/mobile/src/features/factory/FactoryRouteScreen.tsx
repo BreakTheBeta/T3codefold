@@ -242,7 +242,8 @@ function FactoryInbox({
               ))}
               <Text className="font-t3-bold text-lg">Fleet</Text>
               <Text className="text-xs text-foreground-muted">
-                Roles and lifecycle. Open a thread for live activity.
+                Assignment reports are separate from live thread activity. Done assignments may
+                leave initiative work for their parent.
               </Text>
               {factoryAgentRows(query.data.agents).map(({ agent: a, depth }) => (
                 <View
@@ -264,8 +265,9 @@ function FactoryInbox({
                     }
                   />
                   <Text className="text-foreground-muted">
-                    {a.lifecycle} · {a.next}
+                    {a.lifecycle} · Assignment {a.workState ?? "unreported"}
                   </Text>
+                  <Text>Next: {a.next || "No next deliverable recorded"}</Text>
                   {a.needs && <Text>Needs: {a.needs}</Text>}
                 </View>
               ))}
@@ -421,6 +423,22 @@ function MobileCard({
             {link.label ?? link.ref}
           </Text>
         ),
+      )}
+      {(
+        [
+          ["Product", card.body.context.product],
+          ["Benefit", card.body.context.benefit],
+          ["Delivered", card.body.context.delivered],
+          ["Choice", card.body.context.choice],
+          ["Authority", card.body.context.authority],
+          ["Recovery", card.body.context.recovery],
+        ] as const
+      ).map(([label, value]) =>
+        value ? (
+          <Text key={label}>
+            {label}: {value}
+          </Text>
+        ) : null,
       )}
       <Text>Doing: {card.body.context.doing}</Text>
       <Text>Why you: {card.body.context.whyNotMe}</Text>

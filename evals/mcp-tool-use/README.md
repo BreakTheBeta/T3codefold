@@ -45,3 +45,5 @@ Check that the case builds with `--dry-run --case <id>`. Then run it on the text
 2. From `evals/`, run `pnpm mcp-tool-use:trim-capture <claude|codex> <capture.json> mcp-tool-use/templates/<claude|codex>.json.gz`. It keeps only what `run.ts` reads, and removes user instructions, the user's own skills and agents, account ids, and home paths.
 3. Read the output for user data before you commit it: `zcat <file> | less`.
 4. Run the full eval on the old and new templates, and compare.
+
+Factory cases use `setup.factoryRole` and `setup.factoryMission` to load the real role capsule from `FactoryPrompts.ts`. They cover completion routing, defaults, bounded local recovery, and product context in decisions. Build their requests without model calls with `--dry-run --case factory-completion-advances-authorized-local-work,factory-default-is-not-publication-consent,factory-local-path-recovery-before-escalation,factory-plain-product-decision-context`. Dry runs check request construction; they do not establish model behavior. Compare live samples against the same model before merging prompt changes.

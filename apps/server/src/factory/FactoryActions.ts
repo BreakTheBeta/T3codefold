@@ -69,7 +69,7 @@ const make = Effect.gen(function* () {
           if (
             !action ||
             !["answered", "acked"].includes(card.state) ||
-            !["CHOSE", "CHOSE-against", "DEFAULTED"].includes(card.outcome ?? "") ||
+            !["CHOSE", "CHOSE-against"].includes(card.outcome ?? "") ||
             card.optionId !== action.optionId
           )
             return yield* new FactoryError({ code: "invalid", entityId: cardId });
@@ -216,6 +216,9 @@ const make = Effect.gen(function* () {
             !card ||
             !["answered", "acked"].includes(card.state) ||
             card.revision !== latest.cardRevision ||
+            !["CHOSE", "CHOSE-against"].includes(card.outcome ?? "") ||
+            card.optionId !== latest.optionId ||
+            card.body.action?.payloadSha256 !== latest.payloadSha256 ||
             card.answeredAt === null ||
             now - card.answeredAt >= 86_400_000
           )

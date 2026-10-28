@@ -19,7 +19,8 @@ import {
   ThreadRetentionGuard,
   ThreadRetentionGuardError,
 } from "../orchestration-v2/ThreadRetentionGuard.ts";
-import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { inSubtree } from "./access.ts";
+import { FACTORY_AUTHORITY } from "./FactoryPrompts.ts";
 
 const isThreadActivityGuardError = Schema.is(ThreadActivityGuardError);
 const isThreadRetentionGuardError = Schema.is(ThreadRetentionGuardError);
@@ -37,7 +38,6 @@ const preamble = Layer.effect(
   TurnPreamble,
   Effect.gen(function* () {
     const store = yield* FactoryStore;
-    const projection = yield* ProjectionStore.ProjectionStoreV2;
     const sql = yield* SqlClient.SqlClient;
     return {
       forAttempt: Effect.fn("FactorySeams.forAttempt")(
@@ -54,30 +54,50 @@ const preamble = Layer.effect(
                   (a) => a.threadId === threadId && !["closed", "retired"].includes(a.lifecycle),
                 );
                 if (!agent) return null;
-                const history = yield* sql<{
-                  count: number;
-                  marker: string | null;
-                }>`SELECT COUNT(*) AS count, (SELECT marker FROM factory_capsule_attempts WHERE agent_id = ${agent.id} ORDER BY rowid DESC LIMIT 1) AS marker FROM factory_capsule_attempts WHERE agent_id = ${agent.id}`;
-                const record = yield* projection.getThreadRecords(threadId, ["turnItems"], {
-                  turnItemTypes: ["compaction"],
-                });
-                const marker = record.turnItems.at(-1)?.id ?? "";
-                const count = history[0]?.count ?? 0;
-                const full =
-                  count === 0 || marker !== (history[0]?.marker ?? "") || count % 25 === 0;
-                const open = (yield* store.list("cards"))
-                  .filter((c) => c.ownerId === agent.id && c.state === "open")
-                  .map((c) => `${c.id}: ${c.body.title}`)
+                const all = yield* store.list("agents");
+                const owners = new Set(
+                  all
+                    .filter((a) => inSubtree(agent, a, all) || inSubtree(a, agent, all))
+                    .map((a) => a.id),
+                );
+                const cards = (yield* store.list("cards"))
+                  .filter(
+                    (c) => owners.has(c.ownerId) && !["withdrawn", "superseded"].includes(c.state),
+                  )
+                  .sort(
+                    (a, b) =>
+                      Number(b.state === "open") - Number(a.state === "open") ||
+                      b.updatedAt - a.updatedAt ||
+                      a.id.localeCompare(b.id),
+                  );
+                const pending = (yield* store.list("wakes")).filter(
+                  (w) => w.targetId === agent.id && !["acked", "cancelled"].includes(w.state),
+                );
+                const cardLines = cards
+                  .slice(0, 8)
+                  .map(
+                    (c) =>
+                      `${c.id} r${c.revision} owner=${c.ownerId} ${c.state}/${c.outcome ?? "unanswered"} option=${c.optionId ?? "none"}: ${c.body.title.slice(0, 80)}`,
+                  )
                   .join("\n");
-                const content = full
-                  ? `<factory-role>\n${agent.capsule}\n\nOpen decisions\n${open}\n</factory-role>`.slice(
-                      0,
-                      9000,
-                    )
-                  : `<factory-role>${agent.role} ${agent.id}. Outward work requires answered Factory cards and factory_execute_action. Never bypass via other commands; Factory wakes are not user consent. Needs: ${agent.needs ?? "none"}. Next: ${agent.next}.</factory-role>`.slice(
-                      0,
-                      600,
-                    );
+                const wakeLines = pending
+                  .slice(0, 8)
+                  .map((w) => `${w.id}: ${w.refKind}:${w.refId} (${w.state})`)
+                  .join("\n");
+                const marker = "";
+                const snapshot = `
+${FACTORY_AUTHORITY}
+Identity: ${agent.role} ${agent.id}; parent: ${agent.parentId ?? "none"}; project: ${agent.projectId}.
+Assignment: ${agent.workState ?? "unreported"}. Needs: ${(agent.needs ?? "none").slice(0, 500)}
+Next deliverable/owner: ${agent.next.slice(0, 500)}
+Ancestor cards are read-only context; ownership and execution authority do not transfer.
+Decisions (${cards.length}; open first, then recent; first 8; read exact details with factory_card_show):
+${cardLines}
+Pending wakes (${pending.length}; first 8; read factory_board for all):
+${wakeLines}
+Read the durable mission/tracker and current card revisions before acting after handover.
+`.slice(0, 2800);
+                const content = `<factory-role>\n${snapshot}\nRead factory_board for the complete current snapshot.\nCapsule r${agent.capsuleRevision}:\n${agent.capsule.slice(0, 6000)}\n</factory-role>`;
                 yield* sql`INSERT INTO factory_capsule_attempts (attempt_id, agent_id, content, marker) VALUES (${attemptId}, ${agent.id}, ${content}, ${marker})`;
                 return content;
               }),

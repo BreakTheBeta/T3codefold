@@ -10,6 +10,7 @@ import {
   type FactorySpawn,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Config from "../config.ts";
@@ -181,3 +182,99 @@ it.layer(TestLayer)("Factory agent cleanup", (it) => {
     }),
   );
 });
+
+it.effect("a completed assignment retains its next owner and wakes the parent exactly once", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.FactoryStore;
+    const agents = yield* Agents.FactoryAgents;
+    const child = {
+      ...owner,
+      id: "reporter",
+      threadId: ThreadId.make("reporter-thread"),
+      role: "worker" as const,
+      parentId: owner.id,
+    };
+    yield* store.transaction(
+      Effect.gen(function* () {
+        yield* store.put("agents", owner);
+        yield* store.put("agents", child);
+      }),
+    );
+    const actor = { kind: "agent", threadId: child.threadId } as const;
+    const report = {
+      requestId: "patch-tested",
+      outcome: "done" as const,
+      summary: "Local patch and focused tests passed; evidence: /shared/tasks/result.md",
+      next: "Parent: inspect the patch and assign the remaining release preflight",
+    };
+    const saved = yield* agents.report(actor, report);
+    assert.equal(saved.workState, "done");
+    assert.isNull(saved.needs);
+    assert.equal(saved.next, report.next);
+    assert.equal((yield* store.get("agents", owner.id))?.lifecycle, "active");
+    assert.equal((yield* agents.report(actor, report)).version, saved.version);
+    const wakes = yield* store.list("wakes");
+    assert.lengthOf(wakes, 1);
+    assert.equal(wakes[0]?.targetId, owner.id);
+    assert.include(wakes[0]!.text, report.summary);
+    assert.include(wakes[0]!.text, report.next);
+    assert.isTrue(
+      Exit.isFailure(
+        yield* agents.report(actor, { ...report, summary: "Different result" }).pipe(Effect.exit),
+      ),
+    );
+    assert.lengthOf(yield* store.list("wakes"), 1);
+    yield* agents.report(actor, { ...report, requestId: "next-deliverable-tested" });
+    const reports = yield* store.list("wakes");
+    assert.lengthOf(reports, 2);
+    assert.deepEqual(reports.map((wake) => wake.refId).sort(), [
+      "next-deliverable-tested",
+      "patch-tested",
+    ]);
+  }).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect(
+  "blocked reports require a named dependency and retain responsibility without closing the worker",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* Store.FactoryStore;
+      const agents = yield* Agents.FactoryAgents;
+      const child = {
+        ...owner,
+        id: "blocked-reporter",
+        threadId: ThreadId.make("blocked-thread"),
+        role: "worker" as const,
+        parentId: owner.id,
+      };
+      yield* store.transaction(
+        Effect.gen(function* () {
+          yield* store.put("agents", owner);
+          yield* store.put("agents", child);
+        }),
+      );
+      const actor = { kind: "agent", threadId: child.threadId } as const;
+      const report = {
+        requestId: "blocked-release",
+        outcome: "blocked" as const,
+        summary: "Reviewed patch is ready locally",
+        next: "Parent: prepare the exact publication decision",
+      };
+      assert.isTrue(Exit.isFailure(yield* agents.report(actor, report).pipe(Effect.exit)));
+      assert.lengthOf(yield* store.list("wakes"), 0);
+      const saved = yield* agents.report(actor, {
+        ...report,
+        needs: "User choice on the publication action",
+      });
+      assert.equal(saved.workState, "blocked");
+      assert.equal(saved.lifecycle, "active");
+      assert.equal(saved.needs, "User choice on the publication action");
+      yield* agents.update(actor, {
+        agentId: child.id,
+        workState: "working",
+        needs: null,
+        next: "Collect the release evidence",
+      });
+      assert.equal((yield* store.get("agents", child.id))?.workState, "working");
+    }).pipe(Effect.provide(TestLayer)),
+);

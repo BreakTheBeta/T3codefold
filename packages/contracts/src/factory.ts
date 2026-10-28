@@ -18,12 +18,13 @@ export class FactoryError extends Schema.TaggedError<FactoryError>()("FactoryErr
     "storage",
   ]),
   entityId: Schema.optionalKey(Schema.String),
+  detail: Schema.optionalKey(Schema.String),
   cause: Schema.optional(Schema.Defect()),
 }) {
   override get message() {
     switch (this.code) {
       case "invalid":
-        return "The Factory request is invalid.";
+        return this.detail ?? "The Factory request is invalid.";
       case "conflict":
         return "Factory state changed. Reload and try again.";
       case "forbidden":
@@ -51,6 +52,7 @@ export const FactoryAgent = Schema.Struct({
   lifecycle: Schema.Literals(["launching", "active", "parked", "retired", "closed"]),
   capsule: Text,
   capsuleRevision: Schema.Number,
+  workState: Schema.optionalKey(Schema.Literals(["working", "blocked", "done"])),
   needs: Schema.NullOr(Schema.String),
   next: Schema.String,
 });
@@ -105,6 +107,12 @@ export const FactoryCardBody = Schema.Struct({
   blocking: Schema.Boolean,
   urgency: Schema.Literals(["now", "today", "this-week"]),
   context: Schema.Struct({
+    product: Schema.optionalKey(TrimmedNonEmptyString),
+    benefit: Schema.optionalKey(TrimmedNonEmptyString),
+    delivered: Schema.optionalKey(TrimmedNonEmptyString),
+    choice: Schema.optionalKey(TrimmedNonEmptyString),
+    authority: Schema.optionalKey(Schema.Literals(["product", "outward", "credential"])),
+    recovery: Schema.optionalKey(TrimmedNonEmptyString),
     doing: TrimmedNonEmptyString,
     whyNotMe: TrimmedNonEmptyString,
     costOfWaiting: TrimmedNonEmptyString,
@@ -393,6 +401,15 @@ export const FactoryBoard = Schema.Struct({
 export type FactoryBoard = typeof FactoryBoard.Type;
 
 export const FactoryEnsureCommanderInput = Schema.Struct({ modelSelection: ModelSelection });
+export const FactoryReportInput = Schema.Struct({
+  requestId: Id.check(Schema.isMaxLength(100)),
+  outcome: Schema.Literals(["done", "blocked"]),
+  summary: TrimmedNonEmptyString.check(Schema.isMaxLength(4000)),
+  next: TrimmedNonEmptyString.check(Schema.isMaxLength(1000)),
+  needs: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(1000))),
+});
+export type FactoryReportInput = typeof FactoryReportInput.Type;
+
 export const FactorySpawnInput = Schema.Struct({
   requestId: Id,
   parentId: Id,
@@ -401,7 +418,7 @@ export const FactorySpawnInput = Schema.Struct({
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   prompt: Text,
-  capsule: Text,
+  capsule: Text.check(Schema.isMaxLength(2400)),
   workspace: Schema.optionalKey(Schema.Literals(["root", "worktree"])),
   baseRef: Schema.optionalKey(TrimmedNonEmptyString),
 });
@@ -441,6 +458,20 @@ export const FactoryCardFileInput = Schema.Struct({
 
 export function validateFactoryCard(body: FactoryCardBody): boolean {
   return (
+    (body.kind !== "decision" ||
+      ([
+        body.context.product,
+        body.context.benefit,
+        body.context.delivered,
+        body.context.choice,
+        body.context.authority,
+      ].every((value) => value?.trim()) &&
+        (body.context.authority !== "outward" || body.action !== undefined))) &&
+    (body.action === undefined || body.context.authority === "outward") &&
+    body.rationale.trim().length > 0 &&
+    body.options.every(
+      (option) => option.nextStep.trim() && option.consequences.trim() && option.cost.trim(),
+    ) &&
     body.links.length > 0 &&
     body.options.length > 0 &&
     (body.kind !== "decision" || body.options.length >= 2) &&

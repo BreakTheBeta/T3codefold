@@ -32,6 +32,8 @@ import { advertisedJsonSchema } from "../../apps/server/src/mcp/advertisedJsonSc
 import { ORCHESTRATOR_MCP_RUNNING_TASK_NEXT } from "@t3tools/contracts";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
+import { FactoryToolkit } from "../../apps/server/src/mcp/toolkits/factory/tools.ts";
+import { factoryRoleCapsule } from "../../apps/server/src/factory/FactoryPrompts.ts";
 import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment/tools.ts";
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
@@ -172,6 +174,8 @@ export const McpToolUseCase = Schema.Struct({
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
+    factoryRole: Schema.optional(Schema.Literals(["commander", "subcommander", "worker"])),
+    factoryMission: Schema.optional(Schema.String),
     priorTurns: Schema.optional(
       Schema.Array(
         Schema.Struct({
@@ -301,6 +305,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   PreviewToolkit,
   DeviceToolkit,
   HtmlToolkit,
+  FactoryToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 const t3Tools: ReadonlyArray<ApiTool> = t3SourceTools.map((tool) => ({
   name: `${T3_PREFIX}${tool.name}`,
@@ -682,6 +687,12 @@ export const buildMessages = (sample: Sample) => {
   };
   const { role, context, delegateRole, priorTurns = [] } = testCase.setup;
   const notes = [
+    testCase.setup.factoryRole
+      ? factoryRoleCapsule(
+          testCase.setup.factoryRole,
+          testCase.setup.factoryMission ?? "Complete only the requested assignment",
+        )
+      : undefined,
     role === "native-subagent"
       ? "You are a subagent started by the parent agent's Agent tool. Your final message goes to the parent agent, not to the user."
       : undefined,

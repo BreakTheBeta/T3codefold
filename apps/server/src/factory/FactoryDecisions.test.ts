@@ -49,6 +49,11 @@ const body: FactoryCardBody = {
   blocking: true,
   urgency: "now",
   context: {
+    product: "A release notes page",
+    benefit: "Users understand the fix",
+    delivered: "The draft is ready; publication remains",
+    choice: "Publish or hold the draft?",
+    authority: "product",
     doing: "Prepare a change",
     whyNotMe: "User owns the tradeoff",
     costOfWaiting: "Work is held",
@@ -107,6 +112,51 @@ it.layer(TestLayer)("Factory decisions", (it) => {
       const wakes = yield* store.list("wakes");
       assert.lengthOf(wakes, 1);
       assert.include(wakes[0]!.text, "Take B");
+    }),
+  );
+
+  it.effect(
+    "refuses technical-only decisions without product context or a bound outward action",
+    () =>
+      Effect.gen(function* () {
+        const decisions = yield* Decisions.FactoryDecisions;
+        for (const context of [
+          {
+            doing: "Certifying pinned head abc123",
+            whyNotMe: "Need signoff",
+            costOfWaiting: "Blocked",
+          },
+          { ...body.context, delivered: " " },
+          { ...body.context, authority: "outward" as const },
+        ]) {
+          assert.isTrue(
+            Exit.isFailure(
+              yield* decisions
+                .file(actor, { id: "unclear", body: { ...body, context } })
+                .pipe(Effect.exit),
+            ),
+          );
+        }
+      }),
+  );
+
+  it.effect("defaulting preserves the unresolved gate and labels the wake as non-consent", () =>
+    Effect.gen(function* () {
+      const store = yield* Store.FactoryStore;
+      const decisions = yield* Decisions.FactoryDecisions;
+      const card = yield* decisions.file(actor, { id: "default-gate", body });
+      const current = (yield* store.get("agents", owner.id))!;
+      yield* store.transaction(store.put("agents", { ...current, needs: card.id }));
+      const answer = yield* decisions.answer(
+        { kind: "user" },
+        { cardId: card.id, revision: card.revision, yourCall: true },
+      );
+      assert.equal(answer.outcome, "DEFAULTED");
+      assert.equal((yield* store.get("agents", owner.id))?.needs, card.id);
+      assert.include(
+        (yield* store.get("wakes", `answer:${card.id}:${card.revision}`))!.text,
+        "not explicit approval",
+      );
     }),
   );
 

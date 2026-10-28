@@ -30,6 +30,7 @@ const services = (threads: Partial<ThreadManagementService["Service"]>) =>
         resume: unexpectedFactoryCall,
         lifecycle: unexpectedFactoryCall,
         update: unexpectedFactoryCall,
+        report: unexpectedFactoryCall,
       },
       decisions: {
         file: unexpectedFactoryCall,

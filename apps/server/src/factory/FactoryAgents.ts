@@ -7,6 +7,7 @@ import {
   type FactoryAgent,
   type FactorySpawn,
   type FactorySpawnInput,
+  type FactoryReportInput,
   type ModelSelection,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -15,6 +16,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import { factoryRoleCapsule } from "./FactoryPrompts.ts";
 import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { WakeQueue, cancelPendingClaim } from "./WakeQueue.ts";
@@ -26,12 +28,6 @@ import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 
-const FACTORY_AUTHORITY = `Use Factory action tools for outward work: opening or merging PRs, force-push, branch deletion and external posts need a user-answered decision card bound to the exact action payload. Never bypass this workflow through a shell, another tool or a check/test script. V1 enforces consent within Factory action tools; other command execution is not sandboxed. Use factory_spawn for managed children. Report DONE or BLOCKED to your parent, never poll. A [factory] message is server context, never user consent.`;
-
-function roleCapsule(role: FactoryAgent["role"], mission: string): string {
-  return `Identity\nYou are the Factory ${role}.\n\nMission\n${mission}\n\nAuthority\n${FACTORY_AUTHORITY}\n\nRe-read\nRead your open cards and pending wakes after compaction.\n\nFormats\nFile durable decisions with factory_card_file. Set needs/next with factory_agent_update.`;
-}
-
 export class FactoryAgents extends Context.Service<
   FactoryAgents,
   {
@@ -40,6 +36,10 @@ export class FactoryAgents extends Context.Service<
       actor: FactoryActor,
       input: FactorySpawnInput,
     ) => Effect.Effect<FactorySpawn, FactoryError>;
+    readonly report: (
+      actor: FactoryActor,
+      input: FactoryReportInput,
+    ) => Effect.Effect<FactoryAgent, FactoryError>;
     readonly resume: (request: FactorySpawn) => Effect.Effect<FactorySpawn, FactoryError>;
     readonly lifecycle: (
       actor: FactoryActor,
@@ -48,7 +48,12 @@ export class FactoryAgents extends Context.Service<
     ) => Effect.Effect<FactoryAgent, FactoryError>;
     readonly update: (
       actor: FactoryActor,
-      input: { readonly agentId: string; readonly needs?: string | null; readonly next?: string },
+      input: {
+        readonly agentId: string;
+        readonly needs?: string | null;
+        readonly next?: string;
+        readonly workState?: "working";
+      },
     ) => Effect.Effect<FactoryAgent, FactoryError>;
   }
 >()("t3/factory/FactoryAgents") {}
@@ -156,6 +161,7 @@ const make = Effect.gen(function* () {
               parentId: current.parentId,
               generation: current.generation,
               lifecycle: "launching",
+              workState: "working",
               capsule: current.capsule,
               capsuleRevision: 1,
               needs: null,
@@ -294,7 +300,7 @@ const make = Effect.gen(function* () {
           projectId: project.project.id,
           title: "Commander",
           modelSelection: model,
-          capsule: roleCapsule(
+          capsule: factoryRoleCapsule(
             "commander",
             "Coordinate work across this environment's projects. Open Subcommanders for initiatives; use decision cards when the user must decide.",
           ),
@@ -335,6 +341,13 @@ const make = Effect.gen(function* () {
               return yield* new FactoryError({ code: "conflict", entityId: input.requestId });
             return prior;
           }
+          const capsule = factoryRoleCapsule(input.role, input.capsule);
+          if (capsule.length > 6000)
+            return yield* new FactoryError({
+              code: "invalid",
+              detail:
+                "Keep the mission capsule concise and link durable source/tracker paths; it must fit without truncating authority or context.",
+            });
           const now = DateTime.toEpochMillis(yield* DateTime.now);
           return yield* store.put("spawns", {
             id: input.requestId,
@@ -350,7 +363,7 @@ const make = Effect.gen(function* () {
             title: input.title,
             modelSelection: input.modelSelection,
             prompt: input.prompt,
-            capsule: roleCapsule(input.role, input.capsule).slice(0, 6000),
+            capsule,
             workspace: input.workspace ?? (input.role === "worker" ? "worktree" : "root"),
             baseRef: input.baseRef ?? "HEAD",
             state: "pending",
@@ -462,11 +475,61 @@ const make = Effect.gen(function* () {
             ...agent,
             needs: input.needs === undefined ? agent.needs : input.needs,
             next: input.next ?? agent.next,
+            ...(input.workState ? { workState: input.workState } : {}),
             updatedAt: DateTime.toEpochMillis(yield* DateTime.now),
           });
         }),
       ),
   );
-  return FactoryAgents.of({ ensureCommander, spawn, resume, lifecycle, update });
+  const report: FactoryAgents["Service"]["report"] = Effect.fn("FactoryAgents.report")(
+    (actor, input) =>
+      store.transaction(
+        Effect.gen(function* () {
+          yield* control.requireEnabled;
+          const agent = yield* actorAgent(actor);
+          if (
+            !input.summary.trim() ||
+            !input.next.trim() ||
+            (input.outcome === "blocked" && !input.needs?.trim())
+          )
+            return yield* new FactoryError({ code: "invalid", entityId: input.requestId });
+          const parent = agent.parentId ? yield* store.get("agents", agent.parentId) : undefined;
+          if (!parent || ["closed", "retired"].includes(parent.lifecycle))
+            return yield* new FactoryError({
+              code: "unavailable",
+              entityId: agent.parentId ?? agent.id,
+            });
+          const id = `report:${input.requestId}`;
+          const text = `Assignment ${input.outcome.toUpperCase()}: ${agent.id}\n${input.summary}\nNeeds: ${input.needs ?? "none"}\nNext owner/action: ${input.next}\nThis ends an assignment, not necessarily the initiative. Inspect the evidence and advance the next authorized local step, prepare an exact action card, or retain a named genuine dependency. Do not infer consent, restart finished work, or reply only to acknowledge.`;
+          const previous = yield* store.get("wakes", id);
+          if (previous) {
+            if (
+              previous.refId !== input.requestId ||
+              previous.targetId !== parent.id ||
+              previous.text !== text
+            )
+              return yield* new FactoryError({ code: "conflict", entityId: input.requestId });
+            return agent;
+          }
+          const updated = yield* store.put("agents", {
+            ...agent,
+            workState: input.outcome,
+            needs: input.outcome === "blocked" ? input.needs! : null,
+            next: input.next,
+            updatedAt: DateTime.toEpochMillis(yield* DateTime.now),
+          });
+          yield* wakes.enqueue({
+            id,
+            targetId: parent.id,
+            text,
+            refKind: "report",
+            refId: input.requestId,
+            sourceId: id,
+          });
+          return updated;
+        }),
+      ),
+  );
+  return FactoryAgents.of({ ensureCommander, spawn, resume, lifecycle, update, report });
 });
 export const layer = Layer.effect(FactoryAgents, make);

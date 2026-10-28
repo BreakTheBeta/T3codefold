@@ -2,6 +2,7 @@ import * as Threads from "../../../orchestration-v2/ThreadManagementService.ts";
 import {
   FactoryActionEnvelope,
   FactoryAgent,
+  FactoryReportInput,
   FactoryBoard,
   FactoryCard,
   FactoryCardFileInput,
@@ -27,14 +28,15 @@ const dependencies = [
 const Failure = Schema.Union([FactoryError, OrchestratorMcpFailure]);
 const board = Tool.make("factory_board", {
   description:
-    "Read your Factory subtree, open decision cards, wakes, managed agents and command jobs.",
+    "Read your Factory subtree, decisions (including read-only ancestor cards), wakes, managed agents and command jobs. Ancestor visibility does not transfer authority.",
   success: FactoryBoard,
   failure: Failure,
   failureMode: "return",
   dependencies,
 }).annotate(Tool.Readonly, true);
 const show = Tool.make("factory_card_show", {
-  description: "Read a decision card in your Factory subtree.",
+  description:
+    "Read a decision card owned by your subtree or an ancestor. Ancestor cards are read-only context, not execution authority.",
   parameters: Schema.Struct({ cardId: Schema.String }),
   success: FactoryCard,
   failure: Failure,
@@ -58,12 +60,23 @@ const spawn = Tool.make("factory_spawn", {
   dependencies,
 });
 const update = Tool.make("factory_agent_update", {
-  description: "Set needs/next for yourself or a child. Keep next short and concrete.",
+  description:
+    "Set needs/next for yourself or a child at phase boundaries. Name the next deliverable and owner; clear resolved needs. Set workState working when starting a new assignment. Report DONE/BLOCKED once with factory_report.",
   parameters: Schema.Struct({
     agentId: Schema.String,
     needs: Schema.optionalKey(Schema.NullOr(Schema.String)),
     next: Schema.optionalKey(Schema.String),
+    workState: Schema.optionalKey(Schema.Literal("working")),
   }),
+  success: FactoryAgent,
+  failure: Failure,
+  failureMode: "return",
+  dependencies,
+});
+const report = Tool.make("factory_report", {
+  description:
+    "Report one completed or blocked assignment to your parent, atomically retaining needs/next and waking the parent. Include evidence in summary and a concrete next owner/action. Reuse requestId only for the identical report; no status pings. DONE ends this assignment, not the initiative. Parent advances already-authorized work or records a real gate; no polling or implicit consent.",
+  parameters: FactoryReportInput,
   success: FactoryAgent,
   failure: Failure,
   failureMode: "return",
@@ -71,7 +84,7 @@ const update = Tool.make("factory_agent_update", {
 });
 const file = Tool.make("factory_card_file", {
   description:
-    "File a durable decision. Include doing/whyNotMe/costOfWaiting, sequential A..Z options with exactly one recommendation, and at least one evidence link. Only authenticated user clients can answer. Revise an open card by supplying expectedRevision.",
+    "File a durable decision. For decisions, context must include product (plain-English purpose), benefit (who benefits/how), delivered (finished versus remaining), choice (exact question), authority (product/outward/credential), plus doing/whyNotMe/costOfWaiting. Explain recommendation/tradeoffs and separate technical evidence into links. Resolve local tooling/path issues yourself first; if recovery fails, report attempts and next remedy to your parent. Include sequential A..Z options with exactly one recommendation, and at least one evidence link. Only authenticated user clients can answer. Revise an open card by supplying expectedRevision.",
   parameters: FactoryCardFileInput,
   success: FactoryCard,
   failure: Failure,
@@ -162,6 +175,7 @@ export const FactoryToolkit = Toolkit.make(
   list,
   spawn,
   update,
+  report,
   file,
   withdraw,
   payload,

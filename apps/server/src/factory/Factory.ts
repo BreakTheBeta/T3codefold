@@ -78,8 +78,13 @@ const make = Effect.gen(function* () {
         : null;
     const visible = all.filter((a) => caller === null || inSubtree(caller, a, all));
     const ids = new Set(visible.map((a) => a.id));
-    const cards = (yield* store.list("cards")).filter((c) => ids.has(c.ownerId));
-    const cardIds = new Set(cards.map((c) => c.id));
+    const cardOwnerIds = new Set(
+      all
+        .filter((a) => caller === null || inSubtree(caller, a, all) || inSubtree(a, caller, all))
+        .map((a) => a.id),
+    );
+    const cards = (yield* store.list("cards")).filter((c) => cardOwnerIds.has(c.ownerId));
+    const cardIds = new Set(cards.filter((c) => ids.has(c.ownerId)).map((c) => c.id));
     const visibleTriggers = (yield* store.list("triggers")).filter(
       (t) => ids.has(t.ownerId) || ids.has(t.targetId),
     );
@@ -197,6 +202,7 @@ const make = Effect.gen(function* () {
       spawn: guarded(agents.spawn),
       resume: guarded(agents.resume),
       update: guarded(agents.update),
+      report: guarded(agents.report),
       lifecycle: guarded(agents.lifecycle),
     },
     decisions: {
