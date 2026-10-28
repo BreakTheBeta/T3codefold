@@ -42,3 +42,13 @@ export const FACTORY_CARD_KIND_LABEL = {
   housekeeping: "Housekeeping",
   "fyi-chose": "Agent chose · FYI",
 } as const;
+
+export function recentFactoryAnswers(cards: readonly FactoryCard[]) {
+  return cards
+    .filter((card) => card.state === "answered" || card.state === "acked")
+    .sort(
+      (a, b) =>
+        (b.answeredAt ?? b.updatedAt) - (a.answeredAt ?? a.updatedAt) || a.id.localeCompare(b.id),
+    )
+    .slice(0, 12);
+}

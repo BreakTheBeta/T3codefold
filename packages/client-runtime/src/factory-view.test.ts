@@ -1,6 +1,6 @@
 import type { FactoryAgent, FactoryCard } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { factoryAgentRows, openFactoryCards } from "./factory-view.ts";
+import { factoryAgentRows, openFactoryCards, recentFactoryAnswers } from "./factory-view.ts";
 
 const agent = (id: string, parentId: string | null, lifecycle = "active") =>
   ({ id, parentId, lifecycle }) as FactoryAgent;
@@ -48,4 +48,16 @@ describe("Factory queue presentation", () => {
     expect(rows.map(({ agent: item }) => item.id).sort()).toEqual(["a", "b", "child", "orphan"]);
     expect(rows.find(({ agent: item }) => item.id === "child")?.depth).toBe(0);
   });
+});
+
+it("keeps a newly answered low-ID card in the most recent twelve answers", () => {
+  const cards = Array.from({ length: 14 }, (_, index) => ({
+    ...card(String.fromCharCode(97 + index), false, "today", 0, "answered"),
+    answeredAt: index === 0 ? 100 : index,
+    updatedAt: index,
+  }));
+  const recent = recentFactoryAnswers(cards);
+  expect(recent).toHaveLength(12);
+  expect(recent[0]?.id).toBe("a");
+  expect(recent.map((item) => item.id)).not.toContain("b");
 });

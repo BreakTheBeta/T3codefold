@@ -2,6 +2,7 @@ import {
   FACTORY_CARD_KIND_LABEL,
   factoryAgentRows,
   openFactoryCards,
+  recentFactoryAnswers,
 } from "@t3tools/client-runtime/factory-view";
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
@@ -350,24 +351,20 @@ export function Decisions({
         {board.cards.some((card) => card.state === "answered" || card.state === "acked") && (
           <details className="px-2 py-3 text-xs text-muted-foreground">
             <summary className="cursor-pointer">Recent answers</summary>
-            {board.cards
-              .filter((c) => c.state === "answered" || c.state === "acked")
-              .slice(-12)
-              .reverse()
-              .map((card) => (
-                <p key={card.id} className="px-2 py-1 text-sm">
-                  <span className="text-muted-foreground">
-                    {card.outcome === "DEFAULTED"
-                      ? "Deferred to agent"
-                      : card.outcome === "RULED"
-                        ? "Your direction"
-                        : card.outcome === "CHOSE-against"
-                          ? "Chose another option"
-                          : "Chosen"}
-                  </span>{" "}
-                  · {card.body.title}
-                </p>
-              ))}
+            {recentFactoryAnswers(board.cards).map((card) => (
+              <p key={card.id} className="px-2 py-1 text-sm">
+                <span className="text-muted-foreground">
+                  {card.outcome === "DEFAULTED"
+                    ? "Deferred to agent"
+                    : card.outcome === "RULED"
+                      ? "Your direction"
+                      : card.outcome === "CHOSE-against"
+                        ? "Chose another option"
+                        : "Chosen"}
+                </span>{" "}
+                · {card.body.title}
+              </p>
+            ))}
           </details>
         )}
       </aside>
