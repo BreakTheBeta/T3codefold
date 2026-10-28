@@ -315,6 +315,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["wide full width column layout messages composer monitor"],
   },
   {
+    id: "chat-text-width",
+    title: "Text width",
+    to: "/settings/appearance",
+    searchTerms: ["chat column wider messages composer monitor 4k"],
+  },
+  {
+    id: "chat-embed-width",
+    title: "Embed width",
+    to: "/settings/appearance",
+    searchTerms: ["html render mcp app visual wider chat monitor 4k"],
+  },
+  {
     id: "math-rendering",
     title: "Render math",
     to: "/settings/appearance",
