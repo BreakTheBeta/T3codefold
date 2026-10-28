@@ -1,6 +1,11 @@
-import type { FactoryAgent, FactoryCard } from "@t3tools/contracts";
+import { EnvironmentId, type FactoryAgent, type FactoryCard } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { factoryAgentRows, openFactoryCards, recentFactoryAnswers } from "./factory-view.ts";
+import {
+  factoryAgentRows,
+  openFactoryCards,
+  recentFactoryAnswers,
+  selectFactoryTarget,
+} from "./factory-view.ts";
 
 const agent = (id: string, parentId: string | null, lifecycle = "active") =>
   ({ id, parentId, lifecycle }) as FactoryAgent;
@@ -60,4 +65,33 @@ it("keeps a newly answered low-ID card in the most recent twelve answers", () =>
   expect(recent).toHaveLength(12);
   expect(recent[0]?.id).toBe("a");
   expect(recent.map((item) => item.id)).not.toContain("b");
+});
+
+describe("Factory server selection", () => {
+  const local = { environmentId: EnvironmentId.make("desktop"), label: "Desktop" };
+  const remote = { environmentId: EnvironmentId.make("remote"), label: "Remote" };
+  const environments = [local, remote];
+
+  it("keeps an explicit server selected when the catalog reorders and never falls back when removed", () => {
+    expect(selectFactoryTarget(environments, remote.environmentId).environment).toBe(remote);
+    expect(selectFactoryTarget([remote, local], remote.environmentId).environment).toBe(remote);
+    expect(selectFactoryTarget([local], remote.environmentId).environment).toBeUndefined();
+    expect(selectFactoryTarget(environments, null).environment).toBe(local);
+  });
+
+  it("shows a linked decision only in its own server when switching inboxes", () => {
+    const destination = { environmentId: remote.environmentId, cardId: "same-id" };
+    expect(selectFactoryTarget(environments, null, destination)).toEqual({
+      environment: remote,
+      cardId: "same-id",
+    });
+    expect(selectFactoryTarget(environments, local.environmentId, destination)).toEqual({
+      environment: local,
+      cardId: undefined,
+    });
+    expect(selectFactoryTarget([local], null, destination)).toEqual({
+      environment: undefined,
+      cardId: undefined,
+    });
+  });
 });

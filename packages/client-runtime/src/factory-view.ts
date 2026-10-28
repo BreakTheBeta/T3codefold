@@ -1,4 +1,4 @@
-import type { FactoryAgent, FactoryCard } from "@t3tools/contracts";
+import type { EnvironmentId, FactoryAgent, FactoryCard } from "@t3tools/contracts";
 
 const URGENCY = { now: 0, today: 1, "this-week": 2 };
 
@@ -51,4 +51,23 @@ export function recentFactoryAnswers(cards: readonly FactoryCard[]) {
         (b.answeredAt ?? b.updatedAt) - (a.answeredAt ?? a.updatedAt) || a.id.localeCompare(b.id),
     )
     .slice(0, 12);
+}
+
+/** Explicit destinations never fall back to another server or carry its decision link. */
+export function selectFactoryTarget<T extends { readonly environmentId: EnvironmentId }>(
+  environments: readonly T[],
+  selected: EnvironmentId | null,
+  destination: { readonly environmentId?: EnvironmentId; readonly cardId?: string } = {},
+) {
+  const requested = selected ?? destination.environmentId;
+  const environment = requested
+    ? environments.find((item) => item.environmentId === requested)
+    : environments[0];
+  return {
+    environment,
+    cardId:
+      environment && environment.environmentId === destination.environmentId
+        ? destination.cardId
+        : undefined,
+  };
 }

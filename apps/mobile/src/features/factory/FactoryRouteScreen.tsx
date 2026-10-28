@@ -2,6 +2,7 @@ import {
   FACTORY_CARD_KIND_LABEL,
   factoryAgentRows,
   openFactoryCards,
+  selectFactoryTarget,
 } from "@t3tools/client-runtime/factory-view";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
@@ -46,12 +47,22 @@ export function FactoryPin() {
 export function FactoryRouteScreen({
   route,
 }: StaticScreenProps<{ readonly environmentId?: EnvironmentId; readonly cardId?: string }>) {
+  return (
+    <FactoryScreen
+      key={`${route.params.environmentId ?? ""}:${route.params.cardId ?? ""}`}
+      destination={route.params}
+    />
+  );
+}
+
+function FactoryScreen({
+  destination,
+}: {
+  readonly destination: { readonly environmentId?: EnvironmentId; readonly cardId?: string };
+}) {
   const { environments } = useEnvironments();
   const [selected, setSelected] = useState<EnvironmentId | null>(null);
-  const requested = selected ?? route.params.environmentId;
-  const environment = requested
-    ? environments.find((e) => e.environmentId === requested)
-    : environments[0];
+  const { environment, cardId } = selectFactoryTarget(environments, selected, destination);
   return (
     <SettingsScreen title="Factory">
       <View className="flex-row flex-wrap gap-2 px-4 py-3">
@@ -68,7 +79,8 @@ export function FactoryRouteScreen({
         <FactoryInbox
           key={environment.environmentId}
           environmentId={environment.environmentId}
-          cardId={route.params.cardId}
+          environmentLabel={environment.label}
+          cardId={cardId}
         />
       ) : (
         <Text className="p-5 text-foreground-muted">
@@ -81,9 +93,11 @@ export function FactoryRouteScreen({
 
 function FactoryInbox({
   environmentId,
+  environmentLabel,
   cardId,
 }: {
   readonly environmentId: EnvironmentId;
+  readonly environmentLabel: string;
   readonly cardId?: string;
 }) {
   const selectDetail = useSelectWorkspaceDetail();
@@ -102,6 +116,7 @@ function FactoryInbox({
       contentContainerClassName="gap-4 px-4 py-4"
       contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
     >
+      <Text className="font-t3-bold">{environmentLabel}</Text>
       {query.error && (
         <Text accessibilityRole="alert" className="text-danger">
           {query.error}

@@ -3,6 +3,7 @@ import {
   factoryAgentRows,
   openFactoryCards,
   recentFactoryAnswers,
+  selectFactoryTarget,
 } from "@t3tools/client-runtime/factory-view";
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
@@ -39,11 +40,10 @@ const TABS = ["Decisions", "Fleet", "Checks"] as const;
 export function FactoryPage() {
   const environments = useEnvironmentIdentities();
   const [selected, setSelected] = useState<EnvironmentId | null>(null);
-  const environmentId =
-    environments.find((e) => e.environmentId === selected)?.environmentId ??
-    environments[0]?.environmentId;
+  const { environment } = selectFactoryTarget(environments, selected);
+  const environmentId = environment?.environmentId;
   const environmentPicker =
-    environments.length > 1 ? (
+    environments.length > 1 || (selected && selected !== environments[0]?.environmentId) ? (
       <div className="w-36 min-w-0 sm:w-44">
         <Select
           value={environmentId ?? ""}
@@ -66,19 +66,23 @@ export function FactoryPage() {
     ) : null;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {environmentId ? (
+      {environment && environmentId ? (
         <EnvironmentFactory
           key={environmentId}
           environmentId={environmentId}
+          environmentLabel={environment.label}
           environmentPicker={environmentPicker}
         />
       ) : (
         <>
           <WorkspacePageHeader electron={isElectron}>
             <h1 className="text-sm font-semibold">Factory</h1>
+            <div className="ml-auto">{environmentPicker}</div>
           </WorkspacePageHeader>
           <p className="p-4 text-sm text-muted-foreground">
-            Connect an environment to open its Factory.
+            {selected
+              ? "The selected server is unavailable. Reconnect it or choose another server."
+              : "Connect an environment to open its Factory."}
           </p>
         </>
       )}
@@ -88,9 +92,11 @@ export function FactoryPage() {
 
 function EnvironmentFactory({
   environmentId,
+  environmentLabel,
   environmentPicker,
 }: {
   readonly environmentId: EnvironmentId;
+  readonly environmentLabel: string;
   readonly environmentPicker: ReactNode;
 }) {
   const query = useEnvironmentQuery(serverEnvironment.factoryBoard({ environmentId, input: {} }));
@@ -129,7 +135,9 @@ function EnvironmentFactory({
         </h1>
         <div className="hidden lg:block">{board?.status.enabled && tabs}</div>
         <div className="ml-auto flex min-w-0 items-center gap-2">
-          {environmentPicker}
+          {environmentPicker ?? (
+            <span className="truncate text-xs text-muted-foreground">{environmentLabel}</span>
+          )}
           {board && <FactoryPowerControl environmentId={environmentId} status={board.status} />}
           {commander && (
             <Link
@@ -205,7 +213,7 @@ function EnvironmentFactory({
       ) : !board.status.enabled ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <section className="shrink-0 space-y-3 p-6">
-            <h2 className="text-lg font-semibold">Factory is off</h2>
+            <h2 className="text-lg font-semibold">Factory is off · {environmentLabel}</h2>
             <p className="max-w-xl text-sm text-muted-foreground">
               Factory starts disabled on every server. Enable it here to use its Commander, checks
               and automation. Your regular T3 threads continue normally.

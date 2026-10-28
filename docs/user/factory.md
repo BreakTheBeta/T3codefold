@@ -2,6 +2,8 @@
 
 Factory coordinates a Commander, Subcommanders and Workers in each connected environment. Factory is **off by default on every server**. Open **Factory** above the thread list, select the environment, and use **Enable Factory**. This is a saved server setting shared by web, desktop, and mobile; changing it requires server settings permission. Enabling does not create a Commander automatically: choose its model and start it from web or desktop.
 
+With multiple connected servers, choose a server in Factory’s desktop selector or Android server buttons. Each server has its own saved on/off setting, permissions, Commander, decisions and Fleet. Switching servers shows that server’s state; turning one off does not affect the others. A decision opened from a notification stays associated with its original server.
+
 Use **Turn Factory off** from any client to disable that server. It blocks new Factory operations, checks, wakes and agent starts, cancels queued work, and requests stops for active Factory turns, delegated tasks and command jobs. Stops remain under supervision across restarts; **Stopping Factory…** means shutdown is still being confirmed. Re-enabling is unavailable until those stops complete. History is retained, but cancelled work is not replayed and unexecuted action approvals must be requested again. Outward actions already in progress may finish. Ordinary T3 threads continue normally.
 
 A server operator can force Factory off at startup with `T3CODE_FACTORY_DISABLED=1`. Clients cannot override this. Remove the variable and restart before explicitly enabling Factory again.
