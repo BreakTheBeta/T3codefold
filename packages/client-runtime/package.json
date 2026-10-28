@@ -498,6 +498,10 @@
     "./provider-clients": {
       "types": "./src/providerClients.ts",
       "default": "./src/providerClients.ts"
+    },
+    "./factory-view": {
+      "types": "./src/factory-view.ts",
+      "default": "./src/factory-view.ts"
     }
   },
   "scripts": {

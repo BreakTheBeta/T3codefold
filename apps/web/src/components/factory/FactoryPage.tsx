@@ -1,8 +1,21 @@
+import { factoryAgentRows, openFactoryCards } from "@t3tools/client-runtime/factory-view";
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
-import type { EnvironmentId, FactoryBoard, FactoryCard } from "@t3tools/contracts";
-import { FactoryIcon, PlayIcon, RefreshCwIcon, StarIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import {
+  ThreadId,
+  type EnvironmentId,
+  type FactoryBoard,
+  type FactoryCard,
+} from "@t3tools/contracts";
+import {
+  ArrowLeftIcon,
+  ArrowUpRightIcon,
+  FactoryIcon,
+  PlayIcon,
+  RefreshCwIcon,
+  StarIcon,
+} from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
 import { useEnvironmentIdentities } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -11,8 +24,11 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { cn } from "../../lib/utils";
+import { isElectron } from "../../env";
+import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { Alert, AlertDescription } from "../ui/alert";
 
-const TABS = ["Decisions", "Triggers & runs", "Fleet"] as const;
+const TABS = ["Decisions", "Fleet", "Checks"] as const;
 
 export function FactoryPage() {
   const environments = useEnvironmentIdentities();
@@ -20,19 +36,17 @@ export function FactoryPage() {
   const environmentId =
     environments.find((e) => e.environmentId === selected)?.environmentId ??
     environments[0]?.environmentId;
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-      <header className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
-        <h1 className="flex items-center gap-2 text-lg font-semibold">
-          <FactoryIcon className="size-5" />
-          Factory
-        </h1>
+  const environmentPicker =
+    environments.length > 1 ? (
+      <div className="w-36 min-w-0 sm:w-44">
         <Select
           value={environmentId ?? ""}
           onValueChange={(id) => setSelected(id as EnvironmentId)}
         >
-          <SelectTrigger aria-label="Factory environment">
-            <SelectValue />
+          <SelectTrigger size="sm" aria-label="Factory environment">
+            <SelectValue>
+              {environments.find((env) => env.environmentId === environmentId)?.label}
+            </SelectValue>
           </SelectTrigger>
           <SelectPopup>
             {environments.map((env) => (
@@ -42,67 +56,149 @@ export function FactoryPage() {
             ))}
           </SelectPopup>
         </Select>
-      </header>
+      </div>
+    ) : null;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {environmentId ? (
-        <EnvironmentFactory key={environmentId} environmentId={environmentId} />
+        <EnvironmentFactory
+          key={environmentId}
+          environmentId={environmentId}
+          environmentPicker={environmentPicker}
+        />
       ) : (
-        <p className="p-6 text-muted-foreground">Connect an environment to open its Factory.</p>
+        <>
+          <WorkspacePageHeader electron={isElectron}>
+            <h1 className="text-sm font-semibold">Factory</h1>
+          </WorkspacePageHeader>
+          <p className="p-4 text-sm text-muted-foreground">
+            Connect an environment to open its Factory.
+          </p>
+        </>
       )}
     </div>
   );
 }
 
-function EnvironmentFactory({ environmentId }: { readonly environmentId: EnvironmentId }) {
+function EnvironmentFactory({
+  environmentId,
+  environmentPicker,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly environmentPicker: ReactNode;
+}) {
   const query = useEnvironmentQuery(serverEnvironment.factoryBoard({ environmentId, input: {} }));
   const [tab, setTab] = useState<(typeof TABS)[number]>("Decisions");
   const board = query.data;
-  const commander = board?.agents.find((a) => a.role === "commander" && a.lifecycle === "active");
+  const commander = board?.agents.find(
+    (a) => a.role === "commander" && a.lifecycle !== "closed" && a.lifecycle !== "retired",
+  );
   const cards = board?.cards.filter((c) => c.state === "open") ?? [];
+  const unknown =
+    board?.executions.filter((execution) => execution.state === "unknown").length ?? 0;
+  const failing = board?.triggers.filter((trigger) => trigger.failing).length ?? 0;
+  const undelivered = board?.wakes.filter((wake) => wake.state === "undelivered").length ?? 0;
+  const tabs = (
+    <nav className="flex gap-1" aria-label="Factory sections">
+      {TABS.map((name) => (
+        <Button
+          key={name}
+          variant={tab === name ? "secondary" : "ghost"}
+          size="sm"
+          aria-pressed={tab === name}
+          onClick={() => setTab(name)}
+        >
+          {name}
+          {name === "Decisions" && board ? ` · ${cards.length}` : ""}
+        </Button>
+      ))}
+    </nav>
+  );
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-3">
-        <p
-          className={cn(
-            "text-sm",
-            cards.length ? "text-warning-foreground" : "text-muted-foreground",
+      <WorkspacePageHeader electron={isElectron} className="border-b border-border">
+        <h1 className="flex shrink-0 items-center gap-2 text-sm font-semibold">
+          <FactoryIcon className="size-4" />
+          Factory
+        </h1>
+        <div className="hidden lg:block">{tabs}</div>
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          {environmentPicker}
+          {commander && (
+            <Link
+              to="/$environmentId/$threadId"
+              params={{ environmentId, threadId: commander.threadId }}
+              aria-label="Open Commander"
+              className="inline-flex shrink-0 items-center gap-1 rounded-sm p-1 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <span className="hidden sm:inline">Commander</span>
+              <ArrowUpRightIcon className="size-4" />
+            </Link>
           )}
-        >
-          {cards.length} need you · {cards.filter((c) => c.body.blocking).length} blocking
-          <span className="ml-4 text-muted-foreground">
-            {board?.agents.filter((a) => a.lifecycle === "active").length ?? 0} active agents
-          </span>
-        </p>
-        <Button variant="ghost" size="sm" onClick={query.refresh} aria-label="Refresh Factory">
-          <RefreshCwIcon />
-          Refresh
-        </Button>
-      </div>
-      <nav className="flex gap-2 border-b border-border px-6 py-3" aria-label="Factory sections">
-        {TABS.map((name) => (
           <Button
-            key={name}
-            variant={tab === name ? "secondary" : "ghost"}
-            size="sm"
-            aria-pressed={tab === name}
-            onClick={() => setTab(name)}
+            variant="ghost"
+            size="icon-sm"
+            onClick={query.refresh}
+            aria-label="Refresh Factory"
           >
-            {name}
+            <RefreshCwIcon />
           </Button>
-        ))}
-      </nav>
+        </div>
+      </WorkspacePageHeader>
+      <div className="shrink-0 border-b border-border px-3 py-1.5 lg:hidden">{tabs}</div>
+      {!!(unknown || failing || undelivered) && (
+        <div className="shrink-0 px-4 py-2">
+          <Alert variant={unknown ? "error" : "warning"}>
+            <AlertDescription>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                {!!unknown && (
+                  <button
+                    type="button"
+                    onClick={() => setTab("Fleet")}
+                    className="rounded-sm text-left underline focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    {unknown} action result{unknown === 1 ? "" : "s"} unknown. Verify before
+                    authorising another action.
+                  </button>
+                )}
+                {!!failing && (
+                  <button
+                    type="button"
+                    onClick={() => setTab("Checks")}
+                    className="rounded-sm underline focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    {failing} failing check{failing === 1 ? "" : "s"}
+                  </button>
+                )}
+                {!!undelivered && (
+                  <button
+                    type="button"
+                    onClick={() => setTab("Checks")}
+                    className="rounded-sm underline focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    {undelivered} undelivered wake{undelivered === 1 ? "" : "s"}
+                  </button>
+                )}
+              </div>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
       {query.error && (
         <p role="alert" className="px-6 py-4 text-destructive">
           {query.error}
         </p>
       )}
       {!board ? (
-        <p className="p-6 text-muted-foreground">Loading Factory…</p>
+        <p className="p-4 text-sm text-muted-foreground">
+          {query.error ? "Factory is unavailable. Refresh to retry." : "Loading Factory…"}
+        </p>
       ) : (
         <>
           {!commander && <CommanderSetup environmentId={environmentId} />}
           {tab === "Decisions" ? (
             <Decisions environmentId={environmentId} board={board} />
-          ) : tab === "Triggers & runs" ? (
+          ) : tab === "Checks" ? (
             <Triggers environmentId={environmentId} board={board} />
           ) : (
             <Fleet environmentId={environmentId} board={board} />
@@ -146,18 +242,20 @@ function CommanderSetup({ environmentId }: { readonly environmentId: Environment
         appear here when your answer is needed.
       </p>
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={selected?.key ?? ""} onValueChange={(key) => setModelKey(key)}>
-          <SelectTrigger aria-label="Commander model">
-            <SelectValue placeholder="Choose a model" />
-          </SelectTrigger>
-          <SelectPopup>
-            {models.map((model) => (
-              <SelectItem key={model.key} value={model.key}>
-                {model.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
+        <div className="w-full min-w-0 sm:w-80">
+          <Select value={selected?.key ?? ""} onValueChange={(key) => setModelKey(key)}>
+            <SelectTrigger aria-label="Commander model">
+              <SelectValue placeholder="Choose a model">{selected?.label}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {models.map((model) => (
+                <SelectItem key={model.key} value={model.key}>
+                  {model.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
         <Button
           disabled={!allowed || busy || !selected}
           onClick={async () => {
@@ -194,20 +292,16 @@ function Decisions({
   readonly board: FactoryBoard;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const cards = board.cards
-    .filter((c) => c.state === "open")
-    .sort(
-      (a, b) =>
-        Number(b.body.blocking) - Number(a.body.blocking) ||
-        ["now", "today", "this-week"].indexOf(a.body.urgency) -
-          ["now", "today", "this-week"].indexOf(b.body.urgency) ||
-        a.createdAt - b.createdAt,
-    );
+  const [showDetail, setShowDetail] = useState(false);
+  const cards = openFactoryCards(board.cards);
   const selected = cards.find((c) => c.id === selectedId) ?? cards[0];
   return (
-    <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[19rem_minmax(0,1fr)]">
+    <div className="grid min-h-0 flex-1 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <aside
-        className="space-y-2 border-b border-border p-4 lg:border-r lg:border-b-0"
+        className={cn(
+          "min-h-0 overflow-y-auto border-r border-border p-2",
+          showDetail && "hidden lg:block",
+        )}
         aria-label="Open decisions"
       >
         {!cards.length && (
@@ -217,39 +311,76 @@ function Decisions({
           <button
             key={card.id}
             type="button"
-            onClick={() => setSelectedId(card.id)}
+            onClick={() => {
+              setSelectedId(card.id);
+              setShowDetail(true);
+            }}
             aria-pressed={selected?.id === card.id}
             className={cn(
-              "w-full rounded-md border p-3 text-left",
-              selected?.id === card.id
-                ? "border-warning/40 bg-warning-surface"
-                : "border-border hover:bg-accent",
+              "mb-1 w-full rounded-md border border-transparent px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-ring",
+              selected?.id === card.id ? "border-border bg-accent" : "hover:bg-accent/60",
             )}
           >
-            <span className="block text-xs text-muted-foreground">
-              {card.ownerId} · {card.body.urgency}
-              {card.body.blocking ? " · blocking" : ""}
+            <span className="block text-sm font-medium leading-snug">{card.body.title}</span>
+            <span className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+              {card.body.blocking && (
+                <span className="font-medium text-warning-foreground">Blocking</span>
+              )}
+              <span>{card.body.urgency.replace("this-week", "this week")}</span>
+              <time
+                dateTime={new Date(card.createdAt).toISOString()}
+                aria-label={`Created ${new Date(card.createdAt).toLocaleString()}`}
+              >
+                {new Date(card.createdAt).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })}
+              </time>
             </span>
-            <span className="mt-1 block text-sm font-medium">{card.body.title}</span>
+            <span className="mt-1 block truncate text-xs text-muted-foreground">
+              {card.ownerId}
+            </span>
           </button>
         ))}
-        <h3 className="pt-5 text-xs font-medium text-muted-foreground">Recent answers</h3>
-        {board.cards
-          .filter((c) => c.state === "answered" || c.state === "acked")
-          .slice(-12)
-          .reverse()
-          .map((card) => (
-            <p key={card.id} className="px-2 py-1 text-sm">
-              <span className="text-muted-foreground">{card.outcome}</span> · {card.body.title}
-            </p>
-          ))}
+        {board.cards.some((card) => card.state === "answered" || card.state === "acked") && (
+          <details className="px-2 py-3 text-xs text-muted-foreground">
+            <summary className="cursor-pointer">Recent answers</summary>
+            {board.cards
+              .filter((c) => c.state === "answered" || c.state === "acked")
+              .slice(-12)
+              .reverse()
+              .map((card) => (
+                <p key={card.id} className="px-2 py-1 text-sm">
+                  <span className="text-muted-foreground">
+                    {card.outcome === "DEFAULTED"
+                      ? "Deferred to agent"
+                      : card.outcome === "RULED"
+                        ? "Your direction"
+                        : card.outcome === "CHOSE-against"
+                          ? "Chose another option"
+                          : "Chosen"}
+                  </span>{" "}
+                  · {card.body.title}
+                </p>
+              ))}
+          </details>
+        )}
       </aside>
       {selected ? (
-        <CardDetail
-          key={`${selected.id}:${selected.revision}`}
-          environmentId={environmentId}
-          card={selected}
-        />
+        <div className={cn("min-h-0 min-w-0 overflow-y-auto", !showDetail && "hidden lg:block")}>
+          <div className="border-b border-border px-4 py-2 lg:hidden">
+            <Button variant="ghost" size="sm" onClick={() => setShowDetail(false)}>
+              <ArrowLeftIcon />
+              All decisions · {cards.length}
+            </Button>
+          </div>
+          <CardDetail
+            key={`${selected.id}:${selected.revision}`}
+            environmentId={environmentId}
+            card={selected}
+            owner={board.agents.find((agent) => agent.id === selected.ownerId)}
+          />
+        </div>
       ) : (
         <div className="p-8 text-sm text-muted-foreground">
           Your agents can keep working. New questions will appear here.
@@ -259,12 +390,14 @@ function Decisions({
   );
 }
 
-function CardDetail({
+export function CardDetail({
   environmentId,
   card,
+  owner,
 }: {
   readonly environmentId: EnvironmentId;
   readonly card: FactoryCard;
+  readonly owner: FactoryBoard["agents"][number] | undefined;
 }) {
   const [staged, setStaged] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -279,7 +412,14 @@ function CardDetail({
       : null,
   );
   const send = async () => {
-    if (!allowed || busy || (!staged && !note.trim())) return;
+    if (
+      !allowed ||
+      busy ||
+      (!staged && !note.trim()) ||
+      (staged === "ruled" && !note.trim()) ||
+      (!!action && !payload.data)
+    )
+      return;
     setBusy(true);
     try {
       await answer({
@@ -300,37 +440,36 @@ function CardDetail({
     }
   };
   return (
-    <section
-      className="flex min-w-0 flex-col"
-      aria-label={card.body.title}
-      onKeyDown={(event) => {
-        if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement)
-          return;
-        const number = Number(event.key);
-        if (number >= 1 && number <= 9 && card.body.options[number - 1]) {
-          event.preventDefault();
-          setStaged(card.body.options[number - 1]!.id);
-        } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-          event.preventDefault();
-          setStaged(card.body.options.find((o) => o.recommended)?.id ?? null);
-        } else if (event.key === "Enter" && staged) {
-          event.preventDefault();
-          void send();
-        } else if (event.key === "d") setStaged("default");
-        else if (event.key === "n") noteRef.current?.focus();
-      }}
-    >
-      <div className="space-y-6 p-6">
+    <section className="flex min-h-full min-w-0 flex-col" aria-label={card.body.title}>
+      <div className="w-full max-w-4xl space-y-4 p-4 lg:px-6">
         <div>
           <p className="text-xs text-muted-foreground">
-            {card.id} · revision {card.revision} · {card.ownerId}
+            {card.body.blocking && (
+              <span className="mr-2 font-medium text-warning-foreground">Blocking</span>
+            )}
+            {card.body.urgency.replace("this-week", "this week")} · revision {card.revision}
+            {owner ? (
+              <>
+                {" "}
+                ·{" "}
+                <Link
+                  to="/$environmentId/$threadId"
+                  params={{ environmentId, threadId: owner.threadId }}
+                  className="rounded-sm underline focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  {owner.id} ↗
+                </Link>
+              </>
+            ) : (
+              ` · ${card.ownerId}`
+            )}
           </p>
-          <h2 className="mt-1 text-xl font-semibold">{card.body.title}</h2>
+          <h2 className="mt-1 break-words text-lg font-semibold">{card.body.title}</h2>
         </div>
-        <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-3 text-sm">
+        <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
           <dt className="text-muted-foreground">Doing</dt>
           <dd>{card.body.context.doing}</dd>
-          <dt className="text-muted-foreground">Why me</dt>
+          <dt className="text-muted-foreground">Why you</dt>
           <dd>{card.body.context.whyNotMe}</dd>
           <dt className="text-muted-foreground">Waiting</dt>
           <dd>{card.body.context.costOfWaiting}</dd>
@@ -352,7 +491,7 @@ function CardDetail({
             </p>
           </div>
         )}
-        <div className="space-y-3" aria-label="Options">
+        <div className="space-y-2" aria-label="Options">
           {card.body.options.map((option) => (
             <button
               key={option.id}
@@ -361,14 +500,12 @@ function CardDetail({
               aria-pressed={staged === option.id}
               onClick={() => setStaged(option.id)}
               className={cn(
-                "w-full space-y-2 rounded-lg border p-4 text-left disabled:opacity-60",
-                staged === option.id
-                  ? "border-warning/50 bg-warning-surface"
-                  : "border-border hover:bg-accent",
+                "w-full space-y-1.5 rounded-lg border p-3 text-left focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60",
+                staged === option.id ? "border-ring bg-accent" : "border-border hover:bg-accent",
               )}
             >
               <span className="flex items-center justify-between gap-3">
-                <span className="font-medium">
+                <span className="min-w-0 break-words font-medium">
                   {option.id} · {option.label}
                 </span>
                 {option.recommended && (
@@ -386,15 +523,15 @@ function CardDetail({
             </button>
           ))}
         </div>
-        <div className="space-y-2 text-sm">
-          <h3 className="font-medium">Why</h3>
+        <details className="space-y-2 text-sm">
+          <summary className="cursor-pointer font-medium">Reasoning</summary>
           <p className="text-muted-foreground">{card.body.rationale}</p>
-          {[...new Set(card.body.caveats)].map((text) => (
-            <p key={text} className="text-muted-foreground">
-              {text}
-            </p>
-          ))}
-        </div>
+        </details>
+        {[...new Set(card.body.caveats)].map((text) => (
+          <p key={text} className="text-sm text-muted-foreground">
+            {text}
+          </p>
+        ))}
         <div className="flex flex-wrap gap-3 text-sm">
           {Array.from(
             new Map(
@@ -411,6 +548,15 @@ function CardDetail({
               >
                 {link.label ?? link.ref}
               </a>
+            ) : link.kind === "thread" ? (
+              <Link
+                key={`${link.kind}:${link.ref}:${link.label ?? ""}`}
+                to="/$environmentId/$threadId"
+                params={{ environmentId, threadId: ThreadId.make(link.ref) }}
+                className="rounded-sm underline focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                {link.label ?? "Open thread"}
+              </Link>
             ) : (
               <span
                 key={`${link.kind}:${link.ref}:${link.label ?? ""}`}
@@ -426,33 +572,37 @@ function CardDetail({
             variant="outline"
             size="sm"
             onClick={() => setStaged("default")}
+            disabled={!allowed || busy}
             aria-pressed={staged === "default"}
           >
-            Your call: take the recommendation
+            Defer to agent (uses recommendation)
           </Button>
           <Button
             variant="ghost"
             size="sm"
+            disabled={!allowed || busy}
             onClick={() => {
               setStaged("ruled");
               noteRef.current?.focus();
             }}
           >
-            Your own call
+            Write my own direction
           </Button>
         </div>
         <Textarea
+          size="sm"
           ref={noteRef}
           aria-label="Decision note"
+          disabled={!allowed || busy}
           placeholder="Add a note, or write your own direction…"
           value={note}
           onChange={(event) => setNote(event.target.value)}
         />
       </div>
-      <footer className="sticky bottom-0 mt-auto flex items-center justify-between gap-4 border-t border-border bg-background px-6 py-4">
-        <p className="text-sm text-muted-foreground">
+      <footer className="sticky bottom-0 mt-auto flex items-center justify-between gap-4 border-t border-border bg-background px-4 py-3">
+        <p className="min-w-0 text-sm text-muted-foreground" role="status">
           {staged
-            ? `Staged: ${staged === "default" ? "your call" : staged === "ruled" ? "your own direction" : staged}`
+            ? `Staged: ${staged === "default" ? "your call" : staged === "ruled" ? "your own direction" : (card.body.options.find((option) => option.id === staged)?.label ?? staged)}`
             : "Choose an option. Nothing is sent until Send."}
         </p>
         <Button
@@ -487,7 +637,7 @@ function Triggers({
   const retry = useAtomCommand(serverEnvironment.factoryRetryWake, "Retry Factory wake");
   const allowed = useAtomValue(serverEnvironment.factoryRunTrigger.permissionAtom(environmentId));
   return (
-    <div className="space-y-6 p-6">
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
       <h2 className="font-medium">Triggers & runs</h2>
       {board.triggers.map((trigger) => (
         <section key={trigger.id} className="space-y-3 rounded-lg border border-border p-4">
@@ -496,7 +646,8 @@ function Triggers({
               <h3 className="font-medium">{trigger.id}</h3>
               <p className="text-xs text-muted-foreground">
                 Every {Math.round(trigger.intervalMs / 60_000)} min ·{" "}
-                {trigger.shadow ? "shadow" : "live"} · {trigger.failing ? "failing" : "healthy"}
+                {!trigger.enabled ? "disabled" : trigger.shadow ? "observe only" : "live"} ·{" "}
+                {trigger.failing ? "last check failed" : "no failure recorded"}
               </p>
             </div>
             <div className="flex gap-2">
@@ -572,34 +723,49 @@ function Fleet({
     serverEnvironment.factoryCancelLaneJob.permissionAtom(environmentId),
   );
   return (
-    <div className="space-y-6 p-6">
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
       <h2 className="font-medium">Fleet</h2>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {board.agents
-          .filter((a) => a.lifecycle !== "closed")
-          .map((agent) => (
-            <section key={agent.id} className="space-y-2 rounded-lg border border-border p-4">
-              <p className="text-xs text-muted-foreground">
-                {agent.role} · {agent.lifecycle}
-              </p>
+      <p className="text-xs text-muted-foreground">
+        Factory roles and lifecycle. Open a thread for its live activity.
+      </p>
+      <div className="divide-y divide-border rounded-lg border border-border">
+        {factoryAgentRows(board.agents).map(({ agent, depth }) => (
+          <section
+            key={agent.id}
+            className="px-3 py-2.5"
+            style={{ paddingLeft: `${12 + Math.min(depth, 3) * 20}px` }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
               <Link
                 to="/$environmentId/$threadId"
                 params={{ environmentId, threadId: agent.threadId }}
-                className="font-medium underline"
+                className="inline-flex min-w-0 items-center gap-1 rounded-sm text-sm font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
               >
-                {agent.id}
+                <span className="break-all">{agent.id}</span>
+                <ArrowUpRightIcon className="size-3.5 shrink-0" />
               </Link>
-              {agent.parentId && (
-                <p className="text-xs text-muted-foreground">Reports to {agent.parentId}</p>
-              )}
-              <p className="text-sm">{agent.next || "No next step recorded"}</p>
-              {agent.needs && (
-                <p className="text-sm text-warning-foreground">Needs: {agent.needs}</p>
-              )}
-            </section>
-          ))}
+              <span className="text-xs text-muted-foreground">
+                {agent.role} · {agent.lifecycle}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {agent.next || "No next step recorded"}
+            </p>
+            {agent.needs && (
+              <p className="mt-1 text-sm text-warning-foreground">Needs: {agent.needs}</p>
+            )}
+            {agent.parentId && (
+              <p className="mt-1 text-xs text-muted-foreground">Reports to {agent.parentId}</p>
+            )}
+          </section>
+        ))}
+        {!board.agents.some((agent) => agent.lifecycle !== "closed") && (
+          <p className="p-3 text-sm text-muted-foreground">No agents enrolled yet.</p>
+        )}
       </div>
-      <h3 className="font-medium">Admission</h3>
+      <h3 className="text-sm font-medium">
+        Waiting for capacity · {board.spawns.filter((spawn) => spawn.state === "held").length}
+      </h3>
       {board.spawns
         .filter((s) => s.state === "held")
         .map((spawn) => (
@@ -607,7 +773,9 @@ function Fleet({
             {spawn.title} · held for {spawn.modelSelection.model}
           </p>
         ))}
-      <h3 className="font-medium">Command lanes</h3>
+      <h3 className="text-sm font-medium">
+        Command lanes · {board.jobs.filter((job) => job.state !== "terminal").length} in progress
+      </h3>
       {board.jobs.slice(-20).map((job) => (
         <div
           key={job.id}

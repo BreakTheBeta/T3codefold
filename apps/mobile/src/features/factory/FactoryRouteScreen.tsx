@@ -1,3 +1,4 @@
+import { factoryAgentRows, openFactoryCards } from "@t3tools/client-runtime/factory-view";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { EnvironmentId, FactoryCard } from "@t3tools/contracts";
@@ -12,6 +13,7 @@ import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 
 async function confirmOutwardDecision(): Promise<string | null> {
@@ -80,15 +82,15 @@ function FactoryInbox({
   readonly environmentId: EnvironmentId;
   readonly cardId?: string;
 }) {
+  const selectDetail = useSelectWorkspaceDetail();
   const query = useEnvironmentQuery(serverEnvironment.factoryBoard({ environmentId, input: {} }));
   const [selected, setSelected] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
-  const cards =
-    query.data?.cards
-      .filter((c) => c.state === "open")
-      .sort(
-        (a, b) => Number(b.body.blocking) - Number(a.body.blocking) || a.createdAt - b.createdAt,
-      ) ?? [];
+  const cards = openFactoryCards(query.data?.cards ?? []);
+  const commander = query.data?.agents.find(
+    (agent) =>
+      agent.role === "commander" && agent.lifecycle !== "closed" && agent.lifecycle !== "retired",
+  );
   const card = cards.find((c) => c.id === (selected ?? cardId));
   return (
     <ScreenScrollView
@@ -108,6 +110,27 @@ function FactoryInbox({
           <Text className="font-t3-bold text-lg">
             {cards.length} need you · {cards.filter((c) => c.body.blocking).length} blocking
           </Text>
+          {query.data.executions.some((execution) => execution.state === "unknown") && (
+            <Text accessibilityRole="alert" className="text-danger">
+              An action result is unknown. Verify its external result before authorising another
+              action.
+            </Text>
+          )}
+          {commander && (
+            <Button
+              label="Open Commander"
+              tone="secondary"
+              onPress={() =>
+                selectDetail({
+                  name: "Thread",
+                  params: {
+                    environmentId: String(environmentId),
+                    threadId: String(commander.threadId),
+                  },
+                })
+              }
+            />
+          )}
           {cardId && !query.data.cards.some((c) => c.id === cardId) && (
             <Text className="text-foreground-muted">
               This decision is unavailable. The inbox below shows current decisions.
@@ -130,7 +153,7 @@ function FactoryInbox({
               {cards.map((c) => (
                 <View
                   key={c.id}
-                  className="gap-2 rounded-xl border border-border-subtle bg-card p-4"
+                  className="gap-2 rounded-xl border border-border-subtle bg-card p-3"
                 >
                   <Text className="text-foreground-muted">
                     {c.ownerId} · {c.body.urgency}
@@ -140,22 +163,34 @@ function FactoryInbox({
                 </View>
               ))}
               <Text className="font-t3-bold text-lg">Fleet</Text>
-              {query.data.agents
-                .filter((a) => a.lifecycle !== "closed")
-                .map((a) => (
-                  <View
-                    key={a.id}
-                    className="gap-1 rounded-xl border border-border-subtle bg-card p-4"
-                  >
-                    <Text className="font-t3-medium">
-                      {a.id} · {a.role}
-                    </Text>
-                    <Text className="text-foreground-muted">
-                      {a.lifecycle} · {a.next}
-                    </Text>
-                    {a.needs && <Text>Needs: {a.needs}</Text>}
-                  </View>
-                ))}
+              <Text className="text-xs text-foreground-muted">
+                Roles and lifecycle. Open a thread for live activity.
+              </Text>
+              {factoryAgentRows(query.data.agents).map(({ agent: a, depth }) => (
+                <View
+                  key={a.id}
+                  className="gap-1 border-b border-border-subtle py-2"
+                  style={{ marginLeft: Math.min(depth, 3) * 12 }}
+                >
+                  <Button
+                    label={`${a.id} · ${a.role}`}
+                    tone="text"
+                    onPress={() =>
+                      selectDetail({
+                        name: "Thread",
+                        params: {
+                          environmentId: String(environmentId),
+                          threadId: String(a.threadId),
+                        },
+                      })
+                    }
+                  />
+                  <Text className="text-foreground-muted">
+                    {a.lifecycle} · {a.next}
+                  </Text>
+                  {a.needs && <Text>Needs: {a.needs}</Text>}
+                </View>
+              ))}
               <Text className="font-t3-bold text-lg">Triggers</Text>
               {query.data.triggers.map((t) => (
                 <Text key={t.id} className="text-foreground-muted">
@@ -261,7 +296,7 @@ function MobileCard({
         </Text>
       ))}
       <Button
-        label="Your call: take the recommendation"
+        label="Defer to agent (uses recommendation)"
         tone={option === "default" ? "primary" : "secondary"}
         disabled={!allowed || busy}
         onPress={() => setOption("default")}
@@ -286,6 +321,9 @@ function MobileCard({
         </Text>
       )}
       <Text className="text-foreground-muted">
+        {option
+          ? `Staged: ${option === "default" ? "take the recommendation" : (card.body.options.find((item) => item.id === option)?.label ?? option)}. `
+          : ""}
         Your choice is staged until Send.
         {card.body.action ? " Biometric confirmation is required." : ""}
       </Text>
