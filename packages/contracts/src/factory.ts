@@ -14,6 +14,7 @@ export class FactoryError extends Schema.TaggedError<FactoryError>()("FactoryErr
     "forbidden",
     "not-found",
     "unavailable",
+    "disabled",
     "storage",
   ]),
   entityId: Schema.optionalKey(Schema.String),
@@ -29,6 +30,8 @@ export class FactoryError extends Schema.TaggedError<FactoryError>()("FactoryErr
         return "This caller cannot perform that Factory operation.";
       case "not-found":
         return "The Factory item was not found.";
+      case "disabled":
+        return "Factory is disabled on this server.";
       case "unavailable":
         return "This Factory operation is temporarily unavailable.";
       case "storage":
@@ -342,7 +345,21 @@ export const FactoryNotification = Schema.Struct({
 });
 export type FactoryNotification = typeof FactoryNotification.Type;
 
+export const FactoryControlRecord = Schema.Struct({
+  ...RecordFields,
+  enabled: Schema.Boolean,
+  pendingThreadStops: Schema.Array(ThreadId),
+});
+export type FactoryControlRecord = typeof FactoryControlRecord.Type;
+export const FactoryStatus = Schema.Struct({
+  enabled: Schema.Boolean,
+  forcedOff: Schema.Boolean,
+  stopping: Schema.Boolean,
+});
+export type FactoryStatus = typeof FactoryStatus.Type;
+
 export const FactorySchemas = {
+  control: FactoryControlRecord,
   agents: FactoryAgent,
   cards: FactoryCard,
   payloads: FactoryPayload,
@@ -361,6 +378,7 @@ export const FactorySchemas = {
 export type FactoryEntityKind = keyof typeof FactorySchemas;
 export type FactoryEntityMap = { [K in FactoryEntityKind]: (typeof FactorySchemas)[K]["Type"] };
 export const FactoryBoard = Schema.Struct({
+  status: FactoryStatus,
   environmentId: EnvironmentId,
   sequence: Schema.Number,
   agents: Schema.Array(FactoryAgent),

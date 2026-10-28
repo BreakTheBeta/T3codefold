@@ -1,5 +1,6 @@
 import * as Factory from "../factory/layer.ts";
 import * as FactorySeams from "../factory/FactorySeams.ts";
+import * as FactoryControl from "../factory/FactoryControl.ts";
 import * as FactoryStore from "../factory/FactoryStore.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
@@ -395,6 +396,7 @@ export const layerProduction = Layer.mergeAll(
 ).pipe(
   Layer.provide(
     FactorySeams.layer.pipe(
+      Layer.provide(FactoryControl.layer),
       Layer.provide(FactoryStore.layer),
       Layer.provide(ProjectionStore.layer),
     ),

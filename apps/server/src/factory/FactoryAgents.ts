@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { WakeQueue, cancelPendingClaim } from "./WakeQueue.ts";
 import { callerAgent, inSubtree, requireAgentControl, type FactoryActor } from "./access.ts";
@@ -54,6 +55,7 @@ export class FactoryAgents extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const control = yield* FactoryControl;
   const wakes = yield* WakeQueue;
   const config = yield* ServerConfig.ServerConfig;
   const environment = yield* ServerEnvironment.ServerEnvironment;
@@ -71,6 +73,7 @@ const make = Effect.gen(function* () {
 
   const resume: FactoryAgents["Service"]["resume"] = Effect.fn("FactoryAgents.resume")(
     function* (request) {
+      yield* control.requireEnabled;
       const current = yield* store.get("spawns", request.id);
       if (!current) return yield* new FactoryError({ code: "not-found", entityId: request.id });
       if (current.state === "launched" || current.state === "cancelled") return current;
@@ -81,6 +84,7 @@ const make = Effect.gen(function* () {
       if (!provider) return yield* new FactoryError({ code: "invalid", entityId: current.agentId });
       const reservation = yield* store.transaction(
         Effect.gen(function* () {
+          yield* control.requireEnabled;
           const latest = yield* store.get("spawns", current.id);
           if (!latest) return yield* new FactoryError({ code: "not-found", entityId: current.id });
           if (["reserved", "launching", "launched", "cancelled"].includes(latest.state))
@@ -134,6 +138,7 @@ const make = Effect.gen(function* () {
       if (["held", "launched", "cancelled"].includes(reservation.state)) return reservation;
       const registered = yield* store.transaction(
         Effect.gen(function* () {
+          yield* control.requireEnabled;
           const latest = yield* store.get("spawns", current.id);
           if (!latest || latest.state === "cancelled")
             return yield* new FactoryError({ code: "conflict", entityId: current.id });
@@ -160,23 +165,25 @@ const make = Effect.gen(function* () {
         }),
       );
       // An empty launch cannot release a provider turn before registration is durable.
-      yield* launches
-        .launch({
-          commandId: CommandId.make(`factory:launch:${current.id}`),
-          threadId: current.threadId,
-          projectId: current.projectId,
-          title: current.title,
-          modelSelection: current.modelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          workspaceStrategy:
-            current.workspace === "worktree"
-              ? { type: "worktree", requireWorktree: true, baseRef: current.baseRef }
-              : { type: "root" },
-          createdBy: "system",
-          creationSource: "server",
-        })
-        .pipe(Effect.mapError(external));
+      yield* control.admit(
+        launches
+          .launch({
+            commandId: CommandId.make(`factory:launch:${current.id}`),
+            threadId: current.threadId,
+            projectId: current.projectId,
+            title: current.title,
+            modelSelection: current.modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            workspaceStrategy:
+              current.workspace === "worktree"
+                ? { type: "worktree", requireWorktree: true, baseRef: current.baseRef }
+                : { type: "root" },
+            createdBy: "system",
+            creationSource: "server",
+          })
+          .pipe(Effect.mapError(external)),
+      );
       yield* threads
         .dispatch({
           type: "thread.pin",
@@ -186,6 +193,7 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(external));
       yield* store.transaction(
         Effect.gen(function* () {
+          yield* control.requireEnabled;
           const latest = yield* store.get("spawns", current.id);
           const agent = yield* store.get("agents", current.agentId);
           if (
@@ -228,6 +236,7 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(external));
       return yield* store.transaction(
         Effect.gen(function* () {
+          yield* control.requireEnabled;
           const latest = yield* store.get("spawns", current.id);
           if (!latest) return yield* new FactoryError({ code: "not-found", entityId: current.id });
           if (latest.state === "cancelled") return latest;

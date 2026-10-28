@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { LaneSupervisor } from "./LaneSupervisor.ts";
 import { WakeQueue } from "./WakeQueue.ts";
@@ -36,6 +37,7 @@ export class CommandLanes extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const control = yield* FactoryControl;
   const supervisor = yield* LaneSupervisor;
   const wakes = yield* WakeQueue;
   const fs = yield* FileSystem.FileSystem;
@@ -51,6 +53,7 @@ const make = Effect.gen(function* () {
   );
   const enqueue: CommandLanes["Service"]["enqueue"] = Effect.fn("CommandLanes.enqueue")(
     function* (actor, input) {
+      yield* control.requireEnabled;
       const owner = yield* actorAgent(actor);
       if (
         !input.argv.length ||
@@ -77,6 +80,7 @@ const make = Effect.gen(function* () {
         .join("")}`;
       return yield* store.transaction(
         Effect.gen(function* () {
+          yield* control.requireEnabled;
           const existing = yield* store.get("jobs", id);
           if (existing) return existing;
           const now = DateTime.toEpochMillis(yield* DateTime.now);
@@ -121,7 +125,7 @@ const make = Effect.gen(function* () {
             ? { state: "terminal" as const, status: "cancelled" as const }
             : {}),
         });
-        if (job.state === "queued")
+        if (job.state === "queued" && (yield* control.status).enabled)
           yield* wakes.enqueue({
             id: `lane-complete:${job.id}`,
             targetId: job.ownerId,
@@ -155,7 +159,7 @@ const make = Effect.gen(function* () {
               status: status?.status ?? null,
               rc: status?.rc ?? null,
             });
-          if (state === "terminal")
+          if (state === "terminal" && (yield* control.status).enabled)
             yield* wakes.enqueue({
               id: `lane-complete:${job.id}`,
               targetId: job.ownerId,
@@ -169,6 +173,7 @@ const make = Effect.gen(function* () {
         }),
       );
     }
+    if (!(yield* control.status).enabled) return;
     const resources = yield* host.read;
     if (
       (resources.totalMemoryBytes > 0 &&
@@ -195,6 +200,7 @@ const make = Effect.gen(function* () {
       if (active.some((j) => j.gitRoot === job.gitRoot)) continue;
       const claimed = yield* store.transaction(
         Effect.gen(function* () {
+          yield* control.requireEnabled;
           const latest = yield* store.get("jobs", job.id);
           if (latest?.state !== "queued") return undefined;
           return yield* store.put("jobs", {
@@ -208,7 +214,13 @@ const make = Effect.gen(function* () {
       if (!claimed) continue;
       active.push(claimed);
       starts++;
-      yield* supervisor.launch(claimed);
+      yield* control.admit(
+        Effect.gen(function* () {
+          const latest = yield* store.get("jobs", claimed.id);
+          if (!latest || latest.cancelRequested || latest.state !== "launching") return;
+          yield* supervisor.launch(latest);
+        }),
+      );
     }
   });
   return CommandLanes.of({ enqueue, cancel, tick });

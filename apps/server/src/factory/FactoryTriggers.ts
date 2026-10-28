@@ -11,6 +11,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { WakeQueue } from "./WakeQueue.ts";
 import { callerAgent, type FactoryActor } from "./access.ts";
@@ -41,6 +42,7 @@ export class FactoryTriggers extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const control = yield* FactoryControl;
   const wakes = yield* WakeQueue;
   const runner = yield* Processes.ProcessRunner;
   const projects = yield* Projects.ProjectService;
@@ -178,6 +180,7 @@ const make = Effect.gen(function* () {
   });
 
   const run = Effect.fn("FactoryTriggers.run")(function* (id: string) {
+    yield* control.requireEnabled;
     const trigger = yield* store.get("triggers", id);
     if (!trigger) return yield* new FactoryError({ code: "not-found", entityId: id });
     const now = DateTime.toEpochMillis(yield* DateTime.now);
@@ -241,6 +244,7 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.result);
     return yield* store.transaction(
       Effect.gen(function* () {
+        yield* control.requireEnabled;
         const result =
           checked._tag === "Success"
             ? checked.success

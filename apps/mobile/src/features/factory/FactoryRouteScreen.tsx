@@ -5,7 +5,7 @@ import {
 } from "@t3tools/client-runtime/factory-view";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import type { EnvironmentId, FactoryCard, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, FactoryCard, FactoryStatus, ThreadId } from "@t3tools/contracts";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useRef, useState } from "react";
 import { Linking, TextInput, View, type TextInputInstance } from "react-native";
@@ -109,8 +109,32 @@ function FactoryInbox({
       )}
       {!query.data ? (
         <Text className="text-foreground-muted">Loading Factory…</Text>
+      ) : !query.data.status.enabled ? (
+        <View className="gap-3">
+          <Text className="font-t3-bold text-lg">Factory is off</Text>
+          <Text className="text-foreground-muted">
+            Factory starts disabled on every server. Your regular T3 threads continue normally.
+          </Text>
+          <Text className="text-foreground-muted">
+            {query.data.status.forcedOff
+              ? "The server forces Factory off. Remove T3CODE_FACTORY_DISABLED and restart the server to allow enabling it."
+              : query.data.status.stopping
+                ? "Waiting for active Factory turns and commands to stop. History is retained."
+                : "Enable Factory to use its Commander, checks and automation. Turning it off cancels queued work and requests stops for active turns and commands."}
+          </Text>
+          <FactoryPowerControl environmentId={environmentId} status={query.data.status} />
+          {query.data.status.stopping &&
+            query.data.jobs
+              .filter((job) => job.state !== "terminal")
+              .map((job) => (
+                <Text key={job.id} className="text-foreground-muted">
+                  {job.argv.join(" ")} · {job.state} · cancellation requested
+                </Text>
+              ))}
+        </View>
       ) : (
         <>
+          <FactoryPowerControl environmentId={environmentId} status={query.data.status} />
           <Text className="font-t3-bold text-lg">
             {cards.length} need you · {cards.filter((c) => c.body.blocking).length} blocking
           </Text>
@@ -209,6 +233,41 @@ function FactoryInbox({
         </>
       )}
     </ScreenScrollView>
+  );
+}
+
+function FactoryPowerControl({
+  environmentId,
+  status,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly status: FactoryStatus;
+}) {
+  const allowed = useAtomValue(serverEnvironment.factorySetEnabled.permissionAtom(environmentId));
+  const setEnabled = useAtomCommand(
+    serverEnvironment.factorySetEnabled,
+    "Change Factory availability",
+  );
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      label={
+        busy
+          ? "Updating…"
+          : status.enabled
+            ? "Turn Factory off"
+            : status.stopping
+              ? "Stopping Factory…"
+              : "Enable Factory"
+      }
+      tone="secondary"
+      disabled={!allowed || busy || status.forcedOff || (!status.enabled && status.stopping)}
+      onPress={async () => {
+        setBusy(true);
+        await setEnabled({ environmentId, input: { enabled: !status.enabled } });
+        setBusy(false);
+      }}
+    />
   );
 }
 

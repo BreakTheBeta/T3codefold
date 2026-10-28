@@ -10,6 +10,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { cancelPendingClaim, WakeQueue } from "./WakeQueue.ts";
 import { callerAgent, type FactoryActor } from "./access.ts";
@@ -36,6 +37,7 @@ export class WakeDelivery extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const control = yield* FactoryControl;
   const queue = yield* WakeQueue;
   const threads = yield* Threads.ThreadManagementService;
   const background = yield* BackgroundPolicy.BackgroundPolicy;
@@ -63,34 +65,36 @@ const make = Effect.gen(function* () {
       return;
     }
     // EventSink rechecks every member and source epoch atomically with the dispatch receipt.
-    yield* threads
-      .sendToThread({
-        projectId: target.projectId,
-        threadId: claim.threadId,
-        commandId: CommandId.make(claim.commandId),
-        messageId: MessageId.make(claim.messageId),
-        text: claim.text,
-        attachments: [],
-        mode: "queue",
-        createdBy: "system",
-        creationSource: "server",
-        factoryDelivery: {
-          deliveryId: claim.id,
-          routingEpoch: claim.routingEpoch,
-          sourceId: claim.sourceId,
-          sourceEpoch: claim.sourceEpoch,
-        },
-        notification: {
-          source: { kind: "background_task" },
-          outcome: "updated",
-          summary: "Factory wake",
-        },
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) => new FactoryError({ code: "unavailable", entityId: claim.id, cause }),
+    yield* control.admit(
+      threads
+        .sendToThread({
+          projectId: target.projectId,
+          threadId: claim.threadId,
+          commandId: CommandId.make(claim.commandId),
+          messageId: MessageId.make(claim.messageId),
+          text: claim.text,
+          attachments: [],
+          mode: "queue",
+          createdBy: "system",
+          creationSource: "server",
+          factoryDelivery: {
+            deliveryId: claim.id,
+            routingEpoch: claim.routingEpoch,
+            sourceId: claim.sourceId,
+            sourceEpoch: claim.sourceEpoch,
+          },
+          notification: {
+            source: { kind: "background_task" },
+            outcome: "updated",
+            summary: "Factory wake",
+          },
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) => new FactoryError({ code: "unavailable", entityId: claim.id, cause }),
+          ),
         ),
-      );
+    );
   });
 
   const drain = Effect.gen(function* () {

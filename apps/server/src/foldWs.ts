@@ -57,6 +57,7 @@ export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (
     );
 
   return FoldRpcGroup.of({
+    [WS_METHODS.factorySetEnabled]: (input) => factory.setEnabled(input.enabled),
     [WS_METHODS.factorySubscribeBoard]: () => factory.subscribe({ kind: "user" }),
     [WS_METHODS.factoryEnsureCommander]: (input) => factory.ensureCommander(input.modelSelection),
     [WS_METHODS.factoryAnswerCard]: (input) => factory.decisions.answer({ kind: "user" }, input),

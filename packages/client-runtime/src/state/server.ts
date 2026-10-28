@@ -1163,6 +1163,10 @@ export function createServerEnvironmentAtoms<R, E>(
 
   return {
     configValueAtom,
+    factorySetEnabled: createEnvironmentRpcCommand(runtime, {
+      label: "factory:SetEnabled",
+      tag: WS_METHODS.factorySetEnabled,
+    }),
     factoryBoard: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "factory:board",
       tag: WS_METHODS.factorySubscribeBoard,

@@ -8,6 +8,7 @@ import * as Wakes from "./WakeDelivery.ts";
 import * as Queue from "./WakeQueue.ts";
 import * as Lanes from "./CommandLanes.ts";
 import * as Supervisors from "./LaneSupervisor.ts";
+import * as Control from "./FactoryControl.ts";
 import * as Store from "./FactoryStore.ts";
 import * as Runtime from "./FactoryRuntime.ts";
 import * as HostResources from "../resourceTelemetry/HostResources.ts";
@@ -24,6 +25,7 @@ const services = Factory.layer.pipe(
     ),
   ),
   Layer.provide(Supervisors.layer),
+  Layer.provideMerge(Control.layer),
   Layer.provide(HostResources.layer),
   Layer.provideMerge(Queue.layer),
   Layer.provideMerge(Store.layer),

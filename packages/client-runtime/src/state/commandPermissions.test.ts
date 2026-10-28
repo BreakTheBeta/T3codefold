@@ -115,6 +115,30 @@ describe("command permissions", () => {
     ),
   );
 
+  it.effect("requires settings access to enable or disable Factory", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const factory = createCommandPermissions(runtime, WS_METHODS.factorySetEnabled);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(factory.permissionAtom(env))).toBe(false);
+        expect((yield* factory.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(true),
+            scopes: [AuthSettingsWriteScope],
+            permissions: [AuthSettingsWriteScope],
+          }),
+        );
+        expect(registry.get(factory.permissionAtom(env))).toBe(true);
+        yield* factory.authorize(registry, env);
+      }),
+    ),
+  );
+
   it.effect("uses the target grant for both availability and execution", () =>
     Effect.scoped(
       Effect.gen(function* () {

@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Migrator from "effect/sql/Migrator";
 
 import Migration0002 from "./FoldMigrations/002_DropPitboss.ts";
+import Migration0004 from "./FoldMigrations/004_FactoryControl.ts";
 import Migration0003 from "./FoldMigrations/003_Factory.ts";
 
 export const FOLD_MIGRATIONS_TABLE = "fold_sql_migrations";
@@ -17,6 +18,7 @@ export const FOLD_MIGRATIONS_TABLE = "fold_sql_migrations";
 export const foldMigrationEntries = [
   [2, "DropPitboss", Migration0002],
   [3, "Factory", Migration0003],
+  [4, "FactoryControl", Migration0004],
 ] as const;
 
 const loader = Migrator.fromRecord(

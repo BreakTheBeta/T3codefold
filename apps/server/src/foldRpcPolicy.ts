@@ -1,6 +1,7 @@
 import {
   type AuthEnvironmentScope,
   AuthOrchestrationOperateScope,
+  AuthSettingsWriteScope,
   AuthOrchestrationReadScope,
   type FoldRpcGroup,
   WS_METHODS,
@@ -11,6 +12,7 @@ type FoldRpcMethod = RpcGroup.Rpcs<typeof FoldRpcGroup>["_tag"];
 
 /** Scopes for Fold's RPCs, spread into RpcAuthorization's `RPC_REQUIRED_SCOPES`. */
 export const FOLD_RPC_REQUIRED_SCOPES = {
+  [WS_METHODS.factorySetEnabled]: AuthSettingsWriteScope,
   [WS_METHODS.factorySubscribeBoard]: AuthOrchestrationReadScope,
   [WS_METHODS.factoryEnsureCommander]: AuthOrchestrationOperateScope,
   [WS_METHODS.factoryAnswerCard]: AuthOrchestrationOperateScope,
@@ -38,6 +40,7 @@ export const FOLD_RPC_REQUIRED_SCOPES = {
 
 /** `rpc.aggregate` labels for Fold's RPCs, spread into RpcInstrumentation's `RPC_AGGREGATES`. */
 export const FOLD_RPC_AGGREGATES = {
+  [WS_METHODS.factorySetEnabled]: "factory",
   [WS_METHODS.factorySubscribeBoard]: "factory",
   [WS_METHODS.factoryEnsureCommander]: "factory",
   [WS_METHODS.factoryAnswerCard]: "factory",

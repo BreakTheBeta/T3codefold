@@ -1,8 +1,18 @@
-import type { ThreadId, RunAttemptId, OrchestrationV2ServerCommand } from "@t3tools/contracts";
+import {
+  FactoryAgent,
+  type ThreadId,
+  type RunAttemptId,
+  type OrchestrationV2ServerCommand,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import { FactoryControl, factoryIsEnabled } from "./FactoryControl.ts";
+import {
+  ThreadActivityGuard,
+  ThreadActivityGuardError,
+} from "../orchestration-v2/ThreadActivityGuard.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { TurnPreamble } from "../orchestration-v2/TurnPreamble.ts";
 import {
@@ -11,7 +21,17 @@ import {
 } from "../orchestration-v2/ThreadRetentionGuard.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
+const isThreadActivityGuardError = Schema.is(ThreadActivityGuardError);
 const isThreadRetentionGuardError = Schema.is(ThreadRetentionGuardError);
+
+const decodeAgent = Schema.decodeEffect(Schema.fromJsonString(FactoryAgent));
+const factoryThreadAgent = Effect.fn("FactorySeams.threadAgent")(function* (threadId: ThreadId) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{
+    payload_json: string;
+  }>`SELECT payload_json FROM factory_agents WHERE json_extract(payload_json, '$.threadId') = ${threadId}`;
+  return rows[0] ? yield* decodeAgent(rows[0].payload_json) : undefined;
+});
 
 const preamble = Layer.effect(
   TurnPreamble,
@@ -25,6 +45,7 @@ const preamble = Layer.effect(
           sql
             .withTransaction(
               Effect.gen(function* () {
+                if (!(yield* factoryIsEnabled)) return null;
                 const cached = yield* sql<{
                   content: string;
                 }>`SELECT content FROM factory_capsule_attempts WHERE attempt_id = ${attemptId}`;
@@ -61,7 +82,10 @@ const preamble = Layer.effect(
                 return content;
               }),
             )
-            .pipe(Effect.orElseSucceed(() => null)),
+            .pipe(
+              Effect.provideService(SqlClient.SqlClient, sql),
+              Effect.orElseSucceed(() => null),
+            ),
       ),
     };
   }),
@@ -71,9 +95,11 @@ const retention = Layer.effect(
   ThreadRetentionGuard,
   Effect.gen(function* () {
     const store = yield* FactoryStore;
+    const sql = yield* SqlClient.SqlClient;
     return {
       check: Effect.fn("FactorySeams.checkRetention")(
         function* (command: OrchestrationV2ServerCommand) {
+          if (!(yield* factoryIsEnabled)) return;
           if (
             command.type !== "thread.delete" &&
             command.type !== "thread.archive" &&
@@ -92,6 +118,7 @@ const retention = Layer.effect(
                 "The active Factory Commander must remain pinned and available. Hand it over before removing it.",
             });
         },
+        Effect.provideService(SqlClient.SqlClient, sql),
         Effect.mapError((cause) =>
           isThreadRetentionGuardError(cause)
             ? cause
@@ -105,4 +132,63 @@ const retention = Layer.effect(
   }),
 );
 
-export const layer = Layer.merge(preamble, retention);
+const activity = Layer.effect(
+  ThreadActivityGuard,
+  Effect.gen(function* () {
+    const control = yield* FactoryControl;
+    const sql = yield* SqlClient.SqlClient;
+    const check = Effect.fn("FactorySeams.checkActivity")(
+      function* (threadId: ThreadId) {
+        const agent = yield* factoryThreadAgent(threadId);
+        if (
+          agent &&
+          (!(yield* factoryIsEnabled) || ["closed", "retired"].includes(agent.lifecycle))
+        )
+          return yield* new ThreadActivityGuardError({
+            reason: "Factory is disabled or this agent is closed.",
+          });
+      },
+      Effect.provideService(SqlClient.SqlClient, sql),
+      Effect.mapError((cause) =>
+        isThreadActivityGuardError(cause)
+          ? cause
+          : new ThreadActivityGuardError({
+              reason: "Factory activity state is unavailable.",
+              cause,
+            }),
+      ),
+    );
+    const admit = Effect.fn("FactorySeams.admitActivity")(function* <A, E, R>(
+      threadId: ThreadId,
+      work: Effect.Effect<A, E, R>,
+    ) {
+      const agent = yield* factoryThreadAgent(threadId).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.mapError(
+          (cause) =>
+            new ThreadActivityGuardError({
+              reason: "Factory activity state is unavailable.",
+              cause,
+            }),
+        ),
+      );
+      if (!agent) return yield* work;
+      if (["closed", "retired"].includes(agent.lifecycle))
+        return yield* new ThreadActivityGuardError({ reason: "This Factory agent is closed." });
+      const result = yield* control.admit(Effect.result(work)).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ThreadActivityGuardError({
+              reason: "Factory is disabled on this server.",
+              cause,
+            }),
+        ),
+      );
+      if (result._tag === "Failure") return yield* Effect.fail(result.failure);
+      return result.success;
+    });
+    return { check, admit };
+  }),
+);
+
+export const layer = Layer.mergeAll(preamble, retention, activity);

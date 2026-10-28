@@ -7,6 +7,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { canonicalAction } from "./FactoryDecisions.ts";
 import { callerAgent, type FactoryActor } from "./access.ts";
@@ -40,6 +41,7 @@ export class FactoryActions extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const control = yield* FactoryControl;
   const runner = yield* Processes.ProcessRunner;
   const projects = yield* Projects.ProjectService;
   const fs = yield* FileSystem.FileSystem;
@@ -56,6 +58,7 @@ const make = Effect.gen(function* () {
   );
   const execute: FactoryActions["Service"]["execute"] = Effect.fn("FactoryActions.execute")(
     function* (actor, cardId) {
+      yield* control.requireEnabled;
       const owner = yield* callerAgent(actor).pipe(Effect.provideService(FactoryStore, store));
       const reserved = yield* store.transaction(
         Effect.gen(function* () {
@@ -203,6 +206,7 @@ const make = Effect.gen(function* () {
       }
       const executing = yield* store.transaction(
         Effect.gen(function* () {
+          yield* control.requireEnabled;
           const latest = yield* store.get("executions", reserved.execution.id);
           const card = yield* store.get("cards", cardId);
           const now = DateTime.toEpochMillis(yield* DateTime.now);

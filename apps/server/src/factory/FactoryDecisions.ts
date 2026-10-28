@@ -11,6 +11,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { WakeQueue } from "./WakeQueue.ts";
 import { callerAgent, type FactoryActor } from "./access.ts";
@@ -53,6 +54,7 @@ export class FactoryDecisions extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const control = yield* FactoryControl;
   const wakes = yield* WakeQueue;
   const crypto = yield* Crypto.Crypto;
   const actorAgent = Effect.fn("FactoryDecisions.actorAgent")((actor: FactoryActor) =>
@@ -62,6 +64,7 @@ const make = Effect.gen(function* () {
     (actor, input) =>
       store.transaction(
         Effect.gen(function* () {
+          yield* control.requireEnabled;
           const owner = yield* actorAgent(actor);
           if (!validateFactoryCard(input.body))
             return yield* new FactoryError({ code: "invalid", entityId: input.id });
@@ -103,6 +106,7 @@ const make = Effect.gen(function* () {
       store.transaction(
         Effect.gen(function* () {
           if (actor.kind !== "user") return yield* new FactoryError({ code: "forbidden" });
+          yield* control.requireEnabled;
           const card = yield* store.get("cards", input.cardId);
           if (!card) return yield* new FactoryError({ code: "not-found", entityId: input.cardId });
           if (card.revision !== input.revision || card.state !== "open")

@@ -1,5 +1,6 @@
 import {
   FactoryError,
+  FactoryStatus,
   FactoryBoard,
   FactoryAgent,
   FactoryCard,
@@ -42,6 +43,7 @@ import {
 } from "./realtimeVoice.ts";
 
 export const FOLD_WS_METHODS = {
+  factorySetEnabled: "factory.setEnabled",
   factorySubscribeBoard: "factory.subscribeBoard",
   factoryEnsureCommander: "factory.ensureCommander",
   factoryAnswerCard: "factory.answerCard",
@@ -134,6 +136,11 @@ const factorySubscribeBoardRpc = Rpc.make(FOLD_WS_METHODS.factorySubscribeBoard,
   error: FactoryRpcError,
   stream: true,
 });
+const factorySetEnabledRpc = Rpc.make(FOLD_WS_METHODS.factorySetEnabled, {
+  payload: Schema.Struct({ enabled: Schema.Boolean }),
+  success: FactoryStatus,
+  error: FactoryRpcError,
+});
 const factoryEnsureCommanderRpc = Rpc.make(FOLD_WS_METHODS.factoryEnsureCommander, {
   payload: FactoryEnsureCommanderInput,
   success: FactoryAgent,
@@ -192,6 +199,7 @@ const factoryCancelLaneJobRpc = Rpc.make(FOLD_WS_METHODS.factoryCancelLaneJob, {
 
 export const FoldRpcGroup = RpcGroup.make(
   factorySubscribeBoardRpc,
+  factorySetEnabledRpc,
   factoryEnsureCommanderRpc,
   factoryAnswerCardRpc,
   factoryWithdrawCardRpc,

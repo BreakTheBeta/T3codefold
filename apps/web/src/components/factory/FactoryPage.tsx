@@ -11,6 +11,7 @@ import {
   type EnvironmentId,
   type FactoryBoard,
   type FactoryCard,
+  type FactoryStatus,
 } from "@t3tools/contracts";
 import {
   ArrowLeftIcon,
@@ -126,9 +127,10 @@ function EnvironmentFactory({
           <FactoryIcon className="size-4" />
           Factory
         </h1>
-        <div className="hidden lg:block">{tabs}</div>
+        <div className="hidden lg:block">{board?.status.enabled && tabs}</div>
         <div className="ml-auto flex min-w-0 items-center gap-2">
           {environmentPicker}
+          {board && <FactoryPowerControl environmentId={environmentId} status={board.status} />}
           {commander && (
             <Link
               to="/$environmentId/$threadId"
@@ -150,7 +152,9 @@ function EnvironmentFactory({
           </Button>
         </div>
       </WorkspacePageHeader>
-      <div className="shrink-0 border-b border-border px-3 py-1.5 lg:hidden">{tabs}</div>
+      {board?.status.enabled && (
+        <div className="shrink-0 border-b border-border px-3 py-1.5 lg:hidden">{tabs}</div>
+      )}
       {!!(unknown || failing || undelivered) && (
         <div className="shrink-0 px-4 py-2">
           <Alert variant={unknown ? "error" : "warning"}>
@@ -198,6 +202,24 @@ function EnvironmentFactory({
         <p className="p-4 text-sm text-muted-foreground">
           {query.error ? "Factory is unavailable. Refresh to retry." : "Loading Factory…"}
         </p>
+      ) : !board.status.enabled ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <section className="shrink-0 space-y-3 p-6">
+            <h2 className="text-lg font-semibold">Factory is off</h2>
+            <p className="max-w-xl text-sm text-muted-foreground">
+              Factory starts disabled on every server. Enable it here to use its Commander, checks
+              and automation. Your regular T3 threads continue normally.
+            </p>
+            <p className="max-w-xl text-sm text-muted-foreground">
+              {board.status.forcedOff
+                ? "This server forces Factory off with T3CODE_FACTORY_DISABLED. Remove that setting and restart the server before enabling it."
+                : board.status.stopping
+                  ? "Waiting for Factory turns and command jobs to stop. History is retained; enable becomes available after shutdown is confirmed."
+                  : "Turning it off cancels queued work and requests stops for active turns and commands. Outward actions already in progress may finish; unexecuted action approvals are withdrawn."}
+            </p>
+          </section>
+          {board.status.stopping && <Fleet environmentId={environmentId} board={board} />}
+        </div>
       ) : (
         <>
           {!commander && <CommanderSetup environmentId={environmentId} />}
@@ -211,6 +233,41 @@ function EnvironmentFactory({
         </>
       )}
     </>
+  );
+}
+
+function FactoryPowerControl({
+  environmentId,
+  status,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly status: FactoryStatus;
+}) {
+  const allowed = useAtomValue(serverEnvironment.factorySetEnabled.permissionAtom(environmentId));
+  const setEnabled = useAtomCommand(
+    serverEnvironment.factorySetEnabled,
+    "Change Factory availability",
+  );
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={!allowed || busy || status.forcedOff || (!status.enabled && status.stopping)}
+      onClick={async () => {
+        setBusy(true);
+        await setEnabled({ environmentId, input: { enabled: !status.enabled } });
+        setBusy(false);
+      }}
+    >
+      {busy
+        ? "Updating…"
+        : status.enabled
+          ? "Turn Factory off"
+          : status.stopping
+            ? "Stopping Factory…"
+            : "Enable Factory"}
+    </Button>
   );
 }
 

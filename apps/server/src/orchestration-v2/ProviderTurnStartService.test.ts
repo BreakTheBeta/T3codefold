@@ -47,6 +47,7 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
+import { ThreadActivityGuard, ThreadActivityGuardError } from "./ThreadActivityGuard.ts";
 import { TurnPreamble } from "./TurnPreamble.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
@@ -263,6 +264,7 @@ it.each([
 });
 
 function makeLocalCommandHarness(input: {
+  readonly providerStart?: () => Effect.Effect<void>;
   readonly text: string;
   readonly worktreePath?: string;
   readonly worktreesDir?: string;
@@ -614,6 +616,7 @@ function makeLocalCommandHarness(input: {
                     updatedAt: now,
                     lastError: null,
                   },
+                  startTurn: input.providerStart ?? (() => Effect.void),
                   ensureThread: () => Effect.succeed(providerThread),
                   resumeThread: () => Effect.succeed(projection.providerThreads[0]),
                 } as never)
@@ -1466,5 +1469,54 @@ effectIt.effect("leaves the turn text untouched without a preamble", () =>
     );
 
     expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe("Ship the dark mode toggle");
+  }),
+);
+
+effectIt.effect("refuses disabled thread activity before provider preparation", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({ text: "Work", failReadsAfterRunning: true });
+    const result = yield* harness.start.pipe(
+      Effect.provideService(ThreadActivityGuard, {
+        check: () => Effect.fail(new ThreadActivityGuardError({ reason: "Disabled" })),
+        admit: (_threadId, work) => work,
+      }),
+      Effect.result,
+    );
+    expect(result._tag).toBe("Failure");
+    expect(harness.open).not.toHaveBeenCalled();
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+  }),
+);
+
+effectIt.effect("rechecks admission at provider release even without handoffs", () =>
+  Effect.gen(function* () {
+    const started = vi.fn();
+    const harness = makeLocalCommandHarness({
+      text: "Work",
+      failReadsAfterRunning: true,
+      providerStart: () =>
+        Effect.sync(() => {
+          started();
+        }),
+    });
+    harness.startRootRun.mockImplementation((input) =>
+      input.session
+        .startTurn({
+          threadId: input.appThread.id,
+          providerThread: input.providerThread,
+          runId: input.run.id,
+        } as ProviderAdapter.ProviderAdapterV2TurnInput)
+        .pipe(Effect.ignore),
+    );
+    yield* harness.start.pipe(
+      Effect.provideService(ThreadActivityGuard, {
+        check: () => Effect.void,
+        admit: () =>
+          Effect.fail(new ThreadActivityGuardError({ reason: "Disabled after preparation" })),
+      }),
+    );
+    expect(harness.open).toHaveBeenCalled();
+    expect(harness.startRootRun).toHaveBeenCalled();
+    expect(started).not.toHaveBeenCalled();
   }),
 );

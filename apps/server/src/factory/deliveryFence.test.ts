@@ -1,3 +1,4 @@
+import { enabledControl } from "./testControl.ts";
 import {
   CommandId,
   MessageId,
@@ -14,7 +15,10 @@ import * as Sqlite from "../persistence/Sqlite.ts";
 import * as FactoryStore from "./FactoryStore.ts";
 import { acceptFactoryDelivery } from "./deliveryFence.ts";
 
-const TestLayer = FactoryStore.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
+const TestLayer = enabledControl.pipe(
+  Layer.provideMerge(FactoryStore.layer),
+  Layer.provideMerge(Sqlite.layerMemory),
+);
 const threadId = ThreadId.make("target-thread");
 const wake = (id: string, sourceId: string): FactoryWake => ({
   id,

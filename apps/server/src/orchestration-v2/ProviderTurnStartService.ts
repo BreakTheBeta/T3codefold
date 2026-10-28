@@ -53,6 +53,7 @@ import {
 } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import { ThreadActivityGuard } from "./ThreadActivityGuard.ts";
 import { TurnPreamble, withTurnPreamble } from "./TurnPreamble.ts";
 import {
   isRestartNoteContinuation,
@@ -154,6 +155,7 @@ export const layer: Layer.Layer<
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const turnPreamble = yield* TurnPreamble;
+    const activityGuard = yield* ThreadActivityGuard;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
 
     const recreateMissingWorktree = Effect.fn("ProviderTurnStartService.recreateMissingWorktree")(
@@ -262,10 +264,13 @@ export const layer: Layer.Layer<
 
     const makeDeliverySession = (
       session: ProviderAdapter.ProviderAdapterV2SessionRuntime,
-      startWithHandoffs: (
-        input: Parameters<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>[0],
-        compact?: boolean,
-      ) => ReturnType<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>,
+      threadId: ThreadId,
+      startWithHandoffs:
+        | ((
+            input: Parameters<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>[0],
+            compact?: boolean,
+          ) => ReturnType<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>)
+        | undefined,
     ) => {
       let deliver: typeof startWithHandoffs | undefined = startWithHandoffs;
       const start = (
@@ -274,9 +279,26 @@ export const layer: Layer.Layer<
       ) =>
         Effect.suspend(() => {
           if (deliver !== undefined) return deliver(input, compact);
-          return compact && session.compactThread !== undefined
-            ? session.compactThread(input)
-            : session.startTurn(input);
+          return activityGuard
+            .admit(
+              threadId,
+              compact && session.compactThread !== undefined
+                ? session.compactThread(input)
+                : session.startTurn(input),
+            )
+            .pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "ThreadActivityGuardError"
+                  ? new ProviderAdapter.ProviderAdapterTurnStartError({
+                      driver: session.driver,
+                      threadId,
+                      providerThreadId: input.providerThread.id,
+                      runId: input.runId,
+                      cause,
+                    })
+                  : cause,
+              ),
+            );
         }).pipe(
           Effect.ensuring(
             Effect.sync(() => {
@@ -309,6 +331,9 @@ export const layer: Layer.Layer<
       if (run.status !== "starting") {
         return;
       }
+      yield* activityGuard
+        .check(input.threadId)
+        .pipe(Effect.mapError((cause) => new ProviderTurnStartError({ runId, cause })));
       const rootNode = projection.nodes.find((candidate) => candidate.id === run.rootNodeId);
       const attempt = projection.attempts.find((candidate) => candidate.id === run.activeAttemptId);
       const providerThread = projection.providerThreads.find(
@@ -1317,34 +1342,42 @@ export const layer: Layer.Layer<
             }),
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
+          yield* activityGuard
+            .check(input.threadId)
+            .pipe(Effect.mapError((cause) => new ProviderTurnStartError({ runId, cause })));
           const start = compact ? session.compactThread! : session.startTurn;
           const context = [delivery.context, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
-          yield* start({
-            ...(noteContinuation ? promptedInput : turnInput),
-            message: {
-              ...turnInput.message,
-              text:
-                context === "" || goalCommand
-                  ? userText
-                  : `${context}\n\nUser message:\n${userText}`,
-            },
-          }).pipe(
-            // Clear pending handoff markers for refused prompts so the next turn retains the native session.
-            Effect.tapError((error) =>
-              refusedBeforePrompt(error)
-                ? delivery.unsent.pipe(
-                    Effect.catchCause(() =>
-                      Effect.logWarning("Failed to restore unsent context handoffs", {
-                        runId: run.id,
-                      }),
-                    ),
-                  )
-                : Effect.void,
-            ),
-          );
+          yield* activityGuard
+            .admit(
+              input.threadId,
+              start({
+                ...(noteContinuation ? promptedInput : turnInput),
+                message: {
+                  ...turnInput.message,
+                  text:
+                    context === "" || goalCommand
+                      ? userText
+                      : `${context}\n\nUser message:\n${userText}`,
+                },
+              }),
+            )
+            .pipe(
+              // Clear pending handoff markers for refused prompts so the next turn retains the native session.
+              Effect.tapError((error) =>
+                refusedBeforePrompt(error)
+                  ? delivery.unsent.pipe(
+                      Effect.catchCause(() =>
+                        Effect.logWarning("Failed to restore unsent context handoffs", {
+                          runId: run.id,
+                        }),
+                      ),
+                    )
+                  : Effect.void,
+              ),
+            );
           // After provider acceptance, failed delivery bookkeeping must not stop live ingestion.
           yield* delivery.delivered.pipe(
             Effect.catchCause(() =>
@@ -1367,13 +1400,16 @@ export const layer: Layer.Layer<
               }),
         ),
       );
-      const deliverySession =
+      const deliverySession = makeDeliverySession(
+        session,
+        input.threadId,
         effectiveHandoffs.length === 0 &&
-        missedItems.length === 0 &&
-        restartNote === "" &&
-        !noteContinuation
-          ? session
-          : makeDeliverySession(session, startWithHandoffs);
+          missedItems.length === 0 &&
+          restartNote === "" &&
+          !noteContinuation
+          ? undefined
+          : startWithHandoffs,
+      );
       return runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,

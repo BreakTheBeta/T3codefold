@@ -1,3 +1,4 @@
+import { enabledControl } from "./testControl.ts";
 import {
   EnvironmentId,
   ProjectId,
@@ -17,6 +18,7 @@ import * as Queue from "./WakeQueue.ts";
 import * as Delivery from "./WakeDelivery.ts";
 
 const persistence = Queue.layer.pipe(
+  Layer.provideMerge(enabledControl),
   Layer.provideMerge(Store.layer),
   Layer.provideMerge(Sqlite.layerMemory),
 );

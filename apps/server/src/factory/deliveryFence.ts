@@ -1,3 +1,4 @@
+import { factoryIsEnabled } from "./FactoryControl.ts";
 import {
   FactoryDelivery,
   FactoryError,
@@ -31,6 +32,7 @@ export const acceptFactoryDelivery = Effect.fn("Factory.acceptDelivery")(functio
   readonly delivery: FactoryDeliveryAcceptance;
 }) {
   const sql = yield* SqlClient.SqlClient;
+  if (!(yield* factoryIsEnabled)) return yield* new FactoryError({ code: "disabled" });
   const fail = () => new FactoryError({ code: "conflict", entityId: input.delivery.deliveryId });
   const rows = yield* sql<{
     payload_json: string;

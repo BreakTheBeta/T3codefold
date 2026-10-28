@@ -1,3 +1,4 @@
+import { enabledControl } from "./testControl.ts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -22,6 +23,7 @@ import * as Queue from "./WakeQueue.ts";
 import * as Agents from "./FactoryAgents.ts";
 
 const persistence = Queue.layer.pipe(
+  Layer.provideMerge(enabledControl),
   Layer.provideMerge(Store.layer),
   Layer.provideMerge(Sqlite.layerMemory),
 );

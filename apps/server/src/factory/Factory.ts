@@ -1,6 +1,7 @@
 import {
   FactoryError,
   type FactoryBoard,
+  type FactoryStatus,
   type FactoryPayload,
   type FactoryTrigger,
   type FactoryTriggerRun,
@@ -10,6 +11,9 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import { FactoryControl } from "./FactoryControl.ts";
+import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import { stopFactoryThreads } from "./FactoryQuiescence.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { FactoryAgents } from "./FactoryAgents.ts";
 import { FactoryDecisions } from "./FactoryDecisions.ts";
@@ -23,6 +27,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 export class Factory extends Context.Service<
   Factory,
   {
+    readonly setEnabled: (enabled: boolean) => Effect.Effect<FactoryStatus, FactoryError>;
     readonly board: (actor: FactoryActor) => Effect.Effect<FactoryBoard, FactoryError>;
     readonly subscribe: (actor: FactoryActor) => Stream.Stream<FactoryBoard, FactoryError>;
     readonly ensureCommander: (
@@ -52,6 +57,12 @@ export class Factory extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const control = yield* FactoryControl;
+  const threads = yield* ThreadManagementService;
+  const stopThreads = stopFactoryThreads.pipe(
+    Effect.provideService(FactoryStore, store),
+    Effect.provideService(ThreadManagementService, threads),
+  );
   const agents = yield* FactoryAgents;
   const decisions = yield* FactoryDecisions;
   const actions = yield* FactoryActions;
@@ -75,6 +86,7 @@ const make = Effect.gen(function* () {
     const triggerIds = new Set(visibleTriggers.map((t) => t.id));
     return {
       environmentId,
+      status: yield* control.status,
       sequence: yield* store.sequence,
       agents: visible,
       cards,
@@ -157,19 +169,58 @@ const make = Effect.gen(function* () {
     if (!value) return yield* new FactoryError({ code: "not-found", entityId: id });
     return yield* triggers.upsert(actor, { ...value, shadow });
   });
+  const guarded =
+    <Args extends unknown[], A>(operation: (...args: Args) => Effect.Effect<A, FactoryError>) =>
+    (...args: Args) =>
+      control.run(operation(...args));
+  const setEnabled = Effect.fn("Factory.setEnabled")(function* (enabled: boolean) {
+    yield* control.setEnabled(enabled);
+    if (!enabled)
+      yield* stopThreads.pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Factory shutdown remains pending", { category: cause.code }),
+        ),
+      );
+    return yield* control.status;
+  });
   return Factory.of({
     board,
     subscribe,
-    ensureCommander,
+    setEnabled,
+    ensureCommander: guarded(ensureCommander),
     payload,
-    runTrigger,
-    shadowTrigger,
-    agents,
-    decisions,
-    actions,
-    triggers,
-    wakes,
-    lanes,
+    runTrigger: guarded(runTrigger),
+    shadowTrigger: guarded(shadowTrigger),
+    agents: {
+      ...agents,
+      ensureCommander: guarded(agents.ensureCommander),
+      spawn: guarded(agents.spawn),
+      resume: guarded(agents.resume),
+      update: guarded(agents.update),
+      lifecycle: guarded(agents.lifecycle),
+    },
+    decisions: {
+      ...decisions,
+      file: guarded(decisions.file),
+      answer: guarded(decisions.answer),
+      withdraw: guarded(decisions.withdraw),
+      payload: guarded(decisions.payload),
+    },
+    actions: { ...actions, execute: guarded(actions.execute) },
+    triggers: {
+      ...triggers,
+      run: guarded(triggers.run),
+      upsert: guarded(triggers.upsert),
+      runDue: control.run(triggers.runDue),
+    },
+    wakes: {
+      ...wakes,
+      drain: control.run(wakes.drain),
+      retry: guarded(wakes.retry),
+      defer: guarded(wakes.defer),
+      acknowledge: guarded(wakes.acknowledge),
+    },
+    lanes: { ...lanes, enqueue: guarded(lanes.enqueue) },
   });
 });
 export const layer = Layer.effect(Factory, make);

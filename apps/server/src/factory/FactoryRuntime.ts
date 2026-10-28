@@ -3,6 +3,8 @@ import { ThreadManagementService } from "../orchestration-v2/ThreadManagementSer
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { FactoryControl } from "./FactoryControl.ts";
+import { stopFactoryThreads } from "./FactoryQuiescence.ts";
 import { Factory } from "./Factory.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -10,12 +12,21 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const factory = yield* Factory;
+    const control = yield* FactoryControl;
     const store = yield* FactoryStore;
     const threads = yield* ThreadManagementService;
     const scheduler = yield* Scheduler.Scheduler;
+    if (!(yield* control.status).enabled) yield* control.setEnabled(false);
     yield* factory.actions.recover;
-    yield* scheduler.register("factory-wakes", factory.wakes.drain);
-    yield* scheduler.register("factory-triggers", factory.triggers.runDue);
+    const whenEnabled = Effect.fn("FactoryRuntime.whenEnabled")(function* (
+      work: Effect.Effect<void, import("@t3tools/contracts").FactoryError>,
+    ) {
+      if ((yield* control.status).enabled) yield* work;
+    });
+    yield* scheduler.register("factory-disabled-cleanup", stopFactoryThreads);
+    yield* stopFactoryThreads;
+    yield* scheduler.register("factory-wakes", whenEnabled(factory.wakes.drain));
+    yield* scheduler.register("factory-triggers", whenEnabled(factory.triggers.runDue));
     yield* scheduler.register("factory-lanes", factory.lanes.tick);
     yield* scheduler.register(
       "factory-closed-agents",
@@ -44,6 +55,7 @@ export const layer = Layer.effectDiscard(
     yield* scheduler.register(
       "factory-spawns",
       Effect.gen(function* () {
+        if (!(yield* control.status).enabled) return;
         const now = DateTime.toEpochMillis(yield* DateTime.now);
         for (const spawn of yield* store.list("spawns"))
           if (!["launched", "cancelled"].includes(spawn.state) && spawn.retryAt <= now)

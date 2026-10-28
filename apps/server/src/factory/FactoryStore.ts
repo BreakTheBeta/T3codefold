@@ -16,6 +16,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 const isFactoryError = Schema.is(FactoryError);
 
 const tables = {
+  control: "factory_control",
   agents: "factory_agents",
   cards: "factory_cards",
   payloads: "factory_card_payloads",
