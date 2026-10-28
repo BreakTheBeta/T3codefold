@@ -18,6 +18,11 @@ import {
   ArrowLeftIcon,
   ArrowUpRightIcon,
   FactoryIcon,
+  CheckIcon,
+  CheckCircle2Icon,
+  MessageSquareIcon,
+  ShieldCheckIcon,
+  UsersIcon,
   PlayIcon,
   RefreshCwIcon,
   StarIcon,
@@ -33,6 +38,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { cn } from "../../lib/utils";
 import { isElectron } from "../../env";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { Badge } from "../ui/badge";
 import { Alert, AlertDescription } from "../ui/alert";
 
 const TABS = ["Decisions", "Fleet", "Checks"] as const;
@@ -65,7 +71,10 @@ export function FactoryPage() {
       </div>
     ) : null;
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div
+      data-factory-canvas
+      className="@container/factory flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+    >
       {environment && environmentId ? (
         <EnvironmentFactory
           key={environmentId}
@@ -120,25 +129,43 @@ function EnvironmentFactory({
           aria-pressed={tab === name}
           onClick={() => setTab(name)}
         >
+          {name === "Decisions" ? (
+            <MessageSquareIcon />
+          ) : name === "Fleet" ? (
+            <UsersIcon />
+          ) : (
+            <CheckCircle2Icon />
+          )}
           {name}
-          {name === "Decisions" && board ? ` · ${cards.length}` : ""}
+          {board && (
+            <Badge variant="secondary" size="sm">
+              {name === "Decisions"
+                ? cards.length
+                : name === "Fleet"
+                  ? board.agents.filter((agent) => !["closed", "retired"].includes(agent.lifecycle))
+                      .length
+                  : board.triggers.length}
+            </Badge>
+          )}
         </Button>
       ))}
     </nav>
   );
   return (
     <>
-      <WorkspacePageHeader electron={isElectron} className="border-b border-border">
+      <WorkspacePageHeader electron={isElectron} className="border-b border-border bg-background">
         <h1 className="flex shrink-0 items-center gap-2 text-sm font-semibold">
-          <FactoryIcon className="size-4" />
+          <FactoryIcon className="size-4 text-primary" />
           Factory
         </h1>
-        <div className="hidden lg:block">{board?.status.enabled && tabs}</div>
+        <div className="hidden @min-[64rem]/factory:block">{board?.status.enabled && tabs}</div>
         <div className="ml-auto flex min-w-0 items-center gap-2">
           {environmentPicker ?? (
             <span className="truncate text-xs text-muted-foreground">{environmentLabel}</span>
           )}
-          {board && <FactoryPowerControl environmentId={environmentId} status={board.status} />}
+          {board?.status.enabled && (
+            <FactoryPowerControl environmentId={environmentId} status={board.status} />
+          )}
           {commander && (
             <Link
               to="/$environmentId/$threadId"
@@ -161,7 +188,9 @@ function EnvironmentFactory({
         </div>
       </WorkspacePageHeader>
       {board?.status.enabled && (
-        <div className="shrink-0 border-b border-border px-3 py-1.5 lg:hidden">{tabs}</div>
+        <div className="shrink-0 border-b border-border bg-background px-3 py-1.5 @min-[64rem]/factory:hidden">
+          {tabs}
+        </div>
       )}
       {!!(unknown || failing || undelivered) && (
         <div className="shrink-0 px-4 py-2">
@@ -212,19 +241,64 @@ function EnvironmentFactory({
         </p>
       ) : !board.status.enabled ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <section className="shrink-0 space-y-3 p-6">
-            <h2 className="text-lg font-semibold">Factory is off · {environmentLabel}</h2>
-            <p className="max-w-xl text-sm text-muted-foreground">
-              Factory starts disabled on every server. Enable it here to use its Commander, checks
-              and automation. Your regular T3 threads continue normally.
-            </p>
-            <p className="max-w-xl text-sm text-muted-foreground">
-              {board.status.forcedOff
-                ? "This server forces Factory off with T3CODE_FACTORY_DISABLED. Remove that setting and restart the server before enabling it."
-                : board.status.stopping
-                  ? "Waiting for Factory turns and command jobs to stop. History is retained; enable becomes available after shutdown is confirmed."
-                  : "Turning it off cancels queued work and requests stops for active turns and commands. Outward actions already in progress may finish; unexecuted action approvals are withdrawn."}
-            </p>
+          <section className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto p-4 sm:p-8">
+            <div className="mx-auto my-4 max-w-2xl rounded-2xl border border-border bg-card/95 p-5 shadow-sm sm:my-12 sm:p-8">
+              <div className="mb-6 flex items-center justify-between gap-3">
+                <div className="flex size-12 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                  <FactoryIcon className="size-6" />
+                </div>
+                <Badge variant={board.status.stopping ? "warning" : "secondary"}>
+                  {board.status.stopping
+                    ? "Stopping"
+                    : board.status.forcedOff
+                      ? "Disabled by server"
+                      : "Off by default"}
+                </Badge>
+              </div>
+              <p className="mb-2 truncate text-xs font-medium text-muted-foreground">
+                {environmentLabel}
+              </p>
+              <h2 className="text-2xl font-semibold tracking-tight">
+                A workspace for your agents.
+              </h2>
+              <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
+                Your Commander coordinates the work. You make the calls that matter. Enable Factory
+                for this server when you’re ready; your regular T3 threads continue normally.
+              </p>
+              <div className="my-6 grid gap-4 border-y border-border py-5 sm:grid-cols-3">
+                {[
+                  {
+                    icon: MessageSquareIcon,
+                    title: "Make the call",
+                    text: "Review decisions, then explicitly send your answer.",
+                  },
+                  {
+                    icon: UsersIcon,
+                    title: "See the crew",
+                    text: "Follow the hierarchy and open each agent’s thread.",
+                  },
+                  {
+                    icon: ShieldCheckIcon,
+                    title: "Stay in control",
+                    text: "Enable and turn off Factory separately on each server.",
+                  },
+                ].map(({ icon: Icon, title, text }) => (
+                  <div key={title}>
+                    <Icon className="mb-2 size-4 text-muted-foreground" />
+                    <h3 className="text-sm font-medium">{title}</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{text}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+                {board.status.forcedOff
+                  ? "This server forces Factory off with T3CODE_FACTORY_DISABLED. Remove that setting and restart the server before enabling it."
+                  : board.status.stopping
+                    ? "Waiting for Factory turns and command jobs to stop. History is retained; enable becomes available after shutdown is confirmed."
+                    : "Turning it off cancels queued work and requests stops for active turns and commands. Outward actions already in progress may finish; unexecuted action approvals are withdrawn."}
+              </p>
+              <FactoryPowerControl environmentId={environmentId} status={board.status} />
+            </div>
           </section>
           {board.status.stopping && <Fleet environmentId={environmentId} board={board} />}
         </div>
@@ -305,7 +379,7 @@ function CommanderSetup({ environmentId }: { readonly environmentId: Environment
     models.find((m) => m.model === "claude-opus-5-5") ??
     models[0];
   return (
-    <section className="m-6 space-y-4 rounded-lg border border-border p-5">
+    <section className="mx-4 mt-4 shrink-0 space-y-4 rounded-xl border border-border bg-card/95 p-5 shadow-sm">
       <h2 className="font-medium">Open your Factory</h2>
       <p className="max-w-2xl text-sm text-muted-foreground">
         A pinned Commander coordinates Subcommanders and Workers across this environment. Decisions
@@ -361,16 +435,20 @@ export function Decisions({
   const cards = openFactoryCards(board.cards);
   const selected = cards.find((c) => c.id === selectedId) ?? cards[0];
   return (
-    <div className="grid min-h-0 flex-1 lg:grid-cols-[18rem_minmax(0,1fr)]">
+    <div className="grid min-h-0 flex-1 gap-3 p-3 @min-[48rem]/factory:grid-cols-[18rem_minmax(0,1fr)] lg:p-4">
       <aside
         className={cn(
-          "min-h-0 overflow-y-auto border-r border-border p-2",
-          showDetail && selected && "hidden lg:block",
+          "min-h-0 overflow-y-auto rounded-xl border border-border bg-card/95 p-2 shadow-sm",
+          showDetail && selected && "hidden @min-[48rem]/factory:block",
         )}
         aria-label="Open decisions"
       >
+        <div className="mb-2 flex items-center justify-between border-b border-border px-3 pb-3 pt-2">
+          <h2 className="text-xs font-semibold text-muted-foreground">Needs you</h2>
+          <Badge variant="secondary">{cards.length}</Badge>
+        </div>
         {!cards.length && (
-          <p className="p-2 text-sm text-muted-foreground">No decisions need your answer.</p>
+          <p className="p-3 text-sm text-muted-foreground">No decisions need your answer.</p>
         )}
         {cards.map((card) => (
           <button
@@ -383,13 +461,15 @@ export function Decisions({
             aria-pressed={selected?.id === card.id}
             className={cn(
               "mb-1 w-full rounded-md border border-transparent px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-ring",
-              selected?.id === card.id ? "border-border bg-accent" : "hover:bg-accent/60",
+              selected?.id === card.id ? "border-primary/25 bg-primary/8" : "hover:bg-accent/60",
             )}
           >
             <span className="block text-sm font-medium leading-snug">{card.body.title}</span>
             <span className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
               {card.body.blocking && (
-                <span className="font-medium text-warning-foreground">Blocking</span>
+                <Badge variant="warning" size="sm">
+                  Blocking
+                </Badge>
               )}
               <span>{FACTORY_CARD_KIND_LABEL[card.body.kind]}</span>
               <span>{card.body.urgency.replace("this-week", "this week")}</span>
@@ -429,8 +509,13 @@ export function Decisions({
         )}
       </aside>
       {selected ? (
-        <div className={cn("min-h-0 min-w-0 overflow-y-auto", !showDetail && "hidden lg:block")}>
-          <div className="border-b border-border px-4 py-2 lg:hidden">
+        <div
+          className={cn(
+            "min-h-0 min-w-0 overflow-y-auto rounded-xl border border-border bg-card/95 shadow-sm",
+            !showDetail && "hidden @min-[48rem]/factory:block",
+          )}
+        >
+          <div className="border-b border-border px-4 py-2 @min-[48rem]/factory:hidden">
             <Button variant="ghost" size="sm" onClick={() => setShowDetail(false)}>
               <ArrowLeftIcon />
               All decisions · {cards.length}
@@ -444,8 +529,12 @@ export function Decisions({
           />
         </div>
       ) : (
-        <div className="p-8 text-sm text-muted-foreground">
-          Your agents can keep working. New questions will appear here.
+        <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-border bg-card/95 p-8 text-center shadow-sm">
+          <CheckCircle2Icon className="mb-4 size-8 text-success-foreground" />
+          <h2 className="text-lg font-semibold">You’re all caught up.</h2>
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+            Your agents can keep working. New questions will appear here when they need your input.
+          </p>
         </div>
       )}
     </div>
@@ -524,9 +613,11 @@ export function CardDetail({
               ` · ${card.ownerId}`
             )}
           </p>
-          <h2 className="mt-1 break-words text-lg font-semibold">{card.body.title}</h2>
+          <h2 className="mt-2 break-words text-xl font-semibold tracking-tight">
+            {card.body.title}
+          </h2>
         </div>
-        <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
+        <dl className="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-3 rounded-lg border border-border bg-muted/30 p-4 text-sm">
           <dt className="text-muted-foreground">Doing</dt>
           <dd>{card.body.context.doing}</dd>
           <dt className="text-muted-foreground">Why you</dt>
@@ -561,23 +652,43 @@ export function CardDetail({
               onClick={() => setStaged(option.id)}
               className={cn(
                 "w-full space-y-1.5 rounded-lg border p-3 text-left focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60",
-                staged === option.id ? "border-ring bg-accent" : "border-border hover:bg-accent",
+                staged === option.id
+                  ? "border-primary bg-primary/8"
+                  : "border-border bg-card hover:bg-accent",
               )}
             >
               <span className="flex items-center justify-between gap-3">
                 <span className="min-w-0 break-words font-medium">
+                  <span
+                    aria-hidden="true"
+                    className="mr-2 inline-flex size-5 items-center justify-center rounded-full border border-border bg-background"
+                  >
+                    {staged === option.id && <CheckIcon className="size-3.5" />}
+                  </span>
                   {option.id} · {option.label}
                 </span>
                 {option.recommended && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <StarIcon className="size-3" />
+                  <Badge variant="success">
+                    <StarIcon />
                     Recommended
-                  </span>
+                  </Badge>
                 )}
               </span>
               <span className="block text-sm text-muted-foreground">Next: {option.nextStep}</span>
               <span className="block text-xs text-muted-foreground">
-                Cost: {option.cost} · {option.reversibility}
+                Cost: {option.cost} ·{" "}
+                <Badge
+                  variant={
+                    option.reversibility === "irreversible"
+                      ? "error"
+                      : option.reversibility === "costly"
+                        ? "warning"
+                        : "secondary"
+                  }
+                  size="sm"
+                >
+                  {option.reversibility}
+                </Badge>
               </span>
               <span className="block text-sm">{option.consequences}</span>
             </button>
@@ -629,7 +740,7 @@ export function CardDetail({
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            variant="outline"
+            variant={staged === "default" ? "secondary" : "outline"}
             size="sm"
             onClick={() => setStaged("default")}
             disabled={!allowed || busy}
@@ -638,8 +749,9 @@ export function CardDetail({
             Defer to agent (uses recommendation)
           </Button>
           <Button
-            variant="ghost"
+            variant={staged === "ruled" ? "secondary" : "ghost"}
             size="sm"
+            aria-pressed={staged === "ruled"}
             disabled={!allowed || busy}
             onClick={() => {
               setStaged("ruled");
@@ -662,7 +774,7 @@ export function CardDetail({
       <footer className="sticky bottom-0 mt-auto flex items-center justify-between gap-4 border-t border-border bg-background px-4 py-3">
         <p className="min-w-0 text-sm text-muted-foreground" role="status">
           {staged
-            ? `Staged: ${staged === "default" ? "your call" : staged === "ruled" ? "your own direction" : (card.body.options.find((option) => option.id === staged)?.label ?? staged)}`
+            ? `Staged: ${staged === "default" ? "defer to agent" : staged === "ruled" ? "your own direction" : (card.body.options.find((option) => option.id === staged)?.label ?? staged)}`
             : "Choose an option. Nothing is sent until Send."}
         </p>
         <Button
@@ -698,9 +810,23 @@ function Triggers({
   const allowed = useAtomValue(serverEnvironment.factoryRunTrigger.permissionAtom(environmentId));
   return (
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-      <h2 className="font-medium">Triggers & runs</h2>
+      <h2 className="flex items-center gap-2 font-medium">
+        <CheckCircle2Icon className="size-4 text-muted-foreground" />
+        Checks & run history
+      </h2>
+      {!board.triggers.length && (
+        <div className="rounded-xl border border-border bg-card/95 p-6 shadow-sm">
+          <h3 className="text-sm font-medium">No checks configured</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Checks will appear here with their latest results and run history.
+          </p>
+        </div>
+      )}
       {board.triggers.map((trigger) => (
-        <section key={trigger.id} className="space-y-3 rounded-lg border border-border p-4">
+        <section
+          key={trigger.id}
+          className="space-y-3 rounded-xl border border-border bg-card/95 p-4 shadow-sm"
+        >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-medium">{trigger.id}</h3>
@@ -784,11 +910,14 @@ function Fleet({
   );
   return (
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-      <h2 className="font-medium">Fleet</h2>
+      <h2 className="flex items-center gap-2 font-medium">
+        <UsersIcon className="size-4 text-muted-foreground" />
+        Your crew
+      </h2>
       <p className="text-xs text-muted-foreground">
         Factory roles and lifecycle. Open a thread for its live activity.
       </p>
-      <div className="divide-y divide-border rounded-lg border border-border">
+      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card/95 shadow-sm">
         {factoryAgentRows(board.agents).map(({ agent, depth }) => (
           <section
             key={agent.id}
@@ -804,9 +933,10 @@ function Fleet({
                 <span className="break-all">{agent.id}</span>
                 <ArrowUpRightIcon className="size-3.5 shrink-0" />
               </Link>
-              <span className="text-xs text-muted-foreground">
-                {agent.role} · {agent.lifecycle}
-              </span>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{agent.role}</Badge>
+                <Badge variant={agent.needs ? "warning" : "outline"}>{agent.lifecycle}</Badge>
+              </div>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {agent.next || "No next step recorded"}
@@ -839,7 +969,7 @@ function Fleet({
       {board.jobs.slice(-20).map((job) => (
         <div
           key={job.id}
-          className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
+          className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/95 p-3"
         >
           <div>
             <p className="text-sm">{job.argv.join(" ")}</p>
