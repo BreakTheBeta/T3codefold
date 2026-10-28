@@ -36,3 +36,9 @@ export function factoryAgentRows(agents: readonly FactoryAgent[]) {
   for (const agent of visible) visit(agent, 0);
   return rows;
 }
+
+export const FACTORY_CARD_KIND_LABEL = {
+  decision: "Decision",
+  housekeeping: "Housekeeping",
+  "fyi-chose": "Agent chose · FYI",
+} as const;

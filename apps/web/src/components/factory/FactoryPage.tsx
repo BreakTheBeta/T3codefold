@@ -1,4 +1,8 @@
-import { factoryAgentRows, openFactoryCards } from "@t3tools/client-runtime/factory-view";
+import {
+  FACTORY_CARD_KIND_LABEL,
+  factoryAgentRows,
+  openFactoryCards,
+} from "@t3tools/client-runtime/factory-view";
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -284,7 +288,7 @@ function CommanderSetup({ environmentId }: { readonly environmentId: Environment
   );
 }
 
-function Decisions({
+export function Decisions({
   environmentId,
   board,
 }: {
@@ -300,7 +304,7 @@ function Decisions({
       <aside
         className={cn(
           "min-h-0 overflow-y-auto border-r border-border p-2",
-          showDetail && "hidden lg:block",
+          showDetail && selected && "hidden lg:block",
         )}
         aria-label="Open decisions"
       >
@@ -326,6 +330,7 @@ function Decisions({
               {card.body.blocking && (
                 <span className="font-medium text-warning-foreground">Blocking</span>
               )}
+              <span>{FACTORY_CARD_KIND_LABEL[card.body.kind]}</span>
               <span>{card.body.urgency.replace("this-week", "this week")}</span>
               <time
                 dateTime={new Date(card.createdAt).toISOString()}
@@ -447,6 +452,7 @@ export function CardDetail({
             {card.body.blocking && (
               <span className="mr-2 font-medium text-warning-foreground">Blocking</span>
             )}
+            {FACTORY_CARD_KIND_LABEL[card.body.kind]} ·{" "}
             {card.body.urgency.replace("this-week", "this week")} · revision {card.revision}
             {owner ? (
               <>

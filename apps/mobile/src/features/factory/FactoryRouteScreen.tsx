@@ -1,10 +1,14 @@
-import { factoryAgentRows, openFactoryCards } from "@t3tools/client-runtime/factory-view";
+import {
+  FACTORY_CARD_KIND_LABEL,
+  factoryAgentRows,
+  openFactoryCards,
+} from "@t3tools/client-runtime/factory-view";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import type { EnvironmentId, FactoryCard } from "@t3tools/contracts";
+import type { EnvironmentId, FactoryCard, ThreadId } from "@t3tools/contracts";
 import * as LocalAuthentication from "expo-local-authentication";
-import { useState } from "react";
-import { TextInput, View } from "react-native";
+import { useRef, useState } from "react";
+import { Linking, TextInput, View, type TextInputInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
@@ -143,6 +147,9 @@ function FactoryInbox({
                 key={`${card.id}:${card.revision}`}
                 environmentId={environmentId}
                 card={card}
+                ownerThreadId={
+                  query.data.agents.find((agent) => agent.id === card.ownerId)?.threadId
+                }
               />
             </>
           ) : (
@@ -156,7 +163,7 @@ function FactoryInbox({
                   className="gap-2 rounded-xl border border-border-subtle bg-card p-3"
                 >
                   <Text className="text-foreground-muted">
-                    {c.ownerId} · {c.body.urgency}
+                    {FACTORY_CARD_KIND_LABEL[c.body.kind]} · {c.ownerId} · {c.body.urgency}
                     {c.body.blocking ? " · blocking" : ""}
                   </Text>
                   <Button label={c.body.title} onPress={() => setSelected(c.id)} />
@@ -208,10 +215,14 @@ function FactoryInbox({
 function MobileCard({
   environmentId,
   card,
+  ownerThreadId,
 }: {
   readonly environmentId: EnvironmentId;
   readonly card: FactoryCard;
+  readonly ownerThreadId: ThreadId | undefined;
 }) {
+  const selectDetail = useSelectWorkspaceDetail();
+  const noteRef = useRef<TextInputInstance>(null);
   const [option, setOption] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -256,14 +267,58 @@ function MobileCard({
     <View className="gap-4">
       <Text className="font-t3-bold text-xl">{card.body.title}</Text>
       <Text className="text-foreground-muted">
-        {card.ownerId} · revision {card.revision}
+        {FACTORY_CARD_KIND_LABEL[card.body.kind]} · {card.ownerId} · revision {card.revision}
       </Text>
+      {ownerThreadId && (
+        <Button
+          label="Open owner thread"
+          tone="text"
+          onPress={() =>
+            selectDetail({
+              name: "Thread",
+              params: { environmentId: String(environmentId), threadId: String(ownerThreadId) },
+            })
+          }
+        />
+      )}
+      {Array.from(
+        new Map(card.body.links.map((link) => [`${link.kind}:${link.ref}`, link])).values(),
+      ).map((link) =>
+        link.kind === "thread" ? (
+          <Button
+            key={`${link.kind}:${link.ref}`}
+            label={link.label ?? "Open thread"}
+            tone="text"
+            onPress={() =>
+              selectDetail({
+                name: "Thread",
+                params: { environmentId: String(environmentId), threadId: link.ref },
+              })
+            }
+          />
+        ) : /^https?:\/\//.test(link.ref) ? (
+          <Button
+            key={`${link.kind}:${link.ref}`}
+            label={link.label ?? link.ref}
+            tone="text"
+            onPress={() => {
+              void Linking.openURL(link.ref).catch(() =>
+                setError("This link could not be opened."),
+              );
+            }}
+          />
+        ) : (
+          <Text key={`${link.kind}:${link.ref}`} selectable className="text-foreground-muted">
+            {link.label ?? link.ref}
+          </Text>
+        ),
+      )}
       <Text>Doing: {card.body.context.doing}</Text>
       <Text>Why you: {card.body.context.whyNotMe}</Text>
       <Text>Waiting: {card.body.context.costOfWaiting}</Text>
       {card.body.action && (
         <View className="gap-2 rounded-xl border border-border-subtle bg-card p-4">
-          <Text className="font-t3-medium">Exact approved action</Text>
+          <Text className="font-t3-medium">Exact action awaiting your decision</Text>
           <Text selectable className="text-xs text-foreground-muted">
             SHA-256 {card.body.action.payloadSha256}
           </Text>
@@ -305,9 +360,13 @@ function MobileCard({
         label="Write my own direction"
         tone="text"
         disabled={!allowed || busy}
-        onPress={() => setOption(null)}
+        onPress={() => {
+          setOption(null);
+          noteRef.current?.focus();
+        }}
       />
       <TextInput
+        ref={noteRef}
         accessibilityLabel="Decision note"
         multiline
         value={note}
