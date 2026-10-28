@@ -7,6 +7,8 @@ import {
   type ChatWidth,
   type EnvironmentIdentificationMode,
   MAX_APPEARANCE_CONTRAST,
+  MAX_CHAT_EMBED_WIDTH_BOOST,
+  MAX_CHAT_TEXT_WIDTH_BOOST,
   MAX_GLASS_OPACITY,
   MAX_PANEL_ANIMATION_DURATION_MS,
   MIN_APPEARANCE_CONTRAST,
@@ -45,6 +47,52 @@ const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
   wide: "Wide",
   full: "Full",
 };
+
+function WidthBoostSlider({
+  id,
+  label,
+  max,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  max: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const ratio = value / max;
+  return (
+    <div className="flex w-full items-center gap-3 sm:w-52">
+      <output
+        className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+        htmlFor={id}
+      >
+        +{value}%
+      </output>
+      <input
+        aria-label={label}
+        className="settings-slider min-w-0 flex-1"
+        id={id}
+        max={max}
+        min={0}
+        onChange={(event) => {
+          const next = Number(event.currentTarget.value);
+          if (Number.isInteger(next) && next >= 0 && next <= max) onChange(next);
+        }}
+        step={5}
+        style={
+          {
+            "--settings-slider-progress": `${ratio * 100}%`,
+            "--settings-slider-fill-offset": `${0.5 - ratio}rem`,
+          } as CSSProperties
+        }
+        type="range"
+        value={value}
+      />
+    </div>
+  );
+}
 
 export function AppearanceSettingsPanel() {
   const {
@@ -231,6 +279,56 @@ export function AppearanceSettingsPanel() {
                 </SelectPopup>
               </Select>
             </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("chat-text-width")}
+          description="Widen the text column, and the composer with it."
+          resetAction={
+            settings.chatTextWidthBoost !== DEFAULT_UNIFIED_SETTINGS.chatTextWidthBoost ? (
+              <SettingResetButton
+                label="text width"
+                onClick={() =>
+                  updateSettings({
+                    chatTextWidthBoost: DEFAULT_UNIFIED_SETTINGS.chatTextWidthBoost,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <WidthBoostSlider
+              id="chat-text-width-slider"
+              label="Text width"
+              max={MAX_CHAT_TEXT_WIDTH_BOOST}
+              value={settings.chatTextWidthBoost}
+              onChange={(chatTextWidthBoost) => updateSettings({ chatTextWidthBoost })}
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("chat-embed-width")}
+          description="Let HTML renders and app embeds grow wider than the text column."
+          resetAction={
+            settings.chatEmbedWidthBoost !== DEFAULT_UNIFIED_SETTINGS.chatEmbedWidthBoost ? (
+              <SettingResetButton
+                label="embed width"
+                onClick={() =>
+                  updateSettings({
+                    chatEmbedWidthBoost: DEFAULT_UNIFIED_SETTINGS.chatEmbedWidthBoost,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <WidthBoostSlider
+              id="chat-embed-width-slider"
+              label="Embed width"
+              max={MAX_CHAT_EMBED_WIDTH_BOOST}
+              value={settings.chatEmbedWidthBoost}
+              onChange={(chatEmbedWidthBoost) => updateSettings({ chatEmbedWidthBoost })}
+            />
           }
         />
         <ThreadWrapSettingsRow />

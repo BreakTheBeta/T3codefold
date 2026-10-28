@@ -419,6 +419,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Diff colors"]
       : []),
     ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
+    ...(settings.chatTextWidthBoost !== DEFAULT_UNIFIED_SETTINGS.chatTextWidthBoost
+      ? ["Text width"]
+      : []),
+    ...(settings.chatEmbedWidthBoost !== DEFAULT_UNIFIED_SETTINGS.chatEmbedWidthBoost
+      ? ["Embed width"]
+      : []),
     ...(settings.mathRenderingEnabled !== DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled
       ? ["Render math"]
       : []),
@@ -597,6 +603,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
+      chatTextWidthBoost: DEFAULT_UNIFIED_SETTINGS.chatTextWidthBoost,
+      chatEmbedWidthBoost: DEFAULT_UNIFIED_SETTINGS.chatEmbedWidthBoost,
       mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,

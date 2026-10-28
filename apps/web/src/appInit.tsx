@@ -62,6 +62,15 @@ function startClientAppearance(): void {
     if (previous?.chatWidth !== settings.chatWidth) {
       root.dataset.chatWidth = settings.chatWidth;
     }
+    if (previous?.chatTextWidthBoost !== settings.chatTextWidthBoost) {
+      root.style.setProperty("--chat-text-width-scale", `${1 + settings.chatTextWidthBoost / 100}`);
+    }
+    if (previous?.chatEmbedWidthBoost !== settings.chatEmbedWidthBoost) {
+      root.style.setProperty(
+        "--chat-embed-width-scale",
+        `${1 + settings.chatEmbedWidthBoost / 100}`,
+      );
+    }
     if (previous?.appearanceContrast !== settings.appearanceContrast) {
       applyAppearanceContrast(root, settings.appearanceContrast);
     }

@@ -290,6 +290,14 @@ export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
+export const MAX_CHAT_TEXT_WIDTH_BOOST = 25;
+export const ChatTextWidthBoost = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: MAX_CHAT_TEXT_WIDTH_BOOST }),
+);
+export const MAX_CHAT_EMBED_WIDTH_BOOST = 50;
+export const ChatEmbedWidthBoost = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: MAX_CHAT_EMBED_WIDTH_BOOST }),
+);
 
 export const ModelFavorite = Schema.Struct({
   provider: ProviderInstanceId,
@@ -317,6 +325,8 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
   ),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
+  chatTextWidthBoost: ChatTextWidthBoost.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  chatEmbedWidthBoost: ChatEmbedWidthBoost.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   appearanceContrast: AppearanceContrast.pipe(
@@ -1614,6 +1624,8 @@ export const ClientSettingsPatch = Schema.Struct({
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
+  chatTextWidthBoost: Schema.optionalKey(ChatTextWidthBoost),
+  chatEmbedWidthBoost: Schema.optionalKey(ChatEmbedWidthBoost),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),

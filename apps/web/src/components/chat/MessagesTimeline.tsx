@@ -1236,8 +1236,11 @@ const ConversationTimeline = memo(function ConversationTimeline({
         onEndedCapture={(event) => onAudioPlaybackChange(item.id, event)}
       >
         <div
-          ref={observeLaneWidth}
-          className="@container/chat-lane chat-content-lane overflow-x-clip"
+          ref={isEmbedRow(item) ? undefined : observeLaneWidth}
+          className={cn(
+            "@container/chat-lane overflow-x-clip",
+            isEmbedRow(item) ? "chat-embed-lane" : "chat-content-lane",
+          )}
           data-timeline-root="true"
         >
           <AudioPreviewUnmountContext value={onAudioUnmount}>
@@ -1399,6 +1402,10 @@ function TimelineHistoryControl(props: MessagesTimelineHistoryControls) {
       </div>
     </div>
   );
+}
+
+function isEmbedRow(row: MessagesTimelineRow) {
+  return row.kind === "html-render" || row.kind === "mcp-app";
 }
 
 function isMessageRow(row: MessagesTimelineRow) {
