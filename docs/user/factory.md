@@ -10,6 +10,8 @@ A server operator can force Factory off at startup with `T3CODE_FACTORY_DISABLED
 
 Decision cards explain the work, why your input is needed and the cost of waiting. Choosing an option stages it locally. **Send** submits the answer. You can take the recommendation with **Defer to agent**, add a note, or write your own direction. If an agent changes the card before you answer, reload the current revision. Outward-action cards display their exact payload and hash; mobile requires enrolled biometrics before submitting an answer to these cards.
 
+The Commander is guided to investigate available evidence before asking you to decide, handle authorized reversible work itself, and separate required fixes from optional cleanup. Its turn context includes summaries of open decisions, recent answers and child blockers so it can recover your direction after compaction. These summaries are bounded; it can read the full cards when needed. An answer gives direction, and the Commander still needs to verify and report the result.
+
 Factory action tools require user approval bound to the action they execute. Agents are instructed to use those tools for opening or merging pull requests, force-pushes, branch deletion and external posts. Direct provider shells, other tools and script effects can bypass this workflow. This v1 approval boundary applies to Factory action tools and is not a sandbox around every provider command. An unknown action result needs verification on the external host before authorising a new action.
 
 Use **Checks** to inspect checks and shadow results, and **Fleet** to inspect agents and command jobs. Cancelling a running job requests termination; the job stays under supervision until its termination is confirmed.

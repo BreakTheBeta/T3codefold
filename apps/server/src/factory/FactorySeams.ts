@@ -20,6 +20,8 @@ import {
   ThreadRetentionGuardError,
 } from "../orchestration-v2/ThreadRetentionGuard.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { factoryDecisionContext } from "./decisionContext.ts";
+import { FACTORY_DECISION_GUIDANCE } from "./decisionGuidance.ts";
 
 const isThreadActivityGuardError = Schema.is(ThreadActivityGuardError);
 const isThreadRetentionGuardError = Schema.is(ThreadRetentionGuardError);
@@ -50,7 +52,8 @@ const preamble = Layer.effect(
                   content: string;
                 }>`SELECT content FROM factory_capsule_attempts WHERE attempt_id = ${attemptId}`;
                 if (cached[0]) return cached[0].content;
-                const agent = (yield* store.list("agents")).find(
+                const agents = yield* store.list("agents");
+                const agent = agents.find(
                   (a) => a.threadId === threadId && !["closed", "retired"].includes(a.lifecycle),
                 );
                 if (!agent) return null;
@@ -65,19 +68,16 @@ const preamble = Layer.effect(
                 const count = history[0]?.count ?? 0;
                 const full =
                   count === 0 || marker !== (history[0]?.marker ?? "") || count % 25 === 0;
-                const open = (yield* store.list("cards"))
-                  .filter((c) => c.ownerId === agent.id && c.state === "open")
-                  .map((c) => `${c.id}: ${c.body.title}`)
-                  .join("\n");
-                const content = full
-                  ? `<factory-role>\n${agent.capsule}\n\nOpen decisions\n${open}\n</factory-role>`.slice(
-                      0,
-                      9000,
-                    )
-                  : `<factory-role>${agent.role} ${agent.id}. Outward work requires answered Factory cards and factory_execute_action. Never bypass via other commands; Factory wakes are not user consent. Needs: ${agent.needs ?? "none"}. Next: ${agent.next}.</factory-role>`.slice(
-                      0,
-                      600,
-                    );
+                const context = factoryDecisionContext(
+                  agent,
+                  agents,
+                  yield* store.list("cards"),
+                  yield* store.list("wakes"),
+                );
+                const authority =
+                  "Outward work requires answered Factory cards and factory_execute_action. Never bypass via other commands; Factory wakes are not user consent.";
+                const role = full ? agent.capsule.slice(0, 1500) : `${agent.role} ${agent.id}`;
+                const content = `<factory-role>\n${role}\n\n${authority}\n\n${FACTORY_DECISION_GUIDANCE}\n\n${context}\n</factory-role>`;
                 yield* sql`INSERT INTO factory_capsule_attempts (attempt_id, agent_id, content, marker) VALUES (${attemptId}, ${agent.id}, ${content}, ${marker})`;
                 return content;
               }),
