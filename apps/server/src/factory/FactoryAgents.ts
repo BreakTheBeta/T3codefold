@@ -11,11 +11,13 @@ import {
   type ModelSelection,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import { factoryRoleCapsule } from "./FactoryPrompts.ts";
 import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
@@ -27,6 +29,10 @@ import * as Projects from "../project/ProjectService.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
+
+const encodeReportIdentity = Schema.encodeSync(
+  Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])),
+);
 
 export class FactoryAgents extends Context.Service<
   FactoryAgents,
@@ -60,6 +66,7 @@ export class FactoryAgents extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
+  const crypto = yield* Crypto.Crypto;
   const control = yield* FactoryControl;
   const wakes = yield* WakeQueue;
   const config = yield* ServerConfig.ServerConfig;
@@ -499,15 +506,19 @@ const make = Effect.gen(function* () {
               code: "unavailable",
               entityId: agent.parentId ?? agent.id,
             });
-          const id = `report:${input.requestId}`;
+          const digest = yield* crypto
+            .digest(
+              "SHA-256",
+              new TextEncoder().encode(encodeReportIdentity([agent.id, input.requestId])),
+            )
+            .pipe(Effect.mapError(external));
+          const id = `report:${Array.from(digest)
+            .map((byte) => byte.toString(16).padStart(2, "0"))
+            .join("")}`;
           const text = `Assignment ${input.outcome.toUpperCase()}: ${agent.id}\n${input.summary}\nNeeds: ${input.needs ?? "none"}\nNext owner/action: ${input.next}\nThis ends an assignment, not necessarily the initiative. Inspect the evidence and advance the next authorized local step, prepare an exact action card, or retain a named genuine dependency. Do not infer consent, restart finished work, or reply only to acknowledge.`;
           const previous = yield* store.get("wakes", id);
           if (previous) {
-            if (
-              previous.refId !== input.requestId ||
-              previous.targetId !== parent.id ||
-              previous.text !== text
-            )
+            if (previous.refId !== id || previous.targetId !== parent.id || previous.text !== text)
               return yield* new FactoryError({ code: "conflict", entityId: input.requestId });
             return agent;
           }
@@ -523,7 +534,7 @@ const make = Effect.gen(function* () {
             targetId: parent.id,
             text,
             refKind: "report",
-            refId: input.requestId,
+            refId: id,
             sourceId: id,
           });
           return updated;

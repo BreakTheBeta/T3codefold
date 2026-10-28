@@ -22,6 +22,8 @@ import { ThreadManagementService } from "../orchestration-v2/ThreadManagementSer
 import * as Store from "./FactoryStore.ts";
 import * as Queue from "./WakeQueue.ts";
 import * as Agents from "./FactoryAgents.ts";
+import * as Delivery from "./WakeDelivery.ts";
+import { BackgroundPolicy } from "../background/BackgroundPolicy.ts";
 
 const persistence = Queue.layer.pipe(
   Layer.provideMerge(enabledControl),
@@ -38,8 +40,12 @@ const dependencies = Layer.mergeAll(
   Layer.mock(ProviderRegistry)({}),
   Layer.mock(ThreadLaunchService)({}),
   Layer.mock(ThreadManagementService)({}),
+  Layer.mock(BackgroundPolicy)({}),
 );
-const TestLayer = Agents.layer.pipe(Layer.provideMerge(persistence), Layer.provide(dependencies));
+const TestLayer = Layer.mergeAll(Agents.layer, Delivery.layer).pipe(
+  Layer.provideMerge(persistence),
+  Layer.provide(dependencies),
+);
 const owner: FactoryAgent = {
   id: "parent",
   version: 0,
@@ -227,10 +233,7 @@ it.effect("a completed assignment retains its next owner and wakes the parent ex
     yield* agents.report(actor, { ...report, requestId: "next-deliverable-tested" });
     const reports = yield* store.list("wakes");
     assert.lengthOf(reports, 2);
-    assert.deepEqual(reports.map((wake) => wake.refId).sort(), [
-      "next-deliverable-tested",
-      "patch-tested",
-    ]);
+    assert.notEqual(reports[0]?.refId, reports[1]?.refId);
   }).pipe(Effect.provide(TestLayer)),
 );
 
@@ -276,5 +279,66 @@ it.effect(
         next: "Collect the release evidence",
       });
       assert.equal((yield* store.get("agents", child.id))?.workState, "working");
+    }).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect(
+  "two workers can report the same request independently and only their parent can acknowledge each delivery",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* Store.FactoryStore;
+      const agents = yield* Agents.FactoryAgents;
+      const delivery = yield* Delivery.WakeDelivery;
+      const children = ["worker:one", "worker:two"].map((id) => ({
+        ...owner,
+        id,
+        threadId: ThreadId.make(`${id}:thread`),
+        role: "worker" as const,
+        parentId: owner.id,
+      }));
+      yield* store.transaction(
+        Effect.gen(function* () {
+          yield* store.put("agents", owner);
+          for (const child of children) yield* store.put("agents", child);
+        }),
+      );
+      const report = {
+        requestId: "patch-tested",
+        outcome: "done" as const,
+        summary: "Local patch passed its focused test",
+        next: "Parent: inspect the patch",
+      };
+      for (const child of children) {
+        const actor = { kind: "agent", threadId: child.threadId } as const;
+        const saved = yield* agents.report(actor, report);
+        assert.equal((yield* agents.report(actor, report)).version, saved.version);
+      }
+      const wakes = yield* store.list("wakes");
+      assert.lengthOf(wakes, 2);
+      assert.equal(new Set(wakes.map((wake) => wake.id)).size, 2);
+      assert.equal(new Set(wakes.map((wake) => wake.sourceId)).size, 2);
+      assert.equal(new Set(wakes.map((wake) => wake.refId)).size, 2);
+      yield* store.transaction(
+        Effect.gen(function* () {
+          for (const wake of wakes) yield* store.put("wakes", { ...wake, state: "delivered" });
+        }),
+      );
+      const [first, second] = wakes;
+      assert.isTrue(
+        Exit.isFailure(
+          yield* delivery
+            .acknowledge({ kind: "agent", threadId: children[0]!.threadId }, "report", first!.refId)
+            .pipe(Effect.exit),
+        ),
+      );
+      const parent = { kind: "agent", threadId: owner.threadId } as const;
+      yield* delivery.acknowledge(parent, "report", first!.refId);
+      assert.equal((yield* store.get("wakes", first!.id))?.state, "acked");
+      assert.equal((yield* store.get("wakes", second!.id))?.state, "delivered");
+      yield* delivery.acknowledge(parent, "report", second!.refId);
+      for (const child of children)
+        yield* agents.report({ kind: "agent", threadId: child.threadId }, report);
+      assert.lengthOf(yield* store.list("wakes"), 2);
+      assert.isTrue((yield* store.list("wakes")).every((wake) => wake.state === "acked"));
     }).pipe(Effect.provide(TestLayer)),
 );
