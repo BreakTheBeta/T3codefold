@@ -72,9 +72,21 @@ export const prepareFactoryPush = Effect.fn("FactoryActions.preparePush")(functi
     /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^\s]+?)(?:\.git)?\/?$/.exec(
       origin,
     )?.[1];
+  if (originRepo?.toLowerCase() !== repository.toLowerCase()) return yield* invalid();
+  const explicitPushUrls = yield* run(["config", "--get-all", "remote.origin.pushurl"]);
+  if (explicitPushUrls.code !== 1 || !complete(explicitPushUrls)) return yield* invalid();
   if (
-    originRepo?.toLowerCase() !== repository.toLowerCase() ||
-    (yield* checked(["ls-remote", "--get-url", url])) !== url
+    (yield* checked([
+      "-c",
+      `remote.origin.url=${url}`,
+      "remote",
+      "get-url",
+      "--push",
+      "--all",
+      "origin",
+    ]))
+      .split("\n")
+      .at(-1) !== url
   )
     return yield* invalid();
   const graftPath = yield* checked([

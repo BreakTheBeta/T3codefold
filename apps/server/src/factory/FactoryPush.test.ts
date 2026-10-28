@@ -75,6 +75,8 @@ const cases = [
   "graft-disguise",
   "replacement-disguise",
   "wrong-repository",
+  "push-url-rewrite",
+  "push-url-masked",
   "wrong-ref",
   "dirty",
   "head-moved",
@@ -120,7 +122,18 @@ it.live.each(cases)("ordinary push: %s", (scenario) =>
     yield* commit("diverged");
     const c = yield* git(["rev-parse", "HEAD"]);
     yield* git(["checkout", "main"]);
-    yield* git(["remote", "add", "origin", "https://github.com/acme/app.git"]);
+    yield* git([
+      "remote",
+      "add",
+      "origin",
+      scenario.startsWith("push-url-")
+        ? "git@github.com:acme/app.git"
+        : "https://github.com/acme/app.git",
+    ]);
+    if (scenario.startsWith("push-url-"))
+      yield* git(["config", "url.https://example.invalid/.pushInsteadOf", "https://github.com/"]);
+    if (scenario === "push-url-masked")
+      yield* git(["config", "remote.origin.pushurl", "https://github.com/acme/app.git"]);
     let remote: string | null = ["new-ref", "new-ref-race"].includes(scenario)
       ? null
       : ["non-fast-forward", "graft-disguise", "replacement-disguise"].includes(scenario)
