@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema";
 import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { prepareFactoryPush } from "./FactoryPush.ts";
-import { canonicalAction } from "./FactoryDecisions.ts";
+import { canonicalAction, ownerPayload } from "./FactoryDecisions.ts";
 import { callerAgent, type FactoryActor } from "./access.ts";
 import * as Processes from "../processRunner.ts";
 import * as Projects from "../project/ProjectService.ts";
@@ -75,7 +75,7 @@ const make = Effect.gen(function* () {
             card.optionId !== action.optionId
           )
             return yield* new FactoryError({ code: "invalid", entityId: cardId });
-          const payload = yield* store.get("payloads", action.payloadSha256);
+          const payload = yield* ownerPayload(store, card.authorId, action.payloadSha256);
           if (
             !payload ||
             payload.ownerId !== card.authorId ||
@@ -88,7 +88,7 @@ const make = Effect.gen(function* () {
             return {
               execution: existing,
               envelope: payload.envelope,
-              launch: existing.state === "claimed",
+              launch: existing.state === "claimed" && !existing.supersededBy,
             };
           const now = DateTime.toEpochMillis(yield* DateTime.now);
           if (card.answeredAt === null || now - card.answeredAt >= 86_400_000)
@@ -264,6 +264,7 @@ const make = Effect.gen(function* () {
           if (
             !latest ||
             latest.state !== "claimed" ||
+            !!latest.supersededBy ||
             !card ||
             !["answered", "acked"].includes(card.state) ||
             card.revision !== latest.cardRevision ||
@@ -274,6 +275,31 @@ const make = Effect.gen(function* () {
             now - card.answeredAt >= 86_400_000
           )
             return yield* new FactoryError({ code: "conflict", entityId: cardId });
+          const payload = yield* ownerPayload(store, owner.id, latest.payloadSha256);
+          for (const previous of payload?.replacesOwnerId ? yield* store.list("executions") : []) {
+            if (previous.id === latest.id || previous.payloadSha256 !== latest.payloadSha256)
+              continue;
+            if (["executing", "unknown", "succeeded"].includes(previous.state))
+              return yield* new FactoryError({
+                code: "conflict",
+                entityId: previous.id,
+                detail:
+                  "An identical action may already have dispatched; reconcile it before any replacement.",
+              });
+            if (previous.state !== "claimed") continue;
+            const originalCard = yield* store.get("cards", previous.cardId);
+            if (
+              !payload?.replacesOwnerId ||
+              originalCard?.ownerId !== payload.replacesOwnerId ||
+              (previous.supersededBy && previous.supersededBy !== latest.id)
+            )
+              return yield* new FactoryError({ code: "conflict", entityId: previous.id });
+            yield* store.put("executions", {
+              ...previous,
+              supersededBy: latest.id,
+              updatedAt: now,
+            });
+          }
           return yield* store.put("executions", { ...latest, state: "executing", updatedAt: now });
         }),
       );

@@ -168,6 +168,7 @@ export const FactoryCard = Schema.Struct({
 });
 export type FactoryCard = typeof FactoryCard.Type;
 export const FactoryPayload = Schema.Struct({
+  replacesOwnerId: Schema.optionalKey(Id),
   ...RecordFields,
   ownerId: Id,
   sha256: Id,
@@ -307,6 +308,7 @@ export const FactorySpawn = Schema.Struct({
 });
 export type FactorySpawn = typeof FactorySpawn.Type;
 export const FactoryExecution = Schema.Struct({
+  supersededBy: Schema.optionalKey(Id),
   ...RecordFields,
   cardId: Id,
   cardRevision: Schema.Number,

@@ -16,7 +16,7 @@ import { ThreadManagementService } from "../orchestration-v2/ThreadManagementSer
 import { stopFactoryThreads } from "./FactoryQuiescence.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { FactoryAgents } from "./FactoryAgents.ts";
-import { FactoryDecisions } from "./FactoryDecisions.ts";
+import { FactoryDecisions, ownerPayload } from "./FactoryDecisions.ts";
 import { FactoryActions } from "./FactoryActions.ts";
 import { FactoryTriggers } from "./FactoryTriggers.ts";
 import { WakeDelivery } from "./WakeDelivery.ts";
@@ -142,7 +142,15 @@ const make = Effect.gen(function* () {
     return commander;
   });
   const payload = Effect.fn("Factory.payload")(function* (actor: FactoryActor, hash: string) {
-    const value = yield* store.get("payloads", hash);
+    const value =
+      actor.kind === "agent"
+        ? yield* ownerPayload(
+            store,
+            (yield* callerAgent(actor).pipe(Effect.provideService(FactoryStore, store))).id,
+            hash,
+          )
+        : ((yield* store.get("payloads", hash)) ??
+          (yield* store.list("payloads")).find((payload) => payload.sha256 === hash));
     if (!value) return yield* new FactoryError({ code: "not-found", entityId: hash });
     if (
       actor.kind === "agent" &&

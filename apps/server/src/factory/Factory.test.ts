@@ -7,13 +7,14 @@ import {
   type FactoryCard,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Store from "./FactoryStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Factory from "./Factory.ts";
 import { enabledControl } from "./testControl.ts";
 import { FactoryAgents } from "./FactoryAgents.ts";
-import { FactoryDecisions } from "./FactoryDecisions.ts";
+import { FactoryDecisions, factoryPayloadId } from "./FactoryDecisions.ts";
 import { FactoryActions } from "./FactoryActions.ts";
 import { FactoryTriggers } from "./FactoryTriggers.ts";
 import { WakeDelivery } from "./WakeDelivery.ts";
@@ -126,5 +127,44 @@ it.effect(
       assert.equal(board.cards[0]?.ownerId, parent.id);
       assert.equal(board.cards[0]?.revision, 3);
       assert.lengthOf(board.executions, 0);
+      const payload = yield* store.transaction(
+        store.put("payloads", {
+          id: factoryPayloadId(worker.id, "new-hash"),
+          sha256: "new-hash",
+          ownerId: worker.id,
+          version: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          envelope: {
+            version: 1,
+            kind: "external-post",
+            repository: "acme/app",
+            target: "issue:1",
+            cwd: "/fixture",
+            count: 1,
+            request: {
+              type: "external-post",
+              adapter: "github-comment",
+              issueNumber: 1,
+              body: "Exact comment",
+            },
+          },
+        }),
+      );
+      assert.deepEqual(
+        (yield* factory.payload({ kind: "user" }, "new-hash")).envelope,
+        payload.envelope,
+      );
+      assert.equal(
+        (yield* factory.payload({ kind: "agent", threadId: worker.threadId }, "new-hash")).ownerId,
+        worker.id,
+      );
+      assert.isTrue(
+        Exit.isFailure(
+          yield* factory
+            .payload({ kind: "agent", threadId: ThreadId.make("sibling-thread") }, "new-hash")
+            .pipe(Effect.exit),
+        ),
+      );
     }).pipe(Effect.provide(TestLayer)),
 );

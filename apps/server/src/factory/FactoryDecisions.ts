@@ -14,7 +14,7 @@ import * as Layer from "effect/Layer";
 import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
 import { WakeQueue } from "./WakeQueue.ts";
-import { callerAgent, type FactoryActor } from "./access.ts";
+import { callerAgent, inSubtree, type FactoryActor } from "./access.ts";
 
 export function canonicalAction(value: FactoryActionEnvelope): string {
   const ordered = (input: unknown): unknown =>
@@ -29,6 +29,20 @@ export function canonicalAction(value: FactoryActionEnvelope): string {
         : input;
   return JSON.stringify(ordered(value));
 }
+
+export const factoryPayloadId = (ownerId: string, sha256: string) =>
+  `payload:${JSON.stringify([ownerId, sha256])}`;
+
+export const ownerPayload = Effect.fn("FactoryDecisions.ownerPayload")(function* (
+  store: FactoryStore["Service"],
+  ownerId: string,
+  sha256: string,
+) {
+  const payload =
+    (yield* store.get("payloads", factoryPayloadId(ownerId, sha256))) ??
+    (yield* store.get("payloads", sha256));
+  return payload?.ownerId === ownerId ? payload : undefined;
+});
 
 export class FactoryDecisions extends Context.Service<
   FactoryDecisions,
@@ -82,7 +96,7 @@ const make = Effect.gen(function* () {
           )
             return yield* new FactoryError({ code: "conflict", entityId: input.id });
           if (input.body.action) {
-            const payload = yield* store.get("payloads", input.body.action.payloadSha256);
+            const payload = yield* ownerPayload(store, owner.id, input.body.action.payloadSha256);
             if (!payload || payload.ownerId !== owner.id)
               return yield* new FactoryError({ code: "invalid", entityId: input.id });
           }
@@ -206,21 +220,28 @@ const make = Effect.gen(function* () {
           )
             .map((b) => b.toString(16).padStart(2, "0"))
             .join("");
-          const existing = yield* store.get("payloads", hash);
-          if (existing && existing.ownerId !== owner.id)
-            return yield* new FactoryError({ code: "conflict", entityId: hash });
-          if (!existing) {
-            const now = DateTime.toEpochMillis(yield* DateTime.now);
-            yield* store.put("payloads", {
-              id: hash,
-              sha256: hash,
-              ownerId: owner.id,
-              envelope,
-              version: 0,
-              createdAt: now,
-              updatedAt: now,
-            });
+          const existing = yield* ownerPayload(store, owner.id, hash);
+          if (existing) return hash;
+          const foreign = (yield* store.list("payloads")).filter(
+            (p) => p.sha256 === hash && p.ownerId !== owner.id,
+          );
+          const agents = yield* store.list("agents");
+          for (const payload of foreign) {
+            const source = agents.find((agent) => agent.id === payload.ownerId);
+            if (!source || !inSubtree(source, owner, agents))
+              return yield* new FactoryError({ code: "forbidden", entityId: hash });
           }
+          const now = DateTime.toEpochMillis(yield* DateTime.now);
+          yield* store.put("payloads", {
+            id: factoryPayloadId(owner.id, hash),
+            sha256: hash,
+            ownerId: owner.id,
+            envelope,
+            version: 0,
+            createdAt: now,
+            updatedAt: now,
+            ...(foreign.length ? { replacesOwnerId: foreign[0]!.ownerId } : {}),
+          });
           return hash;
         }),
       ),
