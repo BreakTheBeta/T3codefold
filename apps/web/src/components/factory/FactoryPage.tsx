@@ -12,6 +12,7 @@ import {
   type EnvironmentId,
   type FactoryBoard,
   type FactoryCard,
+  type FactoryExecution,
   type FactoryStatus,
 } from "@t3tools/contracts";
 import {
@@ -1013,15 +1014,54 @@ function Fleet({
       {board.executions
         .filter((e) => e.state === "unknown")
         .map((execution) => (
-          <p
+          <UnknownExecution
             key={execution.id}
-            role="alert"
-            className="rounded-md border border-destructive p-4 text-sm"
-          >
-            Action {execution.cardId} has an unknown result. Verify its external result before
-            authorising any new action.
-          </p>
+            environmentId={environmentId}
+            execution={execution}
+            title={board.cards.find((card) => card.id === execution.cardId)?.body.title}
+          />
         ))}
+    </div>
+  );
+}
+
+function UnknownExecution({
+  environmentId,
+  execution,
+  title,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly execution: FactoryExecution;
+  readonly title: string | undefined;
+}) {
+  const resolve = useAtomCommand(
+    serverEnvironment.factoryResolveExecution,
+    "Record Factory action result",
+  );
+  const allowed = useAtomValue(
+    serverEnvironment.factoryResolveExecution.permissionAtom(environmentId),
+  );
+  const record = (state: "succeeded" | "failed") =>
+    void resolve({ environmentId, input: { id: execution.id, state } });
+  return (
+    <div role="alert" className="space-y-2 rounded-md border border-destructive p-4 text-sm">
+      <p>
+        {title ?? execution.cardId} has an unknown result. Check the host, then record what
+        happened.
+      </p>
+      {execution.result && (
+        <pre className="max-h-32 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
+          {execution.result.trim().split("\n").slice(-6).join("\n")}
+        </pre>
+      )}
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" disabled={!allowed} onClick={() => record("failed")}>
+          It did not happen
+        </Button>
+        <Button size="sm" variant="outline" disabled={!allowed} onClick={() => record("succeeded")}>
+          It happened
+        </Button>
+      </div>
     </div>
   );
 }

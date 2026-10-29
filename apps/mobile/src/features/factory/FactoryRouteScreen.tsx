@@ -182,12 +182,19 @@ function FactoryInbox({
               {cards.filter((c) => c.body.blocking).length} blocking
             </Text>
           </View>
-          {query.data.executions.some((execution) => execution.state === "unknown") && (
-            <Text accessibilityRole="alert" className="text-danger">
-              An action result is unknown. Verify its external result before authorising another
-              action.
-            </Text>
-          )}
+          {query.data.executions
+            .filter((execution) => execution.state === "unknown")
+            .map((execution) => (
+              <UnknownExecution
+                key={execution.id}
+                environmentId={environmentId}
+                executionId={execution.id}
+                title={
+                  query.data?.cards.find((card) => card.id === execution.cardId)?.body.title ??
+                  execution.cardId
+                }
+              />
+            ))}
           {commander && (
             <Button
               label="Open Commander"
@@ -520,6 +527,47 @@ function MobileCard({
         disabled={!allowed || (!option && !note.trim()) || (!!card.body.action && !payload.data)}
         onPress={() => void send()}
       />
+    </View>
+  );
+}
+
+function UnknownExecution({
+  environmentId,
+  executionId,
+  title,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly executionId: string;
+  readonly title: string;
+}) {
+  const resolve = useAtomCommand(
+    serverEnvironment.factoryResolveExecution,
+    "Record Factory action result",
+  );
+  const allowed = useAtomValue(
+    serverEnvironment.factoryResolveExecution.permissionAtom(environmentId),
+  );
+  const record = (state: "succeeded" | "failed") =>
+    void resolve({ environmentId, input: { id: executionId, state } });
+  return (
+    <View accessibilityRole="alert" className="gap-2 rounded-xl border border-danger-border p-4">
+      <Text className="text-danger">
+        {title} has an unknown result. Check the host, then record what happened.
+      </Text>
+      <View className="flex-row gap-2">
+        <Button
+          label="It did not happen"
+          tone="secondary"
+          disabled={!allowed}
+          onPress={() => record("failed")}
+        />
+        <Button
+          label="It happened"
+          tone="secondary"
+          disabled={!allowed}
+          onPress={() => record("succeeded")}
+        />
+      </View>
     </View>
   );
 }

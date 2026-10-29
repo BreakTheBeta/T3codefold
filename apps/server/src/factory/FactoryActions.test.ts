@@ -175,6 +175,33 @@ it.effect(
     }).pipe(Effect.provide(ActionTestLayer)),
 );
 
+it.effect("only an unknown outcome can be resolved, and only once", () =>
+  Effect.gen(function* () {
+    const store = yield* Store.FactoryStore;
+    const actions = yield* Actions.FactoryActions;
+    const execution = {
+      id: "exec:stuck",
+      version: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      cardId: "publish",
+      cardRevision: 1,
+      optionId: "A",
+      payloadSha256: "sha",
+      state: "unknown" as const,
+      result: "remote rejected",
+    };
+    yield* store.transaction(store.put("executions", execution));
+    const resolved = yield* actions.resolve(execution.id, "failed");
+    assert.equal(resolved.state, "failed");
+    assert.include(resolved.result, "remote rejected");
+    assert.include(resolved.result, "Resolved by the user as failed.");
+    const again = yield* actions.resolve(execution.id, "succeeded").pipe(Effect.exit);
+    assert.isTrue(Exit.isFailure(again));
+    assert.equal((yield* store.get("executions", execution.id))?.state, "failed");
+  }).pipe(Effect.provide(ActionTestLayer)),
+);
+
 const actionPersistence = Queue.layer.pipe(
   Layer.provideMerge(enabledControl),
   Layer.provideMerge(Store.layer),

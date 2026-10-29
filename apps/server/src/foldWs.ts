@@ -76,6 +76,8 @@ export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (
         ? Effect.fail(new FactoryError({ code: "invalid" }))
         : factory.wakes.defer({ kind: "user" }, input.wakeId, input.until),
     [WS_METHODS.factoryCancelLaneJob]: (input) => factory.lanes.cancel({ kind: "user" }, input.id),
+    [WS_METHODS.factoryResolveExecution]: (input) =>
+      factory.actions.resolve(input.id, input.state).pipe(Effect.asVoid),
 
     [WS_METHODS.fleetConnect]: (connect) =>
       Stream.unwrap(fleetBroker.connect(input.sessionId, connect)),

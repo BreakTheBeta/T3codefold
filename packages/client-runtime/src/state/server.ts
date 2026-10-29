@@ -1215,6 +1215,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "factory:CancelLaneJob",
       tag: WS_METHODS.factoryCancelLaneJob,
     }),
+    factoryResolveExecution: createEnvironmentRpcCommand(runtime, {
+      label: "factory:ResolveExecution",
+      tag: WS_METHODS.factoryResolveExecution,
+    }),
 
     runStorageCleanup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:run-storage-cleanup",

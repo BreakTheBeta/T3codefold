@@ -9,7 +9,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { FactoryControl } from "./FactoryControl.ts";
 import { FactoryStore } from "./FactoryStore.ts";
-import { prepareFactoryPush } from "./FactoryPush.ts";
+import { prepareFactoryPush, type FactoryPushRemote } from "./FactoryPush.ts";
 import { canonicalAction, ownerPayload } from "./FactoryDecisions.ts";
 import { callerAgent, type FactoryActor } from "./access.ts";
 import * as Processes from "../processRunner.ts";
@@ -36,6 +36,10 @@ export class FactoryActions extends Context.Service<
     readonly execute: (
       actor: FactoryActor,
       cardId: string,
+    ) => Effect.Effect<FactoryExecution, FactoryError>;
+    readonly resolve: (
+      executionId: string,
+      state: "succeeded" | "failed",
     ) => Effect.Effect<FactoryExecution, FactoryError>;
     readonly recover: Effect.Effect<void, FactoryError>;
   }
@@ -147,7 +151,7 @@ const make = Effect.gen(function* () {
         const api = `repos/${envelope.repository}`;
         let command = "gh";
         let args: string[];
-        let verifyPush: Effect.Effect<boolean, FactoryError> | undefined;
+        let verifyPush: Effect.Effect<FactoryPushRemote, FactoryError> | undefined;
         switch (request.type) {
           case "push": {
             const push = yield* prepareFactoryPush(
@@ -313,9 +317,9 @@ const make = Effect.gen(function* () {
           outputMode: "truncate",
         })
         .pipe(Effect.result);
-      const verified = verifyPush
-        ? yield* verifyPush.pipe(Effect.orElseSucceed(() => false))
-        : true;
+      const remote = verifyPush
+        ? yield* verifyPush.pipe(Effect.orElseSucceed(() => "unchecked" as const))
+        : undefined;
       return yield* store.transaction(
         Effect.gen(function* () {
           const latest = yield* store.get("executions", executing.id);
@@ -326,16 +330,41 @@ const make = Effect.gen(function* () {
             ...latest,
             updatedAt: DateTime.toEpochMillis(yield* DateTime.now),
             state:
-              result._tag === "Failure" || !verified
+              result._tag === "Failure"
                 ? "unknown"
-                : factoryActionOutcome(envelope.kind, result.success),
+                : remote === undefined || remote === "applied"
+                  ? factoryActionOutcome(envelope.kind, result.success)
+                  : // An unchanged ref after a completed, refused push proves nothing landed.
+                    remote === "unchanged" && result.success.code !== 0 && !result.success.timedOut
+                    ? "failed"
+                    : "unknown",
             result:
               result._tag === "Failure"
                 ? "External outcome unknown; reconcile on the host before any new action."
-                : `${result.success.stdout}\n${result.success.stderr}${verifyPush ? `\nApproved remote head verified: ${verified}` : ""}`.slice(
+                : `${result.success.stdout}\n${result.success.stderr}${remote ? `\nRemote after push: ${remote}` : ""}`.slice(
                     0,
                     16_384,
                   ),
+          });
+        }),
+      );
+    },
+  );
+  // User-only: a human checked the host and records what actually happened.
+  const resolve: FactoryActions["Service"]["resolve"] = Effect.fn("FactoryActions.resolve")(
+    function* (executionId, state) {
+      return yield* store.transaction(
+        Effect.gen(function* () {
+          const latest = yield* store.get("executions", executionId);
+          if (!latest) return yield* new FactoryError({ code: "not-found", entityId: executionId });
+          if (latest.state !== "unknown")
+            return yield* new FactoryError({ code: "conflict", entityId: executionId });
+          const note = `\nResolved by the user as ${state}.`;
+          return yield* store.put("executions", {
+            ...latest,
+            state,
+            updatedAt: DateTime.toEpochMillis(yield* DateTime.now),
+            result: `${latest.result.slice(0, 16_384 - note.length)}${note}`,
           });
         }),
       );
@@ -355,6 +384,6 @@ const make = Effect.gen(function* () {
           });
     }),
   );
-  return FactoryActions.of({ execute, recover });
+  return FactoryActions.of({ execute, resolve, recover });
 });
 export const layer = Layer.effect(FactoryActions, make);

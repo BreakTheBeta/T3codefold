@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import { ProcessRunner, type ProcessRunOutput } from "../processRunner.ts";
 
+export type FactoryPushRemote = "applied" | "unchanged" | "moved";
 type PushRequest = Extract<FactoryActionEnvelope["request"], { readonly type: "push" }>;
 const complete = (result: ProcessRunOutput) =>
   !result.timedOut &&
@@ -132,6 +133,14 @@ export const prepareFactoryPush = Effect.fn("FactoryActions.preparePush")(functi
       url,
       `${request.newOid}:${request.destinationRef}`,
     ],
-    verify: remoteHead().pipe(Effect.map((head) => head === request.newOid)),
+    verify: remoteHead().pipe(
+      Effect.map((head): FactoryPushRemote =>
+        head === request.newOid
+          ? "applied"
+          : head === request.expectedOldOid
+            ? "unchanged"
+            : "moved",
+      ),
+    ),
   };
 });

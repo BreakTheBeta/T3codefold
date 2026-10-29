@@ -56,6 +56,7 @@ export const FOLD_WS_METHODS = {
   factoryRetryWake: "factory.retryWake",
   factoryDeferWake: "factory.deferWake",
   factoryCancelLaneJob: "factory.cancelLaneJob",
+  factoryResolveExecution: "factory.resolveExecution",
 
   // Fleet: orchestration across a client's connected environments
   fleetConnect: "fleet.connect",
@@ -197,6 +198,12 @@ const factoryCancelLaneJobRpc = Rpc.make(FOLD_WS_METHODS.factoryCancelLaneJob, {
   error: FactoryRpcError,
 });
 
+const factoryResolveExecutionRpc = Rpc.make(FOLD_WS_METHODS.factoryResolveExecution, {
+  payload: Schema.Struct({ id: Schema.String, state: Schema.Literals(["succeeded", "failed"]) }),
+  success: Schema.Void,
+  error: FactoryRpcError,
+});
+
 export const FoldRpcGroup = RpcGroup.make(
   factorySubscribeBoardRpc,
   factorySetEnabledRpc,
@@ -211,6 +218,7 @@ export const FoldRpcGroup = RpcGroup.make(
   factoryRetryWakeRpc,
   factoryDeferWakeRpc,
   factoryCancelLaneJobRpc,
+  factoryResolveExecutionRpc,
 
   WsFleetConnectRpc,
   WsFleetRespondRpc,

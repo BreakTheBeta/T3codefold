@@ -38,7 +38,11 @@ const services = (threads: Partial<ThreadManagementService["Service"]>) =>
         withdraw: unexpectedFactoryCall,
         payload: unexpectedFactoryCall,
       },
-      actions: { execute: unexpectedFactoryCall, recover: unexpectedFactoryCall() },
+      actions: {
+        execute: unexpectedFactoryCall,
+        resolve: unexpectedFactoryCall,
+        recover: unexpectedFactoryCall(),
+      },
       triggers: {
         upsert: unexpectedFactoryCall,
         run: unexpectedFactoryCall,

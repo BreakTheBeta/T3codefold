@@ -87,6 +87,8 @@ const cases = [
   "race",
   "unknown",
   "verification-mismatch",
+  "rejected",
+  "new-ref-rejected",
 ] as const;
 
 it.live.each(cases)("ordinary push: %s", (scenario) =>
@@ -134,7 +136,7 @@ it.live.each(cases)("ordinary push: %s", (scenario) =>
       yield* git(["config", "url.https://example.invalid/.pushInsteadOf", "https://github.com/"]);
     if (scenario === "push-url-masked")
       yield* git(["config", "remote.origin.pushurl", "https://github.com/acme/app.git"]);
-    let remote: string | null = ["new-ref", "new-ref-race"].includes(scenario)
+    let remote: string | null = ["new-ref", "new-ref-race", "new-ref-rejected"].includes(scenario)
       ? null
       : ["non-fast-forward", "graft-disguise", "replacement-disguise"].includes(scenario)
         ? c
@@ -164,6 +166,7 @@ it.live.each(cases)("ordinary push: %s", (scenario) =>
             const expected = scenario.startsWith("new-ref") ? "" : a;
             assert.include(input.args, `--force-with-lease=refs/heads/main:${expected}`);
             postRead = true;
+            if (scenario.endsWith("rejected")) return output("remote rejected", 1);
             if (["race", "new-ref-race"].includes(scenario)) remote = c;
             if (remote !== (expected || null)) return output("stale lease", 1);
             remote = b;
@@ -275,6 +278,11 @@ it.live.each(cases)("ordinary push: %s", (scenario) =>
         if (Exit.isSuccess(result)) assert.equal(result.value.state, "succeeded");
         assert.equal(remote, b);
         yield* actions.execute(actor, card.id);
+        assert.equal(pushes, 1);
+      } else if (["rejected", "new-ref-rejected"].includes(scenario)) {
+        assert.isTrue(Exit.isSuccess(result));
+        if (Exit.isSuccess(result)) assert.equal(result.value.state, "failed");
+        assert.equal(remote, scenario === "rejected" ? a : null);
         assert.equal(pushes, 1);
       } else if (["race", "new-ref-race", "unknown", "verification-mismatch"].includes(scenario)) {
         assert.isTrue(Exit.isSuccess(result));

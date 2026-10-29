@@ -25,6 +25,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.factoryRetryWake]: AuthOrchestrationOperateScope,
   [WS_METHODS.factoryDeferWake]: AuthOrchestrationOperateScope,
   [WS_METHODS.factoryCancelLaneJob]: AuthOrchestrationOperateScope,
+  [WS_METHODS.factoryResolveExecution]: AuthOrchestrationOperateScope,
 
   [WS_METHODS.previewClose]: AuthPreviewOperateScope,
   [WS_METHODS.serverRunStorageCleanup]: AuthSettingsWriteScope,

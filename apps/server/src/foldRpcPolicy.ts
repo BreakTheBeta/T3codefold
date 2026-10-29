@@ -25,6 +25,7 @@ export const FOLD_RPC_REQUIRED_SCOPES = {
   [WS_METHODS.factoryRetryWake]: AuthOrchestrationOperateScope,
   [WS_METHODS.factoryDeferWake]: AuthOrchestrationOperateScope,
   [WS_METHODS.factoryCancelLaneJob]: AuthOrchestrationOperateScope,
+  [WS_METHODS.factoryResolveExecution]: AuthOrchestrationOperateScope,
 
   [WS_METHODS.providerRealtimeVoiceStart]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerRealtimeVoiceStop]: AuthOrchestrationOperateScope,
@@ -53,6 +54,7 @@ export const FOLD_RPC_AGGREGATES = {
   [WS_METHODS.factoryRetryWake]: "factory",
   [WS_METHODS.factoryDeferWake]: "factory",
   [WS_METHODS.factoryCancelLaneJob]: "factory",
+  [WS_METHODS.factoryResolveExecution]: "factory",
 
   [WS_METHODS.fleetConnect]: "fleet",
   [WS_METHODS.fleetRespond]: "fleet",
