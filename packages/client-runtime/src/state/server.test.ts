@@ -13,6 +13,7 @@ import {
   type ServerLifecycleWelcomePayload,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { FOLD_REPOSITORY } from "@t3tools/shared/foldRelease";
 import { describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -249,7 +250,11 @@ describe("accepted server update recovery", () => {
         environment: {
           ...CONFIG.environment,
           serverVersion: "0.0.30",
-          capabilities: { serverSelfUpdate: method, serverSelfUpdateProgress: true },
+          capabilities: {
+            serverSelfUpdate: method,
+            serverSelfUpdateProgress: true,
+            updateRepository: FOLD_REPOSITORY,
+          },
         },
       } as ServerConfig;
       const client = {

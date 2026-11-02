@@ -357,6 +357,7 @@ describe("updateOutdatedHost", () => {
           repositoryIdentity: true,
           serverSelfUpdate: "boot-service",
           serverSelfUpdateProgress: true,
+          updateRepository: FOLD_REPOSITORY,
         },
       };
       const entries = yield* SubscriptionRef.make<
