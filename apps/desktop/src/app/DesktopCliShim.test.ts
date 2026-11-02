@@ -83,7 +83,8 @@ describe("renderCliShim", () => {
     });
     expect(run(shim, []).stdout).toContain(`home=${root}/home`);
     expect(run(shim, [], { T3CODE_HOME: "/elsewhere" }).stdout).toContain("home=/elsewhere");
-    const relative = NodeChildProcess.spawnSync("./bin/t3", [], {
+    // A shell resolves the relative path in cwd; the task runner's spawn tracer does not.
+    const relative = NodeChildProcess.spawnSync("/bin/sh", ["-c", "./bin/t3"], {
       cwd: root,
       encoding: "utf8",
       env: { PATH: process.env.PATH, TMPDIR: NodeOS.tmpdir() },
