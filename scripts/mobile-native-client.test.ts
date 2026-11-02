@@ -113,7 +113,8 @@ it.layer(NodeServices.layer)("android jdk resolution", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "jdk-" });
+      // javac is located through realpath, and macOS temp directories sit behind /var -> /private/var.
+      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped({ prefix: "jdk-" }));
       const jre = yield* makeJvm(root, "jre-25", false);
       const jdk = yield* makeJvm(root, "jdk-17", true);
 
