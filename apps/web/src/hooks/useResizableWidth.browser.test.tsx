@@ -89,10 +89,10 @@ describe("useResizableWidth", () => {
     try {
       // This hook only needs browser storage and React; no navigation is involved.
       await using screen = await render(<ClampPanel />, { router: false });
-      await act(() => screen.getByRole("button", { name: "Maximum" }).click());
+      await screen.getByRole("button", { name: "Maximum" }).click();
       await expect.element(screen.getByLabelText("Panel width")).toHaveTextContent("560");
       expect(localStorage.getItem(STORAGE_KEY)).toBe("560");
-      await act(() => screen.getByRole("button", { name: "Minimum" }).click());
+      await screen.getByRole("button", { name: "Minimum" }).click();
       await expect.element(screen.getByLabelText("Panel width")).toHaveTextContent("160");
       expect(localStorage.getItem(STORAGE_KEY)).toBe("160");
     } finally {

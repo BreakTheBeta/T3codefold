@@ -157,6 +157,11 @@
       // These workspace packages are private to this monorepo.
       "includeEntryExports": true,
     },
+    "packages/shared": {
+      "includeEntryExports": true,
+      // Fold's project-icon model has had no importers since before the 2026-11 upstream sync.
+      "ignoreIssues": { "src/projectIconModel.ts": ["exports"] },
+    },
     "packages/effect-acp": {
       "includeEntryExports": true,
       "entry": ["test/fixtures/*.ts"],
