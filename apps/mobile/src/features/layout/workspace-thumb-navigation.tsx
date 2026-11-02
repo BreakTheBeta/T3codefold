@@ -113,6 +113,7 @@ export function useWorkspaceThumbActions(input: {
     threads: Array<{ environmentId: string; threadId: string }>;
     index: number;
   }>({ threads: [], index: -1 });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records the active thread in the thumb-gesture back/forward history
   useEffect(() => {
     if (!activeThread) return;
     const history = recentThreads.current;

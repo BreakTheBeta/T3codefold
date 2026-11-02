@@ -10,12 +10,14 @@ import { OrchestratorToolkit } from "./tools.ts";
 import * as Effect from "effect/Effect";
 
 import { routeIfRemote } from "../../fleet/route.ts";
+import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
+import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
+import * as PeerLinks from "../../../peer/PeerLinks.ts";
 import { readCaller } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
-import { startThread } from "./threadStart.ts";
 
 const handlers = {
   orchestrator_capabilities: McpToolAccess.reads((input) =>
@@ -103,6 +105,8 @@ const handlers = {
           const service = yield* OrchestratorMcpService.OrchestratorMcpService;
           return yield* service.scheduleTask(scope, { ...input, prompt, schedule });
         }),
+      // A scheduled run starts long after its caller, with nothing to carry the link.
+      { refused: "schedule tasks in this environment" },
     ),
     McpToolAccess.writes(
       ({ scheduledTaskId, prompt, title, schedule, enabled, bindToCurrentThread }) =>
@@ -149,14 +153,6 @@ const handlers = {
       return yield* service.createThreads(scope, input);
     }),
   ),
-  // An alias of t3_thread_launch, declared like it; "inherit" means the caller's own modes.
-  t3_thread_start: McpToolAccess.startsThreads(
-    (input) => ({
-      runtimeMode: input.runtimeMode === "inherit" ? undefined : input.runtimeMode,
-      interactionMode: input.interactionMode === "inherit" ? undefined : input.interactionMode,
-    }),
-    (input) => startThread(input),
-  ),
   t3_thread_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
@@ -198,17 +194,41 @@ const handlers = {
       return yield* service.waitForThread(scope, input);
     }).pipe(routeIfRemote("t3_thread_wait", input, OrchestratorMcpThreadWaitResult)),
   ),
+  t3_environment_links: McpToolAccess.reads(() =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const forwarding = yield* PeerForwarding.PeerForwarding;
+      return yield* forwarding.links(scope);
+    }),
+  ),
+  // A link lets every agent here reach the other environment, so it is an
+  // environment setting: full access, and never for linked work.
+  t3_environment_link: McpToolAccess.writesEnvironment((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const requests = yield* PeerLinkRequests.PeerLinkRequests;
+      return yield* requests.request(scope, input);
+    }),
+  ),
+  t3_environment_unlink: McpToolAccess.writesEnvironment(({ environmentId }) =>
+    Effect.gen(function* () {
+      const links = yield* PeerLinks.PeerLinks;
+      const removed = yield* links
+        .unlink(environmentId)
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
+          ),
+        );
+      return { environmentId, removed };
+    }),
+  ),
   t3_thread_interrupt: McpToolAccess.writesThreads(
     (input) => [input.threadId],
     (input) =>
       Effect.gen(function* () {
         const scope = yield* McpInvocationContext.McpInvocationContext;
-        // Fleet does not relay interrupts; never let a remote id act on a local thread.
-        if (input.environmentId !== undefined && input.environmentId !== scope.environmentId)
-          return yield* new OrchestratorMcpFailure({
-            code: "invalid_request",
-            message: "t3_thread_interrupt acts only on threads in this environment.",
-          });
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
         return yield* service.interruptThread(scope, input);
       }),

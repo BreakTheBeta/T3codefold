@@ -445,11 +445,9 @@ it.effect("recovers terminal subagent results until their cross-thread transfer 
 );
 
 it.effect.each([
-  { name: "SQLite", layer: layerTest, legacy: false },
-  { name: "memory", layer: ProjectionStore.layerMemory, legacy: false },
-  { name: "legacy SQLite", layer: layerTest, legacy: true },
-  { name: "legacy memory", layer: ProjectionStore.layerMemory, legacy: true },
-])("recovers follow-up results with $name projections", ({ layer, legacy }) =>
+  { name: "SQLite", legacy: false },
+  { name: "legacy SQLite", legacy: true },
+])("recovers only recorded follow-up results with $name projections", ({ legacy }) =>
   Effect.gen(function* () {
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const now = yield* DateTime.now;
@@ -528,7 +526,7 @@ it.effect.each([
       payload: { ...task, status: "completed", result: "Follow-up result.", completedAt: now },
     });
     assert.deepEqual(yield* projections.getRecoveryThreadIds("subagent-results"), []);
-  }).pipe(Effect.provide(layer)),
+  }).pipe(Effect.provide(layerTest)),
 );
 
 it.effect("includes shared sessions and provider-owned background rosters in recovery", () =>

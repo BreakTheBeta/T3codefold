@@ -139,7 +139,7 @@ import {
   isWorkspaceOverlayRoute,
   registerPresentedRoutes,
 } from "./features/layout/workspace-overlay-routes";
-import { ShowcaseCaptureCoordinator } from "./features/showcase/ShowcaseCaptureCoordinator";
+import { ShowcaseReadyMarker } from "./features/showcase/ShowcaseCaptureCoordinator";
 import {
   SettingsLegalDocumentCloseHeaderButton,
   SettingsLegalDocumentExternalHeaderButton,
@@ -499,12 +499,16 @@ export function workspaceLocationFromState(state: NavigationState) {
   };
 }
 
+export function rootPathnameFromState(state: NavigationState): string {
+  const path = getPathFromState(state, navigationPathConfig);
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
 function RootStackLayout(props: {
   readonly children: React.ReactNode;
   readonly state: NavigationState;
 }) {
-  const path = getPathFromState(props.state, navigationPathConfig);
-  const pathname = path.startsWith("/") ? path : `/${path}`;
+  const pathname = rootPathnameFromState(props.state);
   const workspaceLocation = workspaceLocationFromState(props.state);
   const settingsOpen = settingsOpenIn(
     props.state.routes
@@ -533,7 +537,7 @@ function RootStackLayout(props: {
       {/* Outside the keyboard provider: Fold's hardware shortcuts switch workspace tabs. */}
       <AndroidWorkspaceTabsProvider state={props.state}>
         <HardwareKeyboardCommandProvider pathname={pathname}>
-          <ShowcaseCaptureCoordinator pathname={pathname} />
+          <ShowcaseReadyMarker />
           <SettingsEnvironmentFilterProvider open={settingsOpen}>
             <WorkspaceConnectionStatusProvider>
               <AdaptiveWorkspaceLayout
@@ -1016,6 +1020,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
         ...HORIZONTAL_FORM_SHEET_OPTIONS,
         sheetAllowedDetents: [0.55, 0.7],
         sheetGrabberVisible: true,
+        sheetCornerRadius: Platform.OS === "android" ? 28 : undefined,
       },
     }),
     NotFound: createNativeStackScreen({

@@ -1,7 +1,7 @@
 import { WorkspaceNoTabs } from "./WorkspaceNoTabs";
 import { useEnabledNavigationTabs } from "./navigation-tabs";
 import { NAVIGATION_TAB_ORDER } from "./navigation-tab-order";
-import { useMemo, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
@@ -20,10 +20,11 @@ export function AndroidWorkspaceSidebar(props: {
   const enabled = useEnabledNavigationTabs();
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
-  const context = useMemo(
-    () => ({ ...workspace, bottomClearance: Math.max(insets.bottom, 12) + fabClearance + 16 }),
-    [workspace, insets.bottom, fabClearance],
-  );
+  // Fold's split sidebar keeps the New thread FAB instead of upstream's floating tabs.
+  const context = {
+    ...workspace,
+    bottomClearance: Math.max(insets.bottom, 12) + fabClearance + 16,
+  };
   if (enabled.length === 0) return <WorkspaceNoTabs />;
   return (
     <WorkspaceTabPanes

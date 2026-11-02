@@ -24,6 +24,7 @@ export function WorkspaceSidebarColumn(props: {
   // Only a toggle reveals; unfolding into a visible sidebar shows it at once.
   const reveal = useSharedValue(1);
   const wasShown = useRef(shown);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- animates the Reanimated sidebar reveal when it is shown again
   useEffect(() => {
     if (shown && !wasShown.current) {
       reveal.value = 0;

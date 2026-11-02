@@ -46,6 +46,7 @@ export function FoldWorkspacePaneDivider(props: WorkspacePaneDividerProps) {
   // so it never jumps back to the old edge for a frame. The release count
   // covers a release the layout clamps back to the same width.
   const [releaseCount, setReleaseCount] = useState(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- resets the Reanimated divider drag offset after the pane width settles
   useEffect(() => {
     translationX.value = 0;
   }, [props.width, props.maximized, releaseCount, translationX]);

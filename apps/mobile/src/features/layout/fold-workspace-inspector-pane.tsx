@@ -79,6 +79,7 @@ export function FoldWorkspaceInspectorPane(props: {
     if (exitGeneration.current === generation) setRetainedInspector(null);
   }, []);
   const reveal = useSharedValue(visible ? 1 : 0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- animates the Reanimated inspector reveal when visibility changes
   useLayoutEffect(() => {
     const generation = ++exitGeneration.current;
     const releaseRegistration = props.renderInspector === undefined;

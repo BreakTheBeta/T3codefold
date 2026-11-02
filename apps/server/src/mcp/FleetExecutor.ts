@@ -26,7 +26,8 @@ import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { FleetRouter } from "./FleetRouter.ts";
 import { McpInvocationContext, type McpInvocationScope } from "./McpInvocationContext.ts";
 import * as McpToolAccess from "./McpToolAccess.ts";
-import { OrchestratorMcpService, resolveInteractionMode } from "./OrchestratorMcpService.ts";
+import { resolveInteractionMode } from "./delegatedTaskModes.ts";
+import { OrchestratorMcpService } from "./OrchestratorMcpService.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 
