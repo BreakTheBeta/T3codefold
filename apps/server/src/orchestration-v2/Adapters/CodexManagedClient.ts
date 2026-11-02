@@ -1,4 +1,5 @@
 import type { ProviderSetupError } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
@@ -15,6 +16,8 @@ interface Connection {
   readonly scope: Scope.Closeable;
   readonly client: Client;
   readonly revision: string;
+  /** Completes when rotation replaces this connection, so its exit is not the session's. */
+  readonly retired: Deferred.Deferred<void>;
 }
 
 function responseThreadId(response: unknown): string | undefined {
@@ -62,7 +65,8 @@ export const makeManagedCodexClient = Effect.fn("makeManagedCodexClient")(functi
     function* (scope: Scope.Closeable, runtime: CodexEffectiveRuntime) {
       const client = yield* input.open(runtime);
       yield* trackTurns(client);
-      return { scope, client, revision: runtime.revision } satisfies Connection;
+      const retired = yield* Deferred.make<void>();
+      return { scope, client, revision: runtime.revision, retired } satisfies Connection;
     },
     (effect, scope) =>
       effect.pipe(
@@ -102,6 +106,7 @@ export const makeManagedCodexClient = Effect.fn("makeManagedCodexClient")(functi
         const next = yield* openIn(scope, runtime);
         const previous = current;
         current = next;
+        yield* Deferred.succeed(previous.retired, undefined);
         yield* Scope.close(previous.scope, Exit.void);
         for (const registration of registrations) yield* registration(next.client);
         for (const step of initialization) yield* step(next.client);
@@ -157,7 +162,17 @@ export const makeManagedCodexClient = Effect.fn("makeManagedCodexClient")(functi
     return response;
   });
 
+  // The session ends when its current process does; a process rotated away ends quietly.
+  const awaitTermination: Client["awaitTermination"] = Effect.suspend(() => {
+    const connection = current;
+    return Effect.raceFirst(
+      connection.client.awaitTermination,
+      Deferred.await(connection.retired).pipe(Effect.andThen(awaitTermination)),
+    );
+  });
+
   return {
+    awaitTermination,
     raw: {
       get notifications() {
         return current.client.raw.notifications;

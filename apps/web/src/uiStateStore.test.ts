@@ -19,7 +19,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
-    sidebarProjectScopeKey: null,
+    sidebarProjectScopeKeys: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -125,7 +125,7 @@ describe("parsePersistedState", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
-      sidebarProjectScopeKey: null,
+      sidebarProjectScopeKeys: [],
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -230,6 +230,7 @@ describe("uiStateStore persistence", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+      sidebarProjectScopeKeys: [],
       sidebarProjectScopeKey: null,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
@@ -245,16 +246,35 @@ describe("uiStateStore persistence", () => {
     });
   });
 
-  it.each(["github.com/pingdotgg/t3code", "machine:env-remote"])(
-    "restores sidebar scope %s across reloads",
-    (key) => {
-      persistState(makeUiState({ sidebarProjectScopeKey: key }));
+  it("restores the sidebar project and machine scope across reloads", () => {
+    const keys = [
+      "github.com/pingdotgg/t3code",
+      "github.com/pingdotgg/uploadthing",
+      "machine:env-remote",
+    ];
+    persistState(makeUiState({ sidebarProjectScopeKeys: keys }));
 
-      const persisted = JSON.parse(
-        localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
-      ) as PersistedUiState;
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
 
-      expect(parsePersistedState(persisted).sidebarProjectScopeKey).toBe(key);
-    },
-  );
+    expect(parsePersistedState(persisted).sidebarProjectScopeKeys).toEqual(keys);
+  });
+
+  it("keeps a single-project scope readable by older clients", () => {
+    persistState(makeUiState({ sidebarProjectScopeKeys: ["github.com/pingdotgg/t3code"] }));
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+
+    expect(persisted.sidebarProjectScopeKey).toBe("github.com/pingdotgg/t3code");
+  });
+
+  it("restores a single-project scope saved before multi-project filtering", () => {
+    expect(
+      parsePersistedState({ sidebarProjectScopeKey: "github.com/pingdotgg/t3code" })
+        .sidebarProjectScopeKeys,
+    ).toEqual(["github.com/pingdotgg/t3code"]);
+  });
 });

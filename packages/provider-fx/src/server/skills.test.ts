@@ -63,7 +63,10 @@ describe("discoverFxSkills", () => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-fx-skills-home-" });
+      // macOS temp directories sit behind the /var -> /private/var symlink; fx reports real paths.
+      const home = yield* fileSystem.realPath(
+        yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-fx-skills-home-" }),
+      );
       const workspace = path.join(home, "app");
       const writeSkillFile = (folder: string, contents: string) =>
         fileSystem
@@ -168,7 +171,9 @@ describe("discoverFxSkills", () => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-fx-skills-home-" });
+      const home = yield* fileSystem.realPath(
+        yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-fx-skills-home-" }),
+      );
       for (const [root, name] of [
         ["dotfiles/fx-skills", "managed"],
         [".claude/skills", "compat"],

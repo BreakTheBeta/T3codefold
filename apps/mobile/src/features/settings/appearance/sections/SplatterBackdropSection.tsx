@@ -8,7 +8,7 @@ import {
   MIN_THEME_BACKDROP_AMOUNT,
   MIN_THEME_BACKDROP_INTENSITY,
 } from "@t3tools/contracts";
-import { SettingsActionRow } from "../../components/SettingsActionRow";
+import { ListActionRow as SettingsActionRow } from "../../../../components/ui/ListActionRow";
 import { SettingsSection } from "../../components/SettingsSection";
 import { SettingsSwitchRow } from "../../components/SettingsSwitchRow";
 import { FontSizeSliderRow } from "../components/FontSizeSliderRow";

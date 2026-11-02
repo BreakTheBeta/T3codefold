@@ -19,7 +19,7 @@ export function countGlyphs(text: string): number {
   return Array.from(text.replace(/\p{M}/gu, "")).length;
 }
 
-export function projectMonogram(projectName: string): string {
+function projectMonogram(projectName: string): string {
   const words =
     projectName
       .normalize("NFKC")
@@ -37,7 +37,7 @@ export function projectMonogram(projectName: string): string {
   return Array.from(`${first}${second}`.toUpperCase()).slice(0, 2).join("");
 }
 
-export function projectMonogramColor(projectName: string): ProjectIconColor {
+function projectMonogramColor(projectName: string): ProjectIconColor {
   const seed = projectName.normalize("NFKC").trim().toLocaleLowerCase("en-US") || "project";
   let index = 0;
   for (const glyph of seed) {

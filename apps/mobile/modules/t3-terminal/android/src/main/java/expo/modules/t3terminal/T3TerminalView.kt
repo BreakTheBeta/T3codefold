@@ -120,6 +120,8 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   private var applicationCursorKeys = false
   private var cols = 0
   private var rows = 0
+  private var measuredCols = 0
+  private var measuredRows = 0
   private var clearingInput = false
   private var isCleanedUp = false
   private var backgroundColorValue = Color.parseColor("#24292E")
@@ -136,12 +138,16 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       recreateTerminal()
     }
 
+  // Expo sets a batch's props in no fixed order, so the buffer waits for the whole batch:
+  // output fed before the same batch's sharedGrid lands would be drawn, and clipped, at the
+  // previous grid.
   var initialBuffer: String = ""
     set(value) {
       if (field == value) return
       field = value
-      feedPendingBuffer()
+      hasPendingBuffer = true
     }
+  private var hasPendingBuffer = false
 
   var fontSize: Float = 10f
     set(value) {
@@ -153,6 +159,17 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     }
 
   var appearanceScheme: String = "dark"
+
+  // The PTY grid shared by every attached client, or empty before the server reports one.
+  // The terminal draws this grid, clamped to the view's own fit (the server's grid lags a
+  // local resize, and read-only observers never constrain it), so its wrapping and cursor
+  // match the PTY; the view's own fit still goes out through onResize.
+  var sharedGrid: List<Int> = emptyList()
+    set(value) {
+      if (field == value) return
+      field = value
+      applyGrid()
+    }
 
   var themeConfig: String = ""
     set(value) {
@@ -321,26 +338,12 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
       InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
     inputView.setPadding(0, 0, 0, 0)
-    inputView.setOnEditorActionListener { _, actionId, event ->
-      if (readOnly) return@setOnEditorActionListener true
-      // A single-line EditText moves focus to the next view on an unconsumed hardware
-      // Enter key-up, which would leave the terminal deaf to the next keys.
-      if (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP) {
-        return@setOnEditorActionListener true
-      }
-      val isKeyUp = event?.action == KeyEvent.ACTION_UP
-      val isImeSend = actionId == EditorInfo.IME_ACTION_SEND && !isKeyUp
-      val isHardwareEnter = event?.keyCode == KeyEvent.KEYCODE_ENTER &&
-        event.action == KeyEvent.ACTION_DOWN
-      val isEnter = isImeSend || isHardwareEnter
-      if (isEnter) {
+    inputView.setOnEditorActionListener(
+      TerminalEnterListener({ readOnly }) {
         // Enter must send CR: raw-mode TUIs treat LF as Ctrl+J (insert newline).
         onInput(mapOf("data" to "\r"))
-        true
-      } else {
-        false
-      }
-    }
+      },
+    )
     inputView.setOnKeyListener { _, keyCode, event ->
       if (readOnly) return@setOnKeyListener true
       when {
@@ -410,6 +413,19 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     val nextRows = (terminalCanvas.usableHeight() / terminalCanvas.cellHeightPx)
       .toInt()
       .coerceIn(2, 200)
+    if (nextCols != measuredCols || nextRows != measuredRows) {
+      measuredCols = nextCols
+      measuredRows = nextRows
+      onResize(mapOf("cols" to measuredCols, "rows" to measuredRows))
+    }
+    applyGrid()
+  }
+
+  private fun applyGrid() {
+    if (measuredCols <= 0 || measuredRows <= 0 || isCleanedUp) return
+    val shared = sharedGrid.takeIf { it.size == 2 && it[0] > 0 && it[1] > 0 }
+    val nextCols = shared?.get(0)?.coerceAtMost(measuredCols) ?: measuredCols
+    val nextRows = shared?.get(1)?.coerceAtMost(measuredRows) ?: measuredRows
     if (nextCols == cols && nextRows == rows && terminalHandle != 0L) return
     cols = nextCols
     rows = nextRows
@@ -426,8 +442,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       )
     }
     emitResponse(response)
-    onResize(mapOf("cols" to cols, "rows" to rows))
-    feedPendingBuffer()
+    if (!hasPendingBuffer) feedPendingBuffer()
     renderSnapshot()
   }
 
@@ -453,7 +468,7 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     if (terminalHandle == 0L) return
     destroyTerminal()
     createTerminal()
-    feedPendingBuffer()
+    if (!hasPendingBuffer) feedPendingBuffer()
     renderSnapshot()
   }
 
@@ -463,6 +478,12 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     terminalHandle = 0L
     fedBuffer = ""
     terminalCanvas.resetSelectionState()
+  }
+
+  fun applyPendingBuffer() {
+    if (!hasPendingBuffer) return
+    hasPendingBuffer = false
+    feedPendingBuffer()
   }
 
   private fun feedPendingBuffer() {

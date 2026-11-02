@@ -198,7 +198,15 @@ export const openCodexSessionClient = Effect.fn("CodexAdapterV2.openSessionClien
     const classifyManagedError = Effect.fn("classifyManagedError")(function* (value: unknown) {
       if (resolveRuntime === undefined) return undefined;
       const failure = classifyCodexManagedError(value);
-      if (failure?.revoke && onConnectionRevoked) yield* onConnectionRevoked;
+      // Upstream dropped the per-code `revoke` flag (every code was false); a code that
+      // carries one again still revokes.
+      if (
+        failure !== undefined &&
+        "revoke" in failure &&
+        failure.revoke === true &&
+        onConnectionRevoked
+      )
+        yield* onConnectionRevoked;
       return failure;
     });
     return { client, voices, classifyManagedError };

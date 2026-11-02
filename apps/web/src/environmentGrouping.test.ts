@@ -1,13 +1,17 @@
 import { EnvironmentId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { deriveLogicalProjectKeyFromSettings } from "./logicalProject";
+import {
+  deriveLogicalProjectKeyFromSettings,
+  pickableProjectGroups,
+} from "@t3tools/client-runtime/state/project-grouping";
 import {
   buildSidebarProjectPickerEntries,
   getSidebarScopeProjectKeys,
   sidebarMachineScopeKey,
   buildSidebarProjectSnapshots,
   resolveSidebarProjectScopeKey,
+  resolveSidebarProjectScopeKeys,
   getSidebarProjectSettingsKey,
 } from "./sidebarProjectGrouping";
 import type { Project } from "./types";
@@ -104,6 +108,14 @@ describe("environment grouping", () => {
         canClearMissingScope: true,
       }),
     ).toBe(key);
+    expect(
+      resolveSidebarProjectScopeKeys({
+        groups: [],
+        keys: [key, `machine:${primaryEnvironmentId}`],
+        environments: [{ environmentId: remoteEnvironmentId }],
+        canClearMissingScope: true,
+      }),
+    ).toEqual([key]);
   });
 
   it("opens physical scratch settings from the merged filter, including a remote thread target", () => {
@@ -336,5 +348,28 @@ describe("environment grouping", () => {
       environmentId: primaryEnvironmentId,
       id: fallbackPrimary.id,
     });
+  });
+
+  it("puts the preferred project after pinned projects", () => {
+    const project = (title: string, pinnedAt: string | null = null) =>
+      makeProject({
+        id: ProjectId.make(title),
+        title,
+        workspaceRoot: `/tmp/${title}`,
+        repositoryIdentity: null,
+        pinnedAt,
+      });
+    const current = project("current");
+    const groups = buildSidebarProjectSnapshots({
+      projects: [project("other"), project("pinned", "2026-01-01T00:00:00.000Z"), current],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+    const entries = buildSidebarProjectPickerEntries({
+      groups: pickableProjectGroups(groups),
+      preferredProjectRef: { environmentId: current.environmentId, projectId: current.id },
+    });
+    expect(entries.map((entry) => entry.group.displayName)).toEqual(["pinned", "current", "other"]);
   });
 });

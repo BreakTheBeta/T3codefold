@@ -20,7 +20,6 @@ const KNOWN_BAILOUTS: Record<string, string> = {
   "src/features/layout/fold-workspace-pane-divider.tsx": "mutates a frozen value",
   "src/features/layout/fold-workspace-sidebar-column.tsx": "ref read during render",
   "src/features/layout/use-fold-workspace-android-back.ts": "ref read during render",
-  "src/features/settings/SettingsNotificationsRouteScreen.tsx": "unsupported try/finally syntax",
   "src/features/threads/thread-list-drag.tsx": "ref read during render",
   "src/features/threads/use-ui-thread-drag.ts": "mutates a frozen value",
   "src/features/voice-input/VoiceWorkspaceProvider.tsx": "unsupported try/finally syntax",
@@ -190,6 +189,14 @@ describe("React Compiler coverage", () => {
     expect(
       compilerCachedCalls("src/features/threads/ThreadFeed.tsx", "deriveThreadFeedPresentation"),
     ).toEqual([true]);
+  });
+
+  // The compiler once silently dropped these caches, so the new-task context
+  // value changed on every provider render and re-rendered every consumer.
+  it("caches the new-task model options and host environments", () => {
+    const file = "src/features/threads/new-task-flow-provider.tsx";
+    expect(compilerCachedCalls(file, "buildModelOptions")).toEqual([true]);
+    expect(compilerCachedCalls(file, "repositoryGroupingKeyOf")).toEqual([true, true]);
   });
 
   // An uncached registration would re-register the workspace inspector on every render.
