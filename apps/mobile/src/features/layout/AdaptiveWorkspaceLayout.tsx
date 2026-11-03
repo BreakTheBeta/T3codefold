@@ -871,7 +871,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
             <AndroidHomeFabLayout
               sidebar
               disabled={workspacePage}
-              paneWidth={listPaneWidth}
               onStartNewTask={handleStartNewTask}
             >
               <AndroidWorkspaceSidebar
