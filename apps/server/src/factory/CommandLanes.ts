@@ -1,7 +1,8 @@
 import * as HostResources from "../resourceTelemetry/HostResources.ts";
 import { FactoryError, type FactoryLaneJob } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -44,7 +45,8 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const config = yield* Config.ServerConfig;
   const settings = yield* ServerSettings.ServerSettingsService;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
+  const digests = yield* Digest.Digest;
   const runner = yield* Processes.ProcessRunner;
   const host = yield* HostResources.HostResources;
   const error = (cause: unknown) => new FactoryError({ code: "unavailable", cause });
@@ -71,10 +73,11 @@ const make = Effect.gen(function* () {
           cwd,
         })
         .pipe(Effect.orElseSucceed(() => ({ code: 1, stdout: "" })));
-      const nonce = yield* crypto.randomUUIDv4().pipe(Effect.mapError(error));
-      const digest = yield* crypto
-        .digest("SHA-256", new TextEncoder().encode(`${owner.id}\0${input.requestId}`))
-        .pipe(Effect.mapError(error));
+      const nonce = yield* random.uuidV4();
+      const digest = yield* digests.digest(
+        Digest.sha256,
+        new TextEncoder().encode(`${owner.id}\0${input.requestId}`),
+      );
       const id = `lane:${Array.from(digest)
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("")}`;

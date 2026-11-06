@@ -4,17 +4,13 @@ import {
   WorkspacePresentationHostContext,
 } from "./workspace-presentation-context";
 import { useAndroidFloatingTabs } from "../settings/appearance/AppearancePreferencesProvider";
+import { useSoftKeyboardShowing } from "../keyboard/useSoftKeyboardShowing";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdaptiveWorkspaceContext, useAdaptiveWorkspaceLayout } from "./adaptive-workspace-context";
 import { threadSelectionDeferral } from "./deferred-navigation";
 import { uuidv4 } from "../../lib/uuid";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ThreadId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useFocusEffect } from "@react-navigation/native";
 import { NavigationContext, NavigationRouteContext, useNavigation } from "@react-navigation/native";
 import {
   use,
@@ -28,13 +24,14 @@ import {
   type ReactNode,
 } from "react";
 import { Keyboard, Platform, View } from "react-native";
-import { KeyboardController, useKeyboardState } from "react-native-keyboard-controller";
+import { KeyboardController } from "react-native-keyboard-controller";
 import { AsyncResult } from "effect/reactivity";
 
 import {
+  isPrimarySidebarPinned,
   isWorkspaceListPath,
+  nativeInspectorColumnWidth,
   type FileInspectorPaneLayout,
-  type WorkspaceAuxiliaryPaneRole,
 } from "../../lib/layout";
 import {
   deriveFoldWorkspacePaneLayout,
@@ -46,7 +43,7 @@ import type { Preferences } from "../../persistence/mobile-preferences";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { useProjects } from "../../state/entities";
-import { useThreadCwd } from "../../state/use-selected-thread-worktree";
+import { withKnownPullRequestSummary } from "../../state/use-thread-pr";
 import { environmentThreadShells } from "../../state/threads";
 import {
   DEFAULT_MOBILE_PROJECT_GROUPING_SETTINGS,
@@ -61,93 +58,87 @@ import {
   VimPaneFocusMarker,
 } from "../keyboard/useWorkspaceVimNavigation";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
-import { useEnabledNavigationTabs } from "../workspace/navigation-tabs";
-import { FLOATING_TABS, floatingTabsMetrics } from "../workspace/floating-workspace-tabs";
-import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
-import { AndroidWorkspaceSidebar } from "../workspace/AndroidWorkspaceSidebar";
+import { useEnabledNavigationTabs } from "./workspace/navigation-tabs";
+import { FLOATING_TABS, floatingTabsMetrics } from "./workspace/floating-workspace-tabs";
 import {
   AndroidWorkspaceNavigation,
   FloatingWorkspaceTabs,
-} from "../workspace/AndroidWorkspaceNavigation";
+} from "./workspace/AndroidWorkspaceNavigation";
 import {
   selectWorkspaceDetail,
   type WorkspaceDetail,
   type WorkspaceDetailSheet,
-} from "../workspace/workspace-detail-selection";
-import { startOpeningDetail } from "../workspace/useSelectWorkspaceDetail";
-import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
+} from "./workspace/workspace-detail-selection";
+import { startOpeningDetail } from "./workspace/useSelectWorkspaceDetail";
+import { useWorkspaceTabs } from "./workspace/WorkspaceTabsContext";
 import { HomeListOptionsProvider } from "../home/home-list-options";
 import { newTaskDestination } from "../threads/new-task-project-selection";
-import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
-import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
-import { useOpenThreadPullRequests } from "../threads/use-open-thread-pull-requests";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
+import { PaneContext } from "../../components/ui/Pane";
 import { useWorkspaceThumbActions, WorkspaceThumbNavigation } from "./workspace-thumb-navigation";
 import { FoldWorkspaceInspectorPane } from "./fold-workspace-inspector-pane";
 import { WorkspaceSidebarColumn } from "./fold-workspace-sidebar-column";
+import { InspectorPanes } from "./inspector-host";
+import type { InspectorContent } from "./inspector-panes";
+import { WorkspaceInspectorSheet } from "./workspace-inspector-sheet";
+import { WorkspaceThreadSidebar } from "./workspace/WorkspaceThreadSidebar";
 import {
   NativeWorkspaceModeContext,
   NativeWorkspaceInspectorContext,
 } from "../../native/v5-workspace-context";
 import { useFoldWorkspaceGeometry } from "./fold-workspace-geometry";
 
-import { useAndroidWorkspaceRoot } from "../workspace/AndroidWorkspaceTabsProvider";
-import { openSettings } from "../settings/settings-navigation";
+import { useAndroidWorkspaceRoot } from "./workspace/AndroidWorkspaceTabsProvider";
 import { dispatchRootStackReset, rootStackState } from "../../lib/root-stack-reset";
 import {
   currentWorkspaceSelections,
   workspaceSelectionCheck,
-} from "../workspace/workspace-selection-store";
+} from "./workspace/workspace-selection-store";
 import {
   workspaceTabColumns,
   workspaceTabNavigationState,
-} from "../workspace/workspace-tab-navigation";
-import type { WorkspaceTab } from "../workspace/workspace-tabs-state";
+} from "./workspace/workspace-tab-navigation";
+import type { WorkspaceTab } from "./workspace/workspace-tabs-state";
 import { workspaceRoutesOf } from "./workspace-overlay-routes";
 import { SettingsWorkspaceLayout } from "../settings/SettingsWorkspaceLayout";
 
 export { useAdaptiveWorkspaceLayout };
 
-export function useAdaptiveWorkspacePaneRole(role: WorkspaceAuxiliaryPaneRole) {
-  const { activateAuxiliaryPaneRole } = useAdaptiveWorkspaceLayout();
-
-  useFocusEffect(
-    useCallback(() => activateAuxiliaryPaneRole(role), [activateAuxiliaryPaneRole, role]),
-  );
-}
-
-// Fold's workspace has one inspector pane whose content each route registers, so upstream's
-// auxiliary pane roles are accepted and ignored.
-const activateAuxiliaryPaneRole = () => () => undefined;
-
-/** Capture inspector navigation contexts. Register on focus events because frozen blurred screens may never clean up. */
-export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefined) {
+/**
+ * Shows these panes in the workspace's inspector while this screen is focused. Register on focus
+ * events because frozen blurred screens may never clean up.
+ */
+export function Inspector(props: {
+  readonly content: InspectorContent;
+  /** Opens the column the first time this key registers while its route stays on the stack. */
+  readonly revealKey?: string;
+}) {
   const { registerWorkspaceInspector } = useAdaptiveWorkspaceLayout();
   const navigation = use(NavigationContext);
   const route = use(NavigationRouteContext);
-
-  const wrappedRender = (() => {
-    if (render === undefined) {
-      return undefined;
-    }
-    return () => (
-      <NavigationContext.Provider value={navigation}>
-        <NavigationRouteContext.Provider value={route}>{render()}</NavigationRouteContext.Provider>
-      </NavigationContext.Provider>
-    );
-  })();
-
+  const content: InspectorContent = {
+    ...props.content,
+    resetKeys: [route?.key, ...(props.content.resetKeys ?? [])],
+    panes: props.content.panes.map((pane) => ({
+      ...pane,
+      render: () => (
+        <NavigationContext.Provider value={navigation}>
+          <NavigationRouteContext.Provider value={route}>
+            {pane.render()}
+          </NavigationRouteContext.Provider>
+        </NavigationContext.Provider>
+      ),
+    })),
+  };
   const focusedRef = useRef(false);
   const deactivateRef = useRef<(() => void) | null>(null);
 
-  // An effect event reads this render's pane without making the focus
-  // subscription re-run (and deactivate) every time the pane closure changes.
   const syncRegistration = useEffectEvent(() => {
-    if (!focusedRef.current || wrappedRender === undefined) {
+    if (!focusedRef.current) {
       deactivateRef.current?.();
       return;
     }
-    deactivateRef.current = registerWorkspaceInspector(wrappedRender);
+    deactivateRef.current = registerWorkspaceInspector(content, route?.key, props.revealKey);
   });
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Navigation focus events own the inspector registration lifetime.
@@ -174,13 +165,14 @@ export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefi
     };
   }, [navigation]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Changed pane content replaces the focused inspector registration.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Changed column content replaces the focused inspector registration.
   useEffect(() => {
     if (focusedRef.current) {
       syncRegistration();
     }
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Changed pane content replaces its existing native workspace registration.
-  }, [wrappedRender]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Changed column content replaces its existing native workspace registration.
+  }, [props.content, props.revealKey]);
+  return null;
 }
 
 export function AdaptiveWorkspaceLayout(props: {
@@ -188,8 +180,6 @@ export function AdaptiveWorkspaceLayout(props: {
   readonly pathname: string;
   readonly workspaceRouteKey: string | undefined;
   readonly workspaceRouteName: string | undefined;
-  readonly workspaceRouteKeys: ReadonlyArray<string>;
-  readonly selectedPullRequestKey?: string | null;
 }) {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   if (!AsyncResult.isSuccess(preferencesResult)) {
@@ -215,9 +205,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
   readonly children: ReactNode;
   readonly pathname: string;
   readonly workspaceRouteKey: string | undefined;
-  readonly selectedPullRequestKey?: string | null;
   readonly workspaceRouteName: string | undefined;
-  readonly workspaceRouteKeys: ReadonlyArray<string>;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   /** Pane preferences are read once; the workspace owns them while mounted. */
   readonly initialPreferences: Preferences;
@@ -247,6 +235,14 @@ function AdaptiveWorkspaceLayoutContent(props: {
     workspaceView,
     onWorkspaceLayout,
   } = useFoldWorkspaceGeometry();
+  // Fold's geometry has no medium windows, so this sidebar never overlays the content; the
+  // overlay bookkeeping stays so upstream's medium variant keeps its page-closes-sidebar rule.
+  const sidebarOverlaysContent = layout.variant === "medium";
+  const primarySidebarPinned = isPrimarySidebarPinned({
+    pathname,
+    nativeWorkspace,
+    usesSplitView: layout.usesSplitView,
+  });
 
   const [primarySidebarPreferredVisible, setPrimarySidebarPreferredVisibleState] = useState(
     props.initialPreferences.workspaceSidebarVisible ?? true,
@@ -272,17 +268,17 @@ function AdaptiveWorkspaceLayoutContent(props: {
   // The overlay sidebar closes when a page opens from it, and stays open on a list or on the
   // page a tab switch opened (`keepOpenFor`, set by that switch).
   const [overlaySidebar, setOverlaySidebar] = useState({
-    active: layout.primarySidebarOverlaysContent,
+    active: sidebarOverlaysContent,
     pathname,
     visible: isWorkspaceListPath(pathname),
     keepOpenFor: null as string | null,
   });
   if (
-    overlaySidebar.active !== layout.primarySidebarOverlaysContent ||
+    overlaySidebar.active !== sidebarOverlaysContent ||
     (overlaySidebar.active && overlaySidebar.pathname !== pathname)
   ) {
     setOverlaySidebar({
-      active: layout.primarySidebarOverlaysContent,
+      active: sidebarOverlaysContent,
       pathname,
       visible:
         isWorkspaceListPath(pathname) ||
@@ -291,18 +287,19 @@ function AdaptiveWorkspaceLayoutContent(props: {
       keepOpenFor: null,
     });
   }
-  const preferredSidebarVisible = layout.primarySidebarOverlaysContent
+  const preferredSidebarVisible = sidebarOverlaysContent
     ? overlaySidebar.visible
     : sidebarPreferredVisible;
   const [composerEditing, setComposerEditing] = useState(false);
-  const softKeyboardVisible = useKeyboardState((state) => state.isVisible);
+  const softKeyboardVisible = useSoftKeyboardShowing();
   // Hardware keyboard focus leaves room for the sidebar; Android Back hides the soft keyboard
   // without blurring the editor. Keep the saved sidebar choice through both transitions.
   const composerKeyboardActive = useDeferredValue(
     Platform.OS === "android" && layout.usesSplitView && composerEditing && softKeyboardVisible,
   );
   const showPrimarySidebar =
-    !workspacePage && (pathname === "/" || (preferredSidebarVisible && !composerKeyboardActive));
+    !workspacePage &&
+    (primarySidebarPinned || (preferredSidebarVisible && !composerKeyboardActive));
   const [inspectorPreferredVisible, setInspectorPreferredVisible] = useState(true);
   const [inspectorMaximized, setInspectorMaximized] = useState(false);
   const inspectorRatios = props.initialPreferences.workspaceInspectorRatios ?? {};
@@ -327,6 +324,26 @@ function AdaptiveWorkspaceLayoutContent(props: {
     width,
   ]);
   const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
+  const nativeMetricsWidth = width + leadingInset + trailingInset;
+  const [nativeInspectorWidthFraction, setNativeInspectorWidthFraction] = useState(0.4);
+  const inspectorWidthFor = (fraction: number) =>
+    nativeInspectorColumnWidth({
+      viewportWidth: nativeMetricsWidth,
+      horizontalSafeArea: leadingInset + trailingInset,
+      fraction,
+    });
+  const nativeInspectorWidth = inspectorWidthFor(nativeInspectorWidthFraction);
+  const setNativeInspectorWidth = useCallback(
+    (nextWidth: number) =>
+      setNativeInspectorWidthFraction(
+        nativeInspectorColumnWidth({
+          viewportWidth: nativeMetricsWidth,
+          horizontalSafeArea: leadingInset + trailingInset,
+          fraction: nextWidth / Math.max(1, nativeMetricsWidth),
+        }) / Math.max(1, nativeMetricsWidth),
+      ),
+    [leadingInset, nativeMetricsWidth, trailingInset],
+  );
   const sidebarRoute = `${layout.usesSplitView}:${pathname}`;
   const [restoredSidebarRoute, setRestoredSidebarRoute] = useState<string | null>(null);
   if (restoredSidebarRoute !== sidebarRoute) {
@@ -338,29 +355,50 @@ function AdaptiveWorkspaceLayoutContent(props: {
     }
   }
 
-  // Wrapped in an object: bare functions in useState would be treated as
-  // lazy initializers/updaters.
   const [workspaceInspector, setWorkspaceInspector] = useState<{
-    readonly render: () => ReactNode;
+    readonly content: InspectorContent;
+    readonly routeKey: string | undefined;
   } | null>(null);
   const workspaceInspectorOwner = useRef<symbol | null>(null);
-  const registerWorkspaceInspector = useCallback((render: () => ReactNode) => {
-    const owner = Symbol("workspace-inspector");
-    workspaceInspectorOwner.current = owner;
-    setWorkspaceInspector({ render });
-
-    return () => {
-      // During a push/replace the outgoing screen deactivates AFTER the
-      // incoming screen registered — only the current owner may deactivate.
-      if (workspaceInspectorOwner.current !== owner) {
-        return;
+  // Routes still on the stack remember their reveal, so going back to one keeps the user's choice.
+  const revealedInspectors = useRef<ReadonlyMap<string, string>>(new Map());
+  const registerWorkspaceInspector = useCallback(
+    (content: InspectorContent, routeKey: string | undefined, revealKey?: string) => {
+      const owner = Symbol("workspace-inspector");
+      workspaceInspectorOwner.current = owner;
+      setWorkspaceInspector({ content, routeKey });
+      if (
+        routeKey !== undefined &&
+        revealKey !== undefined &&
+        revealedInspectors.current.get(routeKey) !== revealKey
+      ) {
+        const state = rootStackState(navigation);
+        const live = new Set(state?.routes.slice(0, state.index + 1).map((route) => route.key));
+        revealedInspectors.current = new Map(
+          [...revealedInspectors.current, [routeKey, revealKey] as const].filter(
+            ([key]) => live.has(key) || key === routeKey,
+          ),
+        );
+        setInspectorPreferredVisible(true);
       }
-      workspaceInspectorOwner.current = null;
-      setWorkspaceInspector(null);
-      // A maximized pane belongs to the route that filled it.
-      setInspectorMaximized(false);
-    };
-  }, []);
+
+      return () => {
+        // During a push/replace the outgoing screen deactivates AFTER the
+        // incoming screen registered — only the current owner may deactivate.
+        if (workspaceInspectorOwner.current !== owner) {
+          return;
+        }
+        workspaceInspectorOwner.current = null;
+        setWorkspaceInspector(null);
+        // A maximized pane belongs to the route that filled it.
+        setInspectorMaximized(false);
+      };
+    },
+    [navigation],
+  );
+  // Without a column the inspector is a sheet, opened only on request for the route on top, and
+  // shown again when that route returns to the top.
+  const [inspectorSheetRoute, setInspectorSheetRoute] = useState<string | null>(null);
 
   // Until the user picks a width, an unfolded display splits at its fold.
   const inspectorPreferredRatio = inspectorRatios[foldRegions.presetKey];
@@ -374,6 +412,8 @@ function AdaptiveWorkspaceLayoutContent(props: {
         : layout,
     [foldRegions.vertical, layout],
   );
+  // A boolean, not the registration: a re-registering screen must not re-derive the panes.
+  const inspectorRegistered = workspaceInspector !== null;
   const panes = useMemo(() => {
     const derived = deriveFoldWorkspacePaneLayout({
       layout: effectiveLayout,
@@ -381,9 +421,9 @@ function AdaptiveWorkspaceLayoutContent(props: {
       primarySidebarPreferredVisible:
         showPrimarySidebar &&
         tabletopTopHeight === null &&
-        !(foldRegions.vertical && inspectorPreferredVisible && workspaceInspector !== null),
+        !(foldRegions.vertical && inspectorPreferredVisible && inspectorRegistered),
       auxiliaryPanePreferredVisible: !workspacePage && inspectorPreferredVisible,
-      auxiliaryPaneRegistered: workspaceInspector !== null,
+      auxiliaryPaneRegistered: inspectorRegistered,
       auxiliaryPaneMaximized: inspectorMaximized,
       ...(inspectorRestingWidth !== undefined
         ? { auxiliaryPanePreferredWidth: inspectorRestingWidth }
@@ -402,12 +442,20 @@ function AdaptiveWorkspaceLayoutContent(props: {
     tabletopTopHeight,
     showPrimarySidebar,
     width,
-    workspaceInspector,
+    inspectorRegistered,
   ]);
   const fileInspector = useMemo<FileInspectorPaneLayout>(
     () => ({ supported: panes.supportsAuxiliaryPane, width: panes.auxiliaryPaneWidth }),
     [panes.auxiliaryPaneWidth, panes.supportsAuxiliaryPane],
   );
+  const inspectorSheetOpen =
+    !fileInspector.supported &&
+    !workspacePage &&
+    inspectorSheetRoute !== null &&
+    workspaceInspector !== null &&
+    workspaceInspector.routeKey === inspectorSheetRoute;
+  const inspectorContent = workspaceInspector?.content;
+
   const activeThread = useMemo(() => parseActiveThreadPath(pathname), [pathname]);
   const environmentId = activeThread?.environmentId ?? null;
   const threadId = activeThread?.threadId ?? null;
@@ -428,43 +476,15 @@ function AdaptiveWorkspaceLayoutContent(props: {
     selectedThreadRef === null
       ? null
       : scopedThreadKey(selectedThreadRef.environmentId, selectedThreadRef.threadId);
-  const isFilesRoute = props.workspaceRouteName === "ThreadFiles";
-  // Same resolution the Files screen uses: without a cwd it shows "Files unavailable" and
-  // registers no inspector, so revealing would only hide the sidebar beside that screen.
-  const filesCwd = useThreadCwd(isFilesRoute && fileInspector.supported ? selectedThreadRef : null);
-  // Opening a review or the files route reveals its inspector once per route and thread.
-  // Routes still on the stack remember their reveal, so going back to one keeps the user's choice.
-  const revealsInspector =
-    props.workspaceRouteName === "ThreadReview" || (isFilesRoute && filesCwd !== null);
-  const [revealedInspectors, setRevealedInspectors] = useState<ReadonlyMap<string, string>>(
-    () => new Map(),
-  );
-  if (
-    revealsInspector &&
-    props.workspaceRouteKey !== undefined &&
-    selectedThreadKey !== null &&
-    revealedInspectors.get(props.workspaceRouteKey) !== selectedThreadKey
-  ) {
-    const next = new Map<string, string>();
-    for (const routeKey of props.workspaceRouteKeys) {
-      const revealedThreadKey = revealedInspectors.get(routeKey);
-      if (revealedThreadKey !== undefined) {
-        next.set(routeKey, revealedThreadKey);
-      }
-    }
-    next.set(props.workspaceRouteKey, selectedThreadKey);
-    setRevealedInspectors(next);
-    setInspectorPreferredVisible(true);
-  }
   const setPrimarySidebarVisible = useCallback(
     (visible: boolean) => {
-      if (layout.primarySidebarOverlaysContent) {
+      if (sidebarOverlaysContent) {
         setOverlaySidebar((current) => ({ ...current, visible }));
       } else {
         setSidebarPreferredVisible(visible);
       }
     },
-    [layout.primarySidebarOverlaysContent, setSidebarPreferredVisible],
+    [sidebarOverlaysContent, setSidebarPreferredVisible],
   );
   const togglePrimarySidebar = useCallback(() => {
     if (composerKeyboardActive) {
@@ -481,7 +501,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
       setSidebarPreferredVisible(true);
       return;
     }
-    if (pathname === "/") {
+    if (primarySidebarPinned) {
       return;
     }
     if (panes.auxiliaryPaneMaximized) {
@@ -506,6 +526,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
     panes.primarySidebarVisible,
     pathname,
     preferredSidebarVisible,
+    primarySidebarPinned,
     setPrimarySidebarVisible,
     setSidebarPreferredVisible,
   ]);
@@ -522,19 +543,45 @@ function AdaptiveWorkspaceLayoutContent(props: {
     return true;
   }, [togglePrimarySidebar]);
   const sidebarCommands = useMemo(
-    () => (pathname === "/" ? [] : (["toggleSidebar"] as const)),
-    [pathname],
+    () => (primarySidebarPinned ? [] : (["toggleSidebar"] as const)),
+    [primarySidebarPinned],
   );
   useHardwareKeyboardCommand(sidebarCommands, handleToggleSidebarCommand);
-  const showAuxiliaryPane = useCallback(() => setInspectorPreferredVisible(true), []);
+  const showInspector = useCallback(() => {
+    setInspectorPreferredVisible(true);
+    if (fileInspector.supported) {
+      setInspectorSheetRoute(null);
+      return;
+    }
+    const state = rootStackState(navigation);
+    const top = workspaceRoutesOf(state?.routes.slice(0, state.index + 1) ?? []).workspace.at(-1);
+    setInspectorSheetRoute(top?.key ?? null);
+  }, [fileInspector.supported, navigation]);
   const hideAuxiliaryPane = useCallback(() => {
     setInspectorPreferredVisible(false);
     setInspectorMaximized(false);
+    setInspectorSheetRoute(null);
   }, []);
+  const renderInspector = useMemo(
+    () =>
+      inspectorContent === undefined
+        ? undefined
+        : () => <InspectorPanes content={inspectorContent} onClose={hideAuxiliaryPane} />,
+    [hideAuxiliaryPane, inspectorContent],
+  );
   const toggleAuxiliaryPane = useCallback(() => {
-    if (panes.auxiliaryPaneVisible) hideAuxiliaryPane();
-    else showAuxiliaryPane();
-  }, [hideAuxiliaryPane, panes.auxiliaryPaneVisible, showAuxiliaryPane]);
+    if (fileInspector.supported) {
+      if (panes.auxiliaryPaneVisible) hideAuxiliaryPane();
+      else showInspector();
+    } else if (inspectorSheetOpen) hideAuxiliaryPane();
+    else showInspector();
+  }, [
+    fileInspector.supported,
+    hideAuxiliaryPane,
+    inspectorSheetOpen,
+    panes.auxiliaryPaneVisible,
+    showInspector,
+  ]);
   const setAuxiliaryPaneMaximized = useCallback((maximized: boolean) => {
     setInspectorMaximized(maximized);
     if (maximized) setInspectorPreferredVisible(true);
@@ -576,13 +623,13 @@ function AdaptiveWorkspaceLayoutContent(props: {
     if (!panes.supportsAuxiliaryPane || activeThread === null) {
       return false;
     }
-    showAuxiliaryPane();
+    showInspector();
     if (/\/files(?:\/|$)/.test(pathname)) {
       return true;
     }
     navigation.navigate("ThreadFiles", activeThread);
     return true;
-  }, [panes.supportsAuxiliaryPane, pathname, navigation, showAuxiliaryPane]);
+  }, [panes.supportsAuxiliaryPane, pathname, navigation, showInspector]);
   useHardwareKeyboardCommand("files", handleOpenFilesCommand);
   useWorkspaceVimNavigation({
     usesSplitView: layout.usesSplitView,
@@ -610,24 +657,18 @@ function AdaptiveWorkspaceLayoutContent(props: {
           columns: workspaceTabColumns(Platform.OS, tab, options?.columns ?? layout.usesSplitView),
           check: workspaceSelectionCheck,
           overlays,
+          seedPullRequest: withKnownPullRequestSummary,
         },
       );
-      if (layout.primarySidebarOverlaysContent) {
+      if (sidebarOverlaysContent) {
         const opened = next.routes.at(-1 - overlays.length)?.key ?? null;
         setOverlaySidebar((current) => ({ ...current, visible: true, keepOpenFor: opened }));
       }
       dispatchRootStackReset(navigation, state, next);
     },
-    [layout.primarySidebarOverlaysContent, layout.usesSplitView, navigation],
+    [sidebarOverlaysContent, layout.usesSplitView, navigation],
   );
   const handleOpenSettings = useCallback(() => openWorkspaceTab("settings"), [openWorkspaceTab]);
-
-  // Fold's sidebar switcher opens PRs like useSelectWorkspaceTab, which can't be used here.
-  const handleOpenPullRequests = useCallback(() => {
-    if (!workspace) return navigation.navigate("PullRequests");
-    openWorkspaceTab("pullRequests");
-    workspace.dispatch({ type: "select", tab: "pullRequests" });
-  }, [navigation, openWorkspaceTab, workspace]);
 
   /** The one way to show a page in the detail column; see `selectWorkspaceDetail`. */
   const handleSelectDetail = useCallback(
@@ -646,7 +687,8 @@ function AdaptiveWorkspaceLayoutContent(props: {
             ThreadId.make(params.threadId),
           ) === selectedThreadKey;
         if (!reselecting) hideAuxiliaryPane();
-        if (layout.primarySidebarOverlaysContent) setPrimarySidebarVisible(false);
+        else setInspectorSheetRoute(null);
+        if (sidebarOverlaysContent) setPrimarySidebarVisible(false);
         workspace?.dispatch({
           type: "select",
           tab: detail.name === "Thread" ? "threads" : "pullRequests",
@@ -657,7 +699,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
     },
     [
       hideAuxiliaryPane,
-      layout.primarySidebarOverlaysContent,
+      sidebarOverlaysContent,
       navigation,
       selectedThreadKey,
       setPrimarySidebarVisible,
@@ -719,54 +761,6 @@ function AdaptiveWorkspaceLayoutContent(props: {
     return true;
   });
 
-  // Create at root: the iOS sidebar renders in an independent navigation tree.
-  const handleOpenEnvironmentSettings = useCallback(() => {
-    openSettings(navigation, "SettingsEnvironments");
-  }, [navigation]);
-
-  const handleOpenThreadPullRequests = useOpenThreadPullRequests();
-  const { openPendingTask: handleOpenPendingTask } =
-    usePendingTaskListActions(handleSelectThreadRoute);
-
-  const handleNewThreadOnBranch = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      handleSelectThreadRoute({
-        draft: {
-          requestId: uuidv4(),
-          environmentId: String(thread.environmentId),
-          projectId: String(thread.projectId),
-          branch: thread.branch,
-          worktreePath: thread.worktreePath,
-        },
-      });
-    },
-    [handleSelectThreadRoute],
-  );
-
-  const handleNewThreadInProject = useCallback(
-    (project: EnvironmentProject) => {
-      handleSelectThreadRoute({
-        draft: {
-          requestId: uuidv4(),
-          environmentId: String(project.environmentId),
-          projectId: String(project.id),
-          title: project.title,
-        },
-      });
-    },
-    [handleSelectThreadRoute],
-  );
-
-  const handleSelectThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      handleSelectThreadRoute({
-        environmentId: String(thread.environmentId),
-        threadId: String(thread.id),
-      });
-    },
-    [handleSelectThreadRoute],
-  );
-
   const handleThumbAction = useWorkspaceThumbActions({
     activeThread,
     usesSplitView: layout.usesSplitView,
@@ -781,27 +775,34 @@ function AdaptiveWorkspaceLayoutContent(props: {
       tabletopTopHeight,
       tabletopHingeTop: foldRegions.tabletop?.top ?? null,
       tabletopHingeHeight: foldRegions.tabletop?.gap ?? 0,
-      layout,
+      layout: effectiveLayout,
       panes,
       fileInspector,
       primarySidebarSearchQuery,
       startNewTask: handleStartNewTask,
       deferThreadSelectionUntil: threadSelectionDeferral.waitFor,
       selectDetail: handleSelectDetail,
-      activateAuxiliaryPaneRole,
       registerWorkspaceInspector,
       setPrimarySidebarSearchQuery,
-      showAuxiliaryPane,
+      showInspector,
       hideAuxiliaryPane,
       toggleAuxiliaryPane,
       setAuxiliaryPaneMaximized,
       toggleAuxiliaryPaneMaximized,
+      sidebarToggleable: layout.usesSplitView && !primarySidebarPinned && !workspacePage,
       togglePrimarySidebar,
+      revealPrimarySidebar,
       setPrimarySidebarVisible,
       openWorkspaceTab,
       // Fold's inspector resizes through its divider and remembers a ratio per fold preset.
       setAuxiliaryPaneWidth,
+      nativeInspectorWidth,
+      setNativeInspectorWidth,
       composerKeyboardActive,
+      // Fold's sidebar steps aside for the keyboard at once rather than tracking its progress,
+      // and workspace pages lay out in the content pane at its own width.
+      keyboardHoldsSidebar: false,
+      workspacePageWidth: null,
       // Fold never runs the native iOS split that rotates the sidebar overlay.
       sidebarByOrientation: null,
       setComposerEditing,
@@ -818,21 +819,34 @@ function AdaptiveWorkspaceLayoutContent(props: {
       foldRegions.tabletop?.gap,
       fileInspector,
       hideAuxiliaryPane,
-      layout,
+      effectiveLayout,
+      layout.usesSplitView,
+      nativeInspectorWidth,
       panes,
+      primarySidebarPinned,
       primarySidebarSearchQuery,
       registerWorkspaceInspector,
+      revealPrimarySidebar,
       setAuxiliaryPaneMaximized,
-      showAuxiliaryPane,
+      setNativeInspectorWidth,
+      showInspector,
       toggleAuxiliaryPane,
       toggleAuxiliaryPaneMaximized,
       togglePrimarySidebar,
+      workspacePage,
     ],
   );
 
   // A fold or Duo division separates the sidebar from the chat.
   const sidebarGap = foldRegions.vertical?.gap ?? effectiveLayout.listPaneGap ?? 0;
 
+  const inspectorSheet = (
+    <WorkspaceInspectorSheet
+      open={inspectorSheetOpen}
+      onClose={hideAuxiliaryPane}
+      content={inspectorContent}
+    />
+  );
   if (nativeWorkspace) {
     return (
       <HomeListOptionsProvider
@@ -841,15 +855,20 @@ function AdaptiveWorkspaceLayoutContent(props: {
       >
         <AdaptiveWorkspaceContext value={contextValue}>
           <NativeWorkspaceInspectorContext
-            value={{ render: workspaceInspector?.render, visible: panes.auxiliaryPaneVisible }}
+            value={{
+              // Without a column the sheet shows it; the hidden native column must not mount it too.
+              content: fileInspector.supported ? inspectorContent : undefined,
+              visible: panes.auxiliaryPaneVisible,
+            }}
           >
             {props.children}
+            {inspectorSheet}
           </NativeWorkspaceInspectorContext>
         </AdaptiveWorkspaceContext>
       </HomeListOptionsProvider>
     );
   }
-  const renderColumns = (children: ReactNode) => (
+  const renderColumns = (children: ReactNode, sidebar?: ReactNode) => (
     <View
       ref={workspaceView}
       onLayout={onWorkspaceLayout}
@@ -858,44 +877,21 @@ function AdaptiveWorkspaceLayoutContent(props: {
       style={{ paddingLeft: leadingInset, paddingRight: trailingInset }}
     >
       <WorkspaceSidebarColumn layout={effectiveLayout} visible={panes.primarySidebarVisible}>
-        {(listPaneWidth) => (
-          <RenderErrorBoundary
-            renderFallback={(fallback) => (
-              <RenderFailureView
-                {...fallback}
-                title="The sidebar couldn't be displayed"
-                exit={{ label: "Open settings", onPress: handleOpenSettings }}
-              />
-            )}
-          >
-            <AndroidHomeFabLayout
-              sidebar
-              disabled={workspacePage}
-              onStartNewTask={handleStartNewTask}
-            >
-              <AndroidWorkspaceSidebar
-                onRequestVisibility={revealPrimarySidebar}
-                selectedPullRequestKey={props.selectedPullRequestKey ?? null}
-              >
-                <ThreadNavigationSidebar
-                  width={listPaneWidth}
-                  visible={panes.primarySidebarVisible}
-                  onRequestVisibility={revealPrimarySidebar}
-                  selectedThreadKey={selectedThreadKey}
-                  onOpenSettings={handleOpenSettings}
-                  onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
-                  onOpenPullRequests={handleOpenPullRequests}
-                  onOpenThreadPullRequests={handleOpenThreadPullRequests}
-                  onNewThreadInProject={handleNewThreadInProject}
-                  onNewThreadOnBranch={handleNewThreadOnBranch}
-                  onOpenPendingTask={handleOpenPendingTask}
-                  onSelectThread={handleSelectThread}
-                  onSearchQueryChange={setPrimarySidebarSearchQuery}
-                  searchQuery={primarySidebarSearchQuery}
+        {() => (
+          <PaneContext value="sidebar">
+            <RenderErrorBoundary
+              renderFallback={(fallback) => (
+                <RenderFailureView
+                  {...fallback}
+                  title="The sidebar couldn't be displayed"
+                  exit={{ label: "Open settings", onPress: handleOpenSettings }}
                 />
-              </AndroidWorkspaceSidebar>
-            </AndroidHomeFabLayout>
-          </RenderErrorBoundary>
+              )}
+            >
+              {/* Android draws the Home route here: the Chats/PRs switcher and the tab's list. */}
+              {sidebar ?? <WorkspaceThreadSidebar />}
+            </RenderErrorBoundary>
+          </PaneContext>
         )}
       </WorkspaceSidebarColumn>
       {sidebarGap > 0 && panes.primarySidebarVisible ? (
@@ -935,7 +931,9 @@ function AdaptiveWorkspaceLayoutContent(props: {
           }
         >
           <View className="flex-1">
-            <SettingsWorkspaceLayout>{children}</SettingsWorkspaceLayout>
+            <PaneContext value="content">
+              <SettingsWorkspaceLayout>{children}</SettingsWorkspaceLayout>
+            </PaneContext>
           </View>
         </SafeAreaInsetsContext>
         {compactFloatingTabs ? (
@@ -963,11 +961,12 @@ function AdaptiveWorkspaceLayoutContent(props: {
         fixedDivider={foldRegions.vertical !== null}
         pathname={props.pathname}
         panes={panes}
-        renderInspector={workspaceInspector?.render}
+        renderInspector={renderInspector}
         snapWidths={hingeSnapWidths}
         onDividerRelease={handleDividerRelease}
         onToggleMaximized={toggleAuxiliaryPaneMaximized}
       />
+      {inspectorSheet}
     </View>
   );
 

@@ -1,4 +1,12 @@
-import type { Layout, WorkspacePaneLayout } from "./layout";
+import { deriveLayout, type Layout, type WorkspacePaneLayout } from "./layout";
+
+/** Fold has no floating sidebar: windows too narrow for side-by-side panes stay compact. */
+export function deriveFoldLayout(input: Parameters<typeof deriveLayout>[0]): Layout {
+  const layout = deriveLayout(input);
+  return layout.variant === "medium"
+    ? deriveLayout({ width: 0, height: 0, platform: input.platform })
+    : layout;
+}
 
 export const FOLDABLE_PANE_COMPACT_WIDTH = 72;
 /** How far past either end of its range the divider must travel to maximize or close the pane. */
@@ -138,12 +146,9 @@ export interface FoldWorkspacePaneLayout extends WorkspacePaneLayout {
 }
 
 /**
- * Fold's replacement for upstream's `deriveWorkspacePaneLayout`. Splits a split-view workspace
- * into thread sidebar, chat, and the trailing inspector (files, git, terminal, review). The
- * inspector only takes space while a route has registered content for it. When it would squeeze
- * the chat below a readable width, the sidebar yields (`primarySidebarSuppressedByAuxiliary`:
- * showing it closes the inspector); maximizing gives the inspector the whole workspace.
- * `contentPaneWidth` is the chat column between the sidebar and the inspector.
+ * Fold's replacement for upstream's `deriveWorkspacePaneLayout`: sidebar, chat and inspector.
+ * When the inspector would squeeze the chat below a readable width the sidebar yields
+ * (`primarySidebarSuppressedByAuxiliary`: showing it closes the inspector).
  */
 export function deriveFoldWorkspacePaneLayout(input: {
   readonly layout: Layout;

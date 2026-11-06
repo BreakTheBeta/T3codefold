@@ -7,7 +7,7 @@ import {
   type FactoryActionEnvelope,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -56,7 +56,7 @@ const make = Effect.gen(function* () {
   const store = yield* FactoryStore;
   const control = yield* FactoryControl;
   const wakes = yield* WakeQueue;
-  const crypto = yield* Crypto.Crypto;
+  const digests = yield* Digest.Digest;
   const actorAgent = Effect.fn("FactoryDecisions.actorAgent")((actor: FactoryActor) =>
     callerAgent(actor).pipe(Effect.provideService(FactoryStore, store)),
   );
@@ -194,11 +194,7 @@ const make = Effect.gen(function* () {
           if (envelope.kind !== envelope.request.type)
             return yield* new FactoryError({ code: "invalid" });
           const bytes = new TextEncoder().encode(canonicalAction(envelope));
-          const hash = Array.from(
-            yield* crypto
-              .digest("SHA-256", bytes)
-              .pipe(Effect.mapError((cause) => new FactoryError({ code: "unavailable", cause }))),
-          )
+          const hash = Array.from(yield* digests.digest(Digest.sha256, bytes))
             .map((b) => b.toString(16).padStart(2, "0"))
             .join("");
           const existing = yield* store.get("payloads", hash);

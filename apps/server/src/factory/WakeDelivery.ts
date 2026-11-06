@@ -6,7 +6,7 @@ import {
   type FactoryWake,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -41,7 +41,7 @@ const make = Effect.gen(function* () {
   const queue = yield* WakeQueue;
   const threads = yield* Threads.ThreadManagementService;
   const background = yield* BackgroundPolicy.BackgroundPolicy;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const actorAgent = Effect.fn("WakeDelivery.actorAgent")((actor: FactoryActor) =>
     callerAgent(actor).pipe(Effect.provideService(FactoryStore, store)),
   );
@@ -162,9 +162,7 @@ const make = Effect.gen(function* () {
         groups.set(key, [...(groups.get(key) ?? []), wake]);
       }
       for (const batch of groups.values()) {
-        const uuid = yield* crypto
-          .randomUUIDv4()
-          .pipe(Effect.mapError((cause) => new FactoryError({ code: "unavailable", cause })));
+        const uuid = yield* random.uuidV4();
         const claim = yield* store.transaction(
           Effect.gen(function* () {
             const eligible: FactoryWake[] = [];

@@ -1,5 +1,6 @@
 import { enabledControl } from "./testControl.ts";
 import { assert, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -22,6 +23,7 @@ const persistence = Queue.layer.pipe(
 );
 const infrastructure = Layer.mergeAll(
   NodeServices.layer,
+  NodeCrypto.layer,
   Settings.layerTest(),
   ServerConfig.layerTest(process.cwd(), { prefix: "factory-lane-cancel-" }).pipe(
     Layer.provide(NodeServices.layer),

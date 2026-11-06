@@ -11,7 +11,7 @@ vi.mock("react-native", () => ({
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => insets }));
 vi.mock("../../native/native-layout-metrics", () => ({ useNativeLayoutMetrics: () => null }));
 vi.mock("../../native/T3WindowPosture", () => ({ useWindowPosture: () => ({ hinges: [] }) }));
-vi.mock("../workspace/AndroidWorkspaceNavigation", () => ({ ANDROID_WORKSPACE_RAIL_WIDTH: 72 }));
+vi.mock("./workspace/AndroidWorkspaceNavigation", () => ({ ANDROID_WORKSPACE_RAIL_WIDTH: 72 }));
 
 import { useFoldWorkspaceGeometry } from "./fold-workspace-geometry";
 

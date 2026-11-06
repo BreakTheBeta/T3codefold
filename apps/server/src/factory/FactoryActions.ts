@@ -1,6 +1,6 @@
 import { FactoryError, type FactoryExecution } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -45,16 +45,9 @@ const make = Effect.gen(function* () {
   const runner = yield* Processes.ProcessRunner;
   const projects = yield* Projects.ProjectService;
   const fs = yield* FileSystem.FileSystem;
-  const crypto = yield* Crypto.Crypto;
+  const digests = yield* Digest.Digest;
   const hash = Effect.fn("FactoryActions.hash")((text: string) =>
-    crypto.digest("SHA-256", new TextEncoder().encode(text)).pipe(
-      Effect.map((bytes) =>
-        Array.from(bytes)
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join(""),
-      ),
-      Effect.mapError((cause) => new FactoryError({ code: "unavailable", cause })),
-    ),
+    digests.digestHex(Digest.sha256, new TextEncoder().encode(text)),
   );
   const execute: FactoryActions["Service"]["execute"] = Effect.fn("FactoryActions.execute")(
     function* (actor, cardId) {

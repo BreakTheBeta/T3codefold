@@ -7,7 +7,7 @@ import {
   OrchestratorMcpFailure,
   WS_METHODS,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
@@ -103,8 +103,8 @@ export function connectFleetLease<E, ExecuteError, RespondError, R>(options: {
 /** One foreground client connects existing authenticated environments; no credentials leave it. */
 export const startFleetBridge = Effect.gen(function* () {
   const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
-  const crypto = yield* Crypto.Crypto;
-  const clientId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+  const random = yield* SecureRandom.SecureRandom;
+  const clientId = yield* random.uuidV4();
   const descriptors = yield* SubscriptionRef.make<ReadonlyArray<FleetEnvironment>>([]);
   const parentScope = yield* Scope.Scope;
   const children = new Map<

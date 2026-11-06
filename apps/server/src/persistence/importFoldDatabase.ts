@@ -10,7 +10,8 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as EventStore from "../orchestration-v2/EventStore.ts";
-import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenance.ts";
+// A legacy Fold database keeps its full event log, so a one-time replay is valid here.
+import * as ProjectionReplay from "../orchestration-v2/testkit/ProjectionReplay.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { FOLD_MIGRATIONS_TABLE, runFoldMigrations } from "./FoldMigrations.ts";
 import { migrationManifest, runMigrations } from "./Migrations.ts";
@@ -273,16 +274,23 @@ const lockSource = (databasePath: string) =>
     (database) => Effect.sync(() => database.isOpen && database.close()),
   );
 
-const snapshotSource = (source: NodeSqlite.DatabaseSync, snapshotPath: string) =>
-  Effect.tryPromise(async () => {
-    await NodeSqlite.backup(source, snapshotPath);
-    // A rollback-journal snapshot is one self-contained file, for ATTACH and as the backup.
-    const snapshot = new NodeSqlite.DatabaseSync(snapshotPath);
-    try {
-      snapshot.exec("PRAGMA journal_mode = DELETE");
-    } finally {
-      snapshot.close();
-    }
+const snapshotSource = (
+  source: NodeSqlite.DatabaseSync,
+  snapshotPath: string,
+  databasePath: string,
+) =>
+  Effect.tryPromise({
+    try: async () => {
+      await NodeSqlite.backup(source, snapshotPath);
+      // A rollback-journal snapshot is one self-contained file, for ATTACH and as the backup.
+      const snapshot = new NodeSqlite.DatabaseSync(snapshotPath);
+      try {
+        snapshot.exec("PRAGMA journal_mode = DELETE");
+      } finally {
+        snapshot.close();
+      }
+    },
+    catch: (cause) => new FoldDatabaseImportError({ databasePath, reason: "failed", cause }),
   });
 
 /** Copies the fork snapshot into the current database, which already has the upstream schema. */
@@ -373,7 +381,7 @@ const copySnapshot = Effect.fn("importFoldDatabase.copySnapshot")(function* (sna
 const verifyProjections = Effect.fn("importFoldDatabase.verifyProjections")(function* (
   databasePath: string,
 ) {
-  const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+  const maintenance = yield* ProjectionReplay.ProjectionReplay;
   const verified = yield* maintenance.verify;
   const result = verified.valid ? verified : yield* maintenance.rebuild;
   if (!result.valid) {
@@ -398,7 +406,7 @@ const buildDatabase = Effect.fn("importFoldDatabase.buildDatabase")(function* (
   snapshotPath: string,
 ) {
   const sqlite = NodeSqliteClient.layer({ filename: buildPath });
-  const maintenance = ProjectionMaintenance.layer.pipe(
+  const maintenance = ProjectionReplay.layer.pipe(
     Layer.provide(Layer.mergeAll(EventStore.layer, ProjectionStore.layer)),
     Layer.provideMerge(sqlite),
   );
@@ -446,7 +454,7 @@ export const importFoldDatabase = Effect.fn("importFoldDatabase")(function* (
     yield* Effect.log("Upgrading Fold database to the upstream schema").pipe(
       Effect.annotateLogs({ databasePath }),
     );
-    yield* snapshotSource(source, snapshotPath);
+    yield* snapshotSource(source, snapshotPath, databasePath);
     const { rebuilt } = yield* buildDatabase(databasePath, buildPath, snapshotPath);
 
     let backupPath: string | undefined;

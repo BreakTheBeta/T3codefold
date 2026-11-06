@@ -73,7 +73,7 @@ Paint splatter across the chat canvas in every theme's colours, on the unfolded 
 
 ## More than upstream
 
-Compared with upstream `main` at [5b9731cedc](https://github.com/pingdotgg/t3code/commit/5b9731cedc), synced **3 November 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
+Compared with upstream `main` at [79ee39fdcb](https://github.com/pingdotgg/t3code/commit/79ee39fdcb), synced **6 November 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
 
 | Feature                              | What you get                                                                                                                                                                                                                                  | Available in                             |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |

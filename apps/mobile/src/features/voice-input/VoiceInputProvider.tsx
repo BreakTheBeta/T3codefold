@@ -1,31 +1,34 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import {
-  AudioModule,
-  RecordingPresets,
-  requestRecordingPermissionsAsync,
-  type RecordingStatus,
-} from "expo-audio";
+import { AudioModule, RecordingPresets, type RecordingStatus } from "expo-audio";
 import { File } from "expo-file-system";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useSyncExternalStore } from "react";
-import { AppState, Platform } from "react-native";
+import { Platform } from "react-native";
 import { Atom, AsyncResult } from "effect/reactivity";
 import { makeMutable } from "react-native-reanimated";
 
 import {
+  type MicrophoneEntry,
   microphoneOrder,
   preferredMicrophoneInput,
   rememberMicrophones,
 } from "../../lib/microphonePriority";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { getLocalDictationBackend } from "../../native/localDictation";
+import { createVoiceRecorder } from "../../native/voiceRecorder";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
-import { voiceInputBlocksSubmission } from "@t3tools/client-runtime/voice-input";
+import {
+  voiceInputBlocksSubmission,
+  type VoiceTranscriber,
+} from "@t3tools/client-runtime/voice-input";
 import { createLazyVoiceRecorder } from "./lazyVoiceRecorder";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
 import { StreamingVoiceInputSession } from "./streamingVoiceInputSession";
+import { createVoiceRecordingPermission } from "./voiceRecordingPermission";
+import { voiceRouteAtom } from "./voiceDestination";
+import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import {
   acquireAudioSession,
   activateAudioSession,
@@ -51,6 +54,25 @@ function keepScreenAwake(tag: string): () => void {
   return () => void activation.then(() => deactivateKeepAwake(tag)).catch(() => {});
 }
 
+export const deviceMicrophoneOrder = (saved?: ReadonlyArray<MicrophoneEntry>) =>
+  microphoneOrder(saved, Platform.OS === "android" ? "android" : "ios");
+
+/** "checking" until the first availability probe settles; re-probed on foreground. */
+export const localVoiceTranscriberAtom = makePermissionStatusAtom<
+  VoiceTranscriber | null | "checking"
+>({
+  label: "mobile:voice-input:transcriber",
+  initial: "checking",
+  read: () => getLocalVoiceTranscriber().catch(() => null),
+}).pipe(Atom.keepAlive);
+
+const voiceInputAvailableAtom = Atom.make((get) => {
+  const route = get(voiceRouteAtom);
+  if (route) return route.transcriber !== null;
+  const transcriber = get(localVoiceTranscriberAtom);
+  return transcriber !== null && transcriber !== "checking";
+});
+
 /**
  * The app has one microphone and one dictation at a time, so the session
  * lives for the registry's lifetime rather than any screen's.
@@ -67,8 +89,16 @@ const voiceInputAtom = Atom.make((get) => {
   );
   let keepAwakeSequence = 0;
   let audioToken: ReturnType<typeof acquireAudioSession> | null = null;
+  const permission = createVoiceRecordingPermission(() => {
+    void session.controller.appMovedToBackground();
+    streamingSession?.appMovedToBackground();
+  });
   const recorder = createLazyVoiceRecorder({
-    create: () => new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS),
+    getDestination: () => (registry.get(voiceRouteAtom) === null ? "local" : "environment"),
+    create: (destination) =>
+      destination === "local"
+        ? createVoiceRecorder(VOICE_RECORDING_OPTIONS)
+        : new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS),
     onStatus: (status: RecordingStatus) => {
       session.controller.handleRecorderStatus({
         isFinished: status.isFinished,
@@ -81,12 +111,12 @@ const voiceInputAtom = Atom.make((get) => {
     selectInput: (inputs) => {
       const preferences = registry.get(mobilePreferencesAtom);
       if (!AsyncResult.isSuccess(preferences)) return null;
-      const known = microphoneOrder(preferences.value.microphones);
+      const known = deviceMicrophoneOrder(preferences.value.microphones);
       const order = rememberMicrophones(known, inputs);
       if (order !== known) {
         registry.set(updateMobilePreferencesAtom, {
           transform: (current) => ({
-            microphones: rememberMicrophones(microphoneOrder(current.microphones), inputs),
+            microphones: rememberMicrophones(deviceMicrophoneOrder(current.microphones), inputs),
           }),
         });
       }
@@ -96,7 +126,10 @@ const voiceInputAtom = Atom.make((get) => {
   const localDictation = getLocalDictationBackend();
   const recordingActivity = {
     sampleRecording: () => {
-      const status = localDictation?.getStatus() ?? recorder.getStatus();
+      const status =
+        localDictation && registry.get(voiceRouteAtom) === null
+          ? localDictation.getStatus()
+          : recorder.getStatus();
       return status?.isRecording
         ? { durationMillis: status.durationMillis, metering: status.metering }
         : null;
@@ -104,57 +137,68 @@ const voiceInputAtom = Atom.make((get) => {
     publishAudioLevels: (levels: ReadonlyArray<number>) => audioLevels.set(levels),
     keepAwake: () => keepScreenAwake(`voice-input:${++keepAwakeSequence}`),
   };
-  const session = localDictation
+  const session: VoiceInputSession = new VoiceInputSession({
+    recorder,
+    getTranscriber: () => {
+      const route = registry.get(voiceRouteAtom);
+      if (route) return route.transcriber;
+      const transcriber = registry.get(localVoiceTranscriberAtom);
+      return transcriber === "checking" ? null : transcriber;
+    },
+    requestPermission: permission.requestPermission,
+    configureRecording: async () => {
+      const token = acquireAudioSession("recording");
+      audioToken = token;
+      try {
+        await activateAudioSession(token);
+      } catch (error) {
+        await releaseAudioSession(token).catch(() => {});
+        throw error;
+      }
+    },
+    releaseRecording: async () => {
+      if (audioToken) await releaseAudioSession(audioToken);
+      audioToken = null;
+    },
+    deleteRecording: (uri) => new File(uri).delete(),
+    ...recordingActivity,
+  });
+  // Fold's Moonshine dictation streams phrases on the phone; a chosen environment route still
+  // uses upstream's recorded-audio session.
+  const streamingSession = localDictation
     ? new StreamingVoiceInputSession(localDictation, () => {}, recordingActivity)
-    : new VoiceInputSession({
-        recorder,
-        getTranscriber: getLocalVoiceTranscriber,
-        requestPermission: async () => {
-          const permission = await requestRecordingPermissionsAsync();
-          return { granted: permission.granted, canAskAgain: permission.canAskAgain };
-        },
-        configureRecording: async () => {
-          const token = acquireAudioSession("recording");
-          audioToken = token;
-          try {
-            await activateAudioSession(token);
-          } catch (error) {
-            await releaseAudioSession(token).catch(() => {});
-            throw error;
-          }
-        },
-        releaseRecording: async () => {
-          if (audioToken) await releaseAudioSession(audioToken);
-          audioToken = null;
-        },
-        deleteRecording: (uri) => new File(uri).delete(),
-        ...recordingActivity,
-      });
-  // iOS reports `inactive` while its permission dialog is open. Only the real
-  // background state cancels preparation; recorder status handles calls and
-  // route interruptions during capture.
-  const appStateSubscription = AppState.addEventListener("change", (nextState) => {
-    if (nextState === "background") void session.controller.appMovedToBackground();
+    : null;
+  get.subscribe(voiceRouteAtom, () => {
+    session.controller.cancel();
+    streamingSession?.cancel();
   });
   get.addFinalizer(() => {
-    appStateSubscription.remove();
+    permission.dispose();
     session.dispose();
+    streamingSession?.dispose();
     recorder.release();
   });
-  return { session, audioLevels };
+  return { session, streamingSession, audioLevels };
 }).pipe(Atom.keepAlive, Atom.withLabel("mobile:voice-input"));
 
 export function useGlobalVoiceInput() {
   const liveCallActive = useAtomValue(liveCallActiveAtom);
   const setLiveCallActive = useAtomSet(liveCallActiveAtom);
-  const { session, audioLevels } = useAtomValue(voiceInputAtom);
+  const voiceInput = useAtomValue(voiceInputAtom);
+  const route = useAtomValue(voiceRouteAtom);
+  const session =
+    route === null && voiceInput.streamingSession
+      ? voiceInput.streamingSession
+      : voiceInput.session;
+  const { audioLevels } = voiceInput;
+  const isTranscriberAvailable = useAtomValue(voiceInputAvailableAtom);
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot);
   return {
     ...snapshot,
     isAvailable:
       !liveCallActive &&
-      (getLocalDictationBackend() !== null ||
-        getLocalVoiceTranscriber() !== null ||
+      (isTranscriberAvailable ||
+        (route === null && voiceInput.streamingSession !== null) ||
         getNativeShowcaseScene() !== null),
     setLiveCallActive,
     audioLevels,

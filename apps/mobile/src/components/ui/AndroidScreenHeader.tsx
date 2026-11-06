@@ -209,9 +209,3 @@ export function AndroidScreenHeader(props: {
     </View>
   );
 }
-
-export function AndroidSheetHeader(
-  props: Omit<Parameters<typeof AndroidScreenHeader>[0], "embedded">,
-) {
-  return <AndroidScreenHeader {...props} embedded />;
-}

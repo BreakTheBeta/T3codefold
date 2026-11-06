@@ -6,7 +6,8 @@ import {
   type FactoryTriggerRun,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -48,7 +49,8 @@ const make = Effect.gen(function* () {
   const projects = yield* Projects.ProjectService;
   const settings = yield* ServerSettings.ServerSettingsService;
   const threads = yield* Threads.ThreadManagementService;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
+  const digests = yield* Digest.Digest;
   const unavailable = (cause: unknown) => new FactoryError({ code: "unavailable", cause });
   const actorAgent = Effect.fn("FactoryTriggers.actorAgent")((actor: FactoryActor) =>
     callerAgent(actor).pipe(Effect.provideService(FactoryStore, store)),
@@ -96,7 +98,7 @@ const make = Effect.gen(function* () {
   );
 
   const builtin = Effect.fn("FactoryTriggers.builtin")(function* (name: string, now: number) {
-    const items: Array<typeof FactoryCheckItem.Type> = [];
+    const items: Array<FactoryCheckItem> = [];
     const cards = yield* store.list("cards");
     const agents = yield* store.list("agents");
     const jobs = yield* store.list("jobs");
@@ -184,7 +186,7 @@ const make = Effect.gen(function* () {
     const trigger = yield* store.get("triggers", id);
     if (!trigger) return yield* new FactoryError({ code: "not-found", entityId: id });
     const now = DateTime.toEpochMillis(yield* DateTime.now);
-    const uuid = yield* crypto.randomUUIDv4().pipe(Effect.mapError(unavailable));
+    const uuid = yield* random.uuidV4();
     const record = yield* store.transaction(
       Effect.gen(function* () {
         const latest = (yield* store.get("triggers", id))!;
@@ -227,7 +229,7 @@ const make = Effect.gen(function* () {
           outputMode: "error",
         })
         .pipe(Effect.mapError(unavailable));
-      const items: Array<typeof FactoryCheckItem.Type> = [];
+      const items: Array<FactoryCheckItem> = [];
       if (output.code === 0)
         for (const line of output.stdout.split("\n").filter((l) => l.trim())) {
           if (line.length > 16_384 || items.length >= 200)
@@ -256,11 +258,12 @@ const make = Effect.gen(function* () {
         const transientSince = transient ? (latest.transientSince ?? now) : null;
         const failing =
           errors >= 3 || (transientSince !== null && doneAt - transientSince >= 3_600_000);
-        const fresh: Array<typeof FactoryCheckItem.Type> = [];
+        const fresh: Array<FactoryCheckItem> = [];
         for (const item of result.items) {
-          const digest = yield* crypto
-            .digest("SHA-256", new TextEncoder().encode(`${id}\0${item.key}`))
-            .pipe(Effect.mapError(unavailable));
+          const digest = yield* digests.digest(
+            Digest.sha256,
+            new TextEncoder().encode(`${id}\0${item.key}`),
+          );
           const key = Array.from(digest)
             .map((b) => b.toString(16).padStart(2, "0"))
             .join("");

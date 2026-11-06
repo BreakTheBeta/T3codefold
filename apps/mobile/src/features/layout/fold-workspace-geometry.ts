@@ -2,8 +2,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Platform, useWindowDimensions, type ViewInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { deriveHingeSnapWidths, deriveWorkspaceFoldRegions } from "../../lib/foldable-pane-layout";
-import { deriveLayout } from "../../lib/layout";
+import {
+  deriveFoldLayout,
+  deriveHingeSnapWidths,
+  deriveWorkspaceFoldRegions,
+} from "../../lib/foldable-pane-layout";
 import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
 import { useWindowPosture } from "../../native/T3WindowPosture";
 
@@ -18,16 +21,14 @@ export function useFoldWorkspaceGeometry() {
   const nativeMetrics = useNativeLayoutMetrics();
   const window = nativeMetrics ?? windowDimensions;
   const safeAreaInsets = useSafeAreaInsets();
-  const layout = useMemo(
-    () =>
-      deriveLayout({
-        width: window.width - safeAreaInsets.left - safeAreaInsets.right,
-        height: window.height,
-        platform: Platform.OS,
-        nativeMetrics,
-      }),
-    [nativeMetrics, safeAreaInsets.left, safeAreaInsets.right, window.height, window.width],
-  );
+  const layout = useMemo(() => {
+    return deriveFoldLayout({
+      width: window.width - safeAreaInsets.left - safeAreaInsets.right,
+      height: window.height,
+      platform: Platform.OS,
+      nativeMetrics,
+    });
+  }, [nativeMetrics, safeAreaInsets.left, safeAreaInsets.right, window.height, window.width]);
   // A landscape navigation bar or display cutout sits beside the panes, not under them.
   const leadingInset = layout.usesSplitView ? safeAreaInsets.left : 0;
   const trailingInset = layout.usesSplitView ? safeAreaInsets.right : 0;
