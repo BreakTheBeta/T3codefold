@@ -32,6 +32,12 @@ export const SendResult = Schema.Struct({
   turn: Schema.Number,
   started: Schema.optional(Schema.NullOr(Schema.Boolean)),
 });
+export const PaneRead = Schema.Struct({
+  text: Schema.String,
+  complete: Schema.Boolean,
+  how: Schema.String,
+  why: Schema.optional(Schema.NullOr(Schema.String)),
+});
 export const CoreDocument = Schema.Struct({ value: Schema.Unknown, version: Schema.Number });
 export const ExecResult = Schema.Struct({
   stdout: Schema.String,
@@ -75,6 +81,8 @@ export interface CoreAgent {
   readonly terminal: string | null;
   readonly parentId: string | null;
   readonly role: string | null;
+  /** The Herdr tab the terminal sits in, when the setup labels one. */
+  readonly tab: string | null;
   readonly cwd: string | null;
   readonly provider: string | null;
   readonly model: string | null;
@@ -134,6 +142,7 @@ export function terminalAgents(terminals: readonly CoreTerminal[]): readonly Cor
     terminal: terminal.address,
     parentId: terminal.parent ?? null,
     role: null,
+    tab: null,
     cwd: terminal.cwd,
     provider: terminal.status?.app ?? null,
     model: null,

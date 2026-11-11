@@ -27,7 +27,7 @@ import {
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { HerdrThreadView } from "./HerdrThreadView";
-import { HerdrFleetList, orderFleet } from "./HerdrFleetList";
+import { HerdrFleetList, groupFleet } from "./HerdrFleetList";
 import {
   Dialog,
   DialogPopup,
@@ -192,6 +192,7 @@ function CoreWorkspace({
   const [filter, setFilter] = useState("");
   const [showFinished, setShowFinished] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [views, setViews] = useState<Record<string, "chat" | "terminal">>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [moduleId, setModuleId] = useState<string | null>(null);
@@ -262,7 +263,7 @@ function CoreWorkspace({
         .toLowerCase()
         .includes(filter.toLowerCase()),
   );
-  const fleet = orderFleet(visible, pins);
+  const fleet = groupFleet(visible, pins);
   const parent = agent?.parentId
     ? (state.agents.find((item) => item.id === agent.parentId) ?? null)
     : null;
@@ -299,7 +300,7 @@ function CoreWorkspace({
               >
                 <FactoryIcon />
                 <span>Factory</span>
-                <span className="ml-auto text-xs text-muted-foreground">{fleet.length}</span>
+                <span className="ml-auto text-xs text-muted-foreground">{visible.length}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             {state.modules.map((item) => (
@@ -322,17 +323,23 @@ function CoreWorkspace({
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
-          <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">Agents</p>
-          <HerdrFleetList
-            nodes={fleet}
-            activeId={module ? null : (agent?.id ?? null)}
-            pins={pins}
-            disabled={state.connection !== "connected"}
-            onSelect={(item) => {
-              setModuleId(null);
-              void run(() => workspace.select(item));
-            }}
-          />
+          {fleet.map((group) => (
+            <section key={group.tab ?? ""} className="pb-2" aria-label={group.tab ?? "Agents"}>
+              <p className="truncate px-4 pb-1 text-xs font-medium text-muted-foreground">
+                {group.tab ?? "Agents"}
+              </p>
+              <HerdrFleetList
+                nodes={group.nodes}
+                activeId={module ? null : (agent?.id ?? null)}
+                pins={pins}
+                disabled={state.connection !== "connected"}
+                onSelect={(item) => {
+                  setModuleId(null);
+                  void run(() => workspace.select(item));
+                }}
+              />
+            </section>
+          ))}
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
@@ -440,6 +447,8 @@ function CoreWorkspace({
                 detailsOpen={detailsOpen}
                 onToggleDetails={() => setDetailsOpen(!detailsOpen)}
                 banner={errorBanner}
+                view={views[agent.id] ?? (agent.conversationId ? "chat" : "terminal")}
+                onViewChange={(next) => setViews((previous) => ({ ...previous, [agent.id]: next }))}
               />
             ) : (
               <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">

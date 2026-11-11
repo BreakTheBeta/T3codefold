@@ -69,6 +69,7 @@ describe("orderFleet", () => {
     terminal: id,
     parentId,
     role: null,
+    tab: null,
     cwd: null,
     provider: null,
     model: null,

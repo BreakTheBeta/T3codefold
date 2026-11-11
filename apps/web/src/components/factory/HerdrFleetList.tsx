@@ -46,6 +46,18 @@ export function orderFleet(agents: readonly CoreAgent[], pins: readonly string[]
   return ordered;
 }
 
+export interface FleetGroup {
+  readonly tab: string | null;
+  readonly nodes: readonly FleetNode[];
+}
+
+/** Agents grouped by Herdr tab in Core's order, each tab nested by parent. */
+export function groupFleet(agents: readonly CoreAgent[], pins: readonly string[]): FleetGroup[] {
+  const tabs = new Map<string | null, CoreAgent[]>();
+  for (const agent of agents) tabs.set(agent.tab, [...(tabs.get(agent.tab) ?? []), agent]);
+  return [...tabs].map(([tab, members]) => ({ tab, nodes: orderFleet(members, pins) }));
+}
+
 /** Sidebar rows styled like T3's slim thread rows, indented under their parent agent. */
 export function HerdrFleetList({
   nodes,
