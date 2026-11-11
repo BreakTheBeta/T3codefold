@@ -8,7 +8,6 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AuthStandardClientScopes, ORCHESTRATION_PROTOCOL_VERSION } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
-import { foldServerCommand } from "@t3tools/shared/foldRelease";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
@@ -35,6 +34,7 @@ import {
   persistServerRuntimeState,
   type PersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
+import { resolveHostCliCommand } from "./invocation.ts";
 import { DevServerNotProxiableError, resolveTailscaleLocalTarget } from "./pair.ts";
 
 import packageJson from "../../package.json" with { type: "json" };
@@ -281,8 +281,11 @@ describe("t3 pair", () => {
         typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
       );
       assert.include(rendered, "No running T3 Code server found.");
-      assert.include(rendered, `${foldServerCommand("latest")} serve`);
-      assert.include(rendered, `${foldServerCommand("latest")} connect`);
+      for (const subcommand of ["serve", "connect"]) {
+        const { command } = yield* resolveHostCliCommand(subcommand, ["--base-dir", baseDir]);
+        assert.include(rendered, `\`${command}\``);
+        assert.notInclude(command, "npx t3");
+      }
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -333,7 +336,7 @@ describe("t3 pair", () => {
   it.effect("ignores runtime state whose recorded pid is no longer alive", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
-        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-pid-test-"));
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3 pair pid test-"));
         const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
         const state = yield* makePersistedServerRuntimeState({
           config: { host: "127.0.0.1", devUrl: undefined },
@@ -352,6 +355,10 @@ describe("t3 pair", () => {
           typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
         );
         assert.include(rendered, "No running T3 Code server found.");
+        for (const subcommand of ["serve", "connect"]) {
+          const { command } = yield* resolveHostCliCommand(subcommand, ["--base-dir", baseDir]);
+          assert.include(rendered, `\`${command}\``);
+        }
       }),
     ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );

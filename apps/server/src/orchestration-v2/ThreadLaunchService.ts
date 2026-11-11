@@ -363,6 +363,7 @@ const make = Effect.gen(function* () {
               attachments: message.attachments,
               ...(message.context ? { context: message.context } : {}),
               modelSelection,
+              projectId: input.projectId,
             })
             .pipe(
               Effect.map((result) => ({
@@ -391,8 +392,8 @@ const make = Effect.gen(function* () {
       const isRepository =
         input.workspaceStrategy.type === "worktree" &&
         (yield* git
-          .isRepository(project.workspaceRoot)
-          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))));
+          .repositoryRoot(project.workspaceRoot)
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))) !== null;
       if (input.workspaceStrategy.type === "worktree" && isRepository) {
         if (runId !== null) {
           yield* threads

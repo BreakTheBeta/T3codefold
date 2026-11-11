@@ -259,7 +259,6 @@ function useSettingsIndexSections(): SettingsListSection[] {
         ...(navigationCustomizationAvailable()
           ? [page("SettingsNavigation", "line.3.horizontal", "Navigation tabs")]
           : []),
-        // Fold: hardware keyboard and Vim settings apply on Android too.
         page("SettingsKeyboard", "keyboard", "Keyboard"),
         page("SettingsVoice", "mic", "Voice"),
       ],
@@ -291,7 +290,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
         // Fold's Android split view has no navigation rail, so Usage stays reachable here.
         ...(foldSplitView ? [page("SettingsUsage", "chart.bar.xaxis", "Usage")] : []),
         serverPage("SettingsEnvironmentMaintenance", "arrow.clockwise", "Maintenance"),
-        page("SettingsLabs", "sparkles", "Labs"),
+        page("SettingsLabs", "flask", "Labs"),
         page("SettingsAbout", "info.circle", "About"),
         page("SettingsArchive", "archivebox", "Archive"),
       ],

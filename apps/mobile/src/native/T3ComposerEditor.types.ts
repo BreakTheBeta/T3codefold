@@ -1,3 +1,4 @@
+import type { SelectableMarkdownModel } from "./SelectableMarkdownText.types";
 import type { OrchestrationMessageContext, ServerProviderSkill } from "@t3tools/contracts";
 import type { Ref } from "react";
 import type { StyleProp, TextStyle, ViewStyle } from "react-native";
@@ -22,6 +23,8 @@ export interface ComposerEditorHandle {
   focus: () => void;
   blur: () => void;
   setSelection: (selection: ComposerEditorSelection) => void;
+  /** iOS: resolves once a native edit still in flight has reached `onChangeText`. */
+  flushPendingInput: () => Promise<void>;
 }
 
 export interface ComposerEditorProps {
@@ -42,6 +45,7 @@ export interface ComposerEditorProps {
     > &
       Partial<Pick<ServerProviderSkill, "path">>
   >;
+  readonly models?: ReadonlyArray<SelectableMarkdownModel>;
   readonly selection?: ComposerEditorSelection;
   readonly placeholder?: string;
   readonly autoFocus?: boolean;
@@ -81,10 +85,10 @@ export interface ComposerEditorProps {
     readonly width: number;
     readonly height: number;
   }) => void;
-  /** Hardware-keyboard Return behavior. */
+  /** Hardware-keyboard Return behavior. Soft keyboards always insert a newline. */
   readonly enterBehavior?: ComposerEnterBehavior;
   readonly submitTitle?: string;
   readonly alternateSubmitTitle?: string;
-  /** Command (or Android Ctrl/Meta) chords set alternate to reverse follow-up behavior. */
+  /** Command chords (Ctrl or Meta on Android) reverse the configured follow-up behavior. */
   readonly onSubmit?: (alternate: boolean) => void;
 }

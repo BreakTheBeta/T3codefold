@@ -122,7 +122,7 @@ interface HarnessOptions {
   readonly adapters?: ReadonlyArray<ProviderAdapter.ProviderAdapterV2["Service"]>;
   readonly managedFolders?: Layer.Layer<ManagedProjectFolders.ManagedProjectFolders>;
   readonly createWorktree?: GitWorkflow.GitWorkflowService["Service"]["createWorktree"];
-  readonly isRepository?: GitWorkflow.GitWorkflowService["Service"]["isRepository"];
+  readonly repositoryRoot?: GitWorkflow.GitWorkflowService["Service"]["repositoryRoot"];
   readonly fetchWorktreeBaseCommit?: GitWorkflow.GitWorkflowService["Service"]["fetchWorktreeBaseCommit"];
   readonly remoteExists?: GitWorkflow.GitWorkflowService["Service"]["remoteExists"];
   readonly hasCommit?: GitWorkflow.GitWorkflowService["Service"]["hasCommit"];
@@ -198,6 +198,7 @@ function makeHarness(options: HarnessOptions = {}) {
               : Option.none(),
         ),
       getByWorkspaceRoot: () => Effect.succeedSome(project),
+      workspaceScanDirectory: () => Effect.die("unused"),
       snapshot: Effect.die("unused"),
       getShell: () => Effect.die("unused"),
       listShells: () => Effect.die("unused"),
@@ -208,7 +209,7 @@ function makeHarness(options: HarnessOptions = {}) {
       fetchWorktreeBaseCommit:
         options.fetchWorktreeBaseCommit ??
         (() => Effect.succeed({ commitSha: "remote-main-sha", remoteRefName: "origin/main" })),
-      isRepository: options.isRepository ?? (() => Effect.succeed(true)),
+      repositoryRoot: options.repositoryRoot ?? ((cwd) => Effect.succeed(cwd)),
       hasCommit:
         options.hasCommit ?? ((input) => Effect.succeed(input.refName !== "refs/heads/t3")),
       resolveWorktreeBaseRemote: () => Effect.succeed({ remoteName: "origin", branchName: "main" }),
@@ -415,7 +416,11 @@ it.effect(
     );
     return Effect.gen(function* () {
       const tasks = yield* ScheduledTasks.ScheduledTaskService;
-      const threadId = ThreadId.make("thread:missing");
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const { threadId } = yield* launches.launch(
+        launchInput({ command: "command:missing", thread: "thread:missing" }),
+      );
       const { task } = yield* tasks.upsert({
         title: "Daily audit",
         prompt: "Audit performance and crashes.",
@@ -429,6 +434,11 @@ it.effect(
         interactionMode: "default",
         createdBy: "user",
         creationSource: "web",
+      });
+      yield* threads.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("command:missing:delete"),
+        threadId,
       });
       const result = yield* tasks.runNow({ id: task.id });
       assert.equal(result.task.lastRunStatus, "failed");
@@ -1259,7 +1269,7 @@ it.effect.each(["not-repository", "unborn-base"] as const)(
   "runs in the project checkout when no worktree can be made: %s",
   (reason) => {
     const harness = makeHarness({
-      isRepository: () => Effect.succeed(reason !== "not-repository"),
+      repositoryRoot: (cwd) => Effect.succeed(reason === "not-repository" ? null : cwd),
       hasCommit: () => Effect.succeed(reason !== "unborn-base"),
     });
     return Effect.gen(function* () {
@@ -1308,7 +1318,7 @@ it.effect.each(["not-repository", "unborn-base"] as const)(
   "fails a launch that requires a worktree instead of using the project checkout: %s",
   (reason) => {
     const harness = makeHarness({
-      isRepository: () => Effect.succeed(reason !== "not-repository"),
+      repositoryRoot: (cwd) => Effect.succeed(reason === "not-repository" ? null : cwd),
       hasCommit: () => Effect.succeed(reason !== "unborn-base"),
     });
     return Effect.gen(function* () {

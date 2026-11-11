@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAndroidControlSizing } from "../../../components/ui/useAndroidControlSizing";
 import { View } from "react-native";
 import { ScreenContent } from "../../../components/ui/ScreenContent";
-import { AndroidHeaderIconButton } from "../../../components/ui/AndroidScreenHeader";
+import { AndroidHeaderIconButton } from "../../../components/ui/AndroidScreenHeader.android";
 import { PullRequestsScreen } from "../../pull-requests/PullRequestsScreen";
 import { PullRequestToolbar } from "./PullRequestToolbar.android";
 import { selectedPullRequestKey } from "../../pull-requests/pullRequestSelection";
