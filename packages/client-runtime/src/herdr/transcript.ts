@@ -17,6 +17,7 @@ export function appendTranscript(
     const row = object(value);
     if (!row) continue;
     const id = `${source}:${line}`;
+    const at = typeof row.timestamp === "string" ? row.timestamp : undefined;
     if (provider === "claude") {
       const message = object(row.message);
       if (!message || !["user", "assistant"].includes(String(message.role))) continue;
@@ -47,6 +48,7 @@ export function appendTranscript(
               id: partId,
               sequence: line * 1000 + index,
               revision: line,
+              ...(at ? { at } : {}),
               role: message.role === "assistant" ? "assistant" : "user",
               source: message.role === "assistant" ? provider : promptSource(block.text),
               parts: [{ id: partId, kind: "text", text: block.text }],
@@ -58,6 +60,7 @@ export function appendTranscript(
               id: partId,
               sequence: line * 1000 + index,
               revision: line,
+              ...(at ? { at } : {}),
               role: "assistant",
               source: provider,
               parts: [
@@ -94,6 +97,7 @@ export function appendTranscript(
               id,
               sequence: line * 1000,
               revision: line,
+              ...(at ? { at } : {}),
               role: payload.role === "assistant" ? "assistant" : "user",
               source:
                 payload.role === "assistant"
@@ -111,6 +115,7 @@ export function appendTranscript(
             id,
             sequence: line * 1000,
             revision: line,
+            ...(at ? { at } : {}),
             role: "assistant",
             source: provider,
             parts: [
@@ -181,6 +186,8 @@ function updateTool(
 function promptSource(value: string) {
   if (value.startsWith("[factory]")) return "factory wake";
   if (value.startsWith("[herd]")) return "herd brief";
-  if (/^<(cross-session-message|teammate-message|agent-message)\b/.test(value)) return "peer agent";
+  // Claude prefixes relayed messages with a sentence, so look near the start, not at it.
+  if (/<(cross-session-message|teammate-message|agent-message)\b/.test(value.slice(0, 400)))
+    return "peer agent";
   return "provider user record (origin unverified)";
 }

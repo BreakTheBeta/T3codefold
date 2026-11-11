@@ -230,6 +230,21 @@ describe("unmodified native Core", () => {
 });
 
 describe("provider transcript normalization", () => {
+  it("attributes relayed peer messages even after Claude's lead-in sentence", () => {
+    const [item] = appendTranscript([], "session", "claude", [
+      {
+        line: 1,
+        value: {
+          message: {
+            role: "user",
+            content:
+              'Another Claude session sent a message:\n<cross-session-message from="factory:decision">go</cross-session-message>',
+          },
+        },
+      },
+    ]);
+    expect(item?.source).toBe("peer agent");
+  });
   it("correlates Claude tool results and keeps multi-block message order", () => {
     const result = appendTranscript([], "session", "claude", [
       {
