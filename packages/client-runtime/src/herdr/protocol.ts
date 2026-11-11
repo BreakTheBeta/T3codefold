@@ -97,6 +97,8 @@ export interface CoreItem {
   readonly id: string;
   readonly sequence: number;
   readonly revision: number;
+  /** Provider-recorded ISO time, when the transcript row has one. */
+  readonly at?: string;
   readonly role: "user" | "assistant" | "system" | "agent";
   readonly source: string;
   readonly parts: readonly CorePart[];

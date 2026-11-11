@@ -1,5 +1,5 @@
 import { desktopHerdrTransport } from "./desktopHerdrTransport";
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { HerdrWorkspace } from "@t3tools/client-runtime/herdr/workspace";
 import { type CoreModule, type CoreResource } from "@t3tools/client-runtime/herdr/protocol";
 import {
@@ -10,18 +10,7 @@ import { randomUUID } from "../../lib/utils";
 import { isElectron } from "../../env";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import {
-  ArrowUpIcon,
-  ChevronRightIcon,
-  CircleIcon,
-  FactoryIcon,
-  FolderIcon,
-  PanelRightIcon,
-  PinIcon,
-  SettingsIcon,
-  SquareIcon,
-  TerminalIcon,
-} from "lucide-react";
+import { FactoryIcon, FolderIcon, PanelRightIcon, SettingsIcon } from "lucide-react";
 import {
   SidebarContent,
   SidebarFooter,
@@ -37,8 +26,8 @@ import {
   WorkspaceBreadcrumbSeparator,
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
-import { ComposerSurface } from "../chat/ComposerSurface";
-import { WorkLogButton, WorkLogDetails } from "../chat/WorkLog";
+import { HerdrThreadView } from "./HerdrThreadView";
+import { HerdrFleetList, orderFleet } from "./HerdrFleetList";
 import {
   Dialog,
   DialogPopup,
@@ -47,7 +36,6 @@ import {
   DialogDescription,
   DialogPanel,
 } from "../ui/dialog";
-import ChatMarkdown from "../ChatMarkdown";
 import {
   saveHerdrDestination,
   removeHerdrDestination,
@@ -197,8 +185,6 @@ function CoreWorkspace({
   connections: import("react").ReactNode;
   onSettings: () => void;
 }) {
-  const historyRef = useRef<HTMLDivElement>(null);
-  const followHistory = useRef(true);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [workspace] = useState(() => new HerdrWorkspace());
   const [initialDestination] = useState(destination);
@@ -263,12 +249,6 @@ function CoreWorkspace({
       clearTimeout(timer);
     };
   }, [workspace, state.connection]);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Keep recorded chat at the tail until the reader scrolls away.
-  useLayoutEffect(() => {
-    if (state.items.length === 0) return;
-    const element = historyRef.current;
-    if (element && followHistory.current) element.scrollTop = element.scrollHeight;
-  }, [state.items]);
   const agent = state.selected;
   const conversationKey = agent?.conversationId ?? agent?.id ?? "";
   const source = agent ? workspace.transcriptSource(agent.id) : null;
@@ -282,10 +262,16 @@ function CoreWorkspace({
         .toLowerCase()
         .includes(filter.toLowerCase()),
   );
-  const fleet = [...visible].sort(
-    (a, b) =>
-      Number(pins.includes(b.id)) - Number(pins.includes(a.id)) || a.label.localeCompare(b.label),
-  );
+  const fleet = orderFleet(visible, pins);
+  const parent = agent?.parentId
+    ? (state.agents.find((item) => item.id === agent.parentId) ?? null)
+    : null;
+  const errorBanner =
+    error || state.error ? (
+      <p role="alert" className="px-6 py-2 text-sm text-destructive">
+        {error ?? state.error}
+      </p>
+    ) : null;
   const sidebar = (
     <>
       {connections}
@@ -336,31 +322,17 @@ function CoreWorkspace({
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
-          <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">Conversations</p>
-          <SidebarMenu>
-            {fleet.map((item) => (
-              <SidebarMenuItem key={item.id}>
-                <SidebarMenuButton
-                  isActive={!module && agent?.id === item.id}
-                  disabled={state.connection !== "connected"}
-                  onClick={() => {
-                    setModuleId(null);
-                    followHistory.current = true;
-                    void run(() => workspace.select(item));
-                  }}
-                  title={[item.role, item.status, item.parentId && `Parent: ${item.parentId}`]
-                    .filter(Boolean)
-                    .join(" · ")}
-                >
-                  {pins.includes(item.id) ? <PinIcon /> : <CircleIcon />}
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate">{item.label}</span>
-                    <span className="text-xs text-muted-foreground">{item.status}</span>
-                  </span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
+          <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">Agents</p>
+          <HerdrFleetList
+            nodes={fleet}
+            activeId={module ? null : (agent?.id ?? null)}
+            pins={pins}
+            disabled={state.connection !== "connected"}
+            onSelect={(item) => {
+              setModuleId(null);
+              void run(() => workspace.select(item));
+            }}
+          />
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
@@ -385,35 +357,37 @@ function CoreWorkspace({
         {sidebar}
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        <WorkspacePageHeader electron={isElectron}>
-          <WorkspaceBreadcrumb ariaLabel="Factory conversation">
-            <WorkspaceBreadcrumbItem>
-              <WorkspaceBreadcrumbText>Factory</WorkspaceBreadcrumbText>
-            </WorkspaceBreadcrumbItem>
-            <WorkspaceBreadcrumbSeparator />
-            <WorkspaceBreadcrumbItem current>
-              <WorkspaceBreadcrumbText>
-                {module?.label ?? agent?.label ?? destination.label}
-              </WorkspaceBreadcrumbText>
-            </WorkspaceBreadcrumbItem>
-          </WorkspaceBreadcrumb>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="hidden text-xs text-muted-foreground sm:inline">{agent?.status}</span>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Conversation details"
-              onClick={() => setDetailsOpen(!detailsOpen)}
-            >
-              <PanelRightIcon />
-            </Button>
-          </div>
-        </WorkspacePageHeader>
-        {(error || state.error) && (
-          <p role="alert" className="px-6 py-2 text-sm text-destructive">
-            {error ?? state.error}
-          </p>
-        )}
+        {module || !agent ? (
+          <>
+            <WorkspacePageHeader electron={isElectron}>
+              <WorkspaceBreadcrumb ariaLabel="Factory conversation">
+                <WorkspaceBreadcrumbItem>
+                  <WorkspaceBreadcrumbText>Factory</WorkspaceBreadcrumbText>
+                </WorkspaceBreadcrumbItem>
+                <WorkspaceBreadcrumbSeparator />
+                <WorkspaceBreadcrumbItem current>
+                  <WorkspaceBreadcrumbText>
+                    {module?.label ?? agent?.label ?? destination.label}
+                  </WorkspaceBreadcrumbText>
+                </WorkspaceBreadcrumbItem>
+              </WorkspaceBreadcrumb>
+              <div className="ml-auto flex items-center gap-2">
+                <span className="hidden text-xs text-muted-foreground sm:inline">
+                  {agent?.status}
+                </span>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Conversation details"
+                  onClick={() => setDetailsOpen(!detailsOpen)}
+                >
+                  <PanelRightIcon />
+                </Button>
+              </div>
+            </WorkspacePageHeader>
+            {errorBanner}
+          </>
+        ) : null}
         <div className="flex min-h-0 flex-1">
           <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Herdr conversation">
             {module ? (
@@ -451,191 +425,22 @@ function CoreWorkspace({
                 )}
               </div>
             ) : agent ? (
-              <>
-                <div
-                  className="scrollbar-gutter-both min-h-0 flex-1 overflow-auto px-6 py-6"
-                  role="log"
-                  aria-label="Conversation history"
-                  ref={historyRef}
-                  onScroll={(event) => {
-                    const element = event.currentTarget;
-                    followHistory.current =
-                      element.scrollHeight - element.scrollTop - element.clientHeight < 64;
-                  }}
-                >
-                  <div className="mx-auto w-full max-w-(--chat-content-max-width) space-y-6">
-                    {state.before && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => {
-                          followHistory.current = false;
-                          void run(() => workspace.older());
-                        }}
-                      >
-                        Load older records
-                      </Button>
-                    )}
-                    {state.history === "unavailable" && (
-                      <div className="py-12 text-center text-sm text-muted-foreground">
-                        <p>No conversation source attached.</p>
-                        <Button variant="ghost" size="sm" onClick={() => setDetailsOpen(true)}>
-                          Attach recorded history
-                        </Button>
-                      </div>
-                    )}
-                    {state.history === "loading" && (
-                      <p className="text-sm text-muted-foreground">Loading conversation…</p>
-                    )}
-                    {state.items.map((item) => (
-                      <article
-                        key={item.id}
-                        aria-label={`${item.role} · ${item.source}`}
-                        className={item.role === "user" ? "flex justify-end" : "min-w-0"}
-                      >
-                        <div
-                          className={
-                            item.role === "user"
-                              ? "max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground"
-                              : "w-full space-y-2"
-                          }
-                        >
-                          {item.role === "user" && (
-                            <p className="mb-1 text-xs text-muted-foreground">{item.source}</p>
-                          )}
-                          {item.parts.map((part) =>
-                            part.kind === "text" ? (
-                              <ChatMarkdown key={part.id} text={part.text} cwd={undefined} />
-                            ) : (
-                              <CoreActivity
-                                key={part.id}
-                                name={part.name ?? part.kind}
-                                state={part.state}
-                                text={part.text}
-                                output={part.output}
-                                interaction={part.kind === "interaction"}
-                              />
-                            ),
-                          )}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-                <form
-                  className="shrink-0 px-6 pt-2 pb-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (busy || !draft.trim() || !workspace.canSend()) return;
-                    void run(async () => {
-                      await workspace.send(draft, randomUUID());
-                      setDrafts((previous) => ({ ...previous, [conversationKey]: "" }));
-                    });
-                  }}
-                >
-                  <ComposerSurface.Shell>
-                    <ComposerSurface.Host>
-                      <ComposerSurface.Main>
-                        <textarea
-                          aria-label="Message Herdr agent"
-                          className="block min-h-24 w-full resize-none rounded-t-2xl bg-transparent px-4 pt-4 pb-2 text-sm outline-none placeholder:text-muted-foreground"
-                          value={draft}
-                          onChange={(event) =>
-                            setDrafts((previous) => ({
-                              ...previous,
-                              [conversationKey]: event.target.value,
-                            }))
-                          }
-                          onKeyDown={(event) => {
-                            if (
-                              event.key === "Enter" &&
-                              !event.shiftKey &&
-                              !event.nativeEvent.isComposing
-                            ) {
-                              event.preventDefault();
-                              event.currentTarget.form?.requestSubmit();
-                            }
-                          }}
-                          placeholder={`Message ${agent.label}…`}
-                        />
-                        <div className="flex items-center gap-2 px-3 pb-3">
-                          <span className="text-xs text-muted-foreground">
-                            {agent.model ?? agent.provider ?? "Herdr session"}
-                          </span>
-                          <ChevronRightIcon className="size-3 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">
-                            {destination.readOnly ? "Read only" : "Core"}
-                          </span>
-                          <div className="ml-auto flex gap-1">
-                            {agent.capabilities.includes("interrupt") && (
-                              <Button
-                                type="button"
-                                size="icon-sm"
-                                variant="ghost"
-                                aria-label="Interrupt session"
-                                disabled={
-                                  busy ||
-                                  !workspace.permits("session.control") ||
-                                  state.connection !== "connected"
-                                }
-                                onClick={() => void run(() => workspace.interrupt(randomUUID()))}
-                              >
-                                <SquareIcon />
-                              </Button>
-                            )}
-                            <Button
-                              type="submit"
-                              size="icon-sm"
-                              aria-label="Send message"
-                              disabled={busy || !draft.trim() || !workspace.canSend()}
-                            >
-                              <ArrowUpIcon />
-                            </Button>
-                          </div>
-                        </div>
-                      </ComposerSurface.Main>
-                    </ComposerSurface.Host>
-                    <ComposerSurface.ContextStrip>
-                      <FolderIcon className="size-3 shrink-0" />
-                      <span className="truncate text-xs">{agent.cwd ?? destination.label}</span>
-                      {state.receipt && (
-                        <span className="ml-auto text-xs">{state.receipt.state}</span>
-                      )}
-                    </ComposerSurface.ContextStrip>
-                  </ComposerSurface.Shell>
-                  {state.receipt?.state === "unknown" && (
-                    <details className="text-xs">
-                      <summary>Resolve unknown delivery</summary>
-                      <p>
-                        Core has no durable send receipt. Check the transcript or terminal first.
-                        This does not resend anything.
-                      </p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => workspace.acknowledgeUnknownDelivery()}
-                      >
-                        I checked the result. Allow new operations.
-                      </Button>
-                    </details>
-                  )}
-
-                  {state.receipt &&
-                    !["completed", "delivered", "rejected"].includes(state.receipt.state) && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy || state.connection !== "connected"}
-                        onClick={() => void run(() => workspace.reconcile())}
-                      >
-                        Check delivery
-                      </Button>
-                    )}
-                </form>
-              </>
+              <HerdrThreadView
+                workspace={workspace}
+                state={state}
+                agent={agent}
+                parent={parent}
+                readOnly={destination.readOnly}
+                busy={busy}
+                run={run}
+                draft={draft}
+                onDraftChange={(value) =>
+                  setDrafts((previous) => ({ ...previous, [conversationKey]: value }))
+                }
+                detailsOpen={detailsOpen}
+                onToggleDetails={() => setDetailsOpen(!detailsOpen)}
+                banner={errorBanner}
+              />
             ) : (
               <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
                 Select a conversation from your factory.
@@ -791,46 +596,6 @@ function CoreWorkspace({
           </section>
         )}
       </main>
-    </div>
-  );
-}
-
-function CoreActivity({
-  name,
-  state,
-  text,
-  output,
-  interaction,
-}: {
-  name: string;
-  state?: string | undefined;
-  text: string;
-  output?: string | undefined;
-  interaction: boolean;
-}) {
-  const [open, setOpen] = useState(interaction);
-  return (
-    <div>
-      <WorkLogButton
-        icon={<TerminalIcon className="size-3.5" />}
-        label={name}
-        trailing={<span className="text-xs text-muted-foreground">{state}</span>}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      />
-      {open && (
-        <WorkLogDetails>
-          <pre className="whitespace-pre-wrap break-words text-xs">
-            {text}
-            {output ? `\n${output}` : ""}
-          </pre>
-          {interaction && (
-            <p className="text-xs text-muted-foreground">
-              Use the provider’s permission controls to resolve this request.
-            </p>
-          )}
-        </WorkLogDetails>
-      )}
     </div>
   );
 }
