@@ -1,18 +1,49 @@
-# Native Herdr Core connections
+# Herdr factories
 
-The desktop client can connect directly to an existing Herdr Core socket, locally or over SSH. Core continues running independently of T3. This integration does not install, update, start or stop Core, and requires no changes to Core's source.
+If you run your agents on Herdr Core, the desktop app can show that factory in T3 Code. Commanders and workers read like normal threads, and TUI tools such as a factory dashboard open as terminal panes. Herdr stays in charge: T3 Code doesn't install, start, stop or restart Core or its agents, and closing T3 Code leaves everything running.
 
-Open **Factory** in the main sidebar. Herdr Core opens in that workspace; **T3 sessions** keeps the existing T3-managed factory available. You can also use **Settings → Connections → Open Factory**. Add the absolute socket path and, for a remote machine, its SSH host alias. Remote connections require Python 3 and an already authenticated SSH agent/configuration. Connections are read-only by default; clear that setting when creating a connection to allow supported controls under your OS account's authority. Core does not supply separate per-client permission scopes.
+## Connect a factory
 
-Select a terminal to inspect it, and pin the conversations you follow. When a terminal runs `claude` or `codex` and carries a provider session id label (`herd.session` by default), the client finds that session's transcript in the provider's default store on the Core host (`~/.claude/projects` or `~/.codex/sessions`, honouring `CLAUDE_CONFIG_DIR` and `CODEX_HOME`) with one bounded `machine.exec` per refresh. Without a published mapping, `herd.name`, `herd.role` and `herd.token.parent` name, group and nest terminals. **Conversation source** shows the detected file, or attaches a different absolute JSONL path. A binding is a file association, not proof that Core associates the file with that terminal. History uses Core's `file.read` API, starting near the end of the file; older records load on demand. While the workspace is visible, the client refreshes recorded history every three seconds. Updates appear when the provider writes them, so this is not a guarantee of token-by-token streaming. Unsupported transcript records are not interpreted as chat.
+Open **Factory** in the sidebar, or **Settings → Connections → Open Factory**, and add a connection:
 
-Ordinary prompts use Core's existing `terminal.send`; interruption uses `terminal.interrupt`. The client never sends chat text to answer a blocked permission dialog. Core has no durable send-receipt lookup: if delivery is unknown, inspect the transcript or terminal before allowing a new operation. Reconnecting never automatically resends a prompt.
+```text
+Factory name:   My factory
+Socket path:    /run/user/1000/herdr-core/factory.sock
+SSH alias:      factory-box        (leave blank for Core on this machine)
+Read-only:      ticked
+```
+
+- **Socket path** is the absolute path of Core's socket on the machine it runs on. Run `ls /run/user/$(id -u)/herdr-core/` on that machine to find it; the number is your user id there.
+- **SSH alias** is a host from your `~/.ssh/config`. It must connect without a password prompt (key or agent), and the remote machine needs `python3`.
+- **Read-only** connections show everything but can't send messages, interrupt agents or press keys. A saved connection can't switch modes, so add a second connection with the box unticked when you want control.
+
+Saved connections stay in the app across restarts. Each factory uses one long-lived connection that reconnects by itself after a drop and closes after a couple of idle minutes. The first time it connects, the app remembers that Core's identity and refuses to talk to a different Core at the same path. To point the connection at a new Core, remove it and add it again.
+
+The **T3 sessions** tab in Factory is T3 Code's own [Factory](factory.md), which is separate from Herdr.
+
+## Read your agents
+
+The sidebar lists the factory's terminals grouped by Herdr tab, with each agent nested under the one that started it. A status shows when an agent is working, waiting for input or has exited. Finished terminals are hidden unless you turn on **Include finished terminals** in the details panel.
+
+Selecting a Claude or Codex agent opens its conversation as a thread: messages, grouped tool calls you can expand, and **Load earlier turns** for older history. Prompts from factory automation or other agents fold into an **Agent** pill, so your own messages stay easy to find. The conversation comes from the provider's own session file on the factory machine, and the app finds it automatically for terminals launched with a provider session label. If one is missing, use **Conversation source** in the details panel (the panel icon in the header) to attach the session's `.jsonl` file by its absolute path.
+
+New messages appear when the provider writes them, every few seconds rather than token by token.
+
+## Use terminals and TUI tools
+
+Any terminal can open as a **pane** showing its screen and recent scrollback. Terminals without a conversation, such as a factory dashboard, open this way by default; for an agent, switch **Chat / Terminal** in the header.
+
+On a connection that isn't read-only, click the screen and type, or use the key bar for arrows, Enter, Esc, Tab and Ctrl+C. Herdr presses the keys once the program has been quiet for about three seconds, so panes suit menus, cards and prompts better than fast typing.
+
+## Send messages and interrupt
+
+On a connection that isn't read-only, the composer types your message into the agent's terminal, the same as `herdr agent prompt`, and the stop button interrupts the agent's turn. A message isn't sent to an agent that is blocked on a permission or question prompt; answer that in its terminal pane instead.
+
+Herdr doesn't confirm delivery. If the app can't tell whether a message arrived, it stops further sends until you check the conversation or pane and choose **I checked. Allow sending**. Nothing is ever resent automatically.
 
 ## Optional factory panels
 
-A setup can publish a versioned profile in Core's opaque `t3-client` document through its existing JSON-RPC `doc.set` API. The document is optional; a plain Core setup needs no factory services, special roles or herd labels. The profile can map metadata keys, bind transcripts and describe existing loopback HTTP service resources and controls. T3 does not write the Herdr desktop app's private layout document.
-
-For example, the following document value adds a read-only triggers panel for an existing factoryd service:
+A factory can show extra panels, such as a trigger list from a local factory service, by publishing a profile in Core's `t3-client` document. Plain Core needs none of this. The profile can also rename the labels the app reads for name, role, parent, session and tab; without it the app uses Herdr's `herd.*` labels.
 
 ```json
 {
@@ -20,11 +51,9 @@ For example, the following document value adds a read-only triggers panel for an
     "name": "herd.name",
     "role": "herd.role",
     "parent": "herd.token.parent",
-    "session": "herd.session"
+    "session": "herd.session",
+    "tab": "herd.tab"
   },
-  "transcripts": [
-    { "terminal": "t7", "path": "/absolute/path/to/session.jsonl", "provider": "claude" }
-  ],
   "modules": [
     {
       "id": "example.automations",
@@ -46,12 +75,11 @@ For example, the following document value adds a read-only triggers panel for an
 }
 ```
 
-Service adapters use Core's existing `machine.exec` API to run a bounded Python HTTP request on the host. They require Python 3 and a loopback service using the `{ "ok": true, "data": ... }` envelope. A module can specify `tokenPath`; its contents stay on the host. Configure only trusted service profiles. The current resource view shows at most 100 rows per request.
+Panels can only reach services on the factory machine's loopback address that answer with `{ "ok": true, "data": ... }`. A module's `tokenPath` is read on that machine and never leaves it. Actions need a connection that isn't read-only, and each one shows its exact request for you to confirm before it runs. Add only profiles you trust.
 
-An action descriptor supplies `id`, `label`, `permission`, `targetKind`, HTTP `method`, `path` (optionally containing `{id}`), and string `input` fields with `name`, `label` and `required`. The permission label describes the action; it does not create Core authorization scopes. Every write requires a control-enabled connection and an explicit staged payload review. Service-specific approval, revision and policy rules remain the service's responsibility. Generic staging is not a replacement for an outward-action approval protocol.
+## Limits
 
-## Current limits
-
-Standalone web browsers and mobile do not have a direct transport to unmodified Core's sockets/SSH stdio. The mobile Factory panel states this limitation. A desktop build containing the native IPC transport is required; opening the new page in an older installed desktop build does not add that transport.
-
-Provider permission replies, model switching, discovery of transcripts outside the default provider stores, provider-specific lifecycle recovery and complete transcript-dialect coverage are not claimed. Existing terminal/process status remains visible when structured chat is unavailable. Disconnecting or removing a connection does not stop agents.
+- Herdr factories need the desktop app. The web app and mobile app can't open Core's socket or SSH, and mobile's Factory screen says so.
+- You can't answer an agent's permission prompts, switch its model, or restart it from T3 Code. Use its terminal pane or Herdr for those.
+- Conversations appear only for Claude and Codex, read from their session files in the default locations (`~/.claude/projects`, `~/.codex/sessions`, or `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when set). Other terminals show as panes.
+- Removing a connection never stops agents.
