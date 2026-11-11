@@ -1039,6 +1039,8 @@ export const DesktopHerdrRequest = Schema.Struct({
     "terminal.get",
     "terminal.send",
     "terminal.interrupt",
+    "terminal.read",
+    "terminal.keys",
     "file.read",
     "doc.get",
     "machine.exec",

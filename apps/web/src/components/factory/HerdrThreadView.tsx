@@ -20,6 +20,8 @@ import {
   WorkspaceBreadcrumbSeparator,
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
+import { ToggleGroup, Toggle } from "../ui/toggle-group";
+import { HerdrPaneView } from "./HerdrPaneView";
 import { coreItemsToTimelineEntries } from "./herdrTimeline";
 import { herdrAgentStatus } from "./herdrAgentStatus";
 
@@ -51,6 +53,8 @@ export function HerdrThreadView({
   detailsOpen,
   onToggleDetails,
   banner,
+  view,
+  onViewChange,
 }: {
   readonly workspace: HerdrWorkspace;
   readonly state: HerdrWorkspaceState;
@@ -64,6 +68,8 @@ export function HerdrThreadView({
   readonly detailsOpen: boolean;
   readonly onToggleDetails: () => void;
   readonly banner: ReactNode;
+  readonly view: "chat" | "terminal";
+  readonly onViewChange: (view: "chat" | "terminal") => void;
 }) {
   // No ":" so the timeline finds no environment thread behind the key.
   const threadKey = `herdr-${agent.id}`;
@@ -141,10 +147,25 @@ export function HerdrThreadView({
         {status ? (
           <span className={cn("text-xs font-medium", status.className)}>{status.label}</span>
         ) : null}
+        <ToggleGroup
+          aria-label="Conversation view"
+          variant="segmented"
+          className="ml-auto [-webkit-app-region:no-drag]"
+          value={[view]}
+          onValueChange={(next) => {
+            const value = next[0];
+            if (value === "chat" || value === "terminal") onViewChange(value);
+          }}
+        >
+          <Toggle value="chat" disabled={agent.conversationId === null}>
+            Chat
+          </Toggle>
+          <Toggle value="terminal">Terminal</Toggle>
+        </ToggleGroup>
         <Button
           size="icon-sm"
           variant="ghost"
-          className="ml-auto [-webkit-app-region:no-drag]"
+          className="[-webkit-app-region:no-drag]"
           aria-label="Conversation details"
           aria-pressed={detailsOpen}
           onClick={onToggleDetails}
@@ -153,85 +174,91 @@ export function HerdrThreadView({
         </Button>
       </header>
       {banner}
-      <div className="relative flex min-h-0 flex-1 flex-col bg-background">
-        {state.history === "ready" || entries.length > 0 ? (
-          <MessagesTimeline
-            listRef={listRef}
-            timelineEntries={entries}
-            isWorking={isWorking}
-            activeTurnStartedAt={isWorking ? lastUserAt : null}
-            latestRun={null}
-            runningRunId={null}
-            turnDiffSummaries={NO_TURN_DIFFS}
-            runs={NO_RUNS}
-            routeThreadKey={threadKey}
-            onOpenThread={ignore}
-            supportsConversationRollback={false}
-            onRevertToTurnCount={ignore}
-            isRevertingCheckpoint={false}
-            onImageExpand={ignore}
-            historyControls={historyControls}
-            activeThreadEnvironmentId={HERDR_ENVIRONMENT_ID}
-            markdownCwd={agent.cwd ?? undefined}
-            resolvedTheme={resolvedTheme}
-            timestampFormat="locale"
-            workspaceRoot={agent.cwd ?? undefined}
-            anchorMessageId={null}
-            onAnchorReady={ignore}
-            onAnchorSizeChanged={ignore}
-            contentInsetEndAdjustment={0}
-            emptyPlaceholderInset={0}
-            liveFollowEnabled={follow.timelineLiveFollowEnabled}
-            onIsAtEndChange={follow.onIsAtEndChangeStable}
-            onViewportAttach={follow.attachTimelineViewport}
-            onFooterGrow={follow.onTimelineFooterGrowStable}
-            footer={deliveryFooter}
-          />
-        ) : (
-          <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
-            {state.history === "loading" ? (
-              "Loading conversation…"
+      {view === "terminal" ? (
+        <HerdrPaneView workspace={workspace} state={state} readOnly={readOnly} run={run} />
+      ) : (
+        <>
+          <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+            {state.history === "ready" || entries.length > 0 ? (
+              <MessagesTimeline
+                listRef={listRef}
+                timelineEntries={entries}
+                isWorking={isWorking}
+                activeTurnStartedAt={isWorking ? lastUserAt : null}
+                latestRun={null}
+                runningRunId={null}
+                turnDiffSummaries={NO_TURN_DIFFS}
+                runs={NO_RUNS}
+                routeThreadKey={threadKey}
+                onOpenThread={ignore}
+                supportsConversationRollback={false}
+                onRevertToTurnCount={ignore}
+                isRevertingCheckpoint={false}
+                onImageExpand={ignore}
+                historyControls={historyControls}
+                activeThreadEnvironmentId={HERDR_ENVIRONMENT_ID}
+                markdownCwd={agent.cwd ?? undefined}
+                resolvedTheme={resolvedTheme}
+                timestampFormat="locale"
+                workspaceRoot={agent.cwd ?? undefined}
+                anchorMessageId={null}
+                onAnchorReady={ignore}
+                onAnchorSizeChanged={ignore}
+                contentInsetEndAdjustment={0}
+                emptyPlaceholderInset={0}
+                liveFollowEnabled={follow.timelineLiveFollowEnabled}
+                onIsAtEndChange={follow.onIsAtEndChangeStable}
+                onViewportAttach={follow.attachTimelineViewport}
+                onFooterGrow={follow.onTimelineFooterGrowStable}
+                footer={deliveryFooter}
+              />
             ) : (
-              <span>
-                No conversation recorded for this terminal yet.{" "}
-                <Button variant="link" size="sm" onClick={onToggleDetails}>
-                  Attach a transcript
-                </Button>
-              </span>
+              <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                {state.history === "loading" ? (
+                  "Loading conversation…"
+                ) : (
+                  <span>
+                    No conversation recorded for this terminal yet.{" "}
+                    <Button variant="link" size="sm" onClick={onToggleDetails}>
+                      Attach a transcript
+                    </Button>
+                  </span>
+                )}
+              </div>
             )}
+            {follow.showScrollToBottom ? (
+              <ScrollToEndButton
+                summary={null}
+                bottom={4}
+                onScrollToEnd={() => follow.scrollToEnd(true)}
+              />
+            ) : null}
           </div>
-        )}
-        {follow.showScrollToBottom ? (
-          <ScrollToEndButton
-            summary={null}
-            bottom={4}
-            onScrollToEnd={() => follow.scrollToEnd(true)}
-          />
-        ) : null}
-      </div>
-      <div className={cn(LANE, "shrink-0 pb-4")}>
-        <HerdrComposer
-          agent={agent}
-          readOnly={readOnly}
-          canSend={!busy && workspace.canSend()}
-          canInterrupt={
-            !busy &&
-            agent.capabilities.includes("interrupt") &&
-            workspace.permits("session.control")
-          }
-          isWorking={isWorking}
-          draft={draft}
-          onDraftChange={onDraftChange}
-          onSend={(text) =>
-            run(async () => {
-              await workspace.send(text, randomUUID());
-              onDraftChange("");
-              follow.scrollToEnd(true);
-            })
-          }
-          onInterrupt={() => run(() => workspace.interrupt(randomUUID()))}
-        />
-      </div>
+          <div className={cn(LANE, "shrink-0 pb-4")}>
+            <HerdrComposer
+              agent={agent}
+              readOnly={readOnly}
+              canSend={!busy && workspace.canSend()}
+              canInterrupt={
+                !busy &&
+                agent.capabilities.includes("interrupt") &&
+                workspace.permits("session.control")
+              }
+              isWorking={isWorking}
+              draft={draft}
+              onDraftChange={onDraftChange}
+              onSend={(text) =>
+                run(async () => {
+                  await workspace.send(text, randomUUID());
+                  onDraftChange("");
+                  follow.scrollToEnd(true);
+                })
+              }
+              onInterrupt={() => run(() => workspace.interrupt(randomUUID()))}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }
