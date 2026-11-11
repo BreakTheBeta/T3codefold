@@ -68,8 +68,9 @@ describe("withAndroidWindowDisplayMetrics", () => {
     const onCreate = methodBody(result, "onCreate");
     expect(onCreate).toContain("applyTabletOrientation()");
     expect(onCreate).not.toContain("DisplayMetricsHolder.initDisplayMetrics(this)");
-    expect(methodBody(result, "applyTabletOrientation")).toMatch(
-      /requestedOrientation = if \(resources\.configuration\.smallestScreenWidthDp >= 600\) \{\s+ActivityInfo\.SCREEN_ORIENTATION_FULL_USER\s+\} else \{\s+ActivityInfo\.SCREEN_ORIENTATION_PORTRAIT\s+\}/,
+    // Fold's withFoldAndroidWindow widens upstream's tablet-only rotation to every device.
+    expect(methodBody(result, "applyTabletOrientation")).toBe(
+      "requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER",
     );
 
     expect(result).toContain("import android.view.View");
