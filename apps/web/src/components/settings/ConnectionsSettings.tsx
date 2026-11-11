@@ -1591,6 +1591,14 @@ function ConnectionsSettingsContent({
 
   return (
     <SettingsPageContainer>
+      <SettingsSection title="Herdr Core">
+        <SettingsRow
+          title="Native Herdr connections"
+          description="View Herdr agents and optional factory modules directly from this client."
+        >
+          <Button render={<a href="/factory" />}>Open Factory</Button>
+        </SettingsRow>
+      </SettingsSection>
       {desktopBridge ? (
         <SettingsSection id="this-app" title="This app">
           <LocalEnvironmentSetting />

@@ -1,3 +1,4 @@
+import { HerdrFactoryScreen } from "./HerdrFactoryScreen";
 import {
   FACTORY_CARD_KIND_LABEL,
   factoryAgentRows,
@@ -50,11 +51,30 @@ export function FactoryPin() {
 export function FactoryRouteScreen({
   route,
 }: StaticScreenProps<{ readonly environmentId?: EnvironmentId; readonly cardId?: string }>) {
+  const [backend, setBackend] = useState<"t3" | "herdr">("t3");
   return (
-    <FactoryScreen
-      key={`${route.params.environmentId ?? ""}:${route.params.cardId ?? ""}`}
-      destination={route.params}
-    />
+    <View className="flex-1">
+      <View className="flex-row gap-2 px-4 py-2">
+        <Button
+          label="T3 Factory"
+          tone={backend === "t3" ? "primary" : "secondary"}
+          onPress={() => setBackend("t3")}
+        />
+        <Button
+          label="Herdr Core"
+          tone={backend === "herdr" ? "primary" : "secondary"}
+          onPress={() => setBackend("herdr")}
+        />
+      </View>
+      {backend === "herdr" ? (
+        <HerdrFactoryScreen />
+      ) : (
+        <FactoryScreen
+          key={`${route.params.environmentId ?? ""}:${route.params.cardId ?? ""}`}
+          destination={route.params}
+        />
+      )}
+    </View>
   );
 }
 

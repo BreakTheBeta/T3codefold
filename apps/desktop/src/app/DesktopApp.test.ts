@@ -1,3 +1,4 @@
+import * as DesktopHerdr from "../herdr/DesktopHerdr.ts";
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Deferred from "effect/Deferred";
@@ -197,6 +198,7 @@ it.effect(
             Layer.mock(DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth, {}),
             Layer.mock(DesktopManagedPolicy.DesktopManagedPolicy, {}),
             Layer.mock(DesktopSshEnvironment.DesktopSshEnvironment, {}),
+            Layer.mock(DesktopHerdr.DesktopHerdr, {}),
             Layer.mock(DesktopSshPasswordPrompts.DesktopSshPasswordPrompts, {}),
             Layer.mock(DesktopTelemetryPublisher.DesktopTelemetryPublisher, {}),
             Layer.mock(DesktopWebLinks.DesktopWebLinks, {}),
