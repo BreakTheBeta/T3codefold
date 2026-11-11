@@ -1,6 +1,6 @@
 # Factory preview
 
-Factory coordinates a Commander, Subcommanders and Workers in each connected environment. Factory is **off by default on every server**. Open **Factory** above the thread list, select the environment, and use **Enable Factory**. This is a saved server setting shared by web, desktop, and mobile; changing it requires server settings permission. Enabling does not create a Commander automatically: choose its model and start it from web or desktop.
+Factory coordinates a Commander, Subcommanders and Workers in each connected environment. Factory is **off by default on every server**. On web or desktop, open **Factory → T3 sessions** above the thread list; on mobile, open **Factory**. Select the environment, and use **Enable Factory**. This is a saved server setting shared by web, desktop, and mobile; changing it requires server settings permission. Enabling does not create a Commander automatically: choose its model and start it from web or desktop.
 
 With multiple connected servers, choose a server in Factory’s desktop selector or Android server buttons. Each server has its own saved on/off setting, permissions, Commander, decisions and Fleet. Switching servers shows that server’s state; turning one off does not affect the others. A decision opened from a notification stays associated with its original server.
 
@@ -17,3 +17,5 @@ Factory action tools require user approval bound to the action they execute. Age
 Use **Checks** to inspect checks and shadow results, and **Fleet** to inspect agents and command jobs. Cancelling a running job requests termination; the job stays under supervision until its termination is confirmed.
 
 This preview is under development. Commander handover, notification delivery and several recovery paths are still being completed. Upgrading to it removes the retired GLaDOS records; reverting the code does not restore that data.
+
+For a factory running independently on Herdr Core, use the optional [native Herdr connection](herdr.md) in the desktop client. Its connection and execution controls are separate from T3 Factory's enable/disable setting.

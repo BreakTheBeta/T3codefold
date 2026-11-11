@@ -1,3 +1,4 @@
+import * as DesktopHerdr from "./herdr/DesktopHerdr.ts";
 import * as MacPermissions from "./permissions/MacPermissions.ts";
 for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (err: NodeJS.ErrnoException) => {
@@ -129,6 +130,7 @@ const layerDesktopSshEnvironment = Layer.unwrap(
 );
 
 const layerElectron = Layer.mergeAll(
+  DesktopHerdr.layer,
   ElectronApp.layer,
   ElectronDialog.layer,
   ElectronMenu.layer,

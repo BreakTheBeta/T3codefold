@@ -130,3 +130,5 @@ export const TAKE_LEGACY_LOCAL_STORAGE_CHANNEL = "desktop:take-legacy-local-stor
 export const COMPLETE_LEGACY_LOCAL_STORAGE_CHANNEL = "desktop:complete-legacy-local-storage";
 
 export const SET_GAMING_HUD_CHANNEL = "desktop:set-gaming-hud";
+
+export const HERDR_REQUEST_CHANNEL = "desktop:herdr:request";

@@ -1027,7 +1027,26 @@ export type DesktopMediaRead = typeof DesktopMediaReadSchema.Type;
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export const DesktopHerdrRequest = Schema.Struct({
+  expectedCoreId: Schema.optional(Schema.NonEmptyString),
+  socketPath: Schema.NonEmptyString,
+  sshHost: Schema.optional(Schema.String),
+  method: Schema.Literals([
+    "hello",
+    "terminal.list",
+    "terminal.get",
+    "terminal.send",
+    "terminal.interrupt",
+    "file.read",
+    "doc.get",
+    "machine.exec",
+  ]),
+  params: Schema.Record(Schema.String, Schema.Unknown),
+});
+export type DesktopHerdrRequest = typeof DesktopHerdrRequest.Type;
+
 export interface DesktopBridge {
+  herdrRequest?: (request: DesktopHerdrRequest) => Promise<unknown>;
   setGamingHud?: (state: import("./gamingHud.ts").GamingHudState) => Promise<void>;
   getAppBranding: () => DesktopAppBranding | null;
   getRelayTelemetryEnabled: () => boolean;
