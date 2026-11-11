@@ -13,18 +13,14 @@ import {
   type FoldWorkspacePaneLayout,
   type PaneDividerRelease,
 } from "../../lib/foldable-pane-layout";
-import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
+import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader.android";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { FoldWorkspacePaneDivider } from "./fold-workspace-pane-divider";
 import { VimPaneFocusMarker } from "../keyboard/useWorkspaceVimNavigation";
 
 /**
- * Reveal for a workspace pane (thread sidebar or inspector) as it appears.
- *
- * Pane widths change in one layout pass rather than animating: animating a
- * width re-lays out the chat feed (and resizes any terminal) every frame, and
- * freezing the chat at one width while its container animates clips it. Only
- * the pane being shown fades and slides in over its final position.
+ * Pane widths change in one layout pass: animating a width re-lays out the chat
+ * feed (and any terminal) every frame. Only the pane being shown fades and slides in.
  */
 export const WORKSPACE_PANE_REVEAL_TIMING = {
   duration: 180,
@@ -33,22 +29,9 @@ export const WORKSPACE_PANE_REVEAL_TIMING = {
 } as const;
 
 /**
- * Fold's trailing inspector column (replacing upstream's WorkspaceInspectorPane): resize
- * divider + reveal.
- *
- * Rendered by AdaptiveWorkspaceLayout as a SIBLING of the navigator so the
- * native stack header (and its trailing toolbar items) spans only the content
- * pane — the inspector owns its own full-height column, mirroring how each
- * column of a UISplitViewController has its own chrome.
- *
- * Widths change in a single layout pass; only the newly shown pane fades in.
- * A hidden pane keeps its content mounted at its last width in an untouchable
- * absolute overlay, fading to zero opacity while layout space closes at once.
- * Files keep their scroll position and terminals never receive a sliver width.
- * Unregistered route content is released after its exit finishes.
- *
- * Receives the pane layout via props (not the workspace context hook) so this
- * module stays import-cycle-free with AdaptiveWorkspaceLayout.
+ * Fold's inspector column, a sibling of the navigator so the stack header spans only content.
+ * A hidden pane stays mounted at its last width (scroll kept, no sliver terminal widths).
+ * Takes pane layout via props to stay import-cycle-free with AdaptiveWorkspaceLayout.
  */
 export function FoldWorkspaceInspectorPane(props: {
   readonly topRegionHeight?: number | null;
@@ -63,8 +46,8 @@ export function FoldWorkspaceInspectorPane(props: {
   const { panes } = props;
   const width = panes.auxiliaryPaneWidth;
   const visible = props.renderInspector !== undefined && panes.auxiliaryPaneVisible;
-  const lastVisibleWidth = useRef(width ?? 0);
-  if (visible && width !== null) lastVisibleWidth.current = width;
+  const [lastVisibleWidth, setLastVisibleWidth] = useState(width ?? 0);
+  if (visible && width !== null && width !== lastVisibleWidth) setLastVisibleWidth(width);
 
   // A route replace remounts the screen that owns the inspector; starting at
   // the current visibility keeps an already-open pane from replaying its reveal.
@@ -83,9 +66,11 @@ export function FoldWorkspaceInspectorPane(props: {
   useLayoutEffect(() => {
     const generation = ++exitGeneration.current;
     const releaseRegistration = props.renderInspector === undefined;
-    reveal.value = withTiming(visible ? 1 : 0, WORKSPACE_PANE_REVEAL_TIMING, (finished) => {
-      if (finished && !visible && releaseRegistration) runOnJS(finishExit)(generation);
-    });
+    reveal.set(
+      withTiming(visible ? 1 : 0, WORKSPACE_PANE_REVEAL_TIMING, (finished) => {
+        if (finished && !visible && releaseRegistration) runOnJS(finishExit)(generation);
+      }),
+    );
   }, [finishExit, props.renderInspector, reveal, visible]);
   const revealStyle = useAnimatedStyle(() => ({
     opacity: reveal.value,
@@ -125,7 +110,7 @@ export function FoldWorkspaceInspectorPane(props: {
           className="flex-1"
           style={[
             {
-              width: visible ? width : lastVisibleWidth.current,
+              width: visible ? width : lastVisibleWidth,
               ...(visible
                 ? {}
                 : {

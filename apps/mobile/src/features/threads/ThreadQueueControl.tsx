@@ -11,7 +11,7 @@ import { Atom } from "effect/reactivity";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import ReanimatedSwipeable, {
   type SwipeableMethods,
@@ -428,7 +428,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                               id: "steer",
                               title: workflow?.canSendNow ? "Send now" : "Steer now",
                               attributes: { disabled: !controls.canSend },
-                              image: Platform.OS === "ios" ? "arrow.turn.left.up" : "arrow_upward",
+                              image: "arrow.turn.left.up",
                             },
                           ]
                         : []),
@@ -436,7 +436,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                         id: "edit",
                         title: "Edit",
                         attributes: { disabled: !controls.canEdit },
-                        image: Platform.OS === "ios" ? "pencil" : "edit",
+                        image: "pencil",
                       },
                       { id: "up", title: "Move up", attributes: { disabled: !controls.canMoveUp } },
                       {

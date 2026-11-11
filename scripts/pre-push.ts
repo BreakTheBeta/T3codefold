@@ -357,9 +357,14 @@ function main() {
   if (plan.typecheck.length > 0) {
     run(repoRoot, "typecheck", ["run", "--cache", ...filters(plan.typecheck), "typecheck"]);
   }
-  // Cached tasks inject a filesystem tracer that breaks browser mock imports and the task
-  // cache and scripts tests that spawn nested `vp run` or inspect NODE_OPTIONS.
-  const uncachedTests = new Set(["@t3tools/web", "@t3tools/task-cache", "@t3tools/scripts"]);
+  // Cached tasks inject a filesystem tracer that breaks browser mock imports, the task cache and
+  // scripts tests that spawn nested `vp run` or inspect NODE_OPTIONS, and ssh's login shells.
+  const uncachedTests = new Set([
+    "@t3tools/web",
+    "@t3tools/task-cache",
+    "@t3tools/scripts",
+    "@t3tools/ssh",
+  ]);
   const testGroups = [
     { names: plan.tests.filter((name) => !uncachedTests.has(name)), cache: "--cache" },
     { names: plan.tests.filter((name) => uncachedTests.has(name)), cache: "--no-cache" },

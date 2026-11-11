@@ -12,7 +12,12 @@ import {
   parseAndroidAbi,
   resolveJavaHome,
 } from "./fold-android-native-client.ts";
-import { NativeClientError, clientStatus } from "./mobile-native-client.ts";
+import {
+  buildRunTitle,
+  clientStatus,
+  NativeClientError,
+  remoteBuildState,
+} from "./mobile-native-client.ts";
 
 describe("mobile native client build planning", () => {
   it("keeps prebuild incremental for both platforms", () => {
@@ -141,5 +146,66 @@ it.layer(NodeServices.layer)("android jdk resolution", (it) => {
       assert.include(error.message, jre);
       assert.include(error.message, "not a JRE");
     }),
+  );
+});
+
+it("finds a Blacksmith build by its run title and reads its state", () => {
+  const fingerprint = "a".repeat(40);
+  const title = buildRunTitle("android", "x86_64", fingerprint);
+  assert.strictEqual(title, `Dev client android x86_64 ${fingerprint}`);
+  assert.strictEqual(buildRunTitle("ios", null, fingerprint), `Dev client ios ${fingerprint}`);
+  const run = (
+    createdAt: string,
+    status: string,
+    conclusion: string | null,
+    displayTitle = title,
+  ) => ({
+    displayTitle,
+    status,
+    conclusion,
+    createdAt,
+  });
+  const since = Date.parse("2026-11-09T12:00:00Z");
+  assert.strictEqual(remoteBuildState([], title, since), "none");
+  // Another client's run, and a run from before this wait, say nothing about this build.
+  assert.strictEqual(
+    remoteBuildState(
+      [
+        run(
+          "2026-11-09T12:05:00Z",
+          "in_progress",
+          null,
+          buildRunTitle("android", "arm64-v8a", fingerprint),
+        ),
+        run("2026-11-09T11:00:00Z", "completed", "failure"),
+      ],
+      title,
+      since,
+    ),
+    "none",
+  );
+  assert.strictEqual(
+    remoteBuildState([run("2026-11-09T12:01:00Z", "queued", null)], title, since),
+    "running",
+  );
+  assert.strictEqual(
+    remoteBuildState([run("2026-11-09T12:01:00Z", "completed", "success")], title, since),
+    "succeeded",
+  );
+  // The newest run decides: a retry that is running outranks the failure before it.
+  assert.strictEqual(
+    remoteBuildState(
+      [
+        run("2026-11-09T12:01:00Z", "completed", "failure"),
+        run("2026-11-09T12:09:00Z", "in_progress", null),
+      ],
+      title,
+      since,
+    ),
+    "running",
+  );
+  assert.strictEqual(
+    remoteBuildState([run("2026-11-09T12:01:00Z", "completed", "cancelled")], title, since),
+    "failed",
   );
 });

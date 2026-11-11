@@ -16,6 +16,10 @@ interface TerminalInputEvent {
   readonly data: string;
 }
 
+interface TerminalPasteEvent {
+  readonly text: string;
+}
+
 interface TerminalResizeEvent {
   readonly cols: number;
   readonly rows: number;
@@ -44,11 +48,15 @@ export interface NativeTerminalSurfaceProps extends ViewProps {
     event: NativeSyntheticEvent<{ readonly application: boolean }>,
   ) => void;
   readonly onFontScaleCommit?: (event: NativeSyntheticEvent<{ readonly scale: number }>) => void;
+  /** iOS only: clipboard text from a system paste (edit menu, ⌘V, shortcut bar). */
+  readonly onPaste?: (event: NativeSyntheticEvent<TerminalPasteEvent>) => void;
   readonly onResize?: (event: NativeSyntheticEvent<TerminalResizeEvent>) => void;
 }
 
 export interface NativeTerminalSurfaceHandle {
   readonly writeOutput: (data: string, reset: boolean) => Promise<void>;
+  /** Absent on native builds that predate it. */
+  readonly resetInput?: () => Promise<void>;
 }
 
 let cachedNativeTerminalSurfaceView: ComponentType<NativeTerminalSurfaceProps> | undefined;

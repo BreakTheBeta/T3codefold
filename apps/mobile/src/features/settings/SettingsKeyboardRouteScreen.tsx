@@ -15,6 +15,8 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { VimNavigationSettings } from "./FoldSettingsSections";
 
+const SEND_MODIFIER = Platform.OS === "android" ? "Ctrl" : "Command";
+
 const ENTER_BEHAVIOR_OPTIONS: ReadonlyArray<{
   readonly behavior: ComposerEnterBehavior;
   readonly label: string;
@@ -28,10 +30,7 @@ const ENTER_BEHAVIOR_OPTIONS: ReadonlyArray<{
   {
     behavior: "newline",
     label: "Insert new line",
-    description:
-      Platform.OS === "android"
-        ? "Return inserts a new line. Ctrl-Return sends the message."
-        : "Return inserts a new line. Command-Return sends the message.",
+    description: `Return inserts a new line. ${SEND_MODIFIER}-Return sends the message.`,
   },
 ];
 

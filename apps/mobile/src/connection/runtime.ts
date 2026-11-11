@@ -40,6 +40,7 @@ const layerProvidedClientConnection = layerSnapshotLoader.pipe(
       usageLimitSources: true,
       usageLimitsCommand: true,
       realtimeVoiceControls: true,
+      providerCatalogsOnDemand: true,
     }),
   ),
   Layer.provideMerge(

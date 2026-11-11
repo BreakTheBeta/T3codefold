@@ -6,7 +6,13 @@ import {
 import { useAndroidFloatingTabs } from "../settings/appearance/AppearancePreferencesProvider";
 import { useSoftKeyboardShowing } from "../keyboard/useSoftKeyboardShowing";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdaptiveWorkspaceContext, useAdaptiveWorkspaceLayout } from "./adaptive-workspace-context";
+import {
+  AdaptiveWorkspaceContext,
+  WorkspacePaneStateContext,
+  useAdaptiveWorkspaceLayout,
+  useWorkspacePaneState,
+  type AdaptiveWorkspaceActions,
+} from "./adaptive-workspace-context";
 import { threadSelectionDeferral } from "./deferred-navigation";
 import { uuidv4 } from "../../lib/uuid";
 import { EnvironmentId, ThreadId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
@@ -18,6 +24,7 @@ import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -102,7 +109,7 @@ import type { WorkspaceTab } from "./workspace/workspace-tabs-state";
 import { workspaceRoutesOf } from "./workspace-overlay-routes";
 import { SettingsWorkspaceLayout } from "../settings/SettingsWorkspaceLayout";
 
-export { useAdaptiveWorkspaceLayout };
+export { useAdaptiveWorkspaceLayout, useWorkspacePaneState };
 
 /**
  * Shows these panes in the workspace's inspector while this screen is focused. Register on focus
@@ -173,6 +180,38 @@ export function Inspector(props: {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Changed column content replaces its existing native workspace registration.
   }, [props.content, props.revealKey]);
   return null;
+}
+
+/**
+ * Actions whose identities never change, so a pane toggle doesn't re-render every screen that
+ * holds one. Each call runs the latest render's handler.
+ */
+function useStableActions(actions: Required<AdaptiveWorkspaceActions>): AdaptiveWorkspaceActions {
+  const latest = useRef(actions);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- points the stable actions at the handlers this commit rendered
+  useLayoutEffect(() => {
+    latest.current = actions;
+  });
+  const [stable] = useState((): AdaptiveWorkspaceActions => ({
+    startNewTask: () => latest.current.startNewTask(),
+    selectDetail: (detail, sheet) => latest.current.selectDetail(detail, sheet),
+    registerWorkspaceInspector: (content, routeKey, revealKey) =>
+      latest.current.registerWorkspaceInspector(content, routeKey, revealKey),
+    setPrimarySidebarSearchQuery: (query) => latest.current.setPrimarySidebarSearchQuery(query),
+    showInspector: () => latest.current.showInspector(),
+    toggleAuxiliaryPane: () => latest.current.toggleAuxiliaryPane(),
+    togglePrimarySidebar: () => latest.current.togglePrimarySidebar(),
+    revealPrimarySidebar: () => latest.current.revealPrimarySidebar(),
+    setPrimarySidebarVisible: (visible) => latest.current.setPrimarySidebarVisible(visible),
+    openWorkspaceTab: (tab, options) => latest.current.openWorkspaceTab(tab, options),
+    setAuxiliaryPaneWidth: (width) => latest.current.setAuxiliaryPaneWidth(width),
+    setNativeInspectorWidth: (width) => latest.current.setNativeInspectorWidth(width),
+    setComposerEditing: (editing) => latest.current.setComposerEditing(editing),
+    hideAuxiliaryPane: () => latest.current.hideAuxiliaryPane(),
+    setAuxiliaryPaneMaximized: (maximized) => latest.current.setAuxiliaryPaneMaximized(maximized),
+    toggleAuxiliaryPaneMaximized: () => latest.current.toggleAuxiliaryPaneMaximized(),
+  }));
+  return stable;
 }
 
 export function AdaptiveWorkspaceLayout(props: {
@@ -770,71 +809,59 @@ function AdaptiveWorkspaceLayoutContent(props: {
     hideAuxiliaryPane,
   });
 
+  const actions = useStableActions({
+    startNewTask: handleStartNewTask,
+    selectDetail: handleSelectDetail,
+    registerWorkspaceInspector,
+    setPrimarySidebarSearchQuery,
+    showInspector,
+    hideAuxiliaryPane,
+    toggleAuxiliaryPane,
+    setAuxiliaryPaneMaximized,
+    toggleAuxiliaryPaneMaximized,
+    togglePrimarySidebar,
+    revealPrimarySidebar,
+    setPrimarySidebarVisible,
+    openWorkspaceTab,
+    // Fold's inspector resizes through its divider and remembers a ratio per fold preset.
+    setAuxiliaryPaneWidth,
+    setNativeInspectorWidth,
+    setComposerEditing,
+  });
+  const tabletopHingeTop = foldRegions.tabletop?.top ?? null;
+  const tabletopHingeHeight = foldRegions.tabletop?.gap ?? 0;
   const contextValue = useMemo(
     () => ({
+      ...actions,
       tabletopTopHeight,
-      tabletopHingeTop: foldRegions.tabletop?.top ?? null,
-      tabletopHingeHeight: foldRegions.tabletop?.gap ?? 0,
+      tabletopHingeTop,
+      tabletopHingeHeight,
       layout: effectiveLayout,
-      panes,
-      fileInspector,
-      primarySidebarSearchQuery,
-      startNewTask: handleStartNewTask,
-      deferThreadSelectionUntil: threadSelectionDeferral.waitFor,
-      selectDetail: handleSelectDetail,
-      registerWorkspaceInspector,
-      setPrimarySidebarSearchQuery,
-      showInspector,
-      hideAuxiliaryPane,
-      toggleAuxiliaryPane,
-      setAuxiliaryPaneMaximized,
-      toggleAuxiliaryPaneMaximized,
-      sidebarToggleable: layout.usesSplitView && !primarySidebarPinned && !workspacePage,
-      togglePrimarySidebar,
-      revealPrimarySidebar,
-      setPrimarySidebarVisible,
-      openWorkspaceTab,
-      // Fold's inspector resizes through its divider and remembers a ratio per fold preset.
-      setAuxiliaryPaneWidth,
       nativeInspectorWidth,
-      setNativeInspectorWidth,
-      composerKeyboardActive,
-      // Fold's sidebar steps aside for the keyboard at once rather than tracking its progress,
-      // and workspace pages lay out in the content pane at its own width.
-      keyboardHoldsSidebar: false,
+      // Workspace pages lay out in the content pane at its own width.
       workspacePageWidth: null,
-      // Fold never runs the native iOS split that rotates the sidebar overlay.
-      sidebarByOrientation: null,
-      setComposerEditing,
     }),
     [
-      handleSelectDetail,
-      handleStartNewTask,
-      openWorkspaceTab,
-      setAuxiliaryPaneWidth,
-      setPrimarySidebarVisible,
-      composerKeyboardActive,
+      actions,
       tabletopTopHeight,
-      foldRegions.tabletop?.top,
-      foldRegions.tabletop?.gap,
-      fileInspector,
-      hideAuxiliaryPane,
+      tabletopHingeTop,
+      tabletopHingeHeight,
       effectiveLayout,
-      layout.usesSplitView,
       nativeInspectorWidth,
-      panes,
-      primarySidebarPinned,
-      primarySidebarSearchQuery,
-      registerWorkspaceInspector,
-      revealPrimarySidebar,
-      setAuxiliaryPaneMaximized,
-      setNativeInspectorWidth,
-      showInspector,
-      toggleAuxiliaryPane,
-      toggleAuxiliaryPaneMaximized,
-      togglePrimarySidebar,
-      workspacePage,
     ],
+  );
+  const sidebarToggleable = layout.usesSplitView && !primarySidebarPinned && !workspacePage;
+  const paneState = useMemo(
+    () => ({
+      panes,
+      fileInspector,
+      primarySidebarSearchQuery,
+      sidebarToggleable,
+      composerKeyboardActive,
+      // Fold never runs the native iOS split that rotates the sidebar overlay.
+      sidebarByOrientation: null,
+    }),
+    [panes, fileInspector, primarySidebarSearchQuery, sidebarToggleable, composerKeyboardActive],
   );
 
   // A fold or Duo division separates the sidebar from the chat.
@@ -854,16 +881,18 @@ function AdaptiveWorkspaceLayoutContent(props: {
         savedFilters={props.initialPreferences.threadListFilters}
       >
         <AdaptiveWorkspaceContext value={contextValue}>
-          <NativeWorkspaceInspectorContext
-            value={{
-              // Without a column the sheet shows it; the hidden native column must not mount it too.
-              content: fileInspector.supported ? inspectorContent : undefined,
-              visible: panes.auxiliaryPaneVisible,
-            }}
-          >
-            {props.children}
-            {inspectorSheet}
-          </NativeWorkspaceInspectorContext>
+          <WorkspacePaneStateContext value={paneState}>
+            <NativeWorkspaceInspectorContext
+              value={{
+                // Without a column the sheet shows it; the hidden native column must not mount it too.
+                content: fileInspector.supported ? inspectorContent : undefined,
+                visible: panes.auxiliaryPaneVisible,
+              }}
+            >
+              {props.children}
+              {inspectorSheet}
+            </NativeWorkspaceInspectorContext>
+          </WorkspacePaneStateContext>
         </AdaptiveWorkspaceContext>
       </HomeListOptionsProvider>
     );
@@ -975,17 +1004,19 @@ function AdaptiveWorkspaceLayoutContent(props: {
       projectGroupingMode={projectGroupingMode}
       savedFilters={props.initialPreferences.threadListFilters}
     >
-      <AdaptiveWorkspaceContext.Provider value={contextValue}>
-        <WindowHingeContext value={windowHinge}>
-          {usesPresentationHost ? (
-            <WorkspaceColumnsRendererContext value={renderColumns}>
-              {props.children}
-            </WorkspaceColumnsRendererContext>
-          ) : (
-            renderColumns(props.children)
-          )}
-        </WindowHingeContext>
-      </AdaptiveWorkspaceContext.Provider>
+      <AdaptiveWorkspaceContext value={contextValue}>
+        <WorkspacePaneStateContext value={paneState}>
+          <WindowHingeContext value={windowHinge}>
+            {usesPresentationHost ? (
+              <WorkspaceColumnsRendererContext value={renderColumns}>
+                {props.children}
+              </WorkspaceColumnsRendererContext>
+            ) : (
+              renderColumns(props.children)
+            )}
+          </WindowHingeContext>
+        </WorkspacePaneStateContext>
+      </AdaptiveWorkspaceContext>
     </HomeListOptionsProvider>
   );
 }

@@ -70,7 +70,7 @@ export function SplatterBackdropSection() {
           />
           <FontSizeSliderRow
             disabled={!isReady}
-            icon={{ ios: "sparkles", android: "auto_awesome" }}
+            icon="plusminus"
             label="Amount"
             max={MAX_THEME_BACKDROP_AMOUNT}
             min={MIN_THEME_BACKDROP_AMOUNT}
