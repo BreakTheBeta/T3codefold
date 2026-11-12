@@ -402,6 +402,11 @@ export function moveWorkspaceFocus(direction: 1 | -1, fromArea?: string): boolea
   return controller?.move(direction, fromArea) ?? false;
 }
 
+/** Focuses a visible area by name, returning to the control last used there. */
+export function focusWorkspaceArea(name: string): boolean {
+  return controller?.focus(name) ?? false;
+}
+
 /** Explicit user actions request focus after React has committed the destination. */
 export function requestWorkspaceFocus(target: WorkspaceFocusTarget) {
   focusRequestVersion++;

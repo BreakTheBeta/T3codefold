@@ -37,7 +37,7 @@ import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { useCodexRealtimeVoice } from "../hooks/useCodexRealtimeVoice";
 import { useVoiceViewContext } from "./voice/VoiceWorkspaceProvider";
-import { TimelineVimMode } from "~/vim/TimelineVimMode";
+import { registerVimConversation } from "~/vim/vimConversation";
 import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnvironments";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
@@ -2132,6 +2132,31 @@ export default function ChatView(props: ChatViewProps) {
     setTimelineAnchor,
   });
 
+  const vimScrollNode = useStableCallback(getTimelineScrollableNode);
+  const vimFocusComposer = useStableCallback(() => composerRef.current?.focusAtEnd());
+  const vimScrollToEnd = useStableCallback(() => scrollToEnd(false));
+  const vimRouteKey = activeThreadKey ?? routeThreadKey;
+  // A side chat or a thread kept inert under Settings must not answer the workspace's Vim keys.
+  const vimConversationShown = settings.vimModeEnabled && !embedded && !backgroundThread;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this conversation with the workspace Vim controller while it is the one shown
+  useEffect(() => {
+    if (!vimConversationShown) return;
+    return registerVimConversation({
+      routeKey: vimRouteKey,
+      getScrollNode: vimScrollNode,
+      focusComposer: vimFocusComposer,
+      onUserNavigation: cancelTimelineLiveFollowForUserNavigationStable,
+      onScrollToEnd: vimScrollToEnd,
+    });
+  }, [
+    vimConversationShown,
+    vimRouteKey,
+    vimScrollNode,
+    vimFocusComposer,
+    vimScrollToEnd,
+    cancelTimelineLiveFollowForUserNavigationStable,
+  ]);
+
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules a frame to focus the composer DOM element when a thread opens with the terminal closed
   useEffect(() => {
     if (embedded || !activeThread?.id || terminalUiState.terminalOpen) return;
@@ -3402,18 +3427,6 @@ export default function ChatView(props: ChatViewProps) {
               className="relative flex min-h-0 flex-1 flex-col bg-background"
               data-chat-messages
             >
-              {/* Its window keydown listener would double-handle keys beside the main thread. */}
-              {settings.vimModeEnabled && !embedded ? (
-                <TimelineVimMode
-                  key={activeThreadKey ?? routeThreadKey}
-                  routeKey={activeThreadKey ?? routeThreadKey}
-                  previewThreads={settings.vimThreadPreviewEnabled}
-                  getScrollNode={getTimelineScrollableNode}
-                  focusComposer={() => composerRef.current?.focusAtEnd()}
-                  onUserNavigation={cancelTimelineLiveFollowForUserNavigationStable}
-                  onScrollToEnd={() => scrollToEnd(false)}
-                />
-              ) : null}
               <WorkspaceMutationIdContext value={workspaceMutationId}>
                 <ThreadTimeline
                   pendingApprovals={pendingApprovals}

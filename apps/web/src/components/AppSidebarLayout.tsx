@@ -64,6 +64,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { registerCommands, registerMenuAction } from "../shortcuts/dispatcher";
 import { resolveThreadRouteRef } from "../threadRoutes";
+import { usePrimarySettings } from "../hooks/useSettings";
+import { TimelineVimMode } from "../vim/TimelineVimMode";
+import { hasVimConversation, subscribeVimConversation } from "../vim/vimConversation";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
 
@@ -405,6 +408,22 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
   );
 }
 
+/**
+ * One Vim controller for every page. A thread on another environment can turn it on with its
+ * own setting, which keeps hosted clients without a primary server working.
+ */
+function WorkspaceVimMode() {
+  const primaryEnabled = usePrimarySettings((settings) => settings.vimModeEnabled);
+  const previewThreads = usePrimarySettings((settings) => settings.vimThreadPreviewEnabled);
+  const conversationEnabled = useSyncExternalStore(
+    subscribeVimConversation,
+    hasVimConversation,
+    () => false,
+  );
+  if (!primaryEnabled && !conversationEnabled) return null;
+  return <TimelineVimMode previewThreads={previewThreads} />;
+}
+
 export function AppSidebarLayout({
   children,
   showSidebar = true,
@@ -487,6 +506,7 @@ export function AppSidebarLayout({
           </>
         ) : null}
         {children}
+        <WorkspaceVimMode />
         <BackgroundThreadAnnouncer />
         <SidebarControl showSidebar={showSidebar} />
         {isElectron ? <HistorySwipeNavigation /> : null}

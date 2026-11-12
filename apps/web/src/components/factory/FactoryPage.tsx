@@ -37,6 +37,7 @@ import { Textarea } from "../ui/textarea";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { cn } from "../../lib/utils";
 import { isElectron } from "../../env";
+import { workspaceAreaProps } from "../../lib/workspaceFocus";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Badge } from "../ui/badge";
 import { Alert, AlertDescription } from "../ui/alert";
@@ -72,6 +73,7 @@ export function FactoryPage() {
     ) : null;
   return (
     <div
+      {...workspaceAreaProps("factory", 2, "Factory")}
       data-factory-canvas
       className="@container/factory flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
     >
@@ -437,11 +439,12 @@ export function Decisions({
   return (
     <div className="grid min-h-0 flex-1 gap-3 p-3 @min-[48rem]/factory:grid-cols-[18rem_minmax(0,1fr)] lg:p-4">
       <aside
+        {...workspaceAreaProps("factory-decisions", 1, "Open decisions")}
+        role="complementary"
         className={cn(
           "min-h-0 overflow-y-auto rounded-xl border border-border bg-card/95 p-2 shadow-sm",
           showDetail && selected && "hidden @min-[48rem]/factory:block",
         )}
-        aria-label="Open decisions"
       >
         <div className="mb-2 flex items-center justify-between border-b border-border px-3 pb-3 pt-2">
           <h2 className="text-xs font-semibold text-muted-foreground">Needs you</h2>
@@ -454,6 +457,7 @@ export function Decisions({
           <button
             key={card.id}
             type="button"
+            data-vim-list-item=""
             onClick={() => {
               setSelectedId(card.id);
               setShowDetail(true);
@@ -510,6 +514,7 @@ export function Decisions({
       </aside>
       {selected ? (
         <div
+          {...workspaceAreaProps("factory-card", 2, "Decision")}
           className={cn(
             "min-h-0 min-w-0 overflow-y-auto rounded-xl border border-border bg-card/95 shadow-sm",
             !showDetail && "hidden @min-[48rem]/factory:block",
