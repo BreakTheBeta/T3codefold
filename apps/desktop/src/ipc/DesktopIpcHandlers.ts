@@ -1,4 +1,4 @@
-import { herdrRequest } from "./methods/herdr.ts";
+import { herdrAttachInput, herdrAttachOpen, herdrRequest } from "./methods/herdr.ts";
 import { installGamingHud } from "./methods/gamingHud.ts";
 import * as Effect from "effect/Effect";
 
@@ -127,6 +127,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(setConnectionCatalog);
 
   yield* ipc.handle(herdrRequest);
+  yield* ipc.handle(herdrAttachOpen);
+  yield* ipc.handle(herdrAttachInput);
   yield* ipc.handle(discoverSshHosts);
   yield* ipc.handle(resolveSshHost);
   yield* ipc.handle(ensureSshEnvironment);

@@ -4,7 +4,6 @@ import { HerdrClient, type CoreTransport } from "./client.ts";
 import {
   Fleet,
   FilePage,
-  PaneRead,
   SendResult,
   CoreDocument,
   Module,
@@ -32,8 +31,6 @@ const HERD_MAPPING: Record<string, string> = {
 const DISCOVERY_RETRY_MS = 60_000;
 const decodeFleet = Schema.decodeUnknownSync(Fleet);
 const decodeFile = Schema.decodeUnknownSync(FilePage);
-const decodePane = Schema.decodeUnknownSync(PaneRead);
-const PANE_HISTORY_LINES = 300;
 const decodeSend = Schema.decodeUnknownSync(SendResult);
 const decodeDocument = Schema.decodeUnknownSync(CoreDocument);
 const decodeModule = Schema.decodeUnknownSync(Module);
@@ -57,10 +54,6 @@ export interface HerdrWorkspaceState {
   error: string | null;
   receipt: CoreReceipt | null;
   prepared: CorePreparedAction | null;
-  /** The selected terminal's screen and recent history, as Core renders it to text. */
-  pane: (typeof PaneRead.Type & { readonly terminal: string }) | null;
-  /** Keys sent to the pane that Core has not yet confirmed pressing. */
-  pendingKeys: number;
 }
 const initial = (): HerdrWorkspaceState => ({
   connection: "disconnected",
@@ -78,8 +71,6 @@ const initial = (): HerdrWorkspaceState => ({
   error: null,
   receipt: null,
   prepared: null,
-  pane: null,
-  pendingKeys: 0,
 });
 interface TranscriptBinding {
   readonly path: string;
@@ -301,7 +292,6 @@ export class HerdrWorkspace {
     ++this.selection;
     this.update({
       selected: agent,
-      pane: null,
       items: [],
       before: null,
       cursor: null,
@@ -432,42 +422,6 @@ export class HerdrWorkspace {
     throw new Error(
       "Unmodified Core has no durable send receipts. Verify the transcript or terminal before sending again.",
     );
-  }
-  async readPane() {
-    const client = this.current();
-    const agent = this.state.selected;
-    if (!agent || !client.supports("terminal.read")) return;
-    const selection = this.selection;
-    const pane = decodePane(
-      await client.request("terminal.read", { terminal: agent.id, lines: PANE_HISTORY_LINES }),
-    );
-    if (this.client === client && selection === this.selection)
-      this.update({ pane: { ...pane, terminal: agent.id } });
-  }
-  canPressKeys() {
-    return (
-      this.state.selected?.processState === "live" &&
-      this.permits("session.control") &&
-      this.supports("terminal.keys")
-    );
-  }
-  /** Presses named keys (`enter`, `up`, `ctrl+c`, `y`) in a terminal's program. */
-  async pressKeys(terminal: string, keys: readonly string[]) {
-    if (keys.length === 0) return;
-    if (!this.permits("session.control") || !this.supports("terminal.keys"))
-      throw new Error("This connection cannot press keys.");
-    const client = this.current();
-    this.update({ pendingKeys: this.state.pendingKeys + keys.length });
-    try {
-      await client.request("terminal.keys", { terminal, keys }, true);
-    } catch (error) {
-      this.unknownDelivery = true;
-      this.update({ receipt: { commandId: `keys:${terminal}`, state: "unknown" } });
-      throw error;
-    } finally {
-      this.update({ pendingKeys: Math.max(0, this.state.pendingKeys - keys.length) });
-    }
-    if (this.state.selected?.id === terminal) await this.readPane();
   }
   async interrupt(_commandId: string) {
     if (this.readOnly || this.state.connection !== "connected" || !this.state.selected)

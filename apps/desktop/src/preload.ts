@@ -87,6 +87,20 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   herdrRequest: (request) => ipcRenderer.invoke(IpcChannels.HERDR_REQUEST_CHANNEL, request),
+  herdrAttach: {
+    open: (request) => ipcRenderer.invoke(IpcChannels.HERDR_ATTACH_OPEN_CHANNEL, request),
+    input: (input) => ipcRenderer.invoke(IpcChannels.HERDR_ATTACH_INPUT_CHANNEL, input),
+    onEvent: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, event: unknown) => {
+        if (typeof event === "object" && event !== null && "streamId" in event)
+          listener(event as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IpcChannels.HERDR_ATTACH_EVENT_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.HERDR_ATTACH_EVENT_CHANNEL, wrappedListener);
+      };
+    },
+  },
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {

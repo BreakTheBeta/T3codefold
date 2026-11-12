@@ -222,7 +222,10 @@ it.effect.each([false, true])(
             Layer.mock(DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth, {}),
             Layer.mock(DesktopManagedPolicy.DesktopManagedPolicy, {}),
             Layer.mock(DesktopSshEnvironment.DesktopSshEnvironment, {}),
-            Layer.mock(DesktopHerdr.DesktopHerdr, {}),
+            Layer.mock(DesktopHerdr.DesktopHerdr, {
+              attachInput: () => {},
+              attachRelease: () => {},
+            }),
             Layer.mock(DesktopSshPasswordPrompts.DesktopSshPasswordPrompts, {}),
             Layer.mock(DesktopTelemetryPublisher.DesktopTelemetryPublisher, {}),
             Layer.mock(DesktopWebLinks.DesktopWebLinks, {}),

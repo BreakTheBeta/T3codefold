@@ -7,8 +7,6 @@ export type CoreMethod =
   | "terminal.get"
   | "terminal.send"
   | "terminal.interrupt"
-  | "terminal.read"
-  | "terminal.keys"
   | "file.read"
   | "doc.get"
   | "machine.exec";

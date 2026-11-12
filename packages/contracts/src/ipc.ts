@@ -1039,8 +1039,6 @@ export const DesktopHerdrRequest = Schema.Struct({
     "terminal.get",
     "terminal.send",
     "terminal.interrupt",
-    "terminal.read",
-    "terminal.keys",
     "file.read",
     "doc.get",
     "machine.exec",
@@ -1049,8 +1047,62 @@ export const DesktopHerdrRequest = Schema.Struct({
 });
 export type DesktopHerdrRequest = typeof DesktopHerdrRequest.Type;
 
+/** Opens a live Core terminal stream; events for `streamId` arrive through `herdrAttach.onEvent`. */
+export const DesktopHerdrAttachOpen = Schema.Struct({
+  streamId: Schema.NonEmptyString,
+  expectedCoreId: Schema.NonEmptyString,
+  socketPath: Schema.NonEmptyString,
+  sshHost: Schema.optional(Schema.String),
+  terminal: Schema.NonEmptyString,
+  observe: Schema.Boolean,
+  cols: Schema.Int,
+  rows: Schema.Int,
+  display: Schema.Struct({
+    fg: Schema.optional(Schema.String),
+    bg: Schema.optional(Schema.String),
+    cursor: Schema.optional(Schema.String),
+  }),
+});
+export type DesktopHerdrAttachOpen = typeof DesktopHerdrAttachOpen.Type;
+
+export const DesktopHerdrAttachInput = Schema.Union([
+  Schema.Struct({
+    streamId: Schema.NonEmptyString,
+    type: Schema.Literal("data"),
+    data: Schema.String,
+  }),
+  Schema.Struct({
+    streamId: Schema.NonEmptyString,
+    type: Schema.Literal("resize"),
+    cols: Schema.Int,
+    rows: Schema.Int,
+  }),
+  Schema.Struct({
+    streamId: Schema.NonEmptyString,
+    type: Schema.Literal("focus"),
+    focused: Schema.Boolean,
+  }),
+  Schema.Struct({ streamId: Schema.NonEmptyString, type: Schema.Literal("close") }),
+]);
+export type DesktopHerdrAttachInput = typeof DesktopHerdrAttachInput.Type;
+
+export type DesktopHerdrAttachEvent =
+  | { readonly streamId: string; readonly type: "data"; readonly data: Uint8Array }
+  | {
+      readonly streamId: string;
+      readonly type: "resize";
+      readonly cols: number;
+      readonly rows: number;
+    }
+  | { readonly streamId: string; readonly type: "close"; readonly reason: string };
+
 export interface DesktopBridge {
   herdrRequest?: (request: DesktopHerdrRequest) => Promise<unknown>;
+  herdrAttach?: {
+    readonly open: (request: DesktopHerdrAttachOpen) => Promise<void>;
+    readonly input: (input: DesktopHerdrAttachInput) => Promise<void>;
+    readonly onEvent: (listener: (event: DesktopHerdrAttachEvent) => void) => () => void;
+  };
   setGamingHud?: (state: import("./gamingHud.ts").GamingHudState) => Promise<void>;
   getAppBranding: () => DesktopAppBranding | null;
   getRelayTelemetryEnabled: () => boolean;

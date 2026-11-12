@@ -1,51 +1,23 @@
-// @effect-diagnostics nodeBuiltinImport:off - Core uses Unix sockets and SSH stdio rather than HTTP.
 // @effect-diagnostics globalTimers:off - CoreLink times raw socket replies and idle closes outside an Effect runtime.
-import * as NodeNet from "node:net";
-import * as NodeChildProcess from "node:child_process";
-import type { DesktopHerdrRequest } from "@t3tools/contracts";
+import type {
+  DesktopHerdrAttachEvent,
+  DesktopHerdrAttachInput,
+  DesktopHerdrAttachOpen,
+  DesktopHerdrRequest,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
+import { type CoreTarget, openCorePipe } from "./CorePipe.ts";
+import { HerdrAttachStream } from "./HerdrAttach.ts";
+
+export { herdrSshArgs } from "./CorePipe.ts";
+
 const MAX_RESPONSE = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 40_000;
 const IDLE_CLOSE_MS = 120_000;
-// Relays newline JSON-RPC both ways over one long-lived Core socket connection.
-const remoteSocketScript = `import socket,sys,threading
-s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
-s.connect(sys.argv[1])
-def up():
- for line in sys.stdin.buffer:
-  s.sendall(line)
- s.shutdown(socket.SHUT_WR)
-threading.Thread(target=up,daemon=True).start()
-while True:
- d=s.recv(65536)
- if not d: break
- sys.stdout.buffer.write(d)
- sys.stdout.buffer.flush()
-`;
-const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-export function herdrSshArgs(host: string, socketPath: string) {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.@:-]*$/.test(host))
-    throw new Error("Choose a valid SSH host alias.");
-  return [
-    "-T",
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "ConnectTimeout=10",
-    "-o",
-    "ServerAliveInterval=15",
-    "-o",
-    "ServerAliveCountMax=2",
-    "--",
-    host,
-    `python3 -u -c ${quote(remoteSocketScript)} ${quote(socketPath)}`,
-  ];
-}
-
 export class HerdrTransportError extends Schema.TaggedError<HerdrTransportError>()(
   "HerdrTransportError",
   { cause: Schema.Defect() },
@@ -54,10 +26,25 @@ export class HerdrTransportError extends Schema.TaggedError<HerdrTransportError>
     return "Could not reach the existing Core socket. Check its path and SSH agent authentication.";
   }
 }
+export class HerdrAttachError extends Schema.TaggedError<HerdrAttachError>()("HerdrAttachError", {
+  reason: Schema.String,
+}) {
+  override get message() {
+    return this.reason;
+  }
+}
 export class DesktopHerdr extends Context.Service<
   DesktopHerdr,
   {
     readonly request: (input: DesktopHerdrRequest) => Effect.Effect<unknown, HerdrTransportError>;
+    readonly attachOpen: (
+      input: DesktopHerdrAttachOpen,
+      owner: number,
+      emit: (event: DesktopHerdrAttachEvent) => void,
+    ) => Effect.Effect<void, HerdrAttachError>;
+    readonly attachInput: (input: DesktopHerdrAttachInput) => void;
+    /** Ends every stream a renderer opened, when it reloads or goes away. */
+    readonly attachRelease: (owner: number) => void;
   }
 >()("@t3tools/desktop/herdr/DesktopHerdr") {}
 
@@ -86,27 +73,13 @@ class CoreLink {
   private readonly dispose: () => void;
   private readonly onClosed: () => void;
 
-  constructor(target: { socketPath: string; sshHost?: string | undefined }, onClosed: () => void) {
+  constructor(target: CoreTarget, onClosed: () => void) {
     this.onClosed = onClosed;
-    const child = target.sshHost
-      ? NodeChildProcess.spawn("ssh", herdrSshArgs(target.sshHost, target.socketPath), {
-          stdio: ["pipe", "pipe", "ignore"],
-        })
-      : null;
-    const socket = child ? null : NodeNet.connect(target.socketPath);
-    const output = child?.stdout ?? socket!;
-    this.writer = child?.stdin ?? socket!;
-    this.dispose = () => {
-      socket?.destroy();
-      child?.kill();
-    };
-    output.setEncoding("utf8");
-    output.on("data", (chunk: string) => this.receive(chunk));
-    output.on("error", () => this.close(new Error("Core socket failed.")));
-    output.on("end", () => this.close(new Error("Core closed the connection.")));
-    this.writer.on("error", () => this.close(new Error("Core request could not be written.")));
-    child?.on("error", () => this.close(new Error("SSH could not start.")));
-    child?.on("close", () => this.close(new Error("SSH disconnected.")));
+    const pipe = openCorePipe(target, (error) => this.close(error));
+    this.writer = pipe.writer;
+    this.dispose = pipe.dispose;
+    pipe.output.setEncoding("utf8");
+    pipe.output.on("data", (chunk: string) => this.receive(chunk));
   }
 
   private receive(chunk: string) {
@@ -206,7 +179,6 @@ const RETRYABLE_METHODS = new Set([
   "hello",
   "terminal.list",
   "terminal.get",
-  "terminal.read",
   "file.read",
   "doc.get",
   "rpc.discover",
@@ -264,11 +236,47 @@ export const layer = Layer.effect(
   DesktopHerdr,
   Effect.gen(function* () {
     const links = new Map<string, CoreLink>();
+    const streams = new Map<
+      string,
+      { readonly owner: number; readonly stream: HerdrAttachStream }
+    >();
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         for (const link of links.values()) link.close(new Error("Desktop is shutting down."));
+        for (const { stream } of streams.values()) stream.close("Desktop is shutting down.");
       }),
     );
-    return DesktopHerdr.of({ request: makeRequest(links) });
+    const attachOpen = Effect.fn("DesktopHerdr.attachOpen")(
+      (
+        input: DesktopHerdrAttachOpen,
+        owner: number,
+        emit: (event: DesktopHerdrAttachEvent) => void,
+      ) =>
+        Effect.tryPromise({
+          try: () => {
+            if (!input.socketPath.startsWith("/") && !input.socketPath.startsWith("\\\\.\\pipe\\"))
+              throw new Error("Core socket path must be absolute.");
+            streams.get(input.streamId)?.stream.close("replaced");
+            const stream: HerdrAttachStream = new HerdrAttachStream(input, emit, () => {
+              if (streams.get(input.streamId)?.stream === stream) streams.delete(input.streamId);
+            });
+            streams.set(input.streamId, { owner, stream });
+            return stream.opened;
+          },
+          catch: (cause) =>
+            new HerdrAttachError({
+              reason: cause instanceof Error ? cause.message : "Core could not open the terminal.",
+            }),
+        }),
+    );
+    return DesktopHerdr.of({
+      request: makeRequest(links),
+      attachOpen,
+      attachInput: (input) => streams.get(input.streamId)?.stream.input(input),
+      attachRelease: (owner) => {
+        for (const entry of streams.values())
+          if (entry.owner === owner) entry.stream.close("detached");
+      },
+    });
   }),
 );

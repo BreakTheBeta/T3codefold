@@ -1,150 +1,234 @@
-import type { HerdrWorkspace, HerdrWorkspaceState } from "@t3tools/client-runtime/herdr/workspace";
+import type { DesktopHerdrAttachInput } from "@t3tools/contracts";
 import { EyeIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import * as Schema from "effect/Schema";
+import { useEffect, useRef, useState } from "react";
 
-import { cn } from "~/lib/utils";
-import { ComposerControl, ComposerControlIcon } from "../chat/ComposerControl";
-import { herdrKeyName } from "./herdrKeys";
+import {
+  resolveTerminalFontPreference,
+  resolveTerminalFontSizePreference,
+  TYPOGRAPHY_ADVANCED_STORAGE_KEY,
+} from "../../appearanceFonts";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useClientSettings } from "../../hooks/useSettings";
+import { ensureLocalApi } from "../../localApi";
+import { randomUUID } from "~/lib/utils";
+import { GhosttyTerminalSurface } from "../../terminal/ghostty/surface";
+import { terminalThemeFromApp } from "../ThreadTerminalDrawer";
+import { Button } from "../ui/button";
 
-const REFRESH_MS = 1500;
-const KEY_BATCH_MS = 120;
-const KEY_BAR = [
-  ["↑", "up"],
-  ["↓", "down"],
-  ["←", "left"],
-  ["→", "right"],
-  ["Enter", "enter"],
-  ["Esc", "esc"],
-  ["Tab", "tab"],
-  ["Ctrl+C", "ctrl+c"],
-] as const;
+export interface HerdrAttachTarget {
+  readonly socketPath: string;
+  readonly sshHost?: string | undefined;
+  readonly coreId: string;
+}
 
-/** A Herdr terminal's screen, for TUI tools and for agents without a recorded conversation. */
-export function HerdrPaneView({
-  workspace,
-  state,
-  readOnly,
-  run,
-}: {
-  readonly workspace: HerdrWorkspace;
-  readonly state: HerdrWorkspaceState;
+type PaneStatus =
+  | { readonly kind: "connecting" }
+  | { readonly kind: "open" }
+  | { readonly kind: "closed"; readonly reason: string };
+
+const fontOptions = (family: string, size: number) =>
+  family.trim().length > 0 ? { family: family.trim(), size } : { size };
+
+const hex = ({ r, g, b }: { readonly r: number; readonly g: number; readonly b: number }) =>
+  `#${[r, g, b].map((part) => Math.round(part).toString(16).padStart(2, "0")).join("")}`;
+
+/**
+ * A live Herdr terminal, like `hc attach`: Core streams the program's bytes into T3's Ghostty
+ * surface, and keys, mouse, paste and size go straight back. Read-only connections only watch.
+ */
+export function HerdrPaneView(props: PaneProps) {
+  const [attempt, setAttempt] = useState(0);
+  if (!window.desktopBridge?.herdrAttach)
+    return (
+      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+        Live terminals need the desktop app.
+      </div>
+    );
+  return <LivePane key={attempt} {...props} onReconnect={() => setAttempt(attempt + 1)} />;
+}
+
+interface PaneProps {
+  readonly target: HerdrAttachTarget;
+  readonly terminal: string;
+  readonly label: string;
   readonly readOnly: boolean;
-  readonly run: (operation: () => Promise<unknown>) => Promise<void>;
-}) {
-  const screenRef = useRef<HTMLPreElement>(null);
-  const atEnd = useRef(true);
-  const queued = useRef<{ terminal: string; keys: string[] } | null>(null);
-  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const agentId = state.selected?.id ?? null;
-  const pane = state.pane?.terminal === agentId ? state.pane : null;
-  const canPress = workspace.canPressKeys();
+}
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Core has no screen stream on this connection; poll the visible pane.
-  useEffect(() => {
-    if (state.connection !== "connected" || agentId === null) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      if (!document.hidden) await workspace.readPane().catch(() => undefined);
-      if (!stopped) timer = setTimeout(() => void tick(), REFRESH_MS);
-    };
-    void tick();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [workspace, state.connection, agentId]);
-
-  const paneText = pane?.text ?? null;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Scrolls the DOM screen to its bottom row until the reader scrolls away, like a terminal.
-  useLayoutEffect(() => {
-    const element = screenRef.current;
-    if (paneText !== null && element && atEnd.current) element.scrollTop = element.scrollHeight;
-  }, [paneText]);
-
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Unmounting drops a batch that never left; it was not sent.
-  useEffect(
-    () => () => {
-      if (flushTimer.current) clearTimeout(flushTimer.current);
-    },
-    [],
+function LivePane({
+  target,
+  terminal,
+  label,
+  readOnly,
+  onReconnect,
+}: PaneProps & { readonly onReconnect: () => void }) {
+  const mountRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<GhosttyTerminalSurface | null>(null);
+  const [status, setStatus] = useState<PaneStatus>({ kind: "connecting" });
+  const [advancedTypography] = useLocalStorage(
+    TYPOGRAPHY_ADVANCED_STORAGE_KEY,
+    false,
+    Schema.Boolean,
   );
+  const fontFamily = useClientSettings((settings) =>
+    resolveTerminalFontPreference({
+      advanced: advancedTypography,
+      code: settings.fontFamilyCode,
+      terminal: settings.fontFamilyTerminal,
+    }),
+  );
+  const fontSize = useClientSettings((settings) =>
+    resolveTerminalFontSizePreference({
+      advanced: advancedTypography,
+      code: settings.fontSizeCode,
+      terminal: settings.fontSizeTerminal,
+    }),
+  );
+  const fontRef = useRef({ family: fontFamily, size: fontSize });
+  const { socketPath, sshHost, coreId } = target;
 
-  const press = (keys: readonly string[]) => {
-    if (agentId === null) return;
-    // Keys go to the terminal they were typed in, even if another is selected before they send.
-    if (queued.current && queued.current.terminal !== agentId) flush();
-    if (queued.current === null) queued.current = { terminal: agentId, keys: [] };
-    queued.current.keys.push(...keys);
-    if (flushTimer.current === null) flushTimer.current = setTimeout(flush, KEY_BATCH_MS);
-  };
-  function flush() {
-    if (flushTimer.current) clearTimeout(flushTimer.current);
-    flushTimer.current = null;
-    const batch = queued.current;
-    queued.current = null;
-    if (batch) void run(() => workspace.pressKeys(batch.terminal, batch.keys));
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLPreElement>) => {
-    if (!canPress || event.nativeEvent.isComposing) return;
-    const name = herdrKeyName(event);
-    if (name === null) return;
-    event.preventDefault();
-    press([name]);
-  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- applies font settings to the live Ghostty surface
+  useEffect(() => {
+    fontRef.current = { family: fontFamily, size: fontSize };
+    void surfaceRef.current?.setFont(fontOptions(fontFamily, fontSize));
+  }, [fontFamily, fontSize]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the Ghostty surface and the Core attach stream behind it
+  useEffect(() => {
+    const mount = mountRef.current;
+    const bridge = window.desktopBridge?.herdrAttach;
+    if (!mount || !bridge) return;
+    const streamId = randomUUID();
+    const decoder = new TextDecoder();
+    let disposed = false;
+    let opened = false;
+    let surface: GhosttyTerminalSurface | null = null;
+    const send = (input: DesktopHerdrAttachInput) => {
+      void bridge.input(input).catch(() => undefined);
+    };
+    const unsubscribe = bridge.onEvent((event) => {
+      if (event.streamId !== streamId) return;
+      if (event.type === "data") surface?.write(decoder.decode(event.data, { stream: true }));
+      else if (event.type === "resize")
+        surface?.setSharedGrid({ cols: event.cols, rows: event.rows });
+      else {
+        opened = false;
+        setStatus({ kind: "closed", reason: closedReason(event.reason) });
+      }
+    });
+    const onFocus = () => opened && !readOnly && send({ streamId, type: "focus", focused: true });
+    const onBlur = () => opened && !readOnly && send({ streamId, type: "focus", focused: false });
+    const themeObserver = new MutationObserver(() =>
+      surface?.setTheme(terminalThemeFromApp(mount)),
+    );
+    void GhosttyTerminalSurface.create(mount, {
+      theme: terminalThemeFromApp(mount),
+      font: fontOptions(fontRef.current.family, fontRef.current.size),
+      onData: (data) => {
+        if (opened && !readOnly) send({ streamId, type: "data", data });
+      },
+      onResize: (cols, rows) => {
+        if (opened && !readOnly) send({ streamId, type: "resize", cols, rows });
+      },
+      onSelectionChange: () => {},
+      beforeKey: () => true,
+      onLinkActivate: (url) => {
+        if (/^https?:\/\//i.test(url)) void ensureLocalApi().shell.openExternal(url);
+      },
+    })
+      .then(async (created) => {
+        if (disposed) {
+          created.dispose();
+          return;
+        }
+        surface = created;
+        surfaceRef.current = created;
+        created.input.readOnly = readOnly;
+        created.input.addEventListener("focus", onFocus);
+        created.input.addEventListener("blur", onBlur);
+        themeObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ["class", "style"],
+        });
+        created.fit();
+        const theme = terminalThemeFromApp(mount);
+        await bridge.open({
+          streamId,
+          expectedCoreId: coreId,
+          socketPath,
+          ...(sshHost ? { sshHost } : {}),
+          terminal,
+          observe: readOnly,
+          cols: Math.max(created.cols, 20),
+          rows: Math.max(created.rows, 5),
+          display: {
+            fg: hex(theme.foreground),
+            bg: hex(theme.background),
+            cursor: hex(theme.cursor),
+          },
+        });
+        if (disposed) {
+          send({ streamId, type: "close" });
+          return;
+        }
+        opened = true;
+        setStatus({ kind: "open" });
+        if (!readOnly) created.focus();
+      })
+      .catch((cause: unknown) => {
+        if (!disposed)
+          setStatus({
+            kind: "closed",
+            reason: closedReason(cause instanceof Error ? cause.message : ""),
+          });
+      });
+    return () => {
+      disposed = true;
+      unsubscribe();
+      themeObserver.disconnect();
+      if (opened) send({ streamId, type: "close" });
+      surface?.input.removeEventListener("focus", onFocus);
+      surface?.input.removeEventListener("blur", onBlur);
+      surface?.dispose();
+      if (surfaceRef.current === surface) surfaceRef.current = null;
+    };
+  }, [socketPath, sshHost, coreId, terminal, readOnly]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <pre
-        ref={screenRef}
-        tabIndex={0}
-        role="log"
-        aria-label={`${state.selected?.label ?? "Terminal"} screen`}
-        aria-live="off"
-        onKeyDown={onKeyDown}
-        onScroll={(event) => {
-          const element = event.currentTarget;
-          atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
-        }}
-        className={cn(
-          "min-h-0 flex-1 overflow-auto px-5 py-4 font-mono text-xs leading-snug whitespace-pre text-foreground outline-none",
-          canPress && "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        )}
-      >
-        {pane ? pane.text : "Reading terminal…"}
-      </pre>
-      <div className="chat-content-lane flex shrink-0 flex-wrap items-center gap-2 px-4 pt-2 pb-4">
-        {readOnly ? (
-          <ComposerControl
-            render={<span />}
-            aria-label="Read-only connection"
-            className="pointer-events-none"
-          >
-            <ComposerControlIcon icon={EyeIcon} />
-            <span>Read only</span>
-          </ComposerControl>
-        ) : (
-          KEY_BAR.map(([label, key]) => (
-            <ComposerControl
-              key={key}
-              aria-label={`Press ${label}`}
-              disabled={!canPress}
-              onClick={() => press([key])}
-            >
-              <span className="font-mono text-xs">{label}</span>
-            </ComposerControl>
-          ))
-        )}
-        <span className="ms-auto text-xs text-muted-foreground" role="status">
-          {state.pendingKeys > 0
-            ? "Pressing keys…"
-            : canPress
-              ? "Click the screen to type into it"
-              : pane && !pane.complete
-                ? "Showing the screen only"
-                : null}
+    <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+      <div
+        ref={mountRef}
+        aria-label={`${label} terminal`}
+        className="relative min-h-0 flex-1 overflow-hidden"
+      />
+      {readOnly && status.kind === "open" ? (
+        <span className="pointer-events-none absolute top-2 right-4 flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+          <EyeIcon className="size-3" />
+          Watching
         </span>
-      </div>
+      ) : null}
+      {status.kind !== "open" ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/80 text-sm text-muted-foreground">
+          {status.kind === "connecting" ? (
+            <p role="status">Attaching to {label}…</p>
+          ) : (
+            <>
+              <p role="alert">{status.reason}</p>
+              <Button size="sm" variant="outline" onClick={onReconnect}>
+                Reconnect
+              </Button>
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function closedReason(reason: string) {
+  // Electron prefixes invoke failures with its own channel and error name.
+  const message = reason.replace(/^Error invoking remote method '[^']+': (\w+: )?/, "").trim();
+  if (message === "" || message === "ended") return "The terminal stream ended.";
+  if (message === "detached") return "Detached from the terminal.";
+  return message;
 }
