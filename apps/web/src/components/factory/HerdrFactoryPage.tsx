@@ -27,6 +27,7 @@ import {
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { HerdrThreadView } from "./HerdrThreadView";
+import { workspaceAreaProps } from "../../lib/workspaceFocus";
 import { HerdrFleetList, groupFleet } from "./HerdrFleetList";
 import {
   Dialog,
@@ -79,7 +80,11 @@ export function HerdrFactoryPage() {
           onSettings={() => setSettingsOpen(true)}
         />
       ) : (
-        <main className="flex min-w-0 flex-1 items-center justify-center">
+        <main
+          {...workspaceAreaProps("factory", 2, "Factory")}
+          role="main"
+          className="flex min-w-0 flex-1 items-center justify-center"
+        >
           <div className="max-w-sm space-y-4 text-center">
             <FactoryIcon className="mx-auto size-8 text-muted-foreground" />
             <h1 className="text-lg font-medium">Your factory, in Fold</h1>
@@ -358,12 +363,17 @@ function CoreWorkspace({
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
       <aside
+        {...workspaceAreaProps("factory-fleet", 1, "Factory conversations")}
+        role="complementary"
         className="flex w-60 shrink-0 flex-col border-r bg-sidebar pt-3"
-        aria-label="Factory conversations"
       >
         {sidebar}
       </aside>
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
+      <main
+        {...workspaceAreaProps("factory", 2, "Factory")}
+        role="main"
+        className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground"
+      >
         {module || !agent ? (
           <>
             <WorkspacePageHeader electron={isElectron}>
@@ -467,8 +477,9 @@ function CoreWorkspace({
           </section>
           {detailsOpen && (
             <aside
+              {...workspaceAreaProps("factory-details", 3, "Conversation details")}
+              role="complementary"
               className="w-80 shrink-0 space-y-5 overflow-auto border-l p-5"
-              aria-label="Conversation details"
             >
               <div className="space-y-2">
                 <h2 className="text-sm font-medium">Session</h2>

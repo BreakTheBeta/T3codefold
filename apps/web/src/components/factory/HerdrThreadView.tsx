@@ -321,6 +321,7 @@ function HerdrComposer({
       }}
     >
       <textarea
+        data-vim-insert=""
         aria-label={`Message ${agent.label}`}
         placeholder={readOnly ? "This connection is read-only" : `Message ${agent.label}`}
         rows={2}

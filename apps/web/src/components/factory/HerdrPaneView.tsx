@@ -198,6 +198,7 @@ function LivePane({
     <div className="relative flex min-h-0 flex-1 flex-col bg-background">
       <div
         ref={mountRef}
+        data-herdr-terminal=""
         aria-label={`${label} terminal`}
         className="relative min-h-0 flex-1 overflow-hidden"
       />

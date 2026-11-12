@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Effect from "effect/Effect";
 import * as Tracer from "effect/Tracer";
+// Loaded once up front so the cold transform of the runtime graph happens at collection, not
+// inside the first case's timeout; each case still re-imports a fresh copy after resetModules.
+import "./runtime";
 
 afterEach(() => {
   vi.unstubAllEnvs();
