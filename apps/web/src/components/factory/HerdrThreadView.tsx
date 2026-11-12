@@ -21,7 +21,7 @@ import {
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { ToggleGroup, Toggle } from "../ui/toggle-group";
-import { HerdrPaneView } from "./HerdrPaneView";
+import { HerdrPaneView, type HerdrAttachTarget } from "./HerdrPaneView";
 import { coreItemsToTimelineEntries } from "./herdrTimeline";
 import { herdrAgentStatus } from "./herdrAgentStatus";
 
@@ -55,6 +55,7 @@ export function HerdrThreadView({
   banner,
   view,
   onViewChange,
+  attachTarget,
 }: {
   readonly workspace: HerdrWorkspace;
   readonly state: HerdrWorkspaceState;
@@ -70,6 +71,7 @@ export function HerdrThreadView({
   readonly banner: ReactNode;
   readonly view: "chat" | "terminal";
   readonly onViewChange: (view: "chat" | "terminal") => void;
+  readonly attachTarget: HerdrAttachTarget | null;
 }) {
   // No ":" so the timeline finds no environment thread behind the key.
   const threadKey = `herdr-${agent.id}`;
@@ -175,7 +177,21 @@ export function HerdrThreadView({
       </header>
       {banner}
       {view === "terminal" ? (
-        <HerdrPaneView workspace={workspace} state={state} readOnly={readOnly} run={run} />
+        attachTarget && agent.processState === "live" ? (
+          <HerdrPaneView
+            key={agent.id}
+            target={attachTarget}
+            terminal={agent.id}
+            label={agent.label}
+            readOnly={readOnly}
+          />
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            {agent.processState === "live"
+              ? "Connecting to the factory…"
+              : "This terminal has finished."}
+          </div>
+        )
       ) : (
         <>
           <div className="relative flex min-h-0 flex-1 flex-col bg-background">

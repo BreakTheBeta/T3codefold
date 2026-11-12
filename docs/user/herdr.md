@@ -31,9 +31,9 @@ New messages appear when the provider writes them, every few seconds rather than
 
 ## Use terminals and TUI tools
 
-Any terminal can open as a **pane** showing its screen and recent scrollback. Terminals without a conversation, such as a factory dashboard, open this way by default; for an agent, switch **Chat / Terminal** in the header.
+Any live terminal can open as a **pane**: a real terminal attached to it, the same as `hc attach`, with its colors, cursor and full-screen layout. Terminals without a conversation, such as a factory dashboard, open this way by default; for an agent, switch **Chat / Terminal** in the header.
 
-On a connection that isn't read-only, click the screen and type, or use the key bar for arrows, Enter, Esc, Tab and Ctrl+C. Herdr presses the keys once the program has been quiet for about three seconds, so panes suit menus, cards and prompts better than fast typing.
+On a connection that isn't read-only, the pane behaves like a terminal window: type, paste, scroll, and click or drag in programs that use the mouse. Like any Herdr viewer, the window you last typed in sets the terminal's size, so other screens watching it may redraw. Read-only connections watch at the size the terminal already has and never type or resize it.
 
 ## Send messages and interrupt
 
@@ -80,6 +80,6 @@ Panels can only reach services on the factory machine's loopback address that an
 ## Limits
 
 - Herdr factories need the desktop app. The web app and mobile app can't open Core's socket or SSH, and mobile's Factory screen says so.
-- You can't answer an agent's permission prompts, switch its model, or restart it from T3 Code. Use its terminal pane or Herdr for those.
+- You can't switch an agent's model or restart it from T3 Code. Answer its permission prompts in its terminal pane, and use Herdr for the rest.
 - Conversations appear only for Claude and Codex, read from their session files in the default locations (`~/.claude/projects`, `~/.codex/sessions`, or `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when set). Other terminals show as panes.
 - Removing a connection never stops agents.

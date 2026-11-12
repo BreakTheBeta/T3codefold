@@ -449,6 +449,15 @@ function CoreWorkspace({
                 banner={errorBanner}
                 view={views[agent.id] ?? (agent.conversationId ? "chat" : "terminal")}
                 onViewChange={(next) => setViews((previous) => ({ ...previous, [agent.id]: next }))}
+                attachTarget={
+                  state.connection === "connected" && state.hello
+                    ? {
+                        socketPath: destination.socketPath,
+                        sshHost: destination.sshHost,
+                        coreId: state.hello.core.id,
+                      }
+                    : null
+                }
               />
             ) : (
               <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
