@@ -5,7 +5,7 @@ import {
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
 
-import type { ComposerEditorSelection } from "../../components/ComposerEditor";
+import type { ComposerEditorSelection } from "../../native/T3ComposerEditor.types";
 import { useGlobalVoiceInput } from "./VoiceInputProvider";
 import { createVoiceInputTarget } from "./voiceInputSession";
 
