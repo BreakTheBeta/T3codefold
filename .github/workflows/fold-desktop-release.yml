@@ -26,17 +26,8 @@ permissions:
   contents: read
 
 jobs:
-  server:
-    if: github.repository == 'BreakTheBeta/T3codefold' && !inputs.desktop_only
-    uses: ./.github/workflows/fold-server-release.yml
-    permissions:
-      contents: write
-    with:
-      version: ${{ inputs.version }}
-      channel: ${{ contains(inputs.version, '-nightly.') && 'nightly' || 'latest' }}
   unix:
-    if: ${{ !cancelled() && inputs.platform != 'win' && (needs.server.result == 'success' || (inputs.desktop_only && needs.server.result == 'skipped')) }}
-    needs: server
+    if: github.repository == 'BreakTheBeta/T3codefold'
     strategy:
       fail-fast: false
       matrix:
@@ -115,74 +106,3 @@ jobs:
           FOLD_VERSION: ${{ inputs.version }}
           PUBLISH_MODE: ${{ steps.build.outputs.publish_mode }}
         run: GITHUB_SHA="$(git rev-parse HEAD)" node scripts/publish-fold-desktop.ts release-assets "$RELEASE_TAG" "$FOLD_VERSION" "$PUBLISH_MODE"
-  wsl:
-    if: github.repository == 'BreakTheBeta/T3codefold' && (inputs.platform == 'all' || inputs.platform == 'win')
-    uses: ./.github/workflows/fold-cli-archive.yml
-    with:
-      runner: ubuntu-24.04
-      platform: linux
-      arch: x64
-      version: ${{ inputs.version }}
-      artifact_name: fold-wsl-runtime
-  windows:
-    if: ${{ !cancelled() && needs.wsl.result == 'success' && (needs.server.result == 'success' || (inputs.desktop_only && needs.server.result == 'skipped')) }}
-    needs: [wsl, server]
-    concurrency:
-      group: fold-desktop-win
-      cancel-in-progress: false
-    runs-on: windows-2025
-    timeout-minutes: 60
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-      - uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          run-install: true
-      - name: Install Rust toolchain
-        shell: pwsh
-        run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          rustup override set 1.95.0
-      - uses: actions/download-artifact@v8
-        with:
-          name: fold-wsl-runtime
-          path: wsl-runtime
-      - name: Install Spectre-mitigated MSVC libs
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installPath = & $vswhere -products * -latest -property installationPath
-          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
-          $proc = Start-Process -FilePath $setupExe `
-            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
-            "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre", "--quiet", "--norestart" `
-            -Wait -PassThru -NoNewWindow
-          if ($null -eq $proc -or $proc.ExitCode -ne 0) {
-            $code = if ($null -ne $proc) { $proc.ExitCode } else { 1 }
-            Write-Error "Visual Studio Installer failed with exit code $code"
-            exit $code
-          }
-
-      - name: Build Windows installer
-        shell: pwsh
-        env:
-          FOLD_VERSION: ${{ inputs.version }}
-        run: |
-          node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --build-version "$env:FOLD_VERSION" --output-dir release-assets --wsl-runtime (Get-ChildItem wsl-runtime/t3-*-linux-x64.tar.gz | Select-Object -First 1).FullName --verbose
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v7
-        with:
-          name: fold-windows-x64
-          path: release-assets/*
-          if-no-files-found: error
-      - name: Publish Fold desktop feed
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          FOLD_VERSION: ${{ inputs.version }}
-        run: |
-          node scripts/publish-fold-desktop.ts release-assets "$env:RELEASE_TAG" "$env:FOLD_VERSION"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
