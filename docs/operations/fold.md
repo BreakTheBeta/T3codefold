@@ -54,6 +54,11 @@ update feeds (`fold-server-latest`, `fold-server-nightly`, `fold-desktop-latest`
 `fold-desktop-nightly`, and `mobile-ota` when present). Installed clients require
 those URLs. The maintainer chose permanent cleanup of older published releases; do not keep
 adding archived drafts to the signed-in release list. Existing drafts are left alone.
+
+Retain `fold-native-dependencies` and its versioned assets too: Android builds verify and
+download the Moonshine runtime from that release. Rebuild it with
+`python3 scripts/build-android-speech-runtime.py --work-dir <directory>` using Python 3.12+
+and the pinned Android NDK/CMake versions. Upload new versioned assets without replacing old ones.
 Omit `--delete-old-releases` only when recoverable drafts are explicitly wanted.
 The script saves release metadata in an OS temporary directory, not a backup of
 binaries. Never delete Git tags or the retained update-feed assets.

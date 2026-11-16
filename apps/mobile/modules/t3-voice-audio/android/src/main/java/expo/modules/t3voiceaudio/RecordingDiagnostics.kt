@@ -5,6 +5,8 @@ import android.app.ApplicationExitInfo
 import android.content.Context
 import android.os.Build
 import android.os.Process
+import android.system.Os
+import android.system.OsConstants
 
 internal class RecordingDiagnostics(private val context: Context) {
   private val preferences = context.getSharedPreferences("recording-diagnostics", 0)
@@ -35,7 +37,9 @@ internal class RecordingDiagnostics(private val context: Context) {
     val lastPid = preferences.getInt("pid", -1)
     val stage = preferences.getString("stage", "unknown").orEmpty()
     val architecture = preferences.getInt("architecture", -1)
-    val device = "${Build.MANUFACTURER} ${Build.MODEL}; Android ${Build.VERSION.RELEASE}; ${Build.SUPPORTED_ABIS.joinToString()}"
+    val soc = if (Build.VERSION.SDK_INT >= 31) "; ${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}" else ""
+    val pageSize = runCatching { Os.sysconf(OsConstants._SC_PAGESIZE) }.getOrNull()
+    val device = "${Build.MANUFACTURER} ${Build.MODEL}; Android ${Build.VERSION.RELEASE}; ${Build.SUPPORTED_ABIS.joinToString()}$soc\nCurrent speech runtime: Moonshine 0.1.6 / ONNX 1.25.1; page size: $pageSize"
     val lastStage = "Last recording stage: $stage; model architecture: $architecture"
     val failure = preferences.getString("failure", null)
     if (failure != null) records.add(mapOf(
@@ -46,11 +50,12 @@ internal class RecordingDiagnostics(private val context: Context) {
     if (Build.VERSION.SDK_INT >= 30) {
       val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
       val exits = manager.getHistoricalProcessExitReasons(context.packageName, 0, 20)
+      var nativeTraces = 0
       for (exit in exits) {
         if (exit.reason !in setOf(ApplicationExitInfo.REASON_CRASH, ApplicationExitInfo.REASON_CRASH_NATIVE,
             ApplicationExitInfo.REASON_ANR, ApplicationExitInfo.REASON_LOW_MEMORY, ApplicationExitInfo.REASON_SIGNALED)) continue
         val reason = when (exit.reason) {
-          ApplicationExitInfo.REASON_CRASH_NATIVE -> "Native crash"
+          ApplicationExitInfo.REASON_CRASH_NATIVE -> if (exit.status == 4) "Native crash (SIGILL: illegal instruction)" else "Native crash"
           ApplicationExitInfo.REASON_CRASH -> "JVM crash"
           ApplicationExitInfo.REASON_ANR -> "App not responding"
           ApplicationExitInfo.REASON_LOW_MEMORY -> "Android stopped the app for low memory"
@@ -61,10 +66,13 @@ internal class RecordingDiagnostics(private val context: Context) {
           preferences.getInt("previousPid", -1) -> "\nLast recording stage: ${preferences.getString("previousStage", "unknown")}; model architecture: ${preferences.getInt("previousArchitecture", -1)}"
           else -> ""
         }
+        val trace = if (Build.VERSION.SDK_INT >= 31 && exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE && nativeTraces++ < 3) {
+          "\n${readNativeCrashTrace { exit.traceInputStream }}"
+        } else ""
         records.add(mapOf(
           "timestamp" to exit.timestamp,
           "description" to reason,
-          "detail" to "$device\n$reason; status ${exit.status}; pid ${exit.pid}; PSS ${exit.pss} KiB; RSS ${exit.rss} KiB\n${exit.description.orEmpty()}$recording",
+          "detail" to "$device\n$reason; status ${exit.status}; pid ${exit.pid}; PSS ${exit.pss} KiB; RSS ${exit.rss} KiB\n${exit.description.orEmpty()}$recording$trace",
         ))
       }
     }
