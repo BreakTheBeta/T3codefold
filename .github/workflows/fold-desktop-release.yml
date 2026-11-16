@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'mac' && '[{"runner":"macos-26","platform":"mac","target":"dmg","arch":"universal"}]' || inputs.platform == 'linux' && '[{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]' || '[{"runner":"macos-26","platform":"mac","target":"dmg","arch":"universal"},{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'mac' && '[{"runner":"macos-26-intel","platform":"mac","target":"dmg","arch":"universal"}]' || inputs.platform == 'linux' && '[{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]' || '[{"runner":"macos-26-intel","platform":"mac","target":"dmg","arch":"universal"},{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]') }}
     concurrency:
       group: fold-desktop-${{ matrix.platform }}
       cancel-in-progress: false
@@ -50,6 +50,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: c1c950440ee06ad9878f3e86eadf24f8a214b55c
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
@@ -99,7 +101,7 @@ jobs:
               echo "Apple signing is not configured; publishing a manual download only."
             fi
           fi
-          node scripts/build-desktop-artifact.ts "${args[@]}"
+          GITHUB_SHA="$(git rev-parse HEAD)" node scripts/build-desktop-artifact.ts "${args[@]}"
           echo "publish_mode=$publish_mode" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
@@ -112,7 +114,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           FOLD_VERSION: ${{ inputs.version }}
           PUBLISH_MODE: ${{ steps.build.outputs.publish_mode }}
-        run: node scripts/publish-fold-desktop.ts release-assets "$RELEASE_TAG" "$FOLD_VERSION" "$PUBLISH_MODE"
+        run: GITHUB_SHA="$(git rev-parse HEAD)" node scripts/publish-fold-desktop.ts release-assets "$RELEASE_TAG" "$FOLD_VERSION" "$PUBLISH_MODE"
   wsl:
     if: github.repository == 'BreakTheBeta/T3codefold' && (inputs.platform == 'all' || inputs.platform == 'win')
     uses: ./.github/workflows/fold-cli-archive.yml
