@@ -17,7 +17,7 @@ export function useTextFieldSpeech(input: {
   readonly projectId?: ProjectId | null | undefined;
   readonly ownerKey: string;
   readonly text: string;
-  readonly textareaRef: RefObject<HTMLTextAreaElement | null>;
+  readonly textareaRef: RefObject<HTMLTextAreaElement | HTMLInputElement | null>;
   readonly onTextChange: (text: string) => void;
   readonly disabled?: boolean | undefined;
 }) {
@@ -31,7 +31,6 @@ export function useTextFieldSpeech(input: {
     environmentId: input.environmentId,
     projectId: input.projectId,
     ownerKey: input.ownerKey,
-    draftText: input.text,
     disabled: input.disabled,
     offerSetup: false,
     readDraft: () => {
@@ -43,11 +42,17 @@ export function useTextFieldSpeech(input: {
       };
     },
     commitDraft: (text, selection) => {
+      const owner = latest.current.ownerKey;
+      const field = latest.current.textareaRef.current;
       latest.current.onTextChange(text);
       window.requestAnimationFrame(() => {
-        const field = latest.current.textareaRef.current;
-        if (!field) return;
-        field.focus({ preventScroll: true });
+        if (
+          !field?.isConnected ||
+          latest.current.textareaRef.current !== field ||
+          latest.current.ownerKey !== owner ||
+          field.ownerDocument.activeElement !== field
+        )
+          return;
         field.setSelectionRange(selection.start, selection.end);
       });
     },
@@ -75,35 +80,36 @@ export function TextFieldSpeechControls({
   return (
     <>
       {speech.preview ? (
-        <p role="status" className="w-full text-sm text-muted-foreground">
+        <p
+          role="status"
+          className="order-first max-h-24 w-full overflow-y-auto rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5 text-sm break-words whitespace-pre-wrap"
+        >
           {speech.preview.committed}
-          <span className="opacity-70">{speech.preview.tentative}</span>
+          <span className="text-muted-foreground">{speech.preview.tentative}</span>
         </p>
       ) : null}
-      <div className="flex min-w-0 items-center gap-1">
-        <ComposerSpeechRecordingPill
+      <ComposerSpeechRecordingPill
+        size="compact"
+        state={speech.state}
+        progress={null}
+        level={speech.level}
+        finishShortcutLabel={speech.shortcutLabel}
+        cancelShortcutLabel="Esc"
+        disabled={disabled}
+        onStart={() => void speech.start()}
+        onStop={() => void speech.stop()}
+        onCancel={speech.cancel}
+        onSkipPostProcessing={speech.skipPostProcessing}
+      />
+      {speech.available ? (
+        <ComposerSpeechButton
           state={speech.state}
-          progress={null}
-          level={speech.level}
-          finishShortcutLabel={speech.shortcutLabel}
-          cancelShortcutLabel="Esc"
+          size="compact"
+          shortcutLabel={speech.shortcutLabel}
           disabled={disabled}
           onStart={() => void speech.start()}
-          onStop={() => void speech.stop()}
-          onCancel={speech.cancel}
-          onSkipPostProcessing={speech.skipPostProcessing}
         />
-        {speech.available ? (
-          <ComposerSpeechButton
-            state={speech.state}
-            progress={null}
-            shortcutLabel={speech.shortcutLabel}
-            disabled={disabled}
-            onStart={() => void speech.start()}
-            onCancel={speech.cancel}
-          />
-        ) : null}
-      </div>
+      ) : null}
       <VoiceInputSetup
         environmentId={speech.transcriptionEnvironmentId}
         open={speech.setup.open}

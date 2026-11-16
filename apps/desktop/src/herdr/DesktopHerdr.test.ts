@@ -150,7 +150,7 @@ describe("desktop native Core transport", () => {
             const payload = input.subarray(9, 9 + input.readUInt32LE(5));
             input = input.subarray(9 + payload.length);
             received.push({ kind, payload });
-            if (received.length === 4) typed.resolve();
+            if (received.length === 5) typed.resolve();
             if (kind === FRAME.data && input.length === 0 && received.length === 1) {
               attachParams = JSON.parse(payload.toString()).params;
               // The first paint can beat the reply that names its channel; both arrive split.
@@ -194,12 +194,14 @@ describe("desktop native Core transport", () => {
         );
         expect(attachParams).toMatchObject({ terminal: "t3", observe: false, cols: 100, rows: 30 });
         core.attachInput({ streamId: "s1", type: "data", data: "q" });
+        core.attachInput({ streamId: "s1", type: "data", data: "\xff", encoding: "binary" });
         core.attachInput({ streamId: "s1", type: "resize", cols: 80, rows: 24 });
         const socket = yield* Effect.promise(() => ready.promise);
         yield* Effect.promise(() => typed.promise);
         expect(received.slice(1).map(({ kind, payload }) => [kind, [...payload]])).toEqual([
           [FRAME.credit, [10, 0, 0, 0]],
           [FRAME.data, [...Buffer.from("q")]],
+          [FRAME.data, [255]],
           [FRAME.resize, [80, 0, 24, 0]],
         ]);
         socket.write(

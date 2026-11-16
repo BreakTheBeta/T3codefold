@@ -1,6 +1,6 @@
 import { requireNativeView } from "expo";
 import type { PropsWithChildren } from "react";
-import type { NativeSyntheticEvent, ViewProps } from "react-native";
+import { Platform, type NativeSyntheticEvent, type ViewProps } from "react-native";
 
 import type { HardwareKeyboardCommand } from "../features/keyboard/hardwareKeyboardCommands";
 
@@ -8,9 +8,15 @@ import type { HardwareKeyboardCommand } from "../features/keyboard/hardwareKeybo
 type VimKey = { readonly key: string; readonly ctrl?: boolean };
 
 interface NativeKeyboardCommandsProps extends ViewProps {
+  readonly controllerScope?: string;
+  readonly controllerSelection?: boolean;
+  readonly controllerEvents?: boolean;
   readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
   readonly onCommand: (
     event: NativeSyntheticEvent<{ readonly command: HardwareKeyboardCommand }>,
+  ) => void;
+  readonly onController?: (
+    event: NativeSyntheticEvent<{ readonly action: string; readonly targetId: string }>,
   ) => void;
   readonly vimKeysEnabled?: boolean;
   readonly onVimKey?: (event: NativeSyntheticEvent<VimKey>) => void;
@@ -22,6 +28,9 @@ export function T3KeyboardCommands(
   props: PropsWithChildren<{
     readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
     readonly onCommand: (command: HardwareKeyboardCommand) => void;
+    readonly controllerScope?: string;
+    readonly controllerSelection?: boolean;
+    readonly onController?: (event: { readonly action: string; readonly targetId: string }) => void;
     readonly vimKeysEnabled?: boolean;
     readonly onVimKey?: (key: VimKey) => void;
   }>,
@@ -29,6 +38,16 @@ export function T3KeyboardCommands(
   return (
     <NativeKeyboardCommands
       onCommand={(event) => props.onCommand(event.nativeEvent.command)}
+      {...(Platform.OS === "android"
+        ? {
+            controllerScope: props.controllerScope ?? "",
+            controllerSelection: props.controllerSelection ?? false,
+            controllerEvents: props.onController !== undefined,
+            onController: (
+              event: NativeSyntheticEvent<{ readonly action: string; readonly targetId: string }>,
+            ) => props.onController?.(event.nativeEvent),
+          }
+        : {})}
       enabledCommands={props.enabledCommands}
       vimKeysEnabled={props.vimKeysEnabled ?? false}
       onVimKey={(event) => props.onVimKey?.(event.nativeEvent)}

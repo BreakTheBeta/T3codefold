@@ -25,6 +25,13 @@ class T3NativeControlsModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("T3NativeControls")
 
+    AsyncFunction("disableController") { T3ControllerRouter.reset() }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("requestBack") {
+      val activity = appContext.currentActivity as? com.facebook.react.ReactActivity
+      activity?.onBackPressed()
+    }.runOnQueue(Queues.MAIN)
+
     // React Native sets this once, at launch, from the system theme rather than the app's.
     AsyncFunction("setNavigationBarStyle") { light: Boolean ->
       // Below Android 10, React Native paints the navigation bar color itself.

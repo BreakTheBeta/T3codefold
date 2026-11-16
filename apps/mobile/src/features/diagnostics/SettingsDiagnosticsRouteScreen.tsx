@@ -5,6 +5,7 @@ import Constants from "expo-constants";
 import * as Updates from "expo-updates";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -23,9 +24,10 @@ import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import {
   formatStartupCrashReport,
-  parseStartupCrashRecords,
+  readCrashRecords,
   type StartupCrashRecord,
 } from "./crash-log-model";
+import { nativeCrashLogAvailable, readNativeCrashRecords } from "./native-crash-log";
 
 // expo-updates retains only seven days of logs.
 const LOG_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -39,22 +41,32 @@ class CrashLogReadError extends Schema.TaggedError<CrashLogReadError>()("CrashLo
   cause: Schema.Defect(),
 }) {
   override get message(): string {
-    return "Could not read the expo-updates log.";
+    return "Could not read the local crash logs.";
   }
 }
 
 // Not kept alive: each visit to the screen re-reads the log.
 const crashLogAtom = Atom.make(
-  Effect.tryPromise({
-    try: () => Updates.readLogEntriesAsync(LOG_WINDOW_MS),
-    catch: (cause) => new CrashLogReadError({ cause }),
-  }).pipe(
-    Effect.map((entries): CrashLogState => ({
+  Clock.currentTimeMillis.pipe(
+    Effect.flatMap((now) =>
+      Effect.tryPromise({
+        try: () =>
+          readCrashRecords(
+            {
+              updates: Updates.isEnabled ? () => Updates.readLogEntriesAsync(LOG_WINDOW_MS) : null,
+              native: nativeCrashLogAvailable ? readNativeCrashRecords : null,
+            },
+            now - LOG_WINDOW_MS,
+          ),
+        catch: (cause) => new CrashLogReadError({ cause }),
+      }),
+    ),
+    Effect.map((records): CrashLogState => ({
       status: "ready",
-      records: parseStartupCrashRecords(entries),
+      records,
     })),
     Effect.catch((error) =>
-      Effect.logWarning("[diagnostics] could not read the expo-updates log", error).pipe(
+      Effect.logWarning("[diagnostics] could not read local crash logs", error).pipe(
         Effect.as<CrashLogState>({ status: "unavailable" }),
       ),
     ),
@@ -66,7 +78,9 @@ const UNAVAILABLE_CRASH_LOG_ATOM = Atom.make(
 );
 
 function useCrashLogState(): CrashLogState {
-  const result = useAtomValue(Updates.isEnabled ? crashLogAtom : UNAVAILABLE_CRASH_LOG_ATOM);
+  const result = useAtomValue(
+    Updates.isEnabled || nativeCrashLogAvailable ? crashLogAtom : UNAVAILABLE_CRASH_LOG_ATOM,
+  );
   return AsyncResult.isSuccess(result) ? result.value : { status: "loading" };
 }
 
@@ -96,14 +110,14 @@ export function SettingsDiagnosticsRouteScreen() {
     <SettingsScreen title="Diagnostics">
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
-        contentInset={{ bottom: Math.max(insets.bottom, 18) }}
         showsVerticalScrollIndicator={false}
         className="flex-1"
-        contentContainerClassName="gap-6 px-5 pt-4 pb-[18px]"
+        contentContainerClassName="gap-6 px-5 pt-4"
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
         {crashReportingAvailable ? <CrashReportsSetting /> : null}
 
-        <SettingsSection title="Startup crashes">
+        <SettingsSection title="Crashes and recording failures">
           {state.status === "loading" ? (
             <View className="items-center gap-3 px-6 py-8">
               <AppActivityIndicator />
@@ -113,13 +127,13 @@ export function SettingsDiagnosticsRouteScreen() {
             <EmptyState
               icon="exclamationmark.triangle"
               title="Crash log unavailable"
-              detail="Startup crash records are only kept in store and TestFlight builds."
+              detail="This build cannot read local crash records. Install a current native build and try again."
             />
           ) : records.length === 0 ? (
             <EmptyState
               icon="checkmark.circle"
-              title="No startup crashes"
-              detail="Nothing has taken the app down during launch in the last 7 days."
+              title="No crashes or recording failures"
+              detail="No failures were recorded in the last 7 days."
             />
           ) : (
             records.map((record, index) => (
@@ -138,9 +152,9 @@ export function SettingsDiagnosticsRouteScreen() {
             />
           </SettingsSection>
           <Text className="px-2 text-sm leading-normal text-foreground-muted">
-            Paste the report into a GitHub issue. It contains the app version, the JavaScript error
-            message, and the component stack. Error messages can quote values from the app, so read
-            it over before sharing.
+            Paste the report into a GitHub issue. It includes app errors, Android process exits,
+            device details and the last recording stage. Error messages can quote values from the
+            app, so read it over before sharing.
           </Text>
         </View>
       </ScrollView>

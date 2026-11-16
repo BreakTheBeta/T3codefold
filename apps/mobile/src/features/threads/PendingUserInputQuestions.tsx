@@ -1,6 +1,7 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import type { RuntimeRequestId } from "@t3tools/contracts";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
@@ -86,7 +87,11 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
                 const description =
                   option.description !== option.label ? option.description : undefined;
                 return (
-                  <Pressable
+                  <ControllerPressable
+                    onActivate={() =>
+                      props.onSelectOption(props.pendingUserInput.requestId, question, optionValue)
+                    }
+                    controllerKey={`${props.pendingUserInput.requestId}:${question.id}:${optionValue}`}
                     key={optionValue}
                     accessibilityRole={question.multiSelect ? "checkbox" : "radio"}
                     accessibilityState={{ checked: selected, disabled: responseDisabled }}
@@ -121,7 +126,7 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
                         </Text>
                       ) : null}
                     </View>
-                  </Pressable>
+                  </ControllerPressable>
                 );
               })}
             </View>

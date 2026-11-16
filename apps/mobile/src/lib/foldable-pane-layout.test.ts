@@ -297,3 +297,25 @@ describe("deriveFoldWorkspacePaneLayout", () => {
     });
   });
 });
+
+it("aligns panes on a zero-width separating book crease", () => {
+  expect(
+    deriveWorkspaceFoldRegions({
+      width: 840,
+      height: 900,
+      leadingInset: 0,
+      trailingInset: 0,
+      hinges: [
+        {
+          left: 420,
+          right: 420,
+          top: 0,
+          bottom: 900,
+          orientation: "vertical",
+          state: "halfOpened",
+          separating: true,
+        },
+      ],
+    }).vertical,
+  ).toEqual({ leadingWidth: 420, gap: 0, trailingWidth: 420 });
+});

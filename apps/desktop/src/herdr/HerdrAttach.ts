@@ -76,7 +76,10 @@ export class HerdrAttachStream {
     if (this.phase !== "open") return;
     switch (input.type) {
       case "data":
-        this.send(FRAME.data, Buffer.from(input.data, "utf8"));
+        this.send(
+          FRAME.data,
+          Buffer.from(input.data, input.encoding === "binary" ? "latin1" : "utf8"),
+        );
         return;
       case "resize": {
         const size = Buffer.alloc(4);

@@ -8,10 +8,8 @@ function fixture(activity?: ConstructorParameters<typeof StreamingVoiceInputSess
   let signal: AbortSignal | undefined;
   let text = "hello world";
   let final = "";
-  const listeners = new Set<() => void>();
   const change = (value: string) => {
     text = value;
-    listeners.forEach((listener) => listener());
   };
   const backend: LocalDictationBackend = {
     start: vi.fn(async (next, abort) => {
@@ -30,10 +28,6 @@ function fixture(activity?: ConstructorParameters<typeof StreamingVoiceInputSess
     () => text,
     (next) => change(next),
     { start: 6, end: 11 },
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
   );
   return {
     session,
@@ -82,13 +76,10 @@ describe("phone-local streaming dictation", () => {
   it("has no five-minute duration limit and keeps the original target", async () => {
     const f = fixture();
     await f.session.start(f.target);
-    const other = createVoiceInputTarget(
-      "thread:second",
-      () => "other",
-      vi.fn(),
-      { start: 0, end: 0 },
-      () => () => {},
-    );
+    const other = createVoiceInputTarget("thread:second", () => "other", vi.fn(), {
+      start: 0,
+      end: 0,
+    });
     await f.session.start(other);
     for (let minute = 0; minute < 45; minute++) f.phrase(`minute ${minute}`);
     expect(f.session.currentState.phase).toBe("recording");

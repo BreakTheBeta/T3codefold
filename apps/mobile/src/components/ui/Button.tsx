@@ -1,10 +1,12 @@
+import { ControllerPressable } from "../../features/controller/ControllerPressable";
 import { SymbolView, type AppSymbolName } from "./AppSymbol";
-import { Pressable } from "react-native";
 import { AppActivityIndicator } from "./AppActivityIndicator";
 import { AppText } from "./AppText";
 import { cn } from "../../lib/cn";
 
 export interface ButtonProps {
+  readonly controllerKey?: string;
+  readonly controllerFooter?: boolean;
   readonly label: string;
   readonly accessibilityLabel?: string;
   readonly icon?: AppSymbolName;
@@ -29,7 +31,10 @@ export function Button(props: ButtonProps) {
   const [containerClassName, labelClassName] = TONE_CLASS_NAMES[props.tone ?? "secondary"];
   const disabled = Boolean(props.disabled || props.loading);
   return (
-    <Pressable
+    <ControllerPressable
+      controllerKey={props.controllerKey}
+      footer={props.controllerFooter}
+      onActivate={props.onPress}
       accessibilityRole="button"
       accessibilityLabel={props.accessibilityLabel ?? props.label}
       accessibilityHint={props.accessibilityHint}
@@ -62,6 +67,6 @@ export function Button(props: ButtonProps) {
       >
         {props.label}
       </AppText>
-    </Pressable>
+    </ControllerPressable>
   );
 }

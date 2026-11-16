@@ -58,10 +58,16 @@ const encodeResult =
     );
 
 const decodeLaunchParams = decodeInput(
-  Schema.toEncoded(ProjectToolkit.tools.t3_thread_launch.parametersSchema),
+  Schema.toCodecJson(ProjectToolkit.tools.t3_thread_launch.parametersSchema),
+);
+const encodeLaunchParams = encodeResult(
+  Schema.toCodecJson(ProjectToolkit.tools.t3_thread_launch.parametersSchema),
 );
 const decodeProjectListParams = decodeInput(
-  Schema.toEncoded(ProjectToolkit.tools.t3_project_list.parametersSchema),
+  Schema.toCodecJson(ProjectToolkit.tools.t3_project_list.parametersSchema),
+);
+const encodeProjectListParams = encodeResult(
+  Schema.toCodecJson(ProjectToolkit.tools.t3_project_list.parametersSchema),
 );
 const decodeThreadStart = decodeInput(OrchestratorMcpThreadStartInput);
 const decodeThreadList = decodeInput(OrchestratorMcpThreadListInput);
@@ -220,10 +226,13 @@ const make = Effect.gen(function* () {
         : yield* resolveInteractionMode(request.source.interactionMode, params.interactionMode);
     const result = yield* runProjectTool(
       scope,
-      projectTools.handle("t3_thread_launch", {
-        ...params,
-        ...(interactionMode === undefined ? {} : { interactionMode }),
-      }),
+      projectTools.handle(
+        "t3_thread_launch",
+        yield* encodeLaunchParams({
+          ...params,
+          ...(interactionMode === undefined ? {} : { interactionMode }),
+        }),
+      ),
     );
     return isRecord(result) ? { ...result, environmentId: localId } : result;
   });
@@ -241,7 +250,10 @@ const make = Effect.gen(function* () {
         });
       case "t3_project_list": {
         const params = yield* decodeProjectListParams(input);
-        const result = yield* runProjectTool(scope, projectTools.handle("t3_project_list", params));
+        const result = yield* runProjectTool(
+          scope,
+          projectTools.handle("t3_project_list", yield* encodeProjectListParams(params)),
+        );
         return isRecord(result) ? { ...result, environmentId: localId } : result;
       }
       case "t3_thread_launch":

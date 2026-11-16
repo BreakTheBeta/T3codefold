@@ -12,14 +12,21 @@ class T3KeyboardCommandsModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("T3KeyboardCommands")
 
+    OnActivityEntersBackground { T3ControllerRouter.reset() }
+
     View(T3KeyboardCommandsView::class) {
       Prop("enabledCommands") { view: T3KeyboardCommandsView, commands: List<String> ->
         view.enabledCommands = commands.toSet()
       }
+      Prop("controllerScope") { view: T3KeyboardCommandsView, scope: String ->
+        if (view.controllerScope != scope) { view.controllerScope = scope; T3ControllerRouter.scopeChanged() }
+      }
+      Prop("controllerSelection") { view: T3KeyboardCommandsView, enabled: Boolean -> view.controllerSelection = enabled }
+      Prop("controllerEvents") { view: T3KeyboardCommandsView, enabled: Boolean -> view.controllerEvents = enabled }
       Prop("vimKeysEnabled") { view: T3KeyboardCommandsView, enabled: Boolean ->
         view.vimKeysEnabled = enabled
       }
-      Events("onCommand", "onVimKey")
+      Events("onCommand", "onVimKey", "onController")
     }
   }
 }
@@ -28,8 +35,13 @@ class T3KeyboardCommandsView(
   context: Context,
   appContext: AppContext
 ) : ExpoView(context, appContext) {
+  private val onController by EventDispatcher()
+  internal fun emitController(action: String, target: String = "") { onController(mapOf("action" to action, "targetId" to target)) }
   private val onCommand by EventDispatcher()
   private val onVimKey by EventDispatcher()
+  var controllerScope = ""
+  var controllerSelection = false
+  var controllerEvents = false
   var enabledCommands = emptySet<String>()
   var vimKeysEnabled = false
 
@@ -44,6 +56,7 @@ class T3KeyboardCommandsView(
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
     T3KeyboardRouter.register(this)
+    T3ControllerRouter.register(this)
     val activity = appContext.currentActivity
     if (activity != null && activity.window?.decorView === rootView) {
       T3KeyboardRouter.install(activity)
@@ -51,12 +64,17 @@ class T3KeyboardCommandsView(
   }
 
   override fun onDetachedFromWindow() {
+    T3ControllerRouter.unregister(this)
     T3KeyboardRouter.unregister(this)
     super.onDetachedFromWindow()
   }
 
+  override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean =
+    T3ControllerRouter.motion(event, rootView) || super.dispatchGenericMotionEvent(event)
+
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     val root = rootView
+    if (!T3KeyboardRouter.intercepts(root) && T3ControllerRouter.key(event, root)) return true
     if (!T3KeyboardRouter.intercepts(root) && T3KeyboardRouter.dispatch(event, root)) return true
     return super.dispatchKeyEvent(event)
   }

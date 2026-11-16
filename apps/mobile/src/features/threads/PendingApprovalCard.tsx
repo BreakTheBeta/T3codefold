@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { Button } from "../../components/ui/Button";
 import type {
   ProviderApprovalDecision,
@@ -39,9 +40,15 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const [explanationOpen, setExplanationOpen] = useState(false);
   return (
     <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
-      <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
-        Approval needed
-      </Text>
+      <ControllerPressable
+        controllerKey={`${props.approval.requestId}:review`}
+        accessibilityLabel="Review approval details. Move down to choose a response"
+        onActivate={() => setExplanationOpen(true)}
+      >
+        <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
+          Approval needed
+        </Text>
+      </ControllerPressable>
       <Text className="font-t3-bold text-lg text-foreground">
         {props.approval.appName ?? props.approval.requestKind}
       </Text>
@@ -84,6 +91,7 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
         {options.map((option) => (
           <Button
             key={option.decision}
+            controllerKey={`${props.approval.requestId}:${option.decision}`}
             label={option.label}
             tone={
               option.decision === "accept"

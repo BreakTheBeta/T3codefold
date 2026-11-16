@@ -39,12 +39,73 @@ type ShortcutInput = {
   targetRef?: RefObject<HTMLElement | null>;
   /** An editor outside this document reports whether it holds the keyboard. */
   ownsFocus?: () => boolean;
+  controllerOwnsTarget?: (target: Element) => boolean;
   /** Receives handlers that replay keys an outside editor relayed, as if typed here. */
   subscribeKeys?: (handlers: DictationKeyHandlers) => () => void;
 };
 
 // Several editors can bind the chord; the busy one, then the focused one, then the untargeted one wins.
 const shortcutTargets = new Map<symbol, () => ShortcutInput>();
+
+let controllerDictation: { id: symbol; cancel: () => void; starting: Promise<void> } | null = null;
+
+/** Controller dictation requires the exact focused editor; it never falls back to the composer. */
+export function toggleControllerDictation(target: Element | null): boolean {
+  if (controllerDictation) {
+    const session = controllerDictation;
+    void session.starting
+      .then(() => {
+        if (controllerDictation !== session) return;
+        const input = shortcutTargets.get(session.id)?.();
+        if (!input || input.disabled) {
+          cancelControllerDictation();
+          return;
+        }
+        if (input.speech.state.phase === "recording") void input.speech.stop();
+      })
+      .catch(() => {
+        if (controllerDictation === session) cancelControllerDictation();
+      });
+    return true;
+  }
+  if (
+    !target?.matches(
+      'textarea:not([readonly]), input:not([readonly]):not([type="password"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]), [contenteditable="true"], [contenteditable="plaintext-only"]',
+    )
+  )
+    return false;
+  const entry = [...shortcutTargets].find(([, read]) => {
+    const input = read();
+    return (
+      (input.controllerOwnsTarget?.(target) ?? input.targetRef?.current?.contains(target)) &&
+      !input.disabled &&
+      input.speech.available
+    );
+  });
+  if (!entry) return false;
+  if (
+    [...shortcutTargets.values()].some(
+      (read) => !["idle", "error"].includes(read().speech.state.phase),
+    )
+  )
+    return false;
+  const [id, read] = entry;
+  const speech = read().speech;
+  const session = { id, cancel: speech.cancel, starting: speech.start() };
+  controllerDictation = session;
+  void session.starting.catch(() => {
+    if (controllerDictation === session) controllerDictation = null;
+  });
+  return true;
+}
+
+export function cancelControllerDictation(): boolean {
+  const session = controllerDictation;
+  if (!session) return false;
+  controllerDictation = null;
+  session.cancel();
+  return true;
+}
 
 function ownsShortcut(id: symbol) {
   const entries = [...shortcutTargets];
@@ -60,6 +121,31 @@ function ownsShortcut(id: symbol) {
   return entries.find(([, read]) => !read().targetRef && !read().ownsFocus)?.[0] === id;
 }
 
+const targetScope = (field: HTMLElement | null | undefined) =>
+  field?.closest('[role="dialog"]') ?? field;
+
+// Keys an outside editor (the preview guest) relays arrive on window, so remember their editor.
+const relayedFrom = new WeakMap<Event, symbol>();
+
+// Escape inside another shown dictation editor, or the dialog hosting it, belongs to that editor.
+// The editor itself is checked before dialogs, since one dialog can host several editors.
+function inOtherShortcutTarget(id: symbol, event: Event) {
+  const source = relayedFrom.get(event);
+  if (source) return source !== id;
+  const target = event.target;
+  if (!(target instanceof Node)) return false;
+  const own = shortcutTargets.get(id)?.().targetRef?.current;
+  const others = [...shortcutTargets]
+    .filter(([other]) => other !== id)
+    .map(([, read]) => read().targetRef?.current)
+    .filter((field): field is HTMLElement => !!field?.getClientRects().length);
+  for (const scope of [(field?: HTMLElement | null) => field, targetScope]) {
+    if (scope(own)?.contains(target)) return false;
+    if (others.some((field) => scope(field)?.contains(target))) return true;
+  }
+  return false;
+}
+
 export function useDictationShortcut(input: ShortcutInput) {
   const id = useRef(Symbol("dictation-target"));
   const subscribeKeys = input.subscribeKeys;
@@ -68,11 +154,18 @@ export function useDictationShortcut(input: ShortcutInput) {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes committed actions to the window keyboard listener and shortcut registry
   useEffect(() => {
     current.current = input;
+    if (
+      controllerDictation?.id === id.current &&
+      ["idle", "error"].includes(input.speech.state.phase)
+    ) {
+      controllerDictation = null;
+    }
   });
   const generation = useRef(0);
   const pressed = useRef<{
     generation: number;
     code: string;
+    modifiers: string[];
     startedAt: number;
     mode: typeof mode;
     starting: Promise<void>;
@@ -85,7 +178,10 @@ export function useDictationShortcut(input: ShortcutInput) {
     shortcutTargets.set(id.current, () => current.current);
     const finish = (event: KeyboardEvent | null) => {
       const press = pressed.current;
-      if (!press || (event && (event.code || event.key) !== press.code)) return;
+      if (!press) return;
+      // macOS can omit the letter keyup while Command is held; releasing a chord modifier ends it too.
+      if (event && (event.code || event.key) !== press.code && !press.modifiers.includes(event.key))
+        return;
       pressed.current = null;
       if (shouldFinishDictationOnRelease(press.mode, performance.now() - press.startedAt)) {
         void press.starting.then(() => {
@@ -103,7 +199,8 @@ export function useDictationShortcut(input: ShortcutInput) {
       if (
         event.key === "Escape" &&
         (pressed.current !== null ||
-          (speech.state.phase !== "idle" && speech.state.phase !== "error"))
+          (speech.state.phase !== "idle" && speech.state.phase !== "error")) &&
+        !inOtherShortcutTarget(id.current, event)
       ) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -140,15 +237,20 @@ export function useDictationShortcut(input: ShortcutInput) {
       pressed.current = {
         generation: generation.current,
         code: event.code || event.key,
+        modifiers: ["Alt", "Control", "Meta", "Shift"].filter((key) => event.getModifierState(key)),
         startedAt: performance.now(),
         mode,
         starting: speech.start(),
       };
     };
     const onBlur = () => finish(null);
+    const relay = (event: KeyboardEvent) => {
+      relayedFrom.set(event, id.current);
+      window.dispatchEvent(event);
+    };
     const unsubscribe = subscribeKeys?.({
-      keydown: (event) => window.dispatchEvent(event),
-      keyup: (event) => window.dispatchEvent(event),
+      keydown: relay,
+      keyup: relay,
       blur: onBlur,
     });
     window.addEventListener("keydown", onKeyDown, true);
@@ -157,6 +259,7 @@ export function useDictationShortcut(input: ShortcutInput) {
     return () => {
       disposed = true;
       pressed.current = null;
+      if (controllerDictation?.id === id.current) cancelControllerDictation();
       shortcutTargets.delete(id.current);
       unsubscribe?.();
       window.removeEventListener("keydown", onKeyDown, true);

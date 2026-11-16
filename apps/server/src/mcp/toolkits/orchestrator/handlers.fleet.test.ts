@@ -11,6 +11,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import type { Tool, Toolkit } from "effect/ai";
 
@@ -35,6 +36,11 @@ import { FoldThreadStartToolkit } from "../foldThreadStart/tools.ts";
 
 type Tools = Toolkit.Tools<typeof OrchestratorToolkit>;
 
+const encodeParams = Schema.encodeSync(Schema.toCodecJson(Schema.Unknown));
+const encodeThreadStartParams = Schema.encodeSync(
+  Schema.toCodecJson(FoldThreadStartToolkit.tools.t3_thread_start.parametersSchema),
+);
+
 /** Calls a tool through its declared handler; fails with the tool's declared failure. */
 const call = <Name extends keyof Tools & string>(
   name: Name,
@@ -42,7 +48,7 @@ const call = <Name extends keyof Tools & string>(
 ) =>
   OrchestratorToolkit.pipe(
     Effect.provide(McpToolAccess.HandlersLayer.layer(handlersLayer)),
-    Effect.flatMap((built) => built.handle(name, params)),
+    Effect.flatMap((built) => built.handle(name, encodeParams(params))),
     Stream.unwrap,
     Stream.runLast,
     Effect.orDie,
@@ -60,7 +66,7 @@ const callThreadStart = (
 ) =>
   FoldThreadStartToolkit.pipe(
     Effect.provide(McpToolAccess.HandlersLayer.layer(threadStartLayer)),
-    Effect.flatMap((built) => built.handle("t3_thread_start", params)),
+    Effect.flatMap((built) => built.handle("t3_thread_start", encodeThreadStartParams(params))),
     Stream.unwrap,
     Stream.runLast,
     Effect.orDie,

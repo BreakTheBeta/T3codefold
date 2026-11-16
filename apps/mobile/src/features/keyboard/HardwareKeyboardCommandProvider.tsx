@@ -1,3 +1,5 @@
+import { ControllerConsole } from "../controller/ControllerConsole";
+import { requestAndroidBack } from "../../native/controllerBack";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { Platform } from "react-native";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -163,6 +165,10 @@ export function HardwareKeyboardCommandProvider({
         return;
       }
       if (command === "back") {
+        if (Platform.OS === "android") {
+          requestAndroidBack();
+          return;
+        }
         // Beside a visible list, the first detail page has nothing to go back to.
         if (Platform.OS === "ios" && workspaceHasColumns() && firstWorkspaceDetailOpen(navigation))
           return;
@@ -205,7 +211,9 @@ export function HardwareKeyboardCommandProvider({
         vimKeysEnabled={vimKeysEnabled}
         onVimKey={dispatchVimKey}
       >
-        {children}
+        <ControllerConsole scopeKey={pathname} onCommand={onCommand}>
+          {children}
+        </ControllerConsole>
       </T3KeyboardCommands>
       <GitActionProgressOverlay progress={copyFeedback} onDismiss={dismissCopyFeedback} />
     </CommandPaletteContext>

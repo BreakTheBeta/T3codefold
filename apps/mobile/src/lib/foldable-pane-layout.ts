@@ -108,7 +108,7 @@ export function deriveWorkspaceFoldRegions(input: {
     (hinge) =>
       hinge.orientation === "vertical" &&
       hinge.separating &&
-      hinge.right > hinge.left &&
+      hinge.right >= hinge.left &&
       hinge.left > input.leadingInset &&
       hinge.right < input.width - input.trailingInset,
   );

@@ -133,8 +133,8 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
 `previewOpen`, `rightPanelOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`,
 `draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
-`rightPanelOpen` applies only to `rightPanel.new` and is true while the right panel is
-open; the default `mod+t` uses it to open the panel's new-tab menu.
+In a thread, `rightPanelOpen` is true while its right panel is open; the default
+`mod+t` uses it to open the panel's new-tab menu.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
@@ -159,6 +159,13 @@ query searches the entire thread, including older messages. Thread search requir
 update an older server to enable it. Select **Retry** if a search fails. It defaults to
 `mod+f` outside terminals and previews. Press **Enter** or **Shift+Enter** to move between matches,
 and **Escape** to close find.
+
+## Find on a browser page
+
+`preview.find` (`mod+f` while a browser has focus) searches the open page in the desktop app. It
+is also in the browser's **⋮** menu and the command palette. A page that handles `mod+f` itself,
+such as a code editor, keeps its own find. Use the **⋮** menu to reach the browser's find there.
+Streamed browser tabs and T3 Code in a web browser do not support it.
 
 ## Precedence
 
@@ -216,3 +223,40 @@ keyboard repeat; if repeat is disabled, use two presses or the application menu.
 Change **Settings → General → Confirmations → Quit shortcut** to **Direct** for a
 single press or **Double press** for two presses only. Choosing **Quit** from the
 application menu always quits immediately.
+
+## Controller console
+
+On desktop (including macOS) and web, enable **Controller console** in
+**Settings → Keybindings**, or search for it in the command palette. It works
+with controllers exposed by Chromium's standard Gamepad mapping, including
+supported DualSense and DualShock connections. Press a controller button if the
+browser has not detected it, then release all controls to begin.
+
+Use the D-pad or left stick to focus, **Cross (×)** to activate, and **Circle (○)**
+to leave editing, close a popup, or go back. **Triangle (△)** focuses the enabled
+send or decision action; **Cross** then confirms it. **L1/R1** switch threads,
+**L2/R2** move between panes (page within a popup), and the right stick scrolls.
+**Options** opens commands; **Share/Create** opens the thread chooser.
+
+**Square (□)** starts or finishes dictation into a focused supported text field,
+using your Voice settings and selected microphone. Review the transcript before
+sending. Circle cancels recording. Fields without voice support show a hint;
+use a keyboard for those fields, terminals, and embedded editors. Controller
+input stays in the focused app window and pauses when the app loses focus.
+Keyboard, touch, and Vim navigation remain available.
+
+### Android controller console
+
+Press **Options** to enable controller mode. The footer shows when it is active;
+choose **Disable controller** there with touch or the controller to leave it.
+Moving the app to the background or disconnecting the controller also disables
+it. Press Options again to enable it, and release held controls after changing
+threads or requests before choosing another action.
+
+Use the D-pad or left stick to focus actions, **Cross** to select, and **Circle**
+for Android Back, including hiding the keyboard before leaving a screen.
+**Square** starts or finishes dictation in a focused composer, custom question
+answer, or palette search; Circle cancels recording. **Triangle** focuses
+Submit or Send for review, and Cross activates it. **L1/R1** switch threads,
+**L2/R2** page the focused content, and the right stick scrolls. While enabled,
+Options opens commands and **Share/Create** opens the searchable thread chooser.

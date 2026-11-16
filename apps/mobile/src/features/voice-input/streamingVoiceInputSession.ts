@@ -21,7 +21,6 @@ export class StreamingVoiceInputSession {
   private state = IDLE;
   private target: VoiceInputTarget | null = null;
   private captured: VoiceDraftSnapshot | null = null;
-  private unsubscribe: (() => void) | null = null;
   private abort: AbortController | null = null;
   private cleanup: Promise<void> = Promise.resolve();
   private generation = 0;
@@ -73,7 +72,6 @@ export class StreamingVoiceInputSession {
     if (voiceInputBlocksSubmission(this.state)) return;
     const generation = ++this.generation;
     this.target = target;
-    this.unsubscribe = target.subscribe();
     this.captured = target.readDraft();
     const abort = new AbortController();
     this.abort = abort;
@@ -161,7 +159,12 @@ export class StreamingVoiceInputSession {
   private commit(phrase: string) {
     if (!this.captured || !this.target) return;
     const current = this.target.readDraft();
-    const result = resolveTranscriptCommit(this.captured, current, phrase, "en");
+    const result = resolveTranscriptCommit(
+      this.captured,
+      current?.text === this.captured.text ? current : null,
+      phrase,
+      "en",
+    );
     if (result.kind === "stale") {
       this.fail("The draft changed. Dictation stopped without overwriting your edits.");
     } else if (result.kind === "commit") {
@@ -181,8 +184,6 @@ export class StreamingVoiceInputSession {
     ++this.generation;
     this.abort?.abort();
     this.abort = null;
-    this.unsubscribe?.();
-    this.unsubscribe = null;
     this.captured = null;
     this.cleanup = this.cleanup.then(() => this.backend.stop(false)).catch(() => {});
     this.setState(state);

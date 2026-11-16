@@ -6,6 +6,7 @@ import {
   type ExecutionEnvironmentDescriptor,
   type FleetExecuteInput,
   ProjectId,
+  type Project as ProjectRecord,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -100,7 +101,14 @@ function fixture() {
           } as unknown as ThreadLaunch.ThreadLaunchResult;
         }),
     }),
-    Layer.mock(Project.ProjectService)({ getById: () => Effect.succeedNone }),
+    Layer.mock(Project.ProjectService)({
+      getById: (id) =>
+        Effect.succeedSome({
+          id,
+          workspaceRoot: "/projects/test",
+          defaultModelSelection: modelSelection,
+        } as unknown as ProjectRecord),
+    }),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
     Layer.mock(GitVcsDriver.GitVcsDriver)({}),
     ServerSettings.layerTest(),

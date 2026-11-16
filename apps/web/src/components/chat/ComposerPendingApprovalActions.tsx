@@ -50,6 +50,8 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
     <>
       {primaryOptions.map((option) => {
         const buttonProps = {
+          "data-controller-request": requestId,
+          "data-controller-footer": "",
           disabled: disabled || isResponding || !canRespond,
           "aria-description": option.warning,
           onClick: () => {
@@ -113,6 +115,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
               const item = (
                 <MenuItem
                   key={option.decision}
+                  data-controller-request={requestId}
                   disabled={disabled || isResponding || !canRespond}
                   aria-description={option.warning}
                   onClick={() => {

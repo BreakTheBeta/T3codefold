@@ -1,3 +1,5 @@
+import { ControllerConsole } from "../../features/controller/ControllerConsole";
+import { androidKeyboardFirst } from "../../lib/android-back";
 import { useId, useState } from "react";
 import { Platform, View } from "react-native";
 import { FormSheet, ScreenStack } from "react-native-screens";
@@ -44,28 +46,30 @@ export function Sheet(props: SheetProps) {
             scrollEdgeEffects={HEADER_SCROLL_EDGE_EFFECTS}
             className="flex-1 bg-sheet"
           >
-            {props.children}
-            <NativeHeader
-              backgroundColor="rgba(0,0,0,0)"
-              tintColorClassName="accent-foreground"
-              hideBackButton
-              hideShadow={false}
-              title={props.title}
-              titleColorClassName="accent-foreground"
-              titleFontSize={18}
-              titleFontWeight="800"
-              translucent
-              headerRightBarButtonItems={[
-                {
-                  type: "button",
-                  icon: { name: "xmark", type: "sfSymbol" },
-                  accessibilityLabel: `Close ${props.title}`,
-                  identifier: `app-sheet-close-${screenId}`,
-                  disabled: props.dismissDisabled,
-                  onPress: close,
-                },
-              ]}
-            />
+            <ControllerConsole scopeKey={`sheet:${screenId}`} onBack={androidKeyboardFirst(close)}>
+              {props.children}
+              <NativeHeader
+                backgroundColor="rgba(0,0,0,0)"
+                tintColorClassName="accent-foreground"
+                hideBackButton
+                hideShadow={false}
+                title={props.title}
+                titleColorClassName="accent-foreground"
+                titleFontSize={18}
+                titleFontWeight="800"
+                translucent
+                headerRightBarButtonItems={[
+                  {
+                    type: "button",
+                    icon: { name: "xmark", type: "sfSymbol" },
+                    accessibilityLabel: `Close ${props.title}`,
+                    identifier: `app-sheet-close-${screenId}`,
+                    disabled: props.dismissDisabled,
+                    onPress: close,
+                  },
+                ]}
+              />
+            </ControllerConsole>
           </NativeScreen>
         </ScreenStack>
       </View>

@@ -73,7 +73,7 @@ Paint splatter across the chat canvas in every theme's colours, on the unfolded 
 
 ## More than upstream
 
-Compared with upstream `main` at [f7b81e1d11](https://github.com/pingdotgg/t3code/commit/f7b81e1d1115bc7284b39161d3cd6c7f3184eb1c), synced **11 November 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
+Compared with upstream `main` at [760f9cbe64](https://github.com/pingdotgg/t3code/commit/760f9cbe64e3409a7ebcc1ec16debe31a61e9f2b), synced **16 November 2026**, Fold adds the features below. They describe the code on Fold's `main`; an older published installer may not include every change.
 
 | Feature                              | What you get                                                                                                                                                                                                                                  | Available in                             |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
@@ -92,6 +92,7 @@ Compared with upstream `main` at [f7b81e1d11](https://github.com/pingdotgg/t3cod
 | **Splatter backdrop**                | Theme-coloured paint across the chat canvas, with patterns, amount, glow and dynamic splats.                                                                                                                                                  | Web · Desktop · Mobile                   |
 | **Thread wrapping**                  | On very wide screens, a long conversation flows into 2–4 side-by-side columns. Set the maximum in **Settings → Appearance**.                                                                                                                  | Web · Desktop                            |
 | **On-device dictation**              | Dictate into the composer with a downloaded Moonshine model that runs offline on the phone. [Voice input on Android](docs/user/composer.md#voice-input-on-android).                                                                           | Android                                  |
+| **Controller console mode**          | PlayStation-style focus navigation, thread switching, scrolling, explicit decisions, and dictation into supported text fields. [Controller controls](docs/user/keybindings.md#controller-console).                                            | Android · Web · Desktop                  |
 
 ### Fold installs and updates
 
@@ -117,107 +118,42 @@ Upstream already supplies the core clients, remote connections, orchestration (a
 
 ## About upstream T3 Code
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
-
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Google Antigravity, and fx. If they're set up on your computer, T3 Code can control them.
-
-## "Wait, what are you selling me?"
-
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
-
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+T3 Code is an open-source control plane for coding agents. It runs the agents on your machine and gives them one interface across desktop, web and mobile. Fold builds on that work with the features above.
 
 ## Installation
 
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, Antigravity, and fx. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
-> - fx: install [fx](https://fx.sh) and run `fx login` on the machine running the T3 Code server ([setup guide](./docs/user/providers-fx.md))
+Download Fold desktop builds and the Android APK from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). Upstream's App Store, Google Play and package-manager entries install regular T3 Code.
 
-### Command line
+To run the Fold server with Node.js 24:
 
 ```bash
 npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3
 ```
 
-Tip: Use `npx --yes --prefer-online --package=https://github.com/BreakTheBeta/T3codefold/releases/download/fold-server-latest/t3.tgz t3 --help` for the full CLI reference.
-
-### Desktop app
-
-Download Fold desktop builds from [GitHub Releases](https://github.com/BreakTheBeta/T3codefold/releases). The upstream Homebrew, winget, Scoop, and AUR packages install regular T3 Code.
-
-#### Nix (nixpkgs)
-
-```bash
-nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code
-```
-
-The package is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code)
-and includes the desktop app (`t3code-desktop`) and the `t3` command.
-See [Nix installation](./docs/user/install.md#nix-nixpkgs) for NixOS configuration and updates.
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+See [Install and first run](./docs/user/install.md) for installation options and [remote access](./docs/user/remote-access.md) to connect from another device.
 
 ## Documentation
 
-Full docs live in [docs/](./docs). There's no docs site yet.
-
-- [T3 Pebble integration notes](./docs/integrations/t3pebble.md)
-
-- [FAQ](./docs/user/faq.md)
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Vim keyboard mode learning guide](./docs/user/vim-keyboard-mode.md)
+- [Vim keyboard mode](./docs/user/vim-keyboard-mode.md)
 - [Project settings](./docs/user/project-settings.md)
 - [Appearance preferences](./docs/user/appearance.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run T3 Code as a background service](./docs/user/background-service.md)
+- [Permission modes](./docs/user/permission-modes.md)
+- [Source control](./docs/user/source-control.md)
+- [Connect outside agents over MCP](./docs/user/outside-agents.md)
+- [FAQ](./docs/user/faq.md)
 
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
+[All docs](./docs/README.md) has the full list.
 
-## If you REALLY want to contribute still.... read this first
+## Contributing
 
-### Install `vp`
+We have limited review capacity. Small, focused fixes are the most likely to be merged. Features need an approved discussion first.
 
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
+- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before you report a bug or open a pull request.
+- Put feature requests in [Ideas](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
+- Build from source with the [development runbook](./docs/operations/development.md#first-checkout). The [architecture overview](./docs/internals/overview.md) explains how it works.
+- Get help in [Discord](https://discord.gg/jn4EGJjrvv).
 
-#### macOS / Linux
+## License
 
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
-vp i
-```
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
-
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+[MIT](./LICENSE)

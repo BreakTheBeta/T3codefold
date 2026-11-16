@@ -1,4 +1,4 @@
-Moonshine Voice 0.1.5 and English streaming Tiny/Small/Medium models
+Moonshine Voice 0.1.6 and English streaming Tiny/Small/Medium models
 https://github.com/moonshine-ai/moonshine
 
 Only English streaming speech-to-text weights are downloaded by T3 Keyboard.

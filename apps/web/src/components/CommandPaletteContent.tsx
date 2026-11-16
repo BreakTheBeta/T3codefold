@@ -1,5 +1,8 @@
+import type { EnvironmentId } from "@t3tools/contracts";
+import { useControllerSettings } from "../controller/controllerStore";
+import { useTextFieldSpeech, TextFieldSpeechControls } from "../speech/useTextFieldSpeech";
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
-import { type ComponentProps, type ReactNode, type RefObject } from "react";
+import { type ComponentProps, type ReactNode, type RefObject, useRef } from "react";
 
 import { Command, CommandFooter, CommandInput, CommandPanel } from "./ui/command";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -44,6 +47,14 @@ type CommandPaletteContentProps = Omit<ComponentProps<typeof Command>, "children
   readonly footerActionLabel?: ReactNode;
   readonly footerTrailing?: ReactNode;
   readonly inputAccessory?: ReactNode;
+  readonly controllerSpeech?:
+    | {
+        readonly environmentId: EnvironmentId;
+        readonly ownerKey: string;
+        readonly text: string;
+        readonly onTextChange: (value: string) => void;
+      }
+    | undefined;
   readonly inputProps: ComponentProps<typeof CommandInput>;
   readonly pendingSelectionRef?: RefObject<PendingInputSelection | null>;
   readonly panelSize?: "list" | "tall-list" | "fill";
@@ -57,6 +68,7 @@ export function CommandPaletteContent({
   footerActionLabel,
   footerTrailing,
   inputAccessory,
+  controllerSpeech,
   inputProps,
   pendingSelectionRef,
   panelSize = "list",
@@ -64,6 +76,8 @@ export function CommandPaletteContent({
   testId,
   ...commandProps
 }: CommandPaletteContentProps) {
+  const speechInputRef = useRef<HTMLInputElement | null>(null);
+  const controllerEnabled = useControllerSettings((state) => state.enabled);
   return (
     <div className="contents" data-testid={testId}>
       <Command {...commandProps}>
@@ -72,6 +86,7 @@ export function CommandPaletteContent({
             autoFocus={false}
             {...inputProps}
             ref={(input) => {
+              speechInputRef.current = input;
               if (!input) return;
               restorePendingSelection(input, pendingSelectionRef);
               claimFocusInOpenDialog(input);
@@ -79,6 +94,9 @@ export function CommandPaletteContent({
           />
           {inputAccessory}
         </div>
+        {controllerEnabled && controllerSpeech ? (
+          <PaletteControllerSpeech {...controllerSpeech} textareaRef={speechInputRef} />
+        ) : null}
         <CommandPanel
           className={
             panelSize === "fill"
@@ -91,7 +109,7 @@ export function CommandPaletteContent({
           {children}
         </CommandPanel>
         <CommandFooter className="max-sm:flex-col max-sm:items-start">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
             <KbdGroup>
               <Kbd>
                 <ArrowUpIcon />
@@ -123,4 +141,15 @@ export function CommandPaletteContent({
       </Command>
     </div>
   );
+}
+
+function PaletteControllerSpeech(
+  input: NonNullable<CommandPaletteContentProps["controllerSpeech"]> & {
+    textareaRef: RefObject<HTMLInputElement | null>;
+  },
+) {
+  const speech = useTextFieldSpeech(input);
+  return speech.state.phase !== "idle" && speech.state.phase !== "error" ? (
+    <TextFieldSpeechControls speech={speech} />
+  ) : null;
 }

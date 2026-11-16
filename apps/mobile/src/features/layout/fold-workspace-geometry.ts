@@ -35,7 +35,8 @@ export function useFoldWorkspaceGeometry() {
   const width = Math.max(0, window.width - leadingInset - trailingInset);
   const posture = useWindowPosture();
   const verticalHinge = posture.hinges.find(
-    (hinge) => hinge.orientation === "vertical" && hinge.state === "halfOpened",
+    (hinge) =>
+      hinge.orientation === "vertical" && (hinge.separating || hinge.state === "halfOpened"),
   );
   const windowHinge = verticalHinge
     ? { x: verticalHinge.left, width: verticalHinge.right - verticalHinge.left }

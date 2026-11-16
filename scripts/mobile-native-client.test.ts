@@ -13,6 +13,7 @@ import {
   resolveJavaHome,
 } from "./fold-android-native-client.ts";
 import {
+  androidSdk,
   buildRunTitle,
   clientStatus,
   NativeClientError,
@@ -145,6 +146,28 @@ it.layer(NodeServices.layer)("android jdk resolution", (it) => {
       assert.equal(error._tag, "NativeClientError");
       assert.include(error.message, jre);
       assert.include(error.message, "not a JRE");
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("androidSdk", (it) => {
+  it.effect("skips a configured SDK path that holds no SDK", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "android-sdk-home-" });
+      const sdk = path.join(home, "sdk");
+      yield* fs.makeDirectory(path.join(sdk, "platform-tools"), { recursive: true });
+
+      const resolved = yield* androidSdk.pipe(
+        Effect.provideService(HostProcess.Environment, {
+          HOME: home,
+          ANDROID_HOME: path.join(home, "stale"),
+          ANDROID_SDK_ROOT: sdk,
+        }),
+      );
+
+      assert.strictEqual(resolved, sdk);
     }),
   );
 });

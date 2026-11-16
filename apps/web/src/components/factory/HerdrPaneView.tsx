@@ -127,6 +127,12 @@ function LivePane({
       onData: (data) => {
         if (opened && !readOnly) send({ streamId, type: "data", data });
       },
+      onBinary: (data) => {
+        if (opened && !readOnly) send({ streamId, type: "data", data, encoding: "binary" });
+      },
+      onReply: (data) => {
+        if (opened && !readOnly) send({ streamId, type: "data", data });
+      },
       onResize: (cols, rows) => {
         if (opened && !readOnly) send({ streamId, type: "resize", cols, rows });
       },

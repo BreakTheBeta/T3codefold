@@ -1,14 +1,17 @@
+import { useQuestionDraftText } from "./useQuestionDraftText";
+import { ControllerPressable } from "../controller/ControllerPressable";
+import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import * as Dialog from "../../components/ui/Dialog";
 import { TextInputWrapper } from "expo-paste-input";
-import { AppTextInput as TextInput } from "../../components/ui/AppText";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { useNativePaste } from "../../lib/useNativePaste";
 import { convertPastedImagesToAttachments } from "../../lib/composerImages";
 import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, type UserInputQuestion } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { View, type TextInputInstance } from "react-native";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { ComposerAttachmentButton } from "./ComposerAttachmentButton";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
 import { pickComposerFiles, pickComposerMedia } from "../../lib/composerImages";
@@ -39,6 +42,7 @@ export function QuestionAttachments(props: {
   onChangeText: (value: string) => void;
   onInputFocusChange?: ((focused: boolean) => void) | undefined;
 }) {
+  const dictationInstance = useId();
   const { selectedThread } = useThreadSelection();
   const navigation = useNavigation();
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
@@ -64,18 +68,26 @@ export function QuestionAttachments(props: {
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- releases keyboard ownership on unmount, since an unmounted native input never emits blur
   useEffect(() => () => releaseFocus(), []);
-  // A controlled value makes Fabric rebuild the native text on every keystroke, which discards
-  // iOS's pending autocorrection. The input owns its text; the only outside write is an option
-  // selection clearing the draft.
   const inputRef = useRef<TextInputInstance>(null);
-  const [initialText] = useState(props.value);
-  const nativeText = useRef(props.value);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes an option selection's cleared draft into the uncontrolled native input
-  useEffect(() => {
-    if (props.value !== "" || nativeText.current === "") return;
-    nativeText.current = "";
-    inputRef.current?.clear();
-  }, [props.value]);
+  const { initialText, readNativeText, onNativeTextChange } = useQuestionDraftText(
+    props.value,
+    inputRef,
+  );
+  const [selection, setSelection] = useState({
+    start: props.value.length,
+    end: props.value.length,
+  });
+  const voice = useVoiceInputController({
+    ownerKey: selectedThread
+      ? `question:${selectedThread.environmentId}:${selectedThread.id}:${props.requestId}:${props.question.id}:${dictationInstance}`
+      : null,
+    label: props.question.header,
+    readDraftMessage: readNativeText,
+    selection,
+    disabled: props.disabled,
+    onChangeDraftMessage: props.onChangeText,
+    onChangeSelection: setSelection,
+  });
   const append = (
     key: string,
     attachments: Parameters<typeof appendComposerDraftAttachments>[1],
@@ -105,18 +117,18 @@ export function QuestionAttachments(props: {
       props.question.id,
     );
     changeQuestionAttachmentPreparation(key, 1);
-    void convertPastedImagesToAttachments({
-      uris,
-      existingCount: appAtomRegistry.get(composerDraftsAtom)[key]?.attachments.length ?? 0,
-    })
-      .then(async (images) => {
+    void convertPastedImagesToAttachments({ uris })
+      .then(async (result) => {
         if (
           scope.active &&
           (appAtomRegistry.get(questionAttachmentPreparationAtom)[key] ?? 0) > 0
         ) {
-          if (append(key, images) > 0)
-            Dialog.alert("Could not paste image", "Too many attachments.");
-        } else await releaseUnusedComposerAttachmentFiles(images);
+          const problems = [
+            ...(result.error ? [result.error] : []),
+            ...(append(key, result.attachments) > 0 ? ["Too many attachments."] : []),
+          ];
+          if (problems.length) Dialog.alert("Could not paste image", problems.join("\n\n"));
+        } else await releaseUnusedComposerAttachmentFiles(result.attachments);
       })
       .catch((error) =>
         Dialog.alert(
@@ -205,29 +217,51 @@ export function QuestionAttachments(props: {
       />
       <FilePreviewModal source={previewFile} onRequestClose={() => setPreviewFile(null)} />
       <VideoPreviewModal source={previewVideo} onRequestClose={() => setPreviewVideo(null)} />
-      <TextInputWrapper onPaste={paste}>
-        <TextInput
-          ref={inputRef}
-          defaultValue={initialText}
-          multiline={props.question.initialAnswer !== undefined}
-          submitBehavior={props.question.initialAnswer !== undefined ? "newline" : undefined}
-          editable={!props.disabled}
-          onChangeText={(text) => {
-            nativeText.current = text;
-            props.onChangeText(text);
-          }}
-          onFocus={() => {
-            focusedRef.current = true;
-            onInputFocusChange?.(true);
-          }}
-          onBlur={() => {
-            focusedRef.current = false;
-            onInputFocusChange?.(false);
-          }}
-          placeholder="Or type a custom answer"
-          className="min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground"
-        />
-      </TextInputWrapper>
+      <ControllerPressable
+        controllerKey={`${props.requestId}:${props.question.id}`}
+        accessibilityLabel={`Edit ${props.question.header}. Square dictates`}
+        disabled={props.disabled}
+        onActivate={() => inputRef.current?.focus()}
+        onPress={() => inputRef.current?.focus()}
+        onDictate={() => {
+          if (voice.isBusy) voice.stop();
+          else if (voice.isAvailable) voice.start();
+        }}
+      >
+        <TextInputWrapper onPaste={paste}>
+          <TextInput
+            ref={inputRef}
+            defaultValue={initialText}
+            multiline={props.question.initialAnswer !== undefined}
+            submitBehavior={props.question.initialAnswer !== undefined ? "newline" : undefined}
+            editable={!props.disabled && !voice.freezesEditor}
+            onSelectionChange={(event) => setSelection(event.nativeEvent.selection)}
+            onChangeText={(text) => {
+              onNativeTextChange(text);
+              props.onChangeText(text);
+            }}
+            onFocus={() => {
+              focusedRef.current = true;
+              onInputFocusChange?.(true);
+            }}
+            onBlur={() => {
+              focusedRef.current = false;
+              onInputFocusChange?.(false);
+            }}
+            placeholder="Or type a custom answer"
+            className="min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground"
+          />
+        </TextInputWrapper>
+      </ControllerPressable>
+      {voice.isBusy ? (
+        <Text accessibilityLiveRegion="polite" className="text-sm text-foreground-secondary">
+          Dictating {props.question.header} · Square finishes · Circle cancels
+        </Text>
+      ) : voice.state.phase === "error" ? (
+        <Text accessibilityLiveRegion="polite" className="text-sm text-danger-foreground">
+          {voice.state.error}
+        </Text>
+      ) : null}
     </View>
   );
 }

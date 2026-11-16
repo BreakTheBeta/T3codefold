@@ -1,4 +1,8 @@
+import { controllerDictation } from "../controller/controllerDictation";
+import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
+import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { dismissAndroidKeyboard } from "../../lib/android-back";
+import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { useAtomValue } from "@effect/atom-react";
 import { uuidv4 } from "../../lib/uuid";
 import { CommonActions, useNavigation } from "@react-navigation/native";
@@ -9,7 +13,8 @@ import {
   type EnvironmentThreadSearchMatch,
   type ShownOrder,
 } from "@t3tools/client-runtime/state/thread-search";
-import { isListedThreadLineage, THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
+import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
+import { THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
 import {
   foldSearchQuery,
   PALETTE_MESSAGE_LIMIT,
@@ -18,9 +23,8 @@ import {
   pickedQuery,
   threadRecentUse,
 } from "@t3tools/shared/paletteSearch";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -45,6 +49,7 @@ import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
 import {
+  useDelegatedUnderParent,
   useProjects,
   useServerConfigs,
   useThreadShell,
@@ -130,6 +135,8 @@ function PaletteRow(props: {
       accessibilityRole="button"
       interactionOpacity={props.selected ? 0 : 1}
       accessibilityState={{ selected: props.selected }}
+      controllerKey={props.item.key}
+      controllerActivate={props.onSelect}
       onPress={props.onSelect}
       className={
         props.selected
@@ -238,12 +245,30 @@ export function CommandPalette(props: {
   const runCommand = props.onCommand;
   const projects = useProjects();
   const threads = useVisibleThreadShells();
+  const delegatedUnderParent = useDelegatedUnderParent();
   const activeThreadRef = parseActiveThreadPath(props.pathname);
   const activeThread = useThreadShell(activeThreadRef);
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const environments = useWorkspaceEnvironments();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const [query, setQuery] = useState("");
+  const queryText = useRef("");
+  const dictationId = useId();
+  const controllerVoice = useGlobalVoiceInput();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- releases only dictation this controller palette started when the modal owner unmounts
+  useEffect(() => () => controllerDictation.cancel(dictationId), [dictationId]);
+  const [dictationSelection, setDictationSelection] = useState({ start: 0, end: 0 });
+  const paletteVoice = useVoiceInputController({
+    ownerKey: `palette:${dictationId}`,
+    label: "Search commands, projects, and threads",
+    readDraftMessage: () => queryText.current,
+    selection: dictationSelection,
+    onChangeDraftMessage: (value) => {
+      queryText.current = value;
+      setQuery(value);
+    },
+    onChangeSelection: setDictationSelection,
+  });
   // Ranking is relative to when the palette opened, so rows do not reorder as time passes.
   const [now] = useState(() => Date.now());
   const [selection, setSelection] = useState<string | null>(null);
@@ -251,7 +276,7 @@ export function CommandPalette(props: {
   const pendingAction = useRef<(() => void) | null>(null);
   const closing = useRef(false);
   const inputRef = useRef<TextInputInstance>(null);
-  const listRef = useRef<FlatList<CommandPaletteResult>>(null);
+  const listRef = useRef<LegendListRef>(null);
   const { width, height } = useWindowDimensions();
   // The palette floats above every column, so it keeps itself inside the window's side insets
   // and to one side of a book fold.
@@ -451,7 +476,15 @@ export function CommandPalette(props: {
         }),
     }));
     const threadItems: CommandPaletteItem[] = threads
-      .filter((thread) => thread.archivedAt === null && isListedThreadLineage(thread.lineage))
+      .filter(
+        (thread) =>
+          thread.archivedAt === null &&
+          !isShownUnderParent(
+            { environmentId: thread.environmentId, threadId: thread.id },
+            thread.lineage,
+            delegatedUnderParent,
+          ),
+      )
       .map((thread) => {
         const project = projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId));
         const environment =
@@ -499,6 +532,7 @@ export function CommandPalette(props: {
     startTriage,
     threads,
     workspaceTabs,
+    delegatedUnderParent,
     triageEnvironmentId,
   ]);
   const rankedMessageKeys = useMemo(() => {
@@ -635,7 +669,25 @@ export function CommandPalette(props: {
       onDismiss={handleDismissed}
     >
       <GestureHandlerRootView className="flex-1">
-        <T3KeyboardCommands enabledCommands={PALETTE_COMMANDS} onCommand={onCommand}>
+        <T3KeyboardCommands
+          controllerScope="palette"
+          controllerSelection
+          enabledCommands={PALETTE_COMMANDS}
+          onCommand={onCommand}
+          onController={({ action }) => {
+            if (action === "back") {
+              if (paletteVoice.isBusy) paletteVoice.cancel();
+              else if (!dismissAndroidKeyboard()) close();
+            } else if (action === "dictate") {
+              if (paletteVoice.isBusy) paletteVoice.stop();
+              else if (paletteVoice.isAvailable)
+                controllerDictation.start(dictationId, controllerVoice.session, paletteVoice.start);
+            } else if (action === "reset") controllerDictation.cancel(dictationId);
+            else if (action === "up" || action === "previous") onCommand("palettePrevious");
+            else if (action === "down" || action === "next") onCommand("paletteNext");
+            else if (action === "activate") onCommand("paletteSelect");
+          }}
+        >
           <KeyboardAvoidingView
             behavior="padding"
             className="flex-1 items-center justify-center py-4"
@@ -667,6 +719,10 @@ export function CommandPalette(props: {
                   />
                   <TextInput
                     ref={inputRef}
+                    editable={!paletteVoice.freezesEditor}
+                    onSelectionChange={(event) =>
+                      setDictationSelection(event.nativeEvent.selection)
+                    }
                     accessibilityLabel="Search commands, projects, and threads"
                     placeholder="Search commands, projects, and threads…"
                     placeholderTextColorClassName="accent-placeholder"
@@ -676,6 +732,7 @@ export function CommandPalette(props: {
                     className="h-[34px] flex-1 px-0 py-0 font-sans text-base text-foreground"
                     value={query}
                     onChangeText={(value) => {
+                      queryText.current = value;
                       setQuery(value);
                       setSelection(null);
                       // The follow effect stays idle when the top row and its key are unchanged,
@@ -691,22 +748,23 @@ export function CommandPalette(props: {
                   />
                 </View>
               </View>
-              <FlatList
+              {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- The palette is a modal with no navigation header to register with. */}
+              <LegendList
                 ref={listRef}
                 data={results}
-                extraData={selectedKey}
+                extraData={{
+                  selectedKey,
+                  firstMessageIndex,
+                  contentMatchByKey,
+                  query: search.query,
+                }}
                 keyboardShouldPersistTaps="handled"
                 keyExtractor={(item) => item.key}
-                getItemLayout={(_, index) => ({
-                  length: ROW_HEIGHT + (index === firstMessageIndex ? SECTION_LABEL_HEIGHT : 0),
-                  offset:
-                    ROW_HEIGHT * index +
-                    (firstMessageIndex !== -1 && index > firstMessageIndex
-                      ? SECTION_LABEL_HEIGHT
-                      : 0),
-                  index,
-                })}
-                contentContainerClassName="pb-2"
+                getFixedItemSize={(_, index) =>
+                  ROW_HEIGHT + (index === firstMessageIndex ? SECTION_LABEL_HEIGHT : 0)
+                }
+                recycleItems
+                contentContainerStyle={{ paddingBottom: 8 }}
                 ListEmptyComponent={
                   <Text className="p-5 text-center text-foreground-muted">
                     {search.isPending ? "Searching…" : "No results"}

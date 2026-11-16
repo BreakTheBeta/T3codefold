@@ -1,6 +1,7 @@
+import { useWorkspacePaneState } from "../AdaptiveWorkspaceLayout";
 import { MOBILE_APP_NAME } from "../../../lib/mobileBranding";
 import { useNavigation } from "@react-navigation/native";
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { BackHandler, Keyboard } from "react-native";
 import { AppBar } from "../../../components/ui/AppBar";
 import { appBarMenuItemsFromActions } from "../../../components/ui/menuActionItems";
@@ -16,6 +17,7 @@ export function PullRequestToolbar(props: {
   readonly onRequestVisibility?: () => void;
 }) {
   const navigation = useNavigation();
+  const { panes } = useWorkspacePaneState();
   const { filters } = props;
   const workspace = useWorkspaceTabs()!;
   const { dispatch, getScrollOffset, recordScrollOffset, isTabActive } = workspace;
@@ -38,21 +40,23 @@ export function PullRequestToolbar(props: {
     recordScrollOffset("pullRequests", tab.searchEntryOffset);
     dispatch({ type: "cancel", tab: "pullRequests" });
   };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to BackHandler while searching to close the PR search on Android back
+  const onBack = useEffectEvent(() => {
+    const state = navigation.getState();
+    if (
+      (!panes.primarySidebarVisible && state?.routes[state.index]?.name !== "Home") ||
+      !isTabActive("pullRequests")
+    )
+      return false;
+    if (Keyboard.isVisible()) Keyboard.dismiss();
+    else closeSearch();
+    return true;
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns visible sidebar search Back while searching
   useEffect(() => {
     if (!searching) return;
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      // Frozen Home screens stay mounted under a detail route or another tab,
-      // so back only applies while the PR list is in front.
-      const state = navigation.getState();
-      if (!state || state.routes[state.index]?.name !== "Home" || !isTabActive("pullRequests"))
-        return false;
-      if (Keyboard.isVisible()) Keyboard.dismiss();
-      else closeSearch();
-      return true;
-    });
+    const subscription = BackHandler.addEventListener("hardwareBackPress", onBack);
     return () => subscription.remove();
-  }, [searching, closeSearch, navigation, isTabActive]);
+  }, [searching]);
   return (
     <AppBar
       title={MOBILE_APP_NAME}
