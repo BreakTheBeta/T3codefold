@@ -3,10 +3,13 @@ import * as NodeURL from "node:url";
 import { defineConfig, normalizePath } from "vite-plus";
 import "vite-plus/test/config";
 
-const reactTests = [
+const androidReactTests = [
   "src/features/controller/controllerScope.test.tsx",
-  "src/features/threads/useQuestionDraftText.test.tsx",
   "src/features/layout/workspace/useAndroidWorkspaceNavigation.test.tsx",
+];
+
+const reactTests = [
+  "src/features/threads/useQuestionDraftText.test.tsx",
   "src/features/layout/fold-workspace-geometry.test.tsx",
   "src/features/threads/git/GitBranchesSheet.test.tsx",
   "src/features/threads/new-task-flow-provider.test.tsx",
@@ -80,18 +83,21 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["**/*.test.{ts,tsx,mjs}"],
-          exclude: ["**/node_modules/**", ...reactTests],
+          exclude: ["**/node_modules/**", ...reactTests, ...androidReactTests],
           setupFiles: [
             "../../packages/shared/src/testing/longTempDir.ts",
             "../../packages/shared/src/testing/providerEnv.ts",
           ],
         },
       },
-      {
+      ...[
+        { platform: testPlatform, name: "react", include: reactTests },
+        { platform: "android", name: "react-android", include: androidReactTests },
+      ].map(({ platform, name, include }) => ({
         extends: true,
         plugins: [
           {
-            name: `mobile-release-react-compiler-${testPlatform}`,
+            name: `mobile-release-react-compiler-${platform}`,
             enforce: "pre",
             async transform(code, id) {
               if (
@@ -115,7 +121,7 @@ export default defineConfig({
                 caller: {
                   name: "metro",
                   bundler: "metro",
-                  platform: testPlatform,
+                  platform,
                   isDev: false,
                   isServer: false,
                   isNodeModule: false,
@@ -128,13 +134,13 @@ export default defineConfig({
           },
         ],
         test: {
-          name: "react",
-          include: reactTests,
+          name,
+          include,
           // Native components mock React Native and render through react-dom in these tests.
           environment: "jsdom",
           setupFiles: ["../../packages/shared/src/testing/providerEnv.ts"],
         },
-      },
+      })),
     ],
   },
 });

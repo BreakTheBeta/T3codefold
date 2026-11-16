@@ -213,7 +213,9 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       expect(order).toEqual([]);
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      expect(yield* fs.readDirectory(path.join(baseDir, "runtime", "versions"))).toEqual([]);
+      expect(yield* fs.readDirectory(path.join(baseDir, "runtime", "fold", "versions"))).toEqual(
+        [],
+      );
       failDownload = false;
       expect((yield* selfUpdate.update({ targetVersion: "1.1.0" })).updateId).toBe("launcher-id");
       expect(order).toEqual(["extract", "preflight", "accept"]);
@@ -309,7 +311,7 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       // The release comes from the policy's mirror, not GitHub.
       expect(urls.length).toBeGreaterThan(0);
       for (const url of urls)
-        expect(url).toMatch(/^https:\/\/updates\.example\.com\/t3code\/v1\.[12]\.0\//);
+        expect(url).toMatch(/^https:\/\/updates\.example\.com\/t3code\/fold-server-v1\.[12]\.0\//);
     }),
   );
 
@@ -460,10 +462,10 @@ it.layer(NodeServices.layer)("pruning runtimes on start", (it) => {
     const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-prune-on-start-" });
     const realHome = path.join(tempDir, "home");
     const baseDir = input.symlinkedHome ? path.join(tempDir, "linked-home") : realHome;
-    const versionsDir = path.join(baseDir, "runtime", "versions");
+    const versionsDir = path.join(baseDir, "runtime", "fold", "versions");
     yield* TestClock.setTime(24 * 60 * 60 * 1000);
     for (const version of [staleVersion, packageJson.version]) {
-      const directory = path.join(realHome, "runtime", "versions", version);
+      const directory = path.join(realHome, "runtime", "fold", "versions", version);
       yield* fs.makeDirectory(directory, { recursive: true });
       yield* fs.writeFileString(path.join(directory, "t3"), "");
       const sentinel = path.join(directory, ".install-complete");
@@ -479,7 +481,14 @@ it.layer(NodeServices.layer)("pruning runtimes on start", (it) => {
         ? path.join(tempDir, "alias-home")
         : baseDir;
       if (input.servicePlistThroughLink) yield* fs.symlink(realHome, programHome);
-      const program = path.join(programHome, "runtime", "versions", input.servicePlistStarts, "t3");
+      const program = path.join(
+        programHome,
+        "runtime",
+        "fold",
+        "versions",
+        input.servicePlistStarts,
+        "t3",
+      );
       yield* fs.writeFileString(
         path.join(agentsDir, "com.t3tools.t3code.service.plist"),
         `<plist><dict>\n<key>ProgramArguments</key>\n<array>\n<string>${program}</string>\n<string>__service-launcher</string>\n</array>\n</dict></plist>\n`,
