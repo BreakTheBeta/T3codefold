@@ -13,6 +13,7 @@ const feeds = new Set([
   "fold-desktop-nightly",
   "mobile-ota",
   "android-nightly",
+  "fold-native-dependencies",
 ]);
 
 /** Complete a Fold release, retaining the URLs installed clients use. */

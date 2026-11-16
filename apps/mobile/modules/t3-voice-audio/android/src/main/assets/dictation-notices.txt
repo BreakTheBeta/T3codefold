@@ -1,6 +1,10 @@
 Moonshine Voice 0.1.6 and English streaming Tiny/Small/Medium models
 https://github.com/moonshine-ai/moonshine
 
+T3's Android runtime rebuilds Moonshine 0.1.6 against ONNX Runtime 1.25.1
+to include corrected ARM CPU instruction detection. Rebuild recipe:
+scripts/build-android-speech-runtime.py in BreakTheBeta/T3codefold.
+
 Only English streaming speech-to-text weights are downloaded by T3 Keyboard.
 The following upstream licenses accompany the speech runtime and its dependencies.
 

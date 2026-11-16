@@ -29,6 +29,8 @@ config.resolver = {
         ? [config.resolver.blockList]
         : []),
     new RegExp(`${escapedWorkspaceRoot}[/\\\\]\\.t3[/\\\\].*`),
+    new RegExp(`${escapedWorkspaceRoot}[/\\\\]\\.repos[/\\\\].*`),
+    /[/\\](?:android|ios)[/\\](?:build|\.cxx|\.gradle|Pods)[/\\].*/,
   ],
   extraNodeModules: {
     ...config.resolver?.extraNodeModules,
