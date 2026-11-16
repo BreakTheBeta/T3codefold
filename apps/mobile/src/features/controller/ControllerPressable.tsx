@@ -8,15 +8,19 @@ export function ControllerPressable({
   onActivate,
   onDictate,
   footer,
+  reply,
+  scopeBoundary = true,
   ...props
 }: PressableProps & {
   readonly controllerKey?: string;
   readonly onActivate: () => void;
   readonly onDictate?: () => void;
   readonly footer?: boolean;
+  readonly reply?: boolean;
+  readonly scopeBoundary?: boolean;
 }) {
   const scope = use(ControllerScope);
-  const id = `t3-controller:${footer ? "footer:" : ""}${useId()}:${scope}:${controllerKey}`;
+  const id = `t3-controller:${footer ? "footer:" : reply ? "reply:" : ""}${useId()}:${scope}:${controllerKey}`;
   const [focused, setFocused] = useState(false);
   const activate = useEffectEvent(() => {
     if (!props.disabled) onActivate();
@@ -30,10 +34,11 @@ export function ControllerPressable({
     if (Platform.OS !== "android" || props.disabled) return;
     return controllerTargets.register(
       id,
-      { activate, ...(hasDictation ? { dictate } : {}) },
+      { activate, reply, ...(hasDictation ? { dictate } : {}) },
       scope,
+      scopeBoundary,
     );
-  }, [id, props.disabled, hasDictation, scope]);
+  }, [id, props.disabled, hasDictation, reply, scope, scopeBoundary]);
   return (
     <Pressable
       {...props}

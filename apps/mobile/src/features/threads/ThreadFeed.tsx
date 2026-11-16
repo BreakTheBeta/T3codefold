@@ -38,6 +38,7 @@ import {
 } from "./worktree-setup-card";
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
@@ -1469,9 +1470,11 @@ function AgentMessageFoldHeader(props: {
   );
   const label = senderShell?.title.trim() || props.senderTitle?.trim() || "Agent";
   return (
-    <Pressable
+    <ControllerPressable
+      scopeBoundary={false}
       accessibilityRole="button"
       accessibilityLabel={`${label}: ${props.summary}`}
+      onActivate={props.onToggle}
       accessibilityHint={`Double tap to ${props.expanded ? "hide" : "show"} the message.`}
       accessibilityState={{ expanded: props.expanded }}
       hitSlop={4}
@@ -1503,7 +1506,7 @@ function AgentMessageFoldHeader(props: {
         size={11}
         tintColor={props.iconSubtleColor}
       />
-    </Pressable>
+    </ControllerPressable>
   );
 }
 
@@ -1570,9 +1573,11 @@ function ThreadAutomationMessageRow(props: {
           ...(props.expanded ? { width: props.bubbleMaxWidth } : null),
         }}
       >
-        <Pressable
+        <ControllerPressable
+          scopeBoundary={false}
           accessibilityRole="button"
           accessibilityLabel={`Automation: ${summary}`}
+          onActivate={props.onToggle}
           accessibilityHint={`Double tap to ${props.expanded ? "hide" : "show"} the prompt.`}
           accessibilityState={{ expanded: props.expanded }}
           hitSlop={4}
@@ -1601,7 +1606,7 @@ function ThreadAutomationMessageRow(props: {
             size={11}
             tintColor={props.iconSubtleColor}
           />
-        </Pressable>
+        </ControllerPressable>
         {props.expanded ? (
           <View className="px-3.5 pb-2.5">
             <MarkdownImageAvailableWidthContext value={props.contentMaxWidth}>
@@ -1698,9 +1703,11 @@ function RunFoldButton({
 
   return (
     <View className="min-w-0 flex-1">
-      <Pressable
+      <ControllerPressable
+        scopeBoundary={false}
         accessibilityRole="button"
         accessibilityState={{ expanded: entry.expanded, busy: loading }}
+        onActivate={toggle}
         onPress={toggle}
         hitSlop={4}
         className="min-h-11 min-w-0 flex-1 flex-row items-center gap-2"
@@ -1720,7 +1727,7 @@ function RunFoldButton({
           size={15}
           tintColor={iconColor}
         />
-      </Pressable>
+      </ControllerPressable>
       {loading ? (
         <View
           accessible={false}
@@ -3937,6 +3944,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             column resize would re-wrap them first, and the list would place the taller or shorter
             rows at their old offsets until their measurements came back. */}
         <View
+          nativeID="t3-controller-conversation"
+          collapsable={false}
           className="flex-1"
           style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
         >

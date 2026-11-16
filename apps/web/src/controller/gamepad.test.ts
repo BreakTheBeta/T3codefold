@@ -47,7 +47,9 @@ describe("renderer gamepad ownership", () => {
     const reader = createGamepadReader();
     expect(reader.read({ ...pad([0]), mapping: "" }, "scope", 0).actions).toEqual([]);
     reader.read(pad(), "scope", 1);
-    expect(reader.read(pad([1, 2, 3, 4, 5, 6, 7, 8, 9], [0, 0, 0.1, -0.8]), "scope", 2)).toEqual({
+    expect(
+      reader.read(pad([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], [0, 0, 0.1, -0.8]), "scope", 2),
+    ).toEqual({
       actions: [
         "cancel",
         "dictate",
@@ -58,6 +60,8 @@ describe("renderer gamepad ownership", () => {
         "nextPane",
         "chooser",
         "palette",
+        "conversation",
+        "reply",
       ],
       scroll: [0, -0.8],
     });
@@ -65,8 +69,8 @@ describe("renderer gamepad ownership", () => {
   it("never repeats decisions, dictation, footer, threads or palette while held", () => {
     const reader = createGamepadReader();
     reader.read(pad(), "scope", 0);
-    const held = pad([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    expect(reader.read(held, "scope", 1).actions).toHaveLength(10);
+    const held = pad([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(reader.read(held, "scope", 1).actions).toHaveLength(12);
     expect(reader.read(held, "scope", 500).actions).toEqual([]);
     expect(reader.read(held, "scope", 5000).actions).toEqual([]);
   });

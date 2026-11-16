@@ -7,6 +7,7 @@ import {
   reduceCommandPaletteUiState,
 } from "./components/CommandPalette.logic";
 import { getWorkspaceFocusRequestVersion } from "./lib/workspaceFocus";
+import { composerTargetKey, type ComposerThreadTarget } from "./composerDraftStore";
 
 const INITIAL_STATE: CommandPaletteUiState = {
   open: false,
@@ -18,6 +19,25 @@ const INITIAL_STATE: CommandPaletteUiState = {
 export const useCommandPaletteStore = create<CommandPaletteUiState>(() => INITIAL_STATE);
 
 let returnFocus: { element: HTMLElement | null; href: string; focusRequest: number } | null = null;
+const composerTargets = new WeakMap<HTMLElement, ComposerThreadTarget | null>();
+let invokingComposer: { element: HTMLElement; target: ComposerThreadTarget } | null = null;
+
+export function registerCommandPaletteComposer(
+  element: HTMLElement,
+  target: ComposerThreadTarget | null,
+) {
+  composerTargets.set(element, target);
+  return () => composerTargets.delete(element);
+}
+
+export function getCommandPaletteComposerTarget(): ComposerThreadTarget | null {
+  if (!invokingComposer || getCommandPaletteReturnFocus() === false) return null;
+  const { element, target } = invokingComposer;
+  const current = composerTargets.get(element);
+  return element.isConnected && current && composerTargetKey(current) === composerTargetKey(target)
+    ? target
+    : null;
+}
 
 export function dispatchCommandPalette(action: CommandPaletteUiAction): void {
   const state = useCommandPaletteStore.getState();
@@ -29,6 +49,9 @@ export function dispatchCommandPalette(action: CommandPaletteUiAction): void {
       href: window.location.href,
       focusRequest: getWorkspaceFocusRequestVersion(),
     };
+    const element = returnFocus.element?.closest<HTMLElement>('[data-chat-composer-form="true"]');
+    const target = element ? composerTargets.get(element) : null;
+    invokingComposer = element && target ? { element, target } : null;
   }
   useCommandPaletteStore.setState(next, true);
 }

@@ -1,3 +1,6 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
+import { ControllerActionMenu } from "../controller/ControllerActionMenu";
+import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu.android";
 import * as Dialog from "../../components/ui/Dialog";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import {
@@ -36,7 +39,14 @@ import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
-import { Platform, Pressable, Text as RNText, useWindowDimensions, View } from "react-native";
+import {
+  Keyboard,
+  Platform,
+  Pressable,
+  Text as RNText,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
@@ -832,6 +842,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
   const handleSettle = useCallback(() => onSettleThread(thread), [onSettleThread, thread]);
   const [customSnoozeOpen, setCustomSnoozeOpen] = useState(false);
+  const [controllerMenuOpen, setControllerMenuOpen] = useState(false);
   // Recycling changes identity without remounting; clear local UI directly because equality may skip the render closure.
   const rowIdentity = `${thread.environmentId}:${thread.id}`;
   const [boundIdentity, setBoundIdentity] = useState(rowIdentity);
@@ -1466,7 +1477,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     cardContent
   );
 
-  const rowContent = (close: () => void) =>
+  const rowContent = (close: () => void, openMenu?: () => void) =>
     variant === "card" ? (
       <RowPressable
         key={`${thread.environmentId}:${thread.id}`}
@@ -1487,6 +1498,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           if (event.nativeEvent.actionName === "openPullRequests") handleOpenPullRequests();
           if (event.nativeEvent.actionName === "dismissWoke") handleAcknowledgeWoke();
         }}
+        onLongPress={openMenu}
         onPress={() => {
           close();
           selectThread();
@@ -1520,6 +1532,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         accessibilityRole="button"
         accessibilityState={{ selected }}
         className={rowAppearance.className}
+        onLongPress={openMenu}
         onPress={() => {
           close();
           selectThread();
@@ -1607,6 +1620,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   return (
     <ThreadListDragRow drag={drag}>
+      {controllerMenuOpen ? (
+        <ControllerActionMenu
+          title={`Thread actions for ${thread.title}`}
+          actions={menuActions}
+          onClose={() => setControllerMenuOpen(false)}
+          onSelect={(event) => handleMenuAction({ nativeEvent: { event } })}
+        />
+      ) : null}
       {customSnoozeOpen && (
         <CustomSnoozeSheet onClose={() => setCustomSnoozeOpen(false)} onSnooze={handleSnooze} />
       )}
@@ -1629,17 +1650,51 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         simultaneousWith={props.simultaneousSwipeGesture}
         threadTitle={thread.title}
       >
-        {(close) => (
-          <Menu
-            accessibilityLabel={rowAccessibilityLabel}
-            actions={menuActions}
-            onPressAction={handleMenuAction}
-            onOpenMenu={drag.onMenuOpen}
-            shouldOpenOnLongPress
-          >
-            {rowContent(close)}
-          </Menu>
-        )}
+        {(close) =>
+          Platform.OS === "android" ? (
+            <AndroidAnchoredMenu actions={menuActions} onPressAction={handleMenuAction}>
+              {(open) => {
+                const openMenu = () => {
+                  drag.onMenuOpen();
+                  open();
+                };
+                return (
+                  <View className="flex-row items-center">
+                    <View className="flex-1">{rowContent(close, openMenu)}</View>
+                    <ControllerPressable
+                      scopeBoundary={false}
+                      controllerKey={`thread-actions:${thread.environmentId}:${thread.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Thread actions for ${thread.title}`}
+                      onActivate={() => {
+                        Keyboard.dismiss();
+                        setControllerMenuOpen(true);
+                      }}
+                      onPress={openMenu}
+                      className="p-3"
+                    >
+                      <SymbolView
+                        name="ellipsis"
+                        size={18}
+                        tintColorClassName="accent-foreground-muted"
+                      />
+                    </ControllerPressable>
+                  </View>
+                );
+              }}
+            </AndroidAnchoredMenu>
+          ) : (
+            <Menu
+              accessibilityLabel={rowAccessibilityLabel}
+              actions={menuActions}
+              onPressAction={handleMenuAction}
+              onOpenMenu={drag.onMenuOpen}
+              shouldOpenOnLongPress
+            >
+              {rowContent(close)}
+            </Menu>
+          )
+        }
       </ThreadSwipeable>
     </ThreadListDragRow>
   );

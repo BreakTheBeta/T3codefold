@@ -52,6 +52,7 @@ export function SettingsRow(props: {
         accessibilityLabel={[props.label, props.value].filter(Boolean).join(", ")}
         accessibilityState={{ disabled: Boolean(props.disabled), selected }}
         disabled={props.disabled}
+        controllerActivate={onPress}
         onPress={onPress}
         className={cn("rounded-2xl", selected && "bg-thread-selected")}
       >

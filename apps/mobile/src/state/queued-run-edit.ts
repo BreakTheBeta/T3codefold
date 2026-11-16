@@ -16,10 +16,11 @@ import {
 import { uploadedComposerContext } from "../lib/composerContext";
 import { appAtomRegistry } from "./atom-registry";
 import { abortComposerDraftOperations } from "./composerDraftOperations";
-import { queuedEditDraftKey } from "./queued-edit-draft-key";
+import { isQueuedEditDraftKey, queuedEditDraftKey } from "./queued-edit-draft-key";
 import { setThreadComposerError } from "./thread-composer-error";
 import {
   clearComposerDraft,
+  clearComposerDraftContent,
   getComposerDraftSnapshot,
   mergeComposerDraftContent,
   setComposerDraftContext,
@@ -148,6 +149,17 @@ export function endQueuedRunEdit(
   if (edit === null) return;
   clearComposerDraft(queuedEditDraftKey(threadKey, edit.runId), options);
   queuedRunEdits.end(threadKey);
+}
+
+export function discardComposerReply(draftKey: string, threadKey: string | null): void {
+  const edit = threadKey === null ? null : getQueuedRunEdit(threadKey);
+  if (threadKey !== null && edit && queuedEditDraftKey(threadKey, edit.runId) === draftKey) {
+    endQueuedRunEdit(threadKey);
+    return;
+  }
+  if (isQueuedEditDraftKey(draftKey)) return;
+  abortComposerDraftOperations(draftKey);
+  clearComposerDraftContent(draftKey);
 }
 
 /**

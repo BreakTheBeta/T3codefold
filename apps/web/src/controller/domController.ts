@@ -10,7 +10,7 @@ import type { ControllerAction } from "./gamepad";
 const boundarySelector =
   '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"], [data-slot="popover-popup"], [data-slot="select-popup"], [data-slot="combobox-popup"], [data-slot="autocomplete-popup"]';
 const controlsSelector =
-  'button, a[href], input, textarea, select, [contenteditable="true"], [role="button"], [role="checkbox"], [role="radio"], [role="switch"], [role="option"], [role^="menuitem"], [role="slider"], [tabindex]';
+  'button, a[href], input, textarea, select, [contenteditable="true"], [role="button"], [role="checkbox"], [role="radio"], [role="switch"], [role="option"], [role^="menuitem"], [role="slider"], [tabindex], [data-controller-tree]';
 export function controllerVisible(element: HTMLElement) {
   return (
     element.isConnected &&
@@ -53,8 +53,26 @@ function controllerTargets(scope: HTMLElement) {
       usable(element) &&
       !element.matches("[data-controller-hints] *") &&
       (element.tabIndex >= 0 ||
-        element.matches('[role="option"], [role^="menuitem"], [role="radio"]')),
+        element.matches(
+          '[role="option"], [role^="menuitem"], [role="radio"], [data-controller-tree]',
+        )),
   );
+}
+function inScrollView(element: HTMLElement) {
+  const rect = element.getBoundingClientRect();
+  if (
+    rect.bottom <= 0 ||
+    rect.top >= element.ownerDocument.documentElement.clientHeight ||
+    rect.right <= 0 ||
+    rect.left >= element.ownerDocument.documentElement.clientWidth
+  )
+    return false;
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    if (!/(auto|scroll|hidden|clip)/.test(getComputedStyle(parent).overflowY)) continue;
+    const box = parent.getBoundingClientRect();
+    if (rect.bottom <= box.top || rect.top >= box.bottom) return false;
+  }
+  return true;
 }
 function activate(target: HTMLElement) {
   if (target.matches('[role="option"]')) {
@@ -117,6 +135,34 @@ export function createDomController(
     target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
   };
   const active = () => (doc.activeElement instanceof HTMLElement ? doc.activeElement : null);
+  const chatArea = (name: "conversation" | "composer") => {
+    const selector = `[data-workspace-area="${name}"]`;
+    const column = active()?.closest<HTMLElement>(
+      "[data-chat-column], [data-right-panel-surface-content]",
+    );
+    return (
+      (column
+        ? [...column.querySelectorAll<HTMLElement>(selector)].find(controllerVisible)
+        : undefined) ?? [...doc.querySelectorAll<HTMLElement>(selector)].find(controllerVisible)
+    );
+  };
+  const conversation = () => chatArea("conversation");
+  const enterComposer = () => {
+    const area = chatArea("composer");
+    if (!area) return false;
+    const destination = controllerTargets(area).find(textField) ?? area;
+    editing = null;
+    destination.focus({ preventScroll: true });
+    mark(destination);
+    return true;
+  };
+  const enterConversation = () => {
+    const destination = conversation();
+    if (!destination) return;
+    editing = null;
+    destination.focus({ preventScroll: true });
+    mark(destination);
+  };
   const reset = () => {
     cancelControllerDictation();
     editing = null;
@@ -149,6 +195,16 @@ export function createDomController(
         target &&
         (scope.contains(target) || (controlledNode && scope.contains(controlledNode))) &&
         usable(target);
+      if (!boundary && action === "conversation") {
+        reset();
+        enterConversation();
+        return;
+      }
+      if (!boundary && action === "reply") {
+        enterComposer();
+        return;
+      }
+      if (action === "conversation" || action === "reply") return;
       if (action === "cancel") {
         if (cancelControllerDictation()) {
           hint("Dictation cancelled");
@@ -171,8 +227,17 @@ export function createDomController(
         return;
       }
       if (action === "dictate") {
+        let destination = owned ? target : null;
+        if (!boundary && (!destination || !textField(destination))) {
+          const composer = chatArea("composer");
+          destination = composer ? (controllerTargets(composer).find(textField) ?? null) : null;
+          if (destination) {
+            destination.focus({ preventScroll: true });
+            mark(destination);
+          }
+        }
         hint(
-          owned && toggleControllerDictation(target)
+          toggleControllerDictation(destination)
             ? "□ Finish dictation · ○ Cancel"
             : "Voice unavailable here. Focus a supported text field and configure Voice in Settings.",
         );
@@ -190,6 +255,7 @@ export function createDomController(
         return;
       }
       if (action === "previousPane" || action === "nextPane") {
+        reset();
         if (!boundary || boundary.hasAttribute("data-app-modal"))
           moveWorkspaceFocus(action === "previousPane" ? -1 : 1);
         else
@@ -208,16 +274,23 @@ export function createDomController(
             .filter((element) => element.matches('[data-controller-footer], button[type="submit"]'))
             .at(-1);
         let footer = findFooter(scope);
-        if (!footer && !boundary && focusWorkspaceArea("composer"))
-          footer = findFooter(controllerScope(doc));
+        if (!footer && !boundary) {
+          const composer = chatArea("composer");
+          if (composer) footer = findFooter(composer);
+        }
         if (footer) focus(footer);
         else hint("No enabled submit action in this pane");
         return;
       }
       if (action === "activate") {
+        if (owned && target.matches("[data-controller-tree]")) {
+          keyHandler(target, "Enter");
+          mark(target);
+          return;
+        }
         // Acquiring focus never also activates the first (possibly destructive) action.
         if (!owned) {
-          const first = targets[0];
+          const first = targets.find(inScrollView);
           if (first) focus(first);
           return;
         }
@@ -229,7 +302,7 @@ export function createDomController(
           return;
         }
         if (!targets.includes(target)) {
-          const first = targets[0];
+          const first = targets.find(inScrollView);
           if (first) focus(first);
           return;
         }
@@ -240,6 +313,11 @@ export function createDomController(
           return;
         }
         activate(target);
+        if (
+          target.matches('[data-sidebar-row^="draft:"]') ||
+          (target.matches("[data-sidebar-row]") && target.closest("[data-thread-item]"))
+        )
+          enterConversation();
         return;
       }
       if (editing === target) {
@@ -249,12 +327,18 @@ export function createDomController(
       const key = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" }[
         action
       ];
+      if (owned && target.matches("[data-controller-tree]")) {
+        keyHandler(target, key);
+        mark(target);
+        return;
+      }
       if (
         owned &&
+        (action === "left" || action === "right") &&
         (target instanceof HTMLSelectElement ||
           (target instanceof HTMLInputElement && target.type === "range"))
       ) {
-        adjustNative(target, action === "left" || action === "down" ? -1 : 1);
+        adjustNative(target, action === "left" ? -1 : 1);
         mark(target);
         return;
       }
@@ -290,11 +374,15 @@ export function createDomController(
             .filter(({ along }) => along > 2)
             .sort((a, b) => a.along + a.across * 2 - b.along - b.across * 2)
         : [];
-      const next = candidates[0]?.element ?? (!current ? targets[0] : undefined);
+      const next = candidates[0]?.element ?? (!current ? targets.find(inScrollView) : undefined);
       if (next) focus(next);
     },
     scroll(x: number, y: number) {
-      const scope = controllerScope(doc);
+      const focusedScope = controllerScope(doc);
+      const scope =
+        !controllerBoundary(doc) && focusedScope.dataset.workspaceArea === "composer"
+          ? (conversation() ?? focusedScope)
+          : focusedScope;
       let element = active();
       while (element && scope.contains(element)) {
         const style = getComputedStyle(element);

@@ -83,7 +83,8 @@ import { useEnvironmentQuery } from "../../state/query";
 import { environmentSession, useEnvironmentScope, readEnvironmentScope } from "../../state/session";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { sourceControlEnvironment } from "../../state/sourceControl";
-import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
+import { ControllerTextInput as TextInput } from "../../components/ui/ControllerTextInput";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { ErrorBanner } from "../../components/ui/ErrorBanner";
 import { SourceControlIcon } from "./SourceControlIcon";
@@ -286,6 +287,7 @@ function ProjectPathInput(props: {
   return (
     <TextInput
       className="h-12 min-h-12 rounded-[24px] px-4 py-0 text-base leading-snug"
+      accessibilityLabel="Project directory"
       value={props.value}
       onChangeText={(text) => props.onChangeText(resolvePastedPath(props.value, text))}
       autoCapitalize="none"
@@ -951,6 +953,7 @@ export function AddProjectRepositoryScreen(props: {
         <>
           <TextInput
             className="h-12 min-h-12 rounded-[24px] px-4 py-0 text-base leading-snug"
+            accessibilityLabel={source === "url" ? "Git URL" : "Repository"}
             value={repositoryInput}
             onChangeText={setRepositoryInput}
             autoCapitalize="none"
@@ -1248,6 +1251,7 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
         <>
           <TextInput
             className="h-12 min-h-12 rounded-[24px] px-4 py-0 text-base leading-snug"
+            accessibilityLabel="Project name"
             value={name}
             onChangeText={setName}
             autoCorrect={false}

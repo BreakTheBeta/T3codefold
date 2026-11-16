@@ -1035,6 +1035,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 ]}
               >
                 <ControllerPressable
+                  reply
                   controllerKey={composerDraftKey ?? "draft"}
                   style={{ flex: 1 }}
                   accessibilityLabel="Message. Square dictates"

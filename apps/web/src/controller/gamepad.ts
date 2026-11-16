@@ -12,7 +12,9 @@ export type ControllerAction =
   | "previousPane"
   | "nextPane"
   | "chooser"
-  | "palette";
+  | "palette"
+  | "conversation"
+  | "reply";
 
 export interface PadSnapshot {
   readonly index: number;
@@ -33,6 +35,8 @@ const bindings = new Map<number, ControllerAction>([
   [7, "nextPane"],
   [8, "chooser"],
   [9, "palette"],
+  [10, "conversation"],
+  [11, "reply"],
   [12, "up"],
   [13, "down"],
   [14, "left"],

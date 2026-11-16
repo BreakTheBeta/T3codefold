@@ -1,3 +1,12 @@
+import { useThreadUndoNotice } from "../hooks/showThreadUndoNotice";
+import { discardComposerDraft } from "../lib/discardComposerDraft";
+import { composerDraftHasUserContent, useComposerDraftStore } from "../composerDraftStore";
+import { useUiStateStore } from "../uiStateStore";
+import {
+  hasUnseenCompletion,
+  resolveSidebarRowStatus,
+  resolveThreadLastVisitedAt,
+} from "./Sidebar.logic";
 import { toggleControllerEnabled, useControllerSettings } from "../controller/controllerStore";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
@@ -169,6 +178,7 @@ import {
 import { resolvePastedPath } from "@t3tools/shared/path";
 import {
   dispatchCommandPalette,
+  getCommandPaletteComposerTarget,
   getCommandPaletteReturnFocus,
   useCommandPaletteMount,
   useCommandPaletteStore,
@@ -178,7 +188,11 @@ import {
   selectActiveRightPanel,
   useRightPanelStore,
 } from "../rightPanelStore";
-import { getLatestThreadForProject, sortThreads } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  getLatestThreadForProject,
+  nextThreadNeedingAttention,
+  sortThreads,
+} from "@t3tools/client-runtime/state/thread-sort";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import {
   cn,
@@ -1302,9 +1316,96 @@ function OpenCommandPaletteDialog(props: {
     if (firstOption) startNewProject(firstOption.environmentId, null);
   };
 
+  const attentionThreadByValue = new Map(
+    threads.map((thread) => [`thread:${thread.environmentId}:${thread.id}`, thread]),
+  );
+  const nextAttentionThread = nextThreadNeedingAttention(
+    allThreadItems,
+    activeThreadValue,
+    (item) => item.value,
+    (item) => {
+      const thread = attentionThreadByValue.get(item.value);
+      if (!thread) return false;
+      const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      const visited = {
+        ...thread,
+        lastVisitedAt: resolveThreadLastVisitedAt(
+          thread.lastVisitedAt,
+          useUiStateStore.getState().threadLastVisitedAtById[key],
+        ),
+      };
+      const status = resolveSidebarRowStatus(visited);
+      return (
+        ["approval", "input", "request", "failed", "limited"].includes(status) ||
+        (status === "ready" && hasUnseenCompletion(visited))
+      );
+    },
+  );
+  const discardTarget = getCommandPaletteComposerTarget();
+  const undoNotice = useThreadUndoNotice((state) => state.notice);
+  const hasComposedReply = useComposerDraftStore(
+    (store) =>
+      discardTarget !== null && composerDraftHasUserContent(store.getComposerDraft(discardTarget)),
+  );
+
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [
     ...useFoldVoiceActionItems(),
   ];
+
+  actionItems.push({
+    kind: "action",
+    value: "action:next-attention-thread",
+    title: "Next thread needing attention",
+    searchTerms: ["next", "attention", "approval", "question", "failed", "unread"],
+    icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+    disabled: nextAttentionThread === null,
+    run: async () => {
+      await nextAttentionThread?.run();
+    },
+  });
+  if (undoNotice?.action === "Discarded") {
+    actionItems.push({
+      kind: "action",
+      value: "action:undo-discard-reply",
+      title: "Undo discarded reply",
+      searchTerms: ["undo", "restore", "discard", "draft", "reply"],
+      icon: <RotateCcwIcon className={ITEM_ICON_CLASS} />,
+      run: undoNotice.undo,
+    });
+  }
+  if (hasComposedReply && discardTarget !== null) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:discard-reply",
+      title: "Discard current composed reply…",
+      searchTerms: ["discard", "clear", "draft", "reply"],
+      icon: <RotateCcwIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <RotateCcwIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "discard-reply",
+          label: "Discard current composed reply?",
+          items: [
+            {
+              kind: "action",
+              value: "action:confirm-discard-reply",
+              title: "Discard reply",
+              searchTerms: [],
+              icon: <RotateCcwIcon className={ITEM_ICON_CLASS} />,
+              run: async () => {
+                if (getCommandPaletteComposerTarget() !== discardTarget) return;
+                if (typeof discardTarget === "string") {
+                  const session = useComposerDraftStore.getState().getDraftSession(discardTarget);
+                  if (!session || session.promotedTo) return;
+                }
+                discardComposerDraft(discardTarget);
+              },
+            },
+          ],
+        },
+      ],
+    });
+  }
 
   if (projects.length > 0) {
     const activeProjectTitle =

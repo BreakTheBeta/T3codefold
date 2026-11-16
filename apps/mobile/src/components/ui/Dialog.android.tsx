@@ -7,16 +7,19 @@ import {
   Icon,
   FlowRow,
   Column,
-  OutlinedTextField,
   Text,
-  useNativeState,
 } from "@expo/ui/jetpack-compose";
 import { verticalScroll } from "@expo/ui/jetpack-compose/modifiers";
 
 import { useAppearancePreferences } from "../../features/settings/appearance/AppearancePreferencesProvider";
 import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { Modal, View } from "react-native";
+import { ControllerConsole } from "../../features/controller/ControllerConsole";
+import { ControllerTextInput } from "./ControllerTextInput";
+import { AppText } from "./AppText";
+import { Button as AppButton } from "./Button";
 import { themeColorWithContrast } from "../../lib/mobileTheme";
 import type { Alert, AlertButton } from "react-native";
 import type { ConfirmDialogRequest, TextInputDialogRequest } from "./Dialog.types";
@@ -132,30 +135,71 @@ export function Host() {
     );
   }
 
+  if (presented?.kind === "text-input") {
+    return (
+      <PromptPresentation
+        key={presented.id}
+        request={presented.request}
+        onCancel={handleCancel}
+        onConfirm={handleConfirm}
+      />
+    );
+  }
   return presented ? (
     <DialogPresentation
       key={presented.id}
       request={presented.request}
-      inputInitialValue={
-        presented.kind === "text-input" ? presented.request.initialValue : undefined
-      }
-      inputPlaceholder={presented.kind === "text-input" ? presented.request.placeholder : undefined}
       onCancel={handleCancel}
       onConfirm={handleConfirm}
     />
   ) : null;
 }
 
+function PromptPresentation(props: {
+  readonly request: TextInputDialogRequest;
+  readonly onCancel: () => void;
+  readonly onConfirm: (value: string) => void;
+}) {
+  const [value, setValue] = useState(props.request.initialValue);
+  return (
+    <Modal transparent visible onRequestClose={androidKeyboardFirst(props.onCancel)}>
+      <ControllerConsole scopeKey="text-input-dialog" onBack={androidKeyboardFirst(props.onCancel)}>
+        <View className="flex-1 justify-center bg-black/40 px-6">
+          <View className="gap-4 rounded-[28px] bg-card p-6">
+            <AppText className="text-xl font-t3-medium">{props.request.title}</AppText>
+            {props.request.message ? <AppText>{props.request.message}</AppText> : null}
+            <ControllerTextInput
+              autoFocus
+              accessibilityLabel={props.request.title}
+              placeholder={props.request.placeholder}
+              value={value}
+              onChangeText={setValue}
+              returnKeyType="done"
+              onSubmitEditing={() => props.onConfirm(value)}
+              selectTextOnFocus
+            />
+            <View className="flex-row justify-end gap-3">
+              <AppButton label={props.request.cancelText ?? "Cancel"} onPress={props.onCancel} />
+              <AppButton
+                controllerFooter
+                label={props.request.confirmText}
+                tone="primary"
+                onPress={() => props.onConfirm(value)}
+              />
+            </View>
+          </View>
+        </View>
+      </ControllerConsole>
+    </Modal>
+  );
+}
+
 function DialogPresentation(props: DialogPresentationProps) {
   const { themeVariables: colors } = useAppearancePreferences();
   const titleTypography = useScaledTextRole("title");
   const bodyTypography = useScaledTextRole("footnote");
-  const inputTypography = useScaledTextRole("body");
-  const inputState = useNativeState(props.inputInitialValue ?? "");
-  const inputSelection = useNativeState({ start: 0, end: props.inputInitialValue?.length ?? 0 });
   const confirm = () => {
-    const value = props.inputInitialValue === undefined ? undefined : inputState.get();
-    props.onConfirm(value);
+    props.onConfirm();
   };
   const actions = props.alertActions ?? [
     { text: props.request.cancelText ?? "Cancel", onPress: props.onCancel },
@@ -220,42 +264,7 @@ function DialogPresentation(props: DialogPresentationProps) {
             <Text style={titleTypography}>{props.request.title}</Text>
           </Column>
         </AlertDialog.Title>
-        {props.inputInitialValue !== undefined ? (
-          <AlertDialog.Text>
-            <Column verticalArrangement={{ spacedBy: 16 }}>
-              {props.request.message ? (
-                <Text style={bodyTypography}>{props.request.message}</Text>
-              ) : null}
-              <OutlinedTextField
-                autoFocus
-                singleLine
-                value={inputState}
-                selection={inputSelection}
-                textStyle={inputTypography}
-                keyboardOptions={{ imeAction: "done" }}
-                keyboardActions={{
-                  onDone: confirm,
-                }}
-                colors={{
-                  focusedTextColor: colors["--color-foreground"],
-                  unfocusedTextColor: colors["--color-foreground"],
-                  focusedIndicatorColor: colors["--color-focus"],
-                  unfocusedIndicatorColor: colors["--color-border"],
-                  cursorColor: colors["--color-focus"],
-                }}
-              >
-                <OutlinedTextField.Label>
-                  <Text style={bodyTypography}>{props.request.title}</Text>
-                </OutlinedTextField.Label>
-                {props.inputPlaceholder ? (
-                  <OutlinedTextField.Placeholder>
-                    <Text style={bodyTypography}>{props.inputPlaceholder}</Text>
-                  </OutlinedTextField.Placeholder>
-                ) : null}
-              </OutlinedTextField>
-            </Column>
-          </AlertDialog.Text>
-        ) : props.request.message ? (
+        {props.request.message ? (
           <AlertDialog.Text>
             <Text modifiers={[verticalScroll()]} style={bodyTypography}>
               {props.request.message}
@@ -285,8 +294,6 @@ interface DialogPresentationProps {
     ConfirmDialogRequest,
     "title" | "message" | "cancelText" | "confirmText" | "destructive"
   >;
-  readonly inputInitialValue?: string;
-  readonly inputPlaceholder?: string;
   readonly onCancel: () => void;
   readonly onConfirm: (inputValue?: string) => void;
 }

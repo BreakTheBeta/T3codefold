@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
@@ -7,7 +8,7 @@ import { Linking, Platform, useWindowDimensions, View } from "react-native";
 import Reanimated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { type AppSymbolName } from "../../components/ui/AppSymbol";
+import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
@@ -434,6 +435,28 @@ function MicrophoneRow(props: {
           description={isMicrophoneDevice(entry) ? kind.label : kind.rowDescription}
         />
       </View>
+      {props.reorderable && Platform.OS === "android" ? (
+        <View className="flex-row items-center">
+          {(["up", "down"] as const).map((direction) => (
+            <ControllerPressable
+              key={direction}
+              controllerKey={`microphone:${microphoneEntryKey(entry)}:${direction}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Move ${title} ${direction}`}
+              disabled={direction === "up" ? props.position === 1 : props.position === props.count}
+              onActivate={() => props.onStep(direction)}
+              onPress={() => props.onStep(direction)}
+              className="size-10 items-center justify-center rounded-full active:bg-subtle disabled:opacity-30"
+            >
+              <SymbolView
+                name={direction === "up" ? "chevron.up" : "chevron.down"}
+                size={16}
+                tintColorClassName="accent-foreground-muted"
+              />
+            </ControllerPressable>
+          ))}
+        </View>
+      ) : null}
       {props.reorderable ? (
         <SettingsDragHandle
           title={title}

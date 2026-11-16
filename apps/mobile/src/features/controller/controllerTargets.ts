@@ -1,5 +1,8 @@
 export function createControllerTargets() {
-  const targets = new Map<string, { activate: () => void; dictate?: () => void; scope: string }>();
+  const targets = new Map<
+    string,
+    { activate: () => void; dictate?: () => void; reply?: boolean; scope: string }
+  >();
   const listeners = new Set<() => void>();
   const versions = new Map<string, number>();
   const changed = (scope: string) => {
@@ -16,19 +19,28 @@ export function createControllerTargets() {
     getScopeVersion(scope: string) {
       return versions.get(scope) ?? 0;
     },
-    register(id: string, target: { activate: () => void; dictate?: () => void }, scope = "") {
+    register(
+      id: string,
+      target: { activate: () => void; dictate?: () => void; reply?: boolean },
+      scope = "",
+      scopeBoundary = true,
+    ) {
       const registered = { ...target, scope };
       targets.set(id, registered);
-      changed(scope);
+      if (scopeBoundary) changed(scope);
       return () => {
         if (targets.get(id) === registered) {
           targets.delete(id);
-          changed(scope);
+          if (scopeBoundary) changed(scope);
         }
       };
     },
     dispatch(id: string, action: "activate" | "dictate", scope = "") {
-      const target = targets.get(id);
+      const focused = targets.get(id);
+      const target =
+        action === "dictate" && (id === "" || (focused?.scope === scope && !focused.dictate))
+          ? [...targets.values()].find((candidate) => candidate.scope === scope && candidate.reply)
+          : focused;
       if (!target || target.scope !== scope) return false;
       const handler = action === "activate" ? target.activate : target.dictate;
       handler?.();

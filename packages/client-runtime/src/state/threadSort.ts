@@ -285,3 +285,17 @@ export function sortActiveThreadsByOrderKey<
     );
   });
 }
+
+export function nextThreadNeedingAttention<T>(
+  threads: readonly T[],
+  currentKey: string | null,
+  keyOf: (thread: T) => string,
+  needsAttention: (thread: T) => boolean,
+): T | null {
+  const currentIndex = threads.findIndex((thread) => keyOf(thread) === currentKey);
+  for (let offset = 1; offset <= threads.length; offset += 1) {
+    const thread = threads[(currentIndex + offset) % threads.length];
+    if (thread !== undefined && needsAttention(thread)) return thread;
+  }
+  return null;
+}

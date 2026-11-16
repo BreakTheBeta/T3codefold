@@ -75,7 +75,7 @@ export function ControllerConsole({
       <View className="bg-screen px-3 py-1">
         <AppText className="text-xs text-foreground-secondary">
           {active
-            ? "Controller active · ✚ Move · × Select · ○ Back · □ Dictate · △ Review · L1/R1 Threads · Options Commands"
+            ? "Controller active · ✚ Move · × Select · ○ Back · □ Dictate reply · △ Review · L1/R1 Threads · L3 Chat · R3 Reply · Options Commands"
             : "Controller: press Options to enable"}
         </AppText>
         {hint ? <AppText accessibilityLiveRegion="polite">{hint}</AppText> : null}

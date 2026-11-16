@@ -15,8 +15,31 @@ import {
 import { Command, CommandInput, CommandItem, CommandList } from "../components/ui/command";
 import { useDictationShortcut, cancelControllerDictation } from "../speech/useDictationShortcut";
 import { createDomController } from "./domController";
+import * as workspaceFocus from "../lib/workspaceFocus";
 
 vi.mock("../hooks/useSettings", () => ({ useClientSettings: () => "toggle" }));
+
+it("leaves editor ownership behind when the controller switches panes", async () => {
+  await using screen = await render(
+    <>
+      <div data-workspace-area="composer" data-workspace-order="1" tabIndex={-1}>
+        <textarea />
+      </div>
+      <div data-workspace-area="panel" data-workspace-order="2" tabIndex={-1}>
+        <button>Panel action</button>
+      </div>
+    </>,
+  );
+  using _workspace = { [Symbol.dispose]: workspaceFocus.startWorkspaceFocus(screen.router!) };
+  const unwind = vi.fn(() => true);
+  const controller = createDomController(document, vi.fn(), vi.fn(), unwind);
+  using _clear = { [Symbol.dispose]: () => controller.clear() };
+  screen.container.querySelector("textarea")!.focus();
+  await act(() => controller.dispatch("activate"));
+  await act(() => controller.dispatch("nextPane"));
+  await act(() => controller.dispatch("cancel"));
+  expect(unwind).toHaveBeenCalledOnce();
+});
 
 type Speech = Parameters<typeof useDictationShortcut>[0]["speech"];
 function VoiceTarget({
@@ -176,6 +199,7 @@ it("captures focused dictation, cancels async startup before popup unwind, and n
     },
   };
   fieldRef.current!.focus();
+  fieldRef.current!.blur();
   await act(() => controller.dispatch("dictate"));
   expect(speech.start).toHaveBeenCalledOnce();
   await act(() => controller.dispatch("cancel"));
@@ -190,11 +214,62 @@ it("captures focused dictation, cancels async startup before popup unwind, and n
   expect(hint).toHaveBeenLastCalledWith(expect.stringContaining("Voice unavailable"));
 });
 
+it("enters the conversation at its current scroll position and scrolls it from the composer", async () => {
+  await using screen = await render(
+    <>
+      <div data-workspace-area="sidebar">
+        <div data-thread-item="env:thread">
+          <button data-sidebar-row="env:thread">Thread</button>
+        </div>
+      </div>
+      <div
+        data-workspace-area="conversation"
+        tabIndex={-1}
+        style={{ height: 120, overflow: "auto" }}
+      >
+        <button>Old action</button>
+        <div style={{ height: 800 }} />
+        <button>Recent action</button>
+      </div>
+      <div data-workspace-area="composer">
+        <textarea aria-label="Reply" />
+      </div>
+    </>,
+  );
+  const conversation = screen.container.querySelector<HTMLElement>(
+    '[data-workspace-area="conversation"]',
+  )!;
+  conversation.scrollTop = conversation.scrollHeight - conversation.clientHeight;
+  const initialScroll = conversation.scrollTop;
+  screen.container.querySelector("button")!.focus();
+  const controller = createDomController(document, vi.fn(), vi.fn());
+  using _clear = { [Symbol.dispose]: () => controller.clear() };
+  await act(() => controller.dispatch("activate"));
+  expect(document.activeElement).toBe(conversation);
+  expect(conversation.scrollTop).toBe(initialScroll);
+  await act(() => controller.dispatch("activate"));
+  expect(document.activeElement?.textContent).toBe("Recent action");
+  screen.container.querySelector("textarea")!.focus();
+  const before = conversation.scrollTop;
+  await act(() => controller.scroll(0, -50));
+  expect(conversation.scrollTop).toBe(before - 50);
+});
+
 it("adjusts native Settings ranges through their change handler and focuses submit without sending", async () => {
   function Settings() {
     const [value, setValue] = useState(2);
     return (
-      <div data-workspace-area="settings">
+      <div
+        data-workspace-area="settings"
+        style={{ display: "flex", flexDirection: "column", gap: 16 }}
+      >
+        <select aria-label="Theme" defaultValue="light">
+          <option value="light">Light</option>
+          <option value="disabled" disabled>
+            Unavailable
+          </option>
+          <option value="dark">Dark</option>
+        </select>
         <input
           aria-label="Size"
           type="range"
@@ -214,8 +289,18 @@ it("adjusts native Settings ranges through their change handler and focuses subm
   await using screen = await render(<Settings />);
   const controller = createDomController(document, vi.fn(), vi.fn());
   using _clear = { [Symbol.dispose]: () => controller.clear() };
-  screen.container.querySelector("input")!.focus();
+  const select = screen.container.querySelector("select")!;
+  select.focus();
   await act(() => controller.dispatch("right"));
+  expect(select.value).toBe("dark");
+  await act(() => controller.dispatch("left"));
+  expect(select.value).toBe("light");
+  await act(() => controller.dispatch("down"));
+  expect(document.activeElement).toBe(screen.container.querySelector("input"));
+  await act(() => controller.dispatch("right"));
+  await expect.element(screen.getByRole("status")).toHaveTextContent("3");
+  await act(() => controller.dispatch("down"));
+  expect(document.activeElement?.textContent).toBe("Save");
   await expect.element(screen.getByRole("status")).toHaveTextContent("3");
   await act(() => controller.dispatch("footer"));
   expect(document.activeElement?.textContent).toBe("Save");
@@ -246,4 +331,77 @@ it("keeps passive toast popups outside the focused workspace scope", async () =>
   await act(() => controller.dispatch("activate"));
   expect(activateWorkspace).toHaveBeenCalledOnce();
   expect(dismissToast).not.toHaveBeenCalled();
+});
+
+it("activates sidebar grouping controls in place and enters chat only for thread and draft rows", async () => {
+  const choose = vi.fn();
+  await using screen = await render(
+    <>
+      <div data-workspace-area="sidebar">
+        <button data-sidebar-row="group:env:project" onClick={choose}>
+          Project
+        </button>
+        <button data-sidebar-row="shelf:settled" onClick={choose}>
+          Settled
+        </button>
+        <button data-sidebar-row="settled:more" onClick={choose}>
+          Show more
+        </button>
+        <button data-sidebar-row="draft:new" onClick={choose}>
+          Draft
+        </button>
+      </div>
+      <div data-workspace-area="conversation" tabIndex={-1} />
+    </>,
+  );
+  const controller = createDomController(document, vi.fn(), vi.fn());
+  using _clear = { [Symbol.dispose]: () => controller.clear() };
+  for (const button of screen.container.querySelectorAll("button")) {
+    button.focus();
+    await act(() => controller.dispatch("activate"));
+    expect(document.activeElement).toBe(
+      button.textContent === "Draft"
+        ? screen.container.querySelector('[data-workspace-area="conversation"]')
+        : button,
+    );
+  }
+  expect(choose).toHaveBeenCalledTimes(4);
+});
+
+it("keeps conversation, reply, footer and composer scrolling in the focused side chat", async () => {
+  await using screen = await render(
+    <>
+      {["main", "side"].map((name) => (
+        <div data-chat-column key={name}>
+          <div
+            data-workspace-area="conversation"
+            tabIndex={-1}
+            style={{ height: 100, overflow: "auto" }}
+          >
+            <div style={{ height: 800 }}>{name}</div>
+          </div>
+          <div data-workspace-area="composer" tabIndex={-1}>
+            <textarea aria-label={name} />
+            <button data-controller-footer>{name} send</button>
+          </div>
+        </div>
+      ))}
+    </>,
+  );
+  const side = screen.container.querySelectorAll("[data-chat-column]")[1]!;
+  const conversation = side.querySelector<HTMLElement>('[data-workspace-area="conversation"]')!;
+  const input = side.querySelector("textarea")!;
+  const controller = createDomController(document, vi.fn(), vi.fn());
+  using _clear = { [Symbol.dispose]: () => controller.clear() };
+  input.focus();
+  conversation.scrollTop = 100;
+  await act(() => controller.scroll(0, 50));
+  expect(conversation.scrollTop).toBe(150);
+  await act(() => controller.dispatch("conversation"));
+  expect(document.activeElement).toBe(conversation);
+  await act(() => controller.dispatch("reply"));
+  expect(document.activeElement).toBe(input);
+  conversation.focus();
+  await act(() => controller.dispatch("footer"));
+  expect(document.activeElement?.textContent).toBe("side send");
 });

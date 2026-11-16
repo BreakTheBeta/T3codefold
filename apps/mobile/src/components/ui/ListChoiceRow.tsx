@@ -26,6 +26,7 @@ export function ListChoiceRow(props: {
       accessibilityHint={props.description}
       accessibilityState={{ checked: props.selected, disabled: Boolean(props.disabled) }}
       disabled={props.disabled}
+      controllerActivate={props.onPress}
       onPress={props.onPress}
       android_ripple={{ color: rippleStyle.backgroundColor }}
       unstable_pressDelay={Platform.OS === "android" ? 50 : undefined}

@@ -2,6 +2,7 @@ import { RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  nextThreadNeedingAttention,
   generateSpreadPinOrderKeys,
   pinOrderKeyBetween,
   planPinnedReorder,
@@ -320,5 +321,33 @@ describe("sortActiveThreadsByOrderKey", () => {
     const keys = new Map(assignments.map((assignment) => [assignment.id, assignment.orderKey]));
     const updated = threads.map((thread) => ({ ...thread, activeOrderKey: keys.get(thread.id) }));
     expect(sortActiveThreadsByOrderKey(updated).map((thread) => thread.id)).toEqual(orderedIds);
+  });
+});
+
+describe("nextThreadNeedingAttention", () => {
+  it("walks the supplied order, wraps, and only returns the current thread when no other needs attention", () => {
+    const threads = [
+      { id: "question", attention: true },
+      { id: "working", attention: false },
+      { id: "approval", attention: true },
+      { id: "failed", attention: true },
+      { id: "unread", attention: true },
+    ];
+    const next = (currentId: string | null, candidates = threads) =>
+      nextThreadNeedingAttention(
+        candidates,
+        currentId,
+        (thread) => thread.id,
+        (thread) => thread.attention,
+      )?.id ?? null;
+    expect(next("question")).toBe("approval");
+    expect(next("failed")).toBe("unread");
+    expect(next("unread")).toBe("question");
+    expect(next("working")).toBe("approval");
+    expect(next(null)).toBe("question");
+    expect(next("missing")).toBe("question");
+    expect(next("question", [threads[0]!])).toBe("question");
+    expect(next("working", [threads[1]!])).toBeNull();
+    expect(next(null, [])).toBeNull();
   });
 });

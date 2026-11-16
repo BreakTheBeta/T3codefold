@@ -1,9 +1,10 @@
+import { ControllerPressable } from "../features/controller/ControllerPressable";
 import { Button } from "./ui/Button";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import * as Dialog from "./ui/Dialog";
 import type { ComposerContextRecord, EnvironmentId } from "@t3tools/contracts";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { Image } from "expo-image";
 import { useId, useState } from "react";
 import type { DraftComposerAttachment } from "../lib/composerImages";
@@ -81,9 +82,10 @@ export function ComposerContextAttachment(props: {
   return (
     <View className="gap-3">
       {record.kind === "image" && uri ? (
-        <Pressable
+        <ControllerPressable
           accessibilityRole="button"
           accessibilityLabel={`Preview ${record.name}`}
+          onActivate={() => setPreviewOpen(true)}
           onPress={() => setPreviewOpen(true)}
         >
           <Image
@@ -96,7 +98,7 @@ export function ComposerContextAttachment(props: {
             contentFit="contain"
             accessibilityLabel={record.name}
           />
-        </Pressable>
+        </ControllerPressable>
       ) : null}
       {error || (!local && asset._tag === "Failure") ? (
         <Text className="text-foreground-muted">

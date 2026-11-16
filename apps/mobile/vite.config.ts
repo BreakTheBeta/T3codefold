@@ -4,6 +4,7 @@ import { defineConfig, normalizePath } from "vite-plus";
 import "vite-plus/test/config";
 
 const androidReactTests = [
+  "src/components/ui/ControllerTextInput.test.tsx",
   "src/features/controller/controllerScope.test.tsx",
   "src/features/layout/workspace/useAndroidWorkspaceNavigation.test.tsx",
 ];

@@ -1,4 +1,5 @@
 import type { GitStatusEntry } from "@pierre/trees";
+import { controllerFileTreeProps } from "../../controller/fileTreeController";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -223,6 +224,7 @@ export function DiffFileTree({
         ) : null}
       </div>
       <FileTree
+        {...controllerFileTreeProps(model)}
         model={model}
         aria-label={ariaLabel}
         onClickCapture={(event) => {

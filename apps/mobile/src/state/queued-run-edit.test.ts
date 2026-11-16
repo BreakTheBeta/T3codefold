@@ -16,6 +16,7 @@ import {
 import { appAtomRegistry } from "./atom-registry";
 import {
   activeComposerDraftKey,
+  discardComposerReply,
   beginQueuedRunEdit,
   getQueuedRunEdit,
   queuedEditDraftKey,
@@ -24,6 +25,7 @@ import {
   type QueuedRunEdit,
 } from "./queued-run-edit";
 import { threadComposerErrorsAtom } from "./thread-composer-error";
+import { startComposerDraftOperation } from "./composerDraftOperations";
 import {
   flushComposerDrafts,
   getComposerDraftSnapshot,
@@ -76,6 +78,27 @@ function context(attachmentIds: ReadonlyArray<string>): OrchestrationMessageCont
     })),
   };
 }
+
+it("discards the visible reply, aborts late imports, and exits queued edits without clearing the hidden draft", () => {
+  const threadKey = "env-discard:thread";
+  setComposerDraftText(threadKey, "hidden ordinary reply");
+  const original = edit([image("kept")]);
+  const runs = Atom.make<ReadonlyArray<{ readonly id: RunId; readonly status: string }> | null>([
+    { id: original.runId, status: "queued" },
+  ]);
+  beginQueuedRunEdit(threadKey, original, runs);
+  const draftKey = queuedEditDraftKey(threadKey, original.runId);
+  const importing = startComposerDraftOperation(draftKey);
+  discardComposerReply(draftKey, threadKey);
+  expect(importing.signal.aborted).toBe(true);
+  expect(getQueuedRunEdit(threadKey)).toBeNull();
+  expect(getComposerDraftSnapshot(draftKey).text).toBe("");
+  expect(getComposerDraftSnapshot(threadKey).text).toBe("hidden ordinary reply");
+  const ordinaryImport = startComposerDraftOperation(threadKey);
+  discardComposerReply(threadKey, threadKey);
+  expect(ordinaryImport.signal.aborted).toBe(true);
+  expect(getComposerDraftSnapshot(threadKey).text).toBe("");
+});
 
 describe("resolveQueuedEditPayload", () => {
   it("resends the kept server attachments ahead of the newly uploaded ones", () => {

@@ -44,6 +44,12 @@ vi.mock("../../features/settings/appearance/useScaledTextRole", () => ({
 }));
 vi.mock("../../lib/mobileTheme", () => ({ themeColorWithContrast: () => "#ffffff" }));
 
+vi.mock("../../features/layout/nested-stacks", () => ({ StandaloneStack: () => null }));
+vi.mock("../../features/controller/ControllerConsole", () => ({ ControllerConsole: () => null }));
+vi.mock("./ControllerTextInput", () => ({ ControllerTextInput: () => null }));
+vi.mock("./AppText", () => ({ AppText: () => null }));
+vi.mock("./Button", () => ({ Button: () => null }));
+
 import * as Dialog from "./Dialog.android";
 
 const roots: Root[] = [];

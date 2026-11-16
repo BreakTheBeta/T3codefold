@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../features/controller/ControllerPressable";
 import { FilePreviewGallery, useFilePreviewGallery } from "./ui/FilePreviewGallery";
 import { composerImageGallery } from "../lib/composerImageGallery";
 import { SymbolView } from "./ui/AppSymbol";
@@ -6,7 +7,7 @@ import { videoMimeType } from "@t3tools/shared/video";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { Paths } from "expo-file-system";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Image, ScrollView, View } from "react-native";
 
 import { AppText as Text } from "./ui/AppText";
 import { MaterializedPreviewKey, materializedPreviewAtom } from "../lib/composerImagePreview";
@@ -65,7 +66,7 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
     <View style={{ width: props.size, height: props.size }}>
       <ComposerAttachmentContent {...props} />
       {upload && upload.status !== "ready" ? (
-        <Pressable
+        <ControllerPressable
           accessibilityRole={upload.status === "failed" ? "button" : "text"}
           accessibilityLabel={
             upload.status === "failed"
@@ -74,6 +75,10 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
           }
           accessibilityHint={upload.status === "failed" ? upload.reason : undefined}
           disabled={upload.status !== "failed"}
+          onActivate={() =>
+            props.environmentId &&
+            retryComposerAttachmentUpload(props.environmentId, props.attachment.id)
+          }
           onPress={() =>
             props.environmentId &&
             retryComposerAttachmentUpload(props.environmentId, props.attachment.id)
@@ -91,7 +96,7 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
               {upload.status === "failed" ? "Retry" : `${Math.floor(upload.progress * 100)}%`}
             </Text>
           ) : null}
-        </Pressable>
+        </ControllerPressable>
       ) : null}
     </View>
   );
@@ -136,26 +141,27 @@ function ComposerImageAttachment(
   const style = { width: props.size, height: props.size, borderRadius: props.borderRadius };
   const previewUri = useComposerImagePreviewUri(attachment);
   const sourceIdentifier = `draft-image:${attachment.id}`;
+  const activate = () =>
+    props.onPressPreview?.(
+      withGallery(
+        isFileBackedComposerAttachment(attachment)
+          ? { kind: "image", attachment, name: attachment.name, sourceIdentifier }
+          : {
+              kind: "image",
+              uri: attachment.dataUrl ?? attachment.previewUri,
+              name: attachment.name,
+              sourceIdentifier,
+            },
+      ),
+    );
   return (
     <PresentationSource identifier={sourceIdentifier}>
-      <Pressable
+      <ControllerPressable
         accessibilityRole="imagebutton"
         accessibilityLabel={`Open ${attachment.name}`}
         disabled={!props.onPressPreview}
-        onPress={() =>
-          props.onPressPreview?.(
-            withGallery(
-              isFileBackedComposerAttachment(attachment)
-                ? { kind: "image", attachment, name: attachment.name, sourceIdentifier }
-                : {
-                    kind: "image",
-                    uri: attachment.dataUrl ?? attachment.previewUri,
-                    name: attachment.name,
-                    sourceIdentifier,
-                  },
-            ),
-          )
-        }
+        onActivate={activate}
+        onPress={activate}
       >
         <Image
           source={previewUri === null ? undefined : { uri: previewUri }}
@@ -170,7 +176,7 @@ function ComposerImageAttachment(
               });
           }}
         />
-      </Pressable>
+      </ControllerPressable>
     </PresentationSource>
   );
 }
@@ -208,23 +214,24 @@ function ComposerFileAttachment(
   const canPreview = isPdfFile(attachment) && props.onPressPreview !== undefined;
   const sourceIdentifier = `draft-file:${attachment.id}`;
   const onPressDocument = props.onPressDocument;
+  const activate = () =>
+    canPreview
+      ? props.onPressPreview?.({
+          kind: "pdf",
+          name: attachment.name,
+          attachment,
+          sourceIdentifier,
+        })
+      : onPressDocument?.(attachment);
   return (
     <>
       <PresentationSource identifier={sourceIdentifier}>
-        <Pressable
+        <ControllerPressable
           accessibilityRole="button"
           accessibilityLabel={`Open ${attachment.name}`}
           disabled={!canPreview && onPressDocument === undefined}
-          onPress={() =>
-            canPreview
-              ? props.onPressPreview?.({
-                  kind: "pdf",
-                  name: attachment.name,
-                  attachment,
-                  sourceIdentifier,
-                })
-              : onPressDocument?.(attachment)
-          }
+          onActivate={activate}
+          onPress={activate}
           className={
             props.compact
               ? "items-center justify-center bg-subtle"
@@ -238,7 +245,7 @@ function ComposerFileAttachment(
               {attachment.name}
             </Text>
           ) : null}
-        </Pressable>
+        </ControllerPressable>
       </PresentationSource>
     </>
   );
@@ -315,7 +322,7 @@ export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
                 onPressVideo={props.onPressVideo}
                 onPressDocument={props.onPressDocument}
               />
-              <Pressable
+              <ControllerPressable
                 accessibilityRole="button"
                 accessibilityLabel={`Remove ${attachment.name}`}
                 className="absolute h-[22px] w-[22px] items-center justify-center rounded-[11px] bg-black/55"
@@ -324,6 +331,7 @@ export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
                   right: removeButtonPlacement === "gutter" ? 0 : 4,
                 }}
                 hitSlop={6}
+                onActivate={() => props.onRemove(attachment.id)}
                 onPress={() => props.onRemove(attachment.id)}
               >
                 <SymbolView
@@ -333,7 +341,7 @@ export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
                   type="monochrome"
                   weight="bold"
                 />
-              </Pressable>
+              </ControllerPressable>
             </View>
           ))}
         </View>

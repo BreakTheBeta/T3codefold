@@ -1,7 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { useRightPanelStore } from "../rightPanelStore";
 import { resolveThreadRouteTarget } from "../threadRoutes";
-import { focusWorkspaceArea } from "../lib/workspaceFocus";
+import { focusWorkspaceArea, requestWorkspaceFocus } from "../lib/workspaceFocus";
 import { useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { Button } from "../components/ui/button";
@@ -29,9 +29,9 @@ export function ControllerConsoleSettings() {
       </Button>
       <p className="text-sm text-muted-foreground">
         D-pad / left stick: focus · ×: activate · ○: back · □: dictate · △: focus send (× sends). L1
-        / R1: threads · L2 / R2: panes · right stick: scroll · Options: commands · Share: thread
-        chooser. Voice uses your configured microphone and never sends automatically. Editors,
-        terminals and browser guests may need keyboard or touch.
+        / R1: threads · L2 / R2: panes · L3: read chat · R3: reply · right stick: scroll · Options:
+        commands · Share: thread chooser. Voice uses your configured microphone and never sends
+        automatically. Editors, terminals and browser guests may need keyboard or touch.
       </p>
     </section>
   );
@@ -122,7 +122,14 @@ export function ControllerConsole() {
         .join("|");
       const scopeKey = `${router.state.location.href}|${requestKey}`;
       if (lastScope !== scope || lastScopeKey !== scopeKey) {
-        dom.reset();
+        const popupSelector =
+          '[role="dialog"], [role="alertdialog"], [role="menu"], [aria-modal="true"], [data-slot$="-popup"]';
+        if (
+          lastScopeKey !== scopeKey ||
+          scope.matches(popupSelector) ||
+          lastScope?.matches(popupSelector)
+        )
+          dom.reset();
         generation += 1;
         lastScope = scope;
         lastScopeKey = scopeKey;
@@ -142,6 +149,10 @@ export function ControllerConsole() {
     const wake = () => {
       if (timer === undefined && foreground()) tick();
     };
+    const stopRoute = router.subscribe("onResolved", ({ fromLocation, toLocation }) => {
+      if (visibleHints && fromLocation?.pathname !== toLocation.pathname)
+        requestWorkspaceFocus({ area: "conversation", restore: false });
+    });
     const ordinaryInput = (event: Event) => {
       if (!event.isTrusted) return;
       dom.editTarget(event.target);
@@ -171,6 +182,7 @@ export function ControllerConsole() {
     }
     wake();
     return () => {
+      stopRoute();
       stop();
       window.removeEventListener("gamepadconnected", wake);
       window.removeEventListener("gamepaddisconnected", disconnected);

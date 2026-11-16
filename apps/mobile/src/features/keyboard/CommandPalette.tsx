@@ -1,3 +1,12 @@
+import * as Dialog from "../../components/ui/Dialog";
+import { nextThreadNeedingAttention } from "@t3tools/client-runtime/state/thread-sort";
+import { threadHasUnseenCompletion, resolveThreadListV2RowStatus } from "../threads/threadListV2";
+import { useComposerDraft } from "../../state/use-composer-drafts";
+import {
+  discardComposerReply,
+  queuedEditDraftKey,
+  useQueuedRunEdit,
+} from "../../state/queued-run-edit";
 import { controllerDictation } from "../controller/controllerDictation";
 import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
@@ -306,8 +315,28 @@ export function CommandPalette(props: {
   const serverConfigs = useServerConfigs();
   const startTriage = useStartTriage();
   const newTaskFlow = useNewTaskFlow();
+  const activeNewTask = useActiveNewTask();
   const draftEnvironmentId =
-    useActiveNewTask() === null ? null : (newTaskFlow.selectedProject?.environmentId ?? null);
+    activeNewTask === null ? null : (newTaskFlow.selectedProject?.environmentId ?? null);
+  const activeThreadKey =
+    activeThreadRef === null
+      ? null
+      : scopedThreadKey(activeThreadRef.environmentId, activeThreadRef.threadId);
+  const queuedEdit = useQueuedRunEdit(activeThreadKey);
+  const composedReplyKey =
+    activeNewTask !== null
+      ? newTaskFlow.draftKey
+      : activeThreadKey === null
+        ? null
+        : queuedEdit === null
+          ? activeThreadKey
+          : queuedEditDraftKey(activeThreadKey, queuedEdit.runId);
+  const composedReply = useComposerDraft(composedReplyKey);
+  const hasComposedReply =
+    composedReply.text.length > 0 ||
+    composedReply.attachments.length > 0 ||
+    (queuedEdit?.existingAttachments.length ?? 0) > 0 ||
+    (composedReply.context?.records.length ?? 0) > 0;
   const triageEnvironmentId = pickTriageEnvironment({
     // The route names the machine even before the thread shell loads.
     onScreen: activeThreadRef?.environmentId ?? draftEnvironmentId,
@@ -517,9 +546,69 @@ export function CommandPalette(props: {
         (right.threadSearch ? threadRecentUse(right.threadSearch) : 0) -
         (left.threadSearch ? threadRecentUse(left.threadSearch) : 0),
     );
+    const threadByKey = new Map(
+      threads.map((thread) => [scopedThreadKey(thread.environmentId, thread.id), thread]),
+    );
+    const attentionThread = nextThreadNeedingAttention(
+      threadItems,
+      activeThreadKey,
+      (item) => item.key,
+      (item) => {
+        const thread = threadByKey.get(item.key);
+        if (!thread) return false;
+        const status = resolveThreadListV2RowStatus(thread);
+        return (
+          ["approval", "input", "request", "failed", "limited"].includes(status) ||
+          (status === "ready" && threadHasUnseenCompletion(thread))
+        );
+      },
+    );
+    if (attentionThread)
+      actions.push({
+        key: "nextAttentionThread",
+        kind: "action",
+        title: "Next thread needing attention",
+        searchTerms: ["next", "approval", "question", "failed", "unread"],
+        run: () => {
+          const thread = threadByKey.get(attentionThread.key);
+          if (thread) {
+            // oxlint-disable-next-line react/purity -- runs when the palette action is selected
+            claimThreadOpen(thread.environmentId, thread.id, Date.now());
+            if (thread.lastVisitedAt !== undefined)
+              void visitThread({
+                environmentId: thread.environmentId,
+                input: { threadId: thread.id, visitedAt: thread.updatedAt, opened: true },
+              });
+          }
+          attentionThread.run();
+        },
+      });
+    if (hasComposedReply && composedReplyKey !== null)
+      actions.push({
+        key: "discardReply",
+        kind: "action",
+        title: "Discard current composed reply…",
+        searchTerms: ["discard", "clear", "draft", "reply"],
+        run: () =>
+          Dialog.confirm({
+            title: "Discard current composed reply?",
+            message: "The text and attachments in this reply will be removed.",
+            confirmText: "Discard reply",
+            destructive: true,
+            onConfirm: () => {
+              controllerVoice.session.cancel(composedReplyKey);
+              discardComposerReply(composedReplyKey, activeThreadKey);
+            },
+          }),
+      });
     return [...actions, ...projectItems, ...threadItems];
   }, [
     selectTab,
+    activeThreadKey,
+    composedReplyKey,
+    hasComposedReply,
+    controllerVoice.session,
+    visitThread,
     activeThread,
     activeThreadRef,
     environments.length,

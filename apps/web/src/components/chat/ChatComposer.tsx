@@ -1,4 +1,5 @@
 import { VoiceInputSetup } from "./VoiceInputSetup";
+import { registerCommandPaletteComposer } from "../../commandPaletteStore";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import type { ComposerAttachmentInsertion } from "../composerAttachmentInsertion";
@@ -3354,7 +3355,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ) : null;
   return (
     <form
-      ref={composerFormRef}
+      ref={(element) => {
+        composerFormRef.current = element;
+        if (!element) return;
+        const unregister = registerCommandPaletteComposer(
+          element,
+          canOperateThread && !isEditingQueuedMessage && !questionRequest
+            ? composerDraftTarget
+            : null,
+        );
+        return () => {
+          composerFormRef.current = null;
+          unregister();
+        };
+      }}
       onSubmit={submitComposerStable}
       onFocusCapture={(event) => {
         const activeElement = event.target;

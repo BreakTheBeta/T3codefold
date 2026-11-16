@@ -1,5 +1,5 @@
-import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useEffect, useRef } from "react";
+import { NavigationContext } from "@react-navigation/native";
+import { use, useCallback, useEffect, useRef } from "react";
 import {
   voiceInputBlocksSubmission,
   type VoiceInputState,
@@ -22,6 +22,7 @@ export function useVoiceInputController(input: {
 }) {
   const global = useGlobalVoiceInput();
   const { session } = global;
+  const navigation = use(NavigationContext);
   const latestInput = useRef(input);
   // oxlint-disable-next-line react/refs -- Transcription finishes asynchronously and must reach the composer's current selection setter, not the one captured at start.
   latestInput.current = input;
@@ -34,14 +35,21 @@ export function useVoiceInputController(input: {
     };
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      const ownerKey = input.ownerKey;
-      if (!ownerKey) return;
-      session.setOwnerFocused(ownerKey, true);
-      return () => session.setOwnerFocused(ownerKey, false);
-    }, [input.ownerKey, session]),
-  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- synchronizes voice ownership with route focus, or the lifetime of a standalone modal field
+  useEffect(() => {
+    const ownerKey = input.ownerKey;
+    if (!ownerKey) return;
+    const focus = () => session.setOwnerFocused(ownerKey, true);
+    const blur = () => session.setOwnerFocused(ownerKey, false);
+    if (!navigation || navigation.isFocused()) focus();
+    const stopFocus = navigation?.addListener("focus", focus);
+    const stopBlur = navigation?.addListener("blur", blur);
+    return () => {
+      stopFocus?.();
+      stopBlur?.();
+      blur();
+    };
+  }, [input.ownerKey, navigation, session]);
 
   const start = useCallback(() => {
     const captured = latestInput.current;

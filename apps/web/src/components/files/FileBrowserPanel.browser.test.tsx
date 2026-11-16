@@ -5,7 +5,8 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { COMPOSER_MENTION_DRAG_TYPE } from "~/components/chat/composerMentionDrag";
 import { dismissContextMenu } from "~/contextMenuFallback";
 import { isMacPlatform } from "~/lib/utils";
-import { render } from "../../../test/render";
+import { act, render } from "../../../test/render";
+import { createDomController } from "../../controller/domController";
 import FileBrowserPanel from "./FileBrowserPanel";
 import { dispatchPreviewAction } from "../preview/previewActionBus";
 
@@ -64,6 +65,30 @@ function withDirectoryListing(listing: readonly ProjectEntry[]): Disposable {
 }
 
 describe("FileBrowserPanel", () => {
+  it("navigates and opens shadow-tree files with the controller", async () => {
+    const open = vi.fn();
+    await using _screen = await render(
+      <FileBrowserPanel
+        environmentId={EnvironmentId.make("env-files")}
+        cwd="/repo"
+        projectName="repo"
+        selectedPath={null}
+        selectedPathRevealId={0}
+        onOpenFile={open}
+        workspaceMutationId={null}
+      />,
+    );
+    await vi.waitFor(() => expect(findTreeRow("README.md")).not.toBeNull());
+    findTreeRow("README.md")!.focus();
+    const controller = createDomController(document, vi.fn(), vi.fn());
+    using _clear = { [Symbol.dispose]: () => controller.clear() };
+    await act(() => controller.dispatch("activate"));
+    expect(open).toHaveBeenCalledWith("README.md");
+    await act(() => controller.dispatch("up"));
+    expect(
+      document.activeElement?.shadowRoot?.activeElement?.getAttribute("data-item-path"),
+    ).toMatch(/^src\/?$/);
+  });
   it("copies with the pointer and returns to the row after keyboard dismissal", async () => {
     await using _screen = await render(
       <FileBrowserPanel

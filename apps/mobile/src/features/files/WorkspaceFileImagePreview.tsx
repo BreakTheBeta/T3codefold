@@ -1,5 +1,6 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { useId, useState } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Image, View } from "react-native";
 
 import { FilePreviewLoading } from "./FilePreviewFeedback";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -19,11 +20,19 @@ function ResolvedWorkspaceFileImagePreview(props: {
   const sourceIdentifier = useId();
   const mediaActions = useMediaActions(props.actionsSource);
   const imageSource = { uri: props.uri, cache: "force-cache" as const };
+  const activate = () =>
+    setPreview({
+      kind: "image",
+      uri: props.uri,
+      name: props.accessibilityLabel,
+      sourceIdentifier,
+      actionsSource: props.actionsSource,
+    });
 
   return (
     <View className="relative flex-1 bg-subtle">
       <MediaActionsMenu media={mediaActions} style={{ flex: 1 }}>
-        <Pressable
+        <ControllerPressable
           accessibilityRole="button"
           accessibilityLabel={`Open full-screen preview of ${props.accessibilityLabel}`}
           accessibilityHint={
@@ -31,15 +40,8 @@ function ResolvedWorkspaceFileImagePreview(props: {
           }
           disabled={loadError !== null}
           className="flex-1 p-4 active:bg-subtle-strong"
-          onPress={() =>
-            setPreview({
-              kind: "image",
-              uri: props.uri,
-              name: props.accessibilityLabel,
-              sourceIdentifier,
-              actionsSource: props.actionsSource,
-            })
-          }
+          onActivate={activate}
+          onPress={activate}
         >
           <PresentationSource identifier={sourceIdentifier} style={{ flex: 1 }}>
             <Image
@@ -53,7 +55,7 @@ function ResolvedWorkspaceFileImagePreview(props: {
               }}
             />
           </PresentationSource>
-        </Pressable>
+        </ControllerPressable>
       </MediaActionsMenu>
       {loadError !== null ? (
         <View

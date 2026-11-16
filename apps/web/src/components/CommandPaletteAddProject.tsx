@@ -48,6 +48,7 @@ export function CommandPaletteSubmitButton(props: {
         render={
           <Button
             id={props.id}
+            data-controller-footer
             variant="outline"
             size="xs"
             className="absolute inset-e-2.5 top-1/2 -translate-y-1/2"

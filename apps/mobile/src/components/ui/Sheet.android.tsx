@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { ControllerConsole } from "../../features/controller/ControllerConsole";
+import { androidKeyboardFirst } from "../../lib/android-back";
 import { View } from "react-native";
 import { FormSheet } from "react-native-screens";
 import { useResolveClassNames } from "uniwind";
@@ -12,6 +14,10 @@ export type { SheetProps } from "./Sheet.types";
 export function Sheet(props: SheetProps) {
   const containerStyle = useResolveClassNames("bg-header");
   const [isOpen, setIsOpen] = useState(true);
+  const controllerScope = useId();
+  const close = () => {
+    if (!props.dismissDisabled) setIsOpen(false);
+  };
   return (
     <FormSheet
       isOpen={isOpen}
@@ -32,7 +38,11 @@ export function Sheet(props: SheetProps) {
               onBack={props.dismissDisabled ? undefined : () => setIsOpen(false)}
               hideBottomBorder
             />
-            <ScreenContent>{props.children}</ScreenContent>
+            <ScreenContent>
+              <ControllerConsole scopeKey={controllerScope} onBack={androidKeyboardFirst(close)}>
+                {props.children}
+              </ControllerConsole>
+            </ScreenContent>
             <View
               pointerEvents="none"
               className="absolute top-1 h-1 w-8 self-center rounded-full bg-header-foreground/40"

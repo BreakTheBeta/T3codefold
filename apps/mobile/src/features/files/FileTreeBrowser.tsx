@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { Button } from "../../components/ui/Button";
 import { LegendList } from "@legendapp/list/react-native";
@@ -5,7 +6,7 @@ import type { ProjectEntry } from "@t3tools/contracts";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { RefreshControl } from "../../components/ui/RefreshControl";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -42,9 +43,18 @@ const FileTreeRow = function FileTreeRow(props: {
   readonly onPressFile: (path: string) => void;
 }) {
   const { node, depth } = props.item;
+  const activate = () => {
+    if (node.kind === "directory") {
+      props.onPressDirectory(node.path, !props.expanded);
+      return;
+    }
+    props.onPressFile(node.path);
+  };
 
   return (
-    <Pressable
+    <ControllerPressable
+      scopeBoundary={false}
+      controllerKey={node.path}
       accessibilityRole="button"
       accessibilityLabel={node.path}
       accessibilityState={{ selected: props.selected }}
@@ -53,13 +63,8 @@ const FileTreeRow = function FileTreeRow(props: {
           props.onPreviewFile?.(node.path);
         }
       }}
-      onPress={() => {
-        if (node.kind === "directory") {
-          props.onPressDirectory(node.path, !props.expanded);
-          return;
-        }
-        props.onPressFile(node.path);
-      }}
+      onActivate={activate}
+      onPress={activate}
       className={cn(
         "mx-2 min-h-[42px] flex-row items-center gap-2 rounded-[12px] px-2 active:bg-subtle",
         props.selected && "bg-thread-selected",
@@ -93,7 +98,7 @@ const FileTreeRow = function FileTreeRow(props: {
       {node.kind === "directory" && props.expanded && props.loading ? (
         <AppActivityIndicator size="small" accessibilityLabel={`Loading ${node.name}`} />
       ) : null}
-    </Pressable>
+    </ControllerPressable>
   );
 };
 

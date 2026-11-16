@@ -237,10 +237,14 @@ to leave editing, close a popup, or go back. **Triangle (△)** focuses the enab
 send or decision action; **Cross** then confirms it. **L1/R1** switch threads,
 **L2/R2** move between panes (page within a popup), and the right stick scrolls.
 **Options** opens commands; **Share/Create** opens the thread chooser.
+Click the left stick (**L3**) to enter the conversation without changing its reading
+position, or the right stick (**R3**) to focus the reply. Opening a thread from the
+sidebar enters its conversation; expanding a sidebar group keeps focus in the sidebar.
 
 **Square (□)** starts or finishes dictation into a focused supported text field,
 using your Voice settings and selected microphone. Review the transcript before
-sending. Circle cancels recording. Fields without voice support show a hint;
+sending. From a non-text action in a chat, Square goes straight to that chat's reply
+and starts dictation. Circle cancels recording. Fields without voice support show a hint;
 use a keyboard for those fields, terminals, and embedded editors. Controller
 input stays in the focused app window and pauses when the app loses focus.
 Keyboard, touch, and Vim navigation remain available.
@@ -260,3 +264,11 @@ answer, or palette search; Circle cancels recording. **Triangle** focuses
 Submit or Send for review, and Cross activates it. **L1/R1** switch threads,
 **L2/R2** page the focused content, and the right stick scrolls. While enabled,
 Options opens commands and **Share/Create** opens the searchable thread chooser.
+**L3** enters the conversation and **R3** focuses the reply. Square can start reply
+dictation directly from a non-text action in the current screen. The right stick
+continues to scroll the conversation while its reply is focused.
+
+On both clients, search commands for **Next thread needing attention** to jump to a
+thread with a pending request, failure, or unread completion. **Discard composed reply**
+asks before clearing the current reply. On Android, each thread's **Thread actions**
+control opens its management menu without a long press.

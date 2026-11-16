@@ -1,4 +1,5 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
+import { controllerFileTreeProps } from "../../controller/fileTreeController";
 import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
@@ -613,6 +614,7 @@ export default function FileBrowserPanel({
         ) : null
       ) : (
         <FileTree
+          {...controllerFileTreeProps(model)}
           model={model}
           aria-label={`${projectName} files`}
           className="min-h-0 flex-1 overflow-hidden"
