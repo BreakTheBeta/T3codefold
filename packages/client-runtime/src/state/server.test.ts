@@ -1466,7 +1466,11 @@ describe("launcher update resume", () => {
     ...CONFIG,
     environment: {
       serverVersion: "0.0.30",
-      capabilities: { serverSelfUpdate: "boot-service", serverSelfUpdateProgress: true },
+      capabilities: {
+        serverSelfUpdate: "boot-service",
+        serverSelfUpdateProgress: true,
+        updateRepository: "BreakTheBeta/T3codefold",
+      },
     },
   } as unknown as ServerConfig;
 
