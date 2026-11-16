@@ -11,9 +11,23 @@ it.each([
   { platform: "linux", hostArch: "x64", arch: 3, reason: "unexecutable target linux/arm64" },
   { platform: "linux", hostArch: "arm64", arch: 1, reason: "unexecutable target linux/x64" },
   { platform: "darwin", hostArch: "arm64", arch: 3, reason: "untrusted bundle", untrusted: true },
+  {
+    platform: "darwin",
+    hostArch: "x64",
+    arch: 1,
+    reason: "universal intermediate x64",
+    universal: true,
+  },
+  {
+    platform: "darwin",
+    hostArch: "arm64",
+    arch: 3,
+    reason: "universal intermediate arm64",
+    universal: true,
+  },
 ])(
   "skips cache generation for $reason",
-  async ({ platform, hostArch, arch, reason, untrusted }) => {
+  async ({ platform, hostArch, arch, reason, untrusted, universal }) => {
     const { spawnSync } = await import("node:child_process");
     const hook = NodeURL.fileURLToPath(
       new URL("../prepare-server-compile-cache.cjs", import.meta.url),
@@ -22,7 +36,8 @@ it.each([
       process.execPath,
       [
         "-e",
-        `Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });
+        `if (${JSON.stringify(universal === true)}) process.argv.push("--universal");
+       Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });
        Object.defineProperty(process, "arch", { value: ${JSON.stringify(hostArch)} });
        require(${JSON.stringify(hook)})({ electronPlatformName: ${JSON.stringify(platform)}, arch: ${arch} }).catch(error => { console.error(error); process.exitCode = 1; });`,
       ],
@@ -42,6 +57,20 @@ it.each([
     platform: "darwin",
     hostArch: "arm64",
     arch: 1,
+    resources: "Fixture.app/Contents/Resources",
+    executable: "Fixture.app/Contents/MacOS/Fixture",
+  },
+  {
+    platform: "darwin",
+    hostArch: "x64",
+    arch: 4,
+    resources: "Fixture.app/Contents/Resources",
+    executable: "Fixture.app/Contents/MacOS/Fixture",
+  },
+  {
+    platform: "darwin",
+    hostArch: "arm64",
+    arch: 4,
     resources: "Fixture.app/Contents/Resources",
     executable: "Fixture.app/Contents/MacOS/Fixture",
   },

@@ -6,7 +6,7 @@ on:
       version:
         description: Fold release version (Linux and Android)
         required: true
-        default: 0.4.11
+        default: 0.4.12
       release_tag:
         description: Optional release tag (defaults to fold-preview-vVERSION)
         required: false
@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'mac' && '[{"runner":"macos-26","platform":"mac","target":"dmg","arch":"universal"}]' || inputs.platform == 'linux' && '[{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]' || '[{"runner":"macos-26","platform":"mac","target":"dmg","arch":"universal"},{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'mac' && '[{"runner":"macos-26-intel","platform":"mac","target":"dmg","arch":"universal"}]' || inputs.platform == 'linux' && '[{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]' || '[{"runner":"macos-26-intel","platform":"mac","target":"dmg","arch":"universal"},{"runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]') }}
     concurrency:
       group: fold-desktop-${{ matrix.platform }}
       cancel-in-progress: false

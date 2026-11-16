@@ -16,6 +16,14 @@ module.exports = async ({ appOutDir, electronPlatformName, arch, packager }) => 
     return;
   }
   const targetArch = ["ia32", "x64", "armv7l", "arm64", "universal"][arch];
+  const universal =
+    electronPlatformName === "darwin" &&
+    (targetArch === "universal" || process.argv.includes("--universal"));
+  // Architecture-specific caches cannot be merged; prepare the final app before signing.
+  if (universal && targetArch !== "universal") {
+    console.log(`[server-compile-cache] Skipping universal intermediate ${targetArch}`);
+    return;
+  }
   const runsWithRosetta =
     electronPlatformName === "darwin" &&
     process.platform === "darwin" &&
@@ -23,7 +31,7 @@ module.exports = async ({ appOutDir, electronPlatformName, arch, packager }) => 
     targetArch === "x64";
   if (
     electronPlatformName !== process.platform ||
-    (targetArch !== process.arch && !runsWithRosetta)
+    (targetArch !== process.arch && !runsWithRosetta && !universal)
   ) {
     console.log(
       `[server-compile-cache] Skipping unexecutable target ${electronPlatformName}/${targetArch}`,
