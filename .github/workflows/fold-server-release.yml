@@ -22,7 +22,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: fold-server-release-arm-capacity
+  group: fold-server-release-xcode27-capacity
   cancel-in-progress: false
 jobs:
   archives:
@@ -33,7 +33,7 @@ jobs:
         include:
           - { runner: ubuntu-24.04, platform: linux, arch: x64, key: linux-x64 }
           - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, key: linux-arm64 }
-          - { runner: macos-15, platform: mac, arch: arm64, key: darwin-arm64 }
+          - { runner: xcode-27, platform: mac, arch: arm64, key: darwin-arm64 }
           - { runner: windows-2025, platform: win, arch: x64, key: win32-x64 }
           - { runner: windows-11-arm, platform: win, arch: arm64, key: win32-arm64 }
     runs-on: ${{ matrix.runner }}
