@@ -99,7 +99,7 @@ export default defineConfig({
           {
             name: `mobile-release-react-compiler-${platform}`,
             enforce: "pre",
-            async transform(code, id) {
+            async transform(code: string, id: string) {
               if (
                 !normalizePath(id).startsWith(sourceRoot) ||
                 !/\.tsx?$/.test(id) ||
