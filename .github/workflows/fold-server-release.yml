@@ -36,13 +36,61 @@ jobs:
           - { runner: macos-15, platform: mac, arch: arm64, key: darwin-arm64 }
           - { runner: windows-2025, platform: win, arch: x64, key: win32-x64 }
           - { runner: windows-11-arm, platform: win, arch: arm64, key: win32-arm64 }
-    uses: ./.github/workflows/fold-cli-archive.yml
-    with:
-      runner: ${{ matrix.runner }}
-      platform: ${{ matrix.platform }}
-      arch: ${{ matrix.arch }}
-      version: ${{ inputs.version }}
-      artifact_name: fold-cli-${{ matrix.key }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 7cacec4879d6cc4e56cfc46dd6503a14fc214f66
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: true
+      - name: Align release versions
+        if: inputs.version != ''
+        env:
+          FOLD_VERSION: ${{ inputs.version }}
+        run: node scripts/update-release-package-versions.ts "$FOLD_VERSION"
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Build web and server bundle
+        run: vp run --filter t3 build
+      - name: Install executable build runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+      - name: Build executable
+        run: |
+          # vp pack can launch its own runtime; keep it on the repository's SEA version.
+          export VP_NODE_VERSION="$(node -p 'require("./package.json").engines.node')"
+          node apps/server/scripts/cli.ts build-exe --verbose
+      - name: Build and stage resource monitor
+        run: |
+          cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
+          key="$(node -p 'process.platform + "-" + process.arch')"
+          binary="t3-resource-monitor${{ matrix.platform == 'win' && '.exe' || '' }}"
+          mkdir -p "cli-resource-monitor/$key"
+          cp "native/resource-monitor/target/release/$binary" "cli-resource-monitor/$key/$binary"
+      - name: Package CLI archive
+        env:
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          version="$(node -p "require('./apps/server/package.json').version")"
+          node scripts/build-cli-archive.ts --platform "$BUILD_PLATFORM" --arch "$BUILD_ARCH" --version "$version" --resource-monitor-dir cli-resource-monitor --output-dir release-cli
+      - name: Smoke-test extracted executable
+        run: |
+          version="$(node -p "require('./apps/server/package.json').version")"
+          for archive in release-cli/*; do
+            node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$version"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fold-cli-${{ matrix.key }}
+          path: release-cli/*
+          if-no-files-found: error
   release:
     needs: archives
     if: github.repository == 'BreakTheBeta/T3codefold'
