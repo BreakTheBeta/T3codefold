@@ -28,6 +28,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: 7cacec4879d6cc4e56cfc46dd6503a14fc214f66
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json

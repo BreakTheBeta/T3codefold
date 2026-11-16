@@ -22,7 +22,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: fold-server-release
+  group: fold-server-release-arm-capacity
   cancel-in-progress: false
 jobs:
   archives:
@@ -33,7 +33,7 @@ jobs:
         include:
           - { runner: ubuntu-24.04, platform: linux, arch: x64, key: linux-x64 }
           - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, key: linux-arm64 }
-          - { runner: macos-26, platform: mac, arch: arm64, key: darwin-arm64 }
+          - { runner: macos-15, platform: mac, arch: arm64, key: darwin-arm64 }
           - { runner: windows-2025, platform: win, arch: x64, key: win32-x64 }
           - { runner: windows-11-arm, platform: win, arch: arm64, key: win32-arm64 }
     uses: ./.github/workflows/fold-cli-archive.yml
@@ -49,6 +49,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: 7cacec4879d6cc4e56cfc46dd6503a14fc214f66
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
@@ -84,6 +86,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export GITHUB_SHA="$(git rev-parse HEAD)"
           version="$(node -p "require('./apps/server/package.json').version")"
           tag="fold-server-v$version"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
