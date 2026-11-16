@@ -2820,7 +2820,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       icon: "icon.icns",
       // Both app slices retain these architecture-named prebuilds; their loaders
       // select the matching binary at runtime, so universal packaging must not lipo them.
-      x64ArchFiles: "**/{*.darwin-{arm64,x64}.node,*darwin-{arm64,x64}/**/*}",
+      x64ArchFiles: "**/{*.darwin-{arm64,x64}.node,*darwin-{arm64,x64}{,-metal,-cpu}/**/*}",
       category: "public.app-category.developer-tools",
       extendInfo: {
         // macOS 26 offers Messages/Mail codes in every text field unless opted out.

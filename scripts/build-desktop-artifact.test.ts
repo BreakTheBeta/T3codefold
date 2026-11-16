@@ -799,6 +799,32 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }
   });
 
+  it.effect("keeps architecture-specific speech libraries intact in universal Mac builds", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.4.12",
+        false,
+        false,
+        undefined,
+        undefined,
+        false,
+        "universal",
+      );
+      const mac = config.mac as { x64ArchFiles: string };
+      for (const file of [
+        "Contents/Resources/app.asar.unpacked/node_modules/@transcribe-cpp/darwin-arm64-metal/libggml-base.dylib",
+        "Contents/Resources/app.asar.unpacked/node_modules/@transcribe-cpp/darwin-x64-cpu/libggml-base.dylib",
+      ]) {
+        assert.isTrue(NodePath.matchesGlob(file, mac.x64ArchFiles), file);
+      }
+      assert.isFalse(
+        NodePath.matchesGlob("Contents/Resources/libunqualified.dylib", mac.x64ArchFiles),
+      );
+    }),
+  );
+
   it.effect("unpacks target Windows natives while excluding the other architecture", () =>
     Effect.scoped(
       Effect.gen(function* () {
