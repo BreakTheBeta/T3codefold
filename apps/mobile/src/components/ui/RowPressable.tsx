@@ -9,6 +9,7 @@ import { useHoverGesture } from "../../lib/useHoverGesture";
 export function RowPressable({
   controllerActivate,
   controllerKey,
+  controllerThread,
   children,
   className,
   interactionClassName = "bg-row-hover",
@@ -17,6 +18,7 @@ export function RowPressable({
 }: Omit<ComponentProps<typeof Pressable>, "children"> & {
   readonly controllerActivate?: () => void;
   readonly controllerKey?: string;
+  readonly controllerThread?: boolean;
   readonly children: ReactNode;
   readonly interactionClassName?: string;
   readonly interactionOpacity?: number;
@@ -39,6 +41,7 @@ export function RowPressable({
           scopeBoundary={false}
           {...props}
           onActivate={controllerActivate}
+          thread={controllerThread}
           controllerKey={controllerKey}
           className={cn("relative overflow-hidden", className)}
         >

@@ -39,6 +39,12 @@ it("dictates into the current reply from a non-text action without crossing moda
   expect(activate).not.toHaveBeenCalled();
   expect(targets.dispatch("", "dictate", "modal")).toBe(false);
   expect(dictate).toHaveBeenCalledTimes(2);
+  targets.register(
+    "unavailable-reply",
+    { activate, dictate: () => false, reply: true },
+    "thread-b",
+  );
+  expect(targets.dispatch("", "dictate", "thread-b")).toBe(false);
 });
 
 it("keeps held navigation armed when virtualized inline actions mount and unmount", () => {

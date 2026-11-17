@@ -21,6 +21,7 @@ android {
     targetSdkVersion rootProject.ext.targetSdkVersion
   }
   buildFeatures { compose true }
+  testOptions { unitTests.includeAndroidResources = true }
 }
 
 dependencies {
@@ -31,9 +32,11 @@ dependencies {
   implementation 'androidx.compose.material3:material3-android:1.5.0-alpha17'
   implementation 'androidx.window:window:1.5.1'
   testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.robolectric:robolectric:4.16.1'
 }
 
 tasks.withType(Test).configureEach {
+  systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
   javaLauncher = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(21)
   }

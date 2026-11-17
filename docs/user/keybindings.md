@@ -251,20 +251,23 @@ Keyboard, touch, and Vim navigation remain available.
 
 ### Android controller console
 
-Press **Options** to enable controller mode. The footer shows when it is active;
-choose **Disable controller** there with touch or the controller to leave it.
-Moving the app to the background or disconnecting the controller also disables
-it. Press Options again to enable it, and release held controls after changing
+Press **Start / Options** to enable controller mode. To leave it, open commands
+and choose **Disable controller**.
+Controller input pauses while the app is in the background. Disconnecting the
+controller disables it. Press Options again to enable it, and release held controls after changing
 threads or requests before choosing another action.
 
-Use the D-pad or left stick to focus actions, **Cross** to select, and **Circle**
-for Android Back, including hiding the keyboard before leaving a screen.
-**Square** starts or finishes dictation in a focused composer, custom question
+Use the D-pad or left stick to focus actions, **A / Cross** to select, and **B / Circle**
+to leave reply editing, then go back. Leaving reply editing hides the keyboard
+and returns focus to the conversation so directions navigate again.
+**X / Square** starts or finishes dictation in a focused composer, custom question
 answer, or palette search; Circle cancels recording. **Triangle** focuses
 Submit or Send for review, and Cross activates it. **L1/R1** switch threads,
 **L2/R2** page the focused content, and the right stick scrolls. While enabled,
 Options opens commands and **Share/Create** opens the searchable thread chooser.
-**L3** enters the conversation and **R3** focuses the reply. Square can start reply
+Selecting a thread enters its conversation. **Right** from a thread enters the chat;
+from the conversation, **Left** returns to the selected thread and **Right** focuses
+the reply. **L3** enters the conversation and **R3** focuses the reply. X / Square can start reply
 dictation directly from a non-text action in the current screen. The right stick
 continues to scroll the conversation while its reply is focused.
 

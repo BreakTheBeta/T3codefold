@@ -1052,12 +1052,13 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                   reply
                   controllerKey={composerDraftKey ?? "draft"}
                   style={{ flex: 1 }}
-                  accessibilityLabel="Message. Square dictates"
+                  accessibilityLabel="Message. X or Square dictates"
                   disabled={props.hidden || isSubmissionLocked}
                   onActivate={() => inputRef.current?.focus()}
                   onDictate={() => {
                     if (voiceInput.isBusy) voiceInput.stop();
                     else if (voiceInput.isAvailable) voiceInput.start();
+                    else return false;
                   }}
                 >
                   <ComposerEditor

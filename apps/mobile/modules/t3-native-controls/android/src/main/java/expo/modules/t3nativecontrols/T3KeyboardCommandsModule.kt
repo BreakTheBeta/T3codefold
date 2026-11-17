@@ -12,7 +12,7 @@ class T3KeyboardCommandsModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("T3KeyboardCommands")
 
-    OnActivityEntersBackground { T3ControllerRouter.reset() }
+    OnActivityEntersBackground { T3ControllerRouter.suspend() }
 
     View(T3KeyboardCommandsView::class) {
       Prop("enabledCommands") { view: T3KeyboardCommandsView, commands: List<String> ->

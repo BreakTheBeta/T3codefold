@@ -1442,6 +1442,7 @@ function ThreadDetailBody(
   return (
     <View
       ref={detailViewRef}
+      nativeID="t3-controller-chat"
       onLayout={(event) => {
         measureDetailViewport();
         handleScreenLayout(event);

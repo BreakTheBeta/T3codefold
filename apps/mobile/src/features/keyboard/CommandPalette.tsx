@@ -11,6 +11,7 @@ import { controllerDictation } from "../controller/controllerDictation";
 import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { dismissAndroidKeyboard } from "../../lib/android-back";
+import { disableAndroidController } from "../../native/controllerBack";
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { useAtomValue } from "@effect/atom-react";
 import { uuidv4 } from "../../lib/uuid";
@@ -480,6 +481,14 @@ export function CommandPalette(props: {
         })),
       );
     }
+    if (Platform.OS === "android")
+      actions.push({
+        key: "disableController",
+        kind: "action",
+        title: "Disable controller",
+        searchTerms: ["gamepad", "controller", "off"],
+        run: () => void disableAndroidController(),
+      });
     const openProjects = projects.filter((project) => project.archivedAt == null);
     const projectItems: CommandPaletteItem[] = [
       ...openProjects.filter((project) => project.pinnedAt != null),

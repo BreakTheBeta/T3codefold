@@ -215,7 +215,7 @@ private class T3KeyboardWindowCallback(
     T3ControllerRouter.motion(event, root) || delegate.dispatchGenericMotionEvent(event)
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
-    if (!hasFocus) T3ControllerRouter.reset(keepEnabled = true)
+    if (!hasFocus) T3ControllerRouter.suspend()
     delegate.onWindowFocusChanged(hasFocus)
   }
 

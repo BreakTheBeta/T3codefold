@@ -1,7 +1,7 @@
 export function createControllerTargets() {
   const targets = new Map<
     string,
-    { activate: () => void; dictate?: () => void; reply?: boolean; scope: string }
+    { activate: () => void; dictate?: () => boolean | void; reply?: boolean; scope: string }
   >();
   const listeners = new Set<() => void>();
   const versions = new Map<string, number>();
@@ -21,7 +21,7 @@ export function createControllerTargets() {
     },
     register(
       id: string,
-      target: { activate: () => void; dictate?: () => void; reply?: boolean },
+      target: { activate: () => void; dictate?: () => boolean | void; reply?: boolean },
       scope = "",
       scopeBoundary = true,
     ) {
@@ -42,9 +42,11 @@ export function createControllerTargets() {
           ? [...targets.values()].find((candidate) => candidate.scope === scope && candidate.reply)
           : focused;
       if (!target || target.scope !== scope) return false;
-      const handler = action === "activate" ? target.activate : target.dictate;
-      handler?.();
-      return handler !== undefined;
+      if (action === "activate") {
+        target.activate();
+        return true;
+      }
+      return target.dictate !== undefined && target.dictate() !== false;
     },
   };
 }

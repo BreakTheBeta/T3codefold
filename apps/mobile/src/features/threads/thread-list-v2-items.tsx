@@ -1481,6 +1481,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     variant === "card" ? (
       <RowPressable
         key={`${thread.environmentId}:${thread.id}`}
+        controllerThread
         controllerKey={`${thread.environmentId}:${thread.id}`}
         controllerActivate={() => {
           close();
@@ -1520,6 +1521,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     ) : (
       <RowPressable
         key={`${thread.environmentId}:${thread.id}`}
+        controllerThread
         controllerKey={`${thread.environmentId}:${thread.id}`}
         controllerActivate={() => {
           close();

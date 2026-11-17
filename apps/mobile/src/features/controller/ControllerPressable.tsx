@@ -9,26 +9,28 @@ export function ControllerPressable({
   onDictate,
   footer,
   reply,
+  thread,
   scopeBoundary = true,
   touchPassthrough = false,
   ...props
 }: PressableProps & {
   readonly controllerKey?: string;
   readonly onActivate: () => void;
-  readonly onDictate?: () => void;
+  readonly onDictate?: () => boolean | void;
   readonly footer?: boolean;
   readonly reply?: boolean;
+  readonly thread?: boolean;
   readonly scopeBoundary?: boolean;
   readonly touchPassthrough?: boolean;
 }) {
   const scope = use(ControllerScope);
-  const id = `t3-controller:${footer ? "footer:" : reply ? "reply:" : ""}${useId()}:${scope}:${controllerKey}`;
+  const id = `t3-controller:${footer ? "footer:" : reply ? "reply:" : thread ? "thread:" : ""}${useId()}:${scope}:${controllerKey}`;
   const [focused, setFocused] = useState(false);
   const activate = useEffectEvent(() => {
     if (!props.disabled) onActivate();
   });
   const dictate = useEffectEvent(() => {
-    if (!props.disabled) onDictate?.();
+    return props.disabled ? false : onDictate?.();
   });
   const hasDictation = onDictate !== undefined;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this native focus target's semantic action for controller events
