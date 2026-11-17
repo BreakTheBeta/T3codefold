@@ -48,7 +48,7 @@ export function ControllerConsole({
           action === "decrement" ||
           action === "increment"
         ) {
-          if (action === "dictate")
+          if (action === "dictate" || (action === "activate" && !voice.isBusy))
             controllerDictation.start(surface, voice.session, () => {
               controllerTargets.dispatch(targetId, action, scope);
             });
