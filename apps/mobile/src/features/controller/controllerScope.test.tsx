@@ -5,7 +5,11 @@ vi.mock("react-native", () => ({
   Platform: { OS: "android" },
   Pressable: ({ children }: { children: React.ReactNode }) => children,
 }));
-import { ControllerScope, useControllerNativeScope } from "./controllerScope";
+import {
+  ControllerTargetLifecycle,
+  ControllerScope,
+  useControllerNativeScope,
+} from "./controllerScope";
 import { ControllerPressable } from "./ControllerPressable";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 it("publishes request, question, and effective availability changes to the native scope", () => {
@@ -45,6 +49,29 @@ it("publishes request, question, and effective availability changes to the nativ
     const questionChanged = nativeScope;
     act(() => root.render(<Probe request="request-b" question="question-b" disabled />));
     expect(nativeScope).not.toBe(questionChanged);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it("does not replace the native scope when generic controls in a virtualized feed recycle", () => {
+  let nativeScope = "";
+  function Probe({ row }: { row: string }) {
+    nativeScope = useControllerNativeScope("feed");
+    return (
+      <ControllerScope value="feed">
+        <ControllerTargetLifecycle value={false}>
+          <ControllerPressable key={row} onActivate={() => {}} />
+        </ControllerTargetLifecycle>
+      </ControllerScope>
+    );
+  }
+  const root = createRoot(document.createElement("div"));
+  try {
+    act(() => root.render(<Probe row="first" />));
+    const initial = nativeScope;
+    act(() => root.render(<Probe row="second" />));
+    expect(nativeScope).toBe(initial);
   } finally {
     act(() => root.unmount());
   }

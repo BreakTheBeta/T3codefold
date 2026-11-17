@@ -12,6 +12,7 @@ export function T3KeyboardCommands(
     readonly onCommand: (command: HardwareKeyboardCommand) => void;
     readonly controllerScope?: string;
     readonly controllerSelection?: boolean;
+    readonly controllerRecording?: boolean;
     readonly onController?: (event: { readonly action: string; readonly targetId: string }) => void;
     readonly vimKeysEnabled?: boolean;
     readonly onVimKey?: (key: VimKey) => void;

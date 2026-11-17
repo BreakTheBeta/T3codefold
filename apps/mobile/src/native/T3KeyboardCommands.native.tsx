@@ -10,6 +10,7 @@ type VimKey = { readonly key: string; readonly ctrl?: boolean };
 interface NativeKeyboardCommandsProps extends ViewProps {
   readonly controllerScope?: string;
   readonly controllerSelection?: boolean;
+  readonly controllerRecording?: boolean;
   readonly controllerEvents?: boolean;
   readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
   readonly onCommand: (
@@ -30,6 +31,7 @@ export function T3KeyboardCommands(
     readonly onCommand: (command: HardwareKeyboardCommand) => void;
     readonly controllerScope?: string;
     readonly controllerSelection?: boolean;
+    readonly controllerRecording?: boolean;
     readonly onController?: (event: { readonly action: string; readonly targetId: string }) => void;
     readonly vimKeysEnabled?: boolean;
     readonly onVimKey?: (key: VimKey) => void;
@@ -42,6 +44,7 @@ export function T3KeyboardCommands(
         ? {
             controllerScope: props.controllerScope ?? "",
             controllerSelection: props.controllerSelection ?? false,
+            controllerRecording: props.controllerRecording ?? false,
             controllerEvents: props.onController !== undefined,
             onController: (
               event: NativeSyntheticEvent<{ readonly action: string; readonly targetId: string }>,

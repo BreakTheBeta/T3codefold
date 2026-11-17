@@ -110,11 +110,16 @@ it("dictates into the current field and selection, stops recording, and unregist
   const container = document.createElement("div");
   const root = createRoot(container);
   const change = vi.fn();
-  const render = (value: string, editable = true) =>
+  const render = (value: string, editable = true, selection?: { start: number; end: number }) =>
     act(() =>
       root.render(
         <ControllerScope value="settings">
-          <ControllerTextInput value={value} editable={editable} onChangeText={change} />
+          <ControllerTextInput
+            value={value}
+            editable={editable}
+            selection={selection}
+            onChangeText={change}
+          />
         </ControllerScope>,
       ),
     );
@@ -128,6 +133,8 @@ it("dictates into the current field and selection, stops recording, and unregist
     render("current");
     expect(readDraft()).toBe("current");
     expect(voice.input!.selection).toEqual({ start: 1, end: 3 });
+    render("current", true, { start: 2, end: 4 });
+    expect(voice.input!.selection).toEqual({ start: 2, end: 4 });
     act(() => {
       expect(controllerTargets.dispatch(id, "dictate", "settings")).toBe(true);
     });

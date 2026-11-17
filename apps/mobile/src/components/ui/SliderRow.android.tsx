@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import { useRef } from "react";
 import { View } from "react-native";
 
+import { ControllerPressable } from "../../features/controller/ControllerPressable";
 import { AppText as Text } from "./AppText";
 import { SymbolView } from "./AppSymbol";
 import { NativeThemeHost } from "./NativeThemeHost.android";
@@ -31,7 +32,11 @@ export function SliderRow(props: SliderRowProps) {
         <Text className="min-w-0 flex-1 text-base">{props.label}</Text>
         <Text className="text-sm text-foreground-muted">{props.valueLabel}</Text>
       </View>
-      <View
+      <ControllerPressable
+        touchPassthrough
+        disabled={props.disabled}
+        onActivate={() => {}}
+        onAdjust={(direction) => commit(props.value + direction * props.step)}
         accessible
         accessibilityLabel={props.label}
         accessibilityRole="adjustable"
@@ -73,7 +78,7 @@ export function SliderRow(props: SliderRowProps) {
             />
           </NativeThemeHost>
         </View>
-      </View>
+      </ControllerPressable>
     </View>
   );
 }

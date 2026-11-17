@@ -37,10 +37,13 @@ it("resets only a recording started by that controller surface, retaining later 
     state: { phase: "idle", error: null, errorAction: null },
   };
   ownership.start("workspace", session, recording);
+  expect(ownership.owns("workspace")).toBe(true);
+  expect(ownership.owns("unrelated-sheet")).toBe(false);
   ownership.cancel("unrelated-sheet");
   expect(session.controller.cancel).not.toHaveBeenCalled();
   ownership.cancel("workspace");
   expect(session.controller.cancel).toHaveBeenCalledOnce();
+  expect(ownership.owns("workspace")).toBe(false);
   snapshot = {
     ownerKey: null,
     focusedOwners: new Set<string>(),
@@ -56,6 +59,7 @@ it("resets only a recording started by that controller surface, retaining later 
   recording();
   ownership.cancel("workspace");
   expect(session.controller.cancel).toHaveBeenCalledOnce();
+  expect(ownership.owns("workspace")).toBe(false);
   snapshot = {
     ownerKey: null,
     focusedOwners: new Set<string>(),

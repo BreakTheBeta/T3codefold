@@ -30,6 +30,7 @@ export function ControllerConsole({
   return (
     <T3KeyboardCommands
       controllerScope={nativeScope}
+      controllerRecording={voice.isBusy && controllerDictation.owns(surface)}
       enabledCommands={[]}
       onCommand={() => {}}
       onController={({ action, targetId }) => {
@@ -38,17 +39,22 @@ export function ControllerConsole({
           return;
         }
         if (action === "dictate" && voice.isBusy) {
-          voice.stop();
+          if (controllerDictation.owns(surface)) voice.stop();
           return;
         }
-        if (action === "activate" || action === "dictate") {
+        if (
+          action === "activate" ||
+          action === "dictate" ||
+          action === "decrement" ||
+          action === "increment"
+        ) {
           if (action === "dictate")
             controllerDictation.start(surface, voice.session, () => {
               controllerTargets.dispatch(targetId, action, scope);
             });
           else controllerTargets.dispatch(targetId, action, scope);
         } else if (action === "back" || action === "editingEnded") {
-          if (voice.isBusy) voice.cancel();
+          if (voice.isBusy && controllerDictation.owns(surface)) voice.cancel();
           else if (action === "back") (onBack ?? requestAndroidBack)();
         } else if (action === "menu") onCommand?.("commandPalette");
         else if (action === "chooser") onCommand?.("commandPalette");

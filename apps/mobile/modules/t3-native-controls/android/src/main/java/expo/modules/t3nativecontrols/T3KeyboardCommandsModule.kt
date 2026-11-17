@@ -21,6 +21,7 @@ class T3KeyboardCommandsModule : Module() {
       Prop("controllerScope") { view: T3KeyboardCommandsView, scope: String ->
         if (view.controllerScope != scope) { view.controllerScope = scope; T3ControllerRouter.scopeChanged() }
       }
+      Prop("controllerRecording") { view: T3KeyboardCommandsView, busy: Boolean -> view.controllerRecording = busy }
       Prop("controllerSelection") { view: T3KeyboardCommandsView, enabled: Boolean -> view.controllerSelection = enabled }
       Prop("controllerEvents") { view: T3KeyboardCommandsView, enabled: Boolean -> view.controllerEvents = enabled }
       Prop("vimKeysEnabled") { view: T3KeyboardCommandsView, enabled: Boolean ->
@@ -41,6 +42,7 @@ class T3KeyboardCommandsView(
   private val onVimKey by EventDispatcher()
   var controllerScope = ""
   var controllerSelection = false
+  var controllerRecording = false
   var controllerEvents = false
   var enabledCommands = emptySet<String>()
   var vimKeysEnabled = false

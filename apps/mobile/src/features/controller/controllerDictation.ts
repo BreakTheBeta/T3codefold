@@ -20,6 +20,11 @@ export function createControllerDictationOwnership() {
     previous?.unsubscribe();
   };
   return {
+    owns(surface: string) {
+      if (owned?.surface !== surface) return false;
+      const current = owned.session.getSnapshot();
+      return current.ownerKey === owned.ownerKey && voiceInputBlocksSubmission(current.state);
+    },
     start(surface: string, session: Session, start: () => unknown) {
       if (voiceInputBlocksSubmission(session.getSnapshot().state)) return;
       start();

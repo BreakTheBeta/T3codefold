@@ -1,7 +1,13 @@
 export function createControllerTargets() {
   const targets = new Map<
     string,
-    { activate: () => void; dictate?: () => boolean | void; reply?: boolean; scope: string }
+    {
+      activate: () => void;
+      dictate?: () => boolean | void;
+      adjust?: (direction: -1 | 1) => void;
+      reply?: boolean;
+      scope: string;
+    }
   >();
   const listeners = new Set<() => void>();
   const versions = new Map<string, number>();
@@ -21,7 +27,12 @@ export function createControllerTargets() {
     },
     register(
       id: string,
-      target: { activate: () => void; dictate?: () => boolean | void; reply?: boolean },
+      target: {
+        activate: () => void;
+        dictate?: () => boolean | void;
+        adjust?: (direction: -1 | 1) => void;
+        reply?: boolean;
+      },
       scope = "",
       scopeBoundary = true,
     ) {
@@ -35,7 +46,7 @@ export function createControllerTargets() {
         }
       };
     },
-    dispatch(id: string, action: "activate" | "dictate", scope = "") {
+    dispatch(id: string, action: "activate" | "dictate" | "decrement" | "increment", scope = "") {
       const focused = targets.get(id);
       const target =
         action === "dictate" && (id === "" || (focused?.scope === scope && !focused.dictate))
@@ -44,6 +55,11 @@ export function createControllerTargets() {
       if (!target || target.scope !== scope) return false;
       if (action === "activate") {
         target.activate();
+        return true;
+      }
+      if (action === "decrement" || action === "increment") {
+        if (!target.adjust) return false;
+        target.adjust(action === "decrement" ? -1 : 1);
         return true;
       }
       return target.dictate !== undefined && target.dictate() !== false;

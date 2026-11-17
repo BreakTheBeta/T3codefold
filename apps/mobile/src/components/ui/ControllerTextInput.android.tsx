@@ -10,7 +10,10 @@ import type { ControllerTextInputProps } from "./ControllerTextInput";
 export function ControllerTextInput({ ref, containerStyle, ...props }: ControllerTextInputProps) {
   const inputRef = useRef<TextInputInstance>(null);
   const id = useId();
-  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [nativeSelection, setSelection] = useState({ start: 0, end: 0 });
+  const selection = props.selection
+    ? { start: props.selection.start, end: props.selection.end ?? props.selection.start }
+    : nativeSelection;
   const readDraftMessage = useEffectEvent(() => props.value ?? "");
   const voice = useVoiceInputController({
     ownerKey: `controller-input:${id}`,

@@ -56,12 +56,16 @@ internal object T3ControllerRouter {
   private var owner: View? = null
   private val analogTriggers = mutableSetOf<Int>()
   private var highlighted: View? = null
+  private var conversationOwner: WeakReference<View>? = null
   private var ring: android.graphics.drawable.GradientDrawable? = null
   private fun focus(target: View?) {
     clearRing()
     target ?: return
     target.isFocusableInTouchMode = true
     if (!target.requestFocus()) return
+    conversationOwner = generateSequence(target) { it.parent as? View }
+      .firstOrNull { id(it) == "t3-controller-conversation" || id(it) == "t3-controller-chat" }
+      ?.let { WeakReference(it) }
     val drawable = android.graphics.drawable.GradientDrawable().apply {
       setColor(android.graphics.Color.TRANSPARENT)
       setStroke((3 * target.resources.displayMetrics.density).toInt(), android.graphics.Color.YELLOW)
@@ -93,6 +97,7 @@ internal object T3ControllerRouter {
   fun suspend() = reset(keepEnabled = true, cancelDictation = false)
   fun reset(keepEnabled: Boolean = false, cancelDictation: Boolean = true) {
     conversationEntry = null
+    conversationOwner = null
     stopScroll()
     clearRing()
     inputState.scopeChanged()
@@ -120,51 +125,94 @@ internal object T3ControllerRouter {
     visit(root)
     return result
   }
-  private fun move(root: View, action: String) {
+  private fun within(target: View?, container: View) =
+    target != null && generateSequence(target) { it.parent as? View }.any { it === container }
+  private fun findScroller(view: View, amount: Int): android.widget.ScrollView? {
+    if (!view.isShown || !view.getGlobalVisibleRect(Rect())) return null
+    if (view is android.widget.ScrollView && view.canScrollVertically(if (amount < 0) -1 else 1)) return view
+    if (view is ViewGroup) for (index in 0 until view.childCount) findScroller(view.getChildAt(index), amount)?.let { return it }
+    return null
+  }
+  private fun scrollAncestor(target: View?, root: View): android.widget.ScrollView? =
+    generateSequence(target) { if (it === root) null else it.parent as? View }
+      .filterIsInstance<android.widget.ScrollView>().firstOrNull()
+  internal fun adjust(root: View, action: String, emit: (String, String) -> Unit): Boolean {
+    if (action != "left" && action != "right") return false
+    val target = generateSequence(root.findFocus()) { it.parent as? View }
+      .firstOrNull { id(it)?.startsWith("t3-controller:adjustable:") == true } ?: return false
+    if (target !in targets(root)) return false
+    emit(if (action == "left") "decrement" else "increment", id(target) ?: "")
+    return true
+  }
+  internal fun move(root: View, action: String) {
     val candidates = targets(root)
-    val current = root.findFocus()
     val chat = conversation(root)
+    if (chat != null && conversationOwner?.get() === chat && highlighted?.let { !within(it, root) } == true) focus(chat)
+    val current = root.findFocus()
+    val reply = candidates.firstOrNull { id(it)?.startsWith("t3-controller:reply:") == true }
     val threads = candidates.filter { id(it)?.startsWith("t3-controller:thread:") == true }
+    val inReply = reply != null && within(current, reply)
+    val inChat = chat != null && within(current, chat) && !inReply
     if (action == "right" && current in threads && chat != null) { focus(chat); return }
-    if (chat != null && current === chat) {
+    if (inChat) {
       if (action == "left" && threads.isNotEmpty()) {
         focus(threads.firstOrNull { it.isSelected } ?: threads.first()); return
       }
-      if (action == "right") {
-        focus(candidates.firstOrNull { id(it)?.startsWith("t3-controller:reply:") == true }); return
-      }
+      if (action == "right" && reply != null) { focus(reply); return }
     }
-    if (action == "left" && id(current)?.startsWith("t3-controller:reply:") == true && chat != null) {
-      focus(chat); return
+    if (inReply && chat != null) {
+      if (action == "left") { focus(chat); return }
+      if (action == "up") {
+        focus(candidates.lastOrNull { within(it, chat) } ?: chat); return
+      }
     }
     val currentRect = Rect()
     current?.getGlobalVisibleRect(currentRect)
-    val next = if (current !in candidates) {
-      val local = if (current is ViewGroup) candidates.filter { target -> generateSequence(target.parent) { it.parent }.any { it === current } } else emptyList()
-      val available = if (local.isNotEmpty()) local else if (current === chat) {
-        candidates.filter { id(it)?.startsWith("t3-controller:reply:") == true }
-      } else candidates
+    val amount = (chat?.takeIf { inChat }?.height ?: root.height).let { (it * .65f).toInt().coerceAtLeast(1) } * if (action == "up") -1 else 1
+    val localScroller = if (!inChat && action in listOf("up", "down")) scrollAncestor(current, root) else null
+    val local = if (inChat) candidates.filter { within(it, chat) }
+      else if (localScroller?.canScrollVertically(if (amount < 0) -1 else 1) == true) candidates.filter { within(it, localScroller) }
+      else candidates
+    val next = if (current !in local) {
+      val descendants = if (current is ViewGroup) local.filter { within(it, current) } else emptyList()
+      val available = if (descendants.isNotEmpty()) descendants else local
       available.let { if (action == "up" || action == "left") it.lastOrNull() else it.firstOrNull() }
-    } else candidates.filter { it !== current }.mapNotNull { target ->
+    } else local.filter { it !== current }.mapNotNull { target ->
       val rect = Rect(); target.getGlobalVisibleRect(rect)
       val dx = rect.centerX() - currentRect.centerX(); val dy = rect.centerY() - currentRect.centerY()
       val primary = when(action) { "left" -> -dx; "right" -> dx; "up" -> -dy; else -> dy }
       val secondary = if (action == "left" || action == "right") dy else dx
       if (primary <= 0) null else target to (primary.toLong() * primary + 4L * secondary * secondary)
     }.minByOrNull { it.second }?.first
-    focus(next)
+    if (next != null) { focus(next); return }
+    if ((inChat || localScroller != null) && action in listOf("up", "down")) {
+      val region = if (inChat) chat!! else localScroller!!
+      val scroller = if (inChat) findScroller(region, amount) else localScroller?.takeIf { it.canScrollVertically(if (amount < 0) -1 else 1) }
+      if (scroller != null) {
+        focus(region)
+        scroller.scrollBy(0, amount)
+        val visible = targets(region)
+        val viewport = Rect().also { region.getGlobalVisibleRect(it) }
+        val fullyVisible = visible.filter { target ->
+          val location = IntArray(2); target.getLocationOnScreen(location)
+          location[1] >= viewport.top && location[1] + target.height <= viewport.bottom
+        }
+        focus(if (action == "down") fullyVisible.firstOrNull() ?: region else fullyVisible.lastOrNull() ?: region)
+      } else if (inChat && action == "down") focus(reply ?: chat)
+      return
+    }
   }
   private fun navigate(view: T3KeyboardCommandsView, action: String?) {
     if (direction == action && owner === view) return
     repeat?.let { handler.removeCallbacks(it) }; repeat = null
     direction = action; owner = view
     if (action == null) return
-    if (view.controllerSelection) view.emitController(action) else move(view, action)
+    if (view.controllerSelection) view.emitController(action) else if (!adjust(view, action) { dispatched, target -> view.emitController(dispatched, target) }) move(view, action)
     val capturedGeneration = inputState.generation
     val task = object : Runnable {
       override fun run() {
         if (!enabled || !inputState.canRepeat(capturedGeneration, view.rootView.findFocus()?.onCheckIsTextEditor() == true, view.controllerSelection) || !view.hasWindowFocus() || !view.isAttachedToWindow) return
-        if (view.controllerSelection) view.emitController(action) else move(view, action)
+        if (view.controllerSelection) view.emitController(action) else if (!adjust(view, action) { dispatched, target -> view.emitController(dispatched, target) }) move(view, action)
         handler.postDelayed(this, 100)
       }
     }
@@ -223,17 +271,35 @@ internal object T3ControllerRouter {
     else if (action == "activate" || action == "dictate") {
       activate(view, action) { dispatched, target -> view.emitController(dispatched, target) }
     }
-    else if (action == "back" && !view.controllerSelection && leaveEditor(view)) view.emitController("editingEnded")
+    else if (action == "back" && !view.controllerSelection && !view.controllerRecording && back(view)) view.emitController("editingEnded")
     else if (action == "pageUp" || action == "pageDown") scroll(view, if (action == "pageUp") -500 else 500)
     else view.emitController(action)
     return true
   }
+  internal fun back(root: View): Boolean {
+    if (leaveEditor(root)) return true
+    val chat = conversation(root) ?: return false
+    val current = root.findFocus()
+    val candidates = targets(root)
+    val reply = candidates.firstOrNull { id(it)?.startsWith("t3-controller:reply:") == true }
+    if (reply != null && within(current, reply)) { focus(chat); return true }
+    if (within(current, chat)) {
+      val threads = candidates.filter { id(it)?.startsWith("t3-controller:thread:") == true }
+      val destination = threads.firstOrNull { it.isSelected } ?: threads.firstOrNull() ?: return false
+      focus(destination); return true
+    }
+    return false
+  }
   internal fun leaveEditor(root: View): Boolean {
     val editor = root.findFocus()?.takeIf { it.onCheckIsTextEditor() } ?: return false
-    val chat = conversation(root) ?: return false
+    val wrapper = generateSequence(editor.parent as? View) { if (it === root) null else it.parent as? View }
+      .firstOrNull { id(it)?.startsWith("t3-controller:") == true && it in targets(root) }
+    val destination = if (id(wrapper)?.startsWith("t3-controller:reply:") == true) conversation(root) ?: wrapper
+      else wrapper ?: conversation(root)
+    destination ?: return false
     (root.context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
       .hideSoftInputFromWindow(editor.windowToken, 0)
-    focus(chat)
+    focus(destination)
     return true
   }
   internal fun activate(root: View, action: String, emit: (String, String) -> Unit) {
@@ -258,22 +324,16 @@ internal object T3ControllerRouter {
     return if (id(root) == "t3-controller-chat") root else null
   }
   private fun scroll(root: View, amount: Int) {
-    fun findScroller(view: View): android.widget.ScrollView? {
-      if (!view.isShown || !view.getGlobalVisibleRect(Rect())) return null
-      if (view is android.widget.ScrollView && view.canScrollVertically(if (amount < 0) -1 else 1)) return view
-      if (view is ViewGroup) for (index in 0 until view.childCount) findScroller(view.getChildAt(index))?.let { return it }
-      return null
-    }
     val focusedTarget = root.findFocus()
     if (focusedTarget == null || generateSequence(focusedTarget) { it.parent as? View }.any { id(it)?.startsWith("t3-controller:reply:") == true }) {
       conversation(root)?.let { content ->
-        findScroller(content)?.smoothScrollBy(0, amount)
+        findScroller(content, amount)?.smoothScrollBy(0, amount)
         return
       }
     }
     var focused = focusedTarget
     while (focused != null) {
-      findScroller(focused)?.let { it.smoothScrollBy(0, amount); return }
+      findScroller(focused, amount)?.let { it.smoothScrollBy(0, amount); return }
       if (id(focused) == "t3-controller-conversation") return
       if (focused === root) return
       focused = focused.parent as? View

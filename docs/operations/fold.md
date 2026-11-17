@@ -21,6 +21,11 @@ run in a checkout. The cache is per checkout; a new worktree warms its own.
   errors.
 - Typecheck covers the workspaces listed in `TYPECHECK_GATED`; add a workspace there once it
   typechecks cleanly.
+- Android controller changes also run the native navigation contract tests before the JavaScript
+  suites. This requires a configured Android SDK/JDK and an existing incremental native project
+  (`vp run mobile:install android --prepare` creates it). A missing native project or failed
+  native test blocks the push. See the [navigation contract](../internals/controller-navigation.md)
+  for the distinction between adapter tests and physical controller acceptance.
 - Checks run against the working tree, so push the checked-out branch.
 - A test that writes files inside its own package can't be cached; keep test scratch files in
   the OS temp directory.
