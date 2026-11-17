@@ -1,6 +1,6 @@
 import { ControllerScope } from "./controllerScope";
 import { use, useEffect, useId, useState, useEffectEvent } from "react";
-import { Platform, Pressable, type PressableProps } from "react-native";
+import { Platform, Pressable, View, type PressableProps } from "react-native";
 import { controllerTargets } from "./controllerTargets";
 
 export function ControllerPressable({
@@ -10,6 +10,7 @@ export function ControllerPressable({
   footer,
   reply,
   scopeBoundary = true,
+  touchPassthrough = false,
   ...props
 }: PressableProps & {
   readonly controllerKey?: string;
@@ -18,6 +19,7 @@ export function ControllerPressable({
   readonly footer?: boolean;
   readonly reply?: boolean;
   readonly scopeBoundary?: boolean;
+  readonly touchPassthrough?: boolean;
 }) {
   const scope = use(ControllerScope);
   const id = `t3-controller:${footer ? "footer:" : reply ? "reply:" : ""}${useId()}:${scope}:${controllerKey}`;
@@ -39,6 +41,19 @@ export function ControllerPressable({
       scopeBoundary,
     );
   }, [id, props.disabled, hasDictation, reply, scope, scopeBoundary]);
+  // Native text editors own their drags; Pressability would cancel those gestures.
+  if (touchPassthrough) {
+    return (
+      <View
+        nativeID={props.disabled ? undefined : id}
+        focusable={!props.disabled}
+        accessibilityLabel={props.accessibilityLabel}
+        style={typeof props.style === "function" ? props.style({ pressed: false }) : props.style}
+      >
+        {typeof props.children === "function" ? props.children({ pressed: false }) : props.children}
+      </View>
+    );
+  }
   return (
     <Pressable
       {...props}

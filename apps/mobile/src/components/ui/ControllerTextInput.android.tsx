@@ -39,11 +39,11 @@ export function ControllerTextInput({ ref, containerStyle, ...props }: Controlle
   );
   return (
     <ControllerPressable
+      touchPassthrough
       style={containerStyle}
       accessibilityLabel={props.accessibilityLabel ?? props.placeholder}
       disabled={props.editable === false}
       onActivate={() => inputRef.current?.focus()}
-      onPress={() => inputRef.current?.focus()}
       onDictate={() => {
         if (voice.isBusy) voice.stop();
         else if (voice.isAvailable) voice.start();

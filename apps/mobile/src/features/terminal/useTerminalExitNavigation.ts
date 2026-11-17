@@ -1,6 +1,12 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { useEffect, useEffectEvent, useRef } from "react";
 
+export interface TerminalInspectorNavigation {
+  readonly active: boolean;
+  readonly close: () => void;
+  readonly selectTerminal: (terminalId: string) => void;
+}
+
 /**
  * Leaves a terminal screen whose shell exited: to another live terminal of the
  * thread, else back. Screen navigation acts on the top route of the stack, so
@@ -11,20 +17,28 @@ export function useTerminalExitNavigation(target: {
   readonly environmentId: string;
   readonly threadId: string;
   readonly readFallbackTerminalId: () => string | null;
+  readonly inspectorNavigation?: TerminalInspectorNavigation;
 }) {
   const navigation = useNavigation();
   const pendingRef = useRef(false);
 
-  const navigateAway = useEffectEvent(() => {
-    const fallbackTerminalId = target.readFallbackTerminalId();
-    if (fallbackTerminalId !== null) {
-      navigation.dispatch(
-        StackActions.replace("ThreadTerminal", {
-          environmentId: target.environmentId,
-          threadId: target.threadId,
-          terminalId: fallbackTerminalId,
-        }),
-      );
+  const selectTerminal = (terminalId: string) => {
+    if (target.inspectorNavigation) {
+      target.inspectorNavigation.selectTerminal(terminalId);
+      return;
+    }
+    navigation.dispatch(
+      StackActions.replace("ThreadTerminal", {
+        environmentId: target.environmentId,
+        threadId: target.threadId,
+        terminalId,
+      }),
+    );
+  };
+
+  const close = () => {
+    if (target.inspectorNavigation) {
+      target.inspectorNavigation.close();
       return;
     }
     if (navigation.canGoBack()) {
@@ -37,22 +51,38 @@ export function useTerminalExitNavigation(target: {
         threadId: target.threadId,
       }),
     );
+  };
+
+  const navigateAway = useEffectEvent(() => {
+    const fallbackTerminalId = target.readFallbackTerminalId();
+    if (fallbackTerminalId === null) close();
+    else selectTerminal(fallbackTerminalId);
+  });
+
+  const resume = useEffectEvent(() => {
+    if (
+      !pendingRef.current ||
+      !navigation.isFocused() ||
+      target.inspectorNavigation?.active === false
+    )
+      return;
+    pendingRef.current = false;
+    navigateAway();
   });
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focus subscription for the screen's lifetime; an exit behind another screen navigates when the user returns
-  useEffect(
-    () =>
-      navigation.addListener("focus", () => {
-        if (!pendingRef.current) return;
-        pendingRef.current = false;
-        navigateAway();
-      }),
-    [navigation],
-  );
+  useEffect(() => navigation.addListener("focus", () => resume()), [navigation]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- A retained terminal resumes its pending exit when its inspector pane becomes active again.
+  useEffect(() => {
+    if (target.inspectorNavigation?.active) resume();
+  }, [target.inspectorNavigation?.active]);
 
   return {
+    close,
+    selectTerminal,
     exited: () => {
-      if (navigation.isFocused()) {
+      if (navigation.isFocused() && target.inspectorNavigation?.active !== false) {
         navigateAway();
         return;
       }

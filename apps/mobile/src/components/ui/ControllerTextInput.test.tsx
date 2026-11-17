@@ -28,7 +28,9 @@ vi.mock("../../features/voice-input/useVoiceInputController", () => ({
 }));
 vi.mock("react-native", () => ({
   Platform: { OS: "android" },
-  View: (props: { children?: ReactNode }) => <div>{props.children}</div>,
+  View: (props: { nativeID?: string; children?: ReactNode }) => (
+    <div data-target={props.nativeID}>{props.children}</div>
+  ),
   Modal: (props: { children?: ReactNode }) => <div>{props.children}</div>,
   Pressable: (props: { nativeID?: string; children?: ReactNode }) => (
     <div data-target={props.nativeID}>{props.children}</div>

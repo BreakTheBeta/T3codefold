@@ -365,7 +365,8 @@ function ThreadRouteContent(
     readonly selectedThreadDetailState: ReturnType<typeof useSelectedThreadDetailState>;
   },
 ) {
-  const { layout, showInspector, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
+  const { layout, showInspector, hideAuxiliaryPane, toggleAuxiliaryPane } =
+    useAdaptiveWorkspaceLayout();
   const { panes, fileInspector } = useWorkspacePaneState();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
@@ -649,10 +650,20 @@ function ThreadRouteContent(
         )}
       </InspectorSheetContext.Consumer>
     ) : null;
+  const handleSelectInspectorTerminal = (terminalId?: string | null) => {
+    navigation.setParams({ inspector: undefined });
+    setInspectorSelection({ routeThreadIdentity, mode: "terminal", terminalId });
+    showInspector();
+  };
   const renderTerminalInspector = () =>
     selectedThread !== null ? (
       <ThreadTerminalRouteScreen
         presentation="inspector"
+        inspectorNavigation={{
+          active: inspectorMode === "terminal" && panes.auxiliaryPaneVisible,
+          close: hideAuxiliaryPane,
+          selectTerminal: handleSelectInspectorTerminal,
+        }}
         route={{
           params: {
             environmentId: String(selectedThread.environmentId),
@@ -762,9 +773,7 @@ function ThreadRouteContent(
     // Android tablets and foldables keep the terminal in the inspector pane. The header
     // button closes it; picking a terminal while it is open switches to that terminal.
     if (Platform.OS === "android" && fileInspector.supported) {
-      navigation.setParams({ inspector: undefined });
-      setInspectorSelection({ routeThreadIdentity, mode: "terminal", terminalId: nextTerminalId });
-      showInspector();
+      handleSelectInspectorTerminal(nextTerminalId);
       return;
     }
 

@@ -1035,13 +1035,13 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 ]}
               >
                 <ControllerPressable
+                  touchPassthrough
                   reply
                   controllerKey={composerDraftKey ?? "draft"}
                   style={{ flex: 1 }}
                   accessibilityLabel="Message. Square dictates"
                   disabled={props.hidden || isSubmissionLocked}
                   onActivate={() => inputRef.current?.focus()}
-                  onPress={() => inputRef.current?.focus()}
                   onDictate={() => {
                     if (voiceInput.isBusy) voiceInput.stop();
                     else if (voiceInput.isAvailable) voiceInput.start();

@@ -13,7 +13,7 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppBar } from "../../components/ui/AppBar";
 import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
 import { useContentTopInset } from "../../components/ui/useBarInset";
-import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useAtomMount } from "@effect/atom-react";
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Platform, Pressable, View } from "react-native";
@@ -67,7 +67,10 @@ import { EnvironmentConnectionNotice } from "../connection/EnvironmentConnection
 import { useRetryEnvironment } from "../connection/useRetryEnvironment";
 import { TerminalSurface, type TerminalSurfaceHandle } from "./NativeTerminalSurface";
 import { getMobileTerminalTheme } from "./terminalTheme";
-import { useTerminalExitNavigation } from "./useTerminalExitNavigation";
+import {
+  useTerminalExitNavigation,
+  type TerminalInspectorNavigation,
+} from "./useTerminalExitNavigation";
 import {
   useInitialTerminalLaunchLocation,
   takePendingTerminalLaunch,
@@ -253,6 +256,7 @@ type ThreadTerminalRouteScreenProps = StaticScreenProps<{
   readonly terminalId?: string;
 }> & {
   readonly presentation?: "route" | "inspector";
+  readonly inspectorNavigation?: TerminalInspectorNavigation;
 };
 
 type ThreadSelection = ReturnType<typeof useThreadSelection>;
@@ -337,6 +341,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       access={access}
       knownSessions={knownSessions}
       presentation={props.presentation}
+      inspectorNavigation={props.inspectorNavigation}
     />
   );
 }
@@ -370,10 +375,12 @@ function ThreadTerminal(props: {
   readonly access: ReturnType<typeof useTerminalAccess>;
   readonly knownSessions: ReturnType<typeof useKnownTerminalSessions>;
   readonly presentation?: "route" | "inspector";
+  readonly inspectorNavigation?: TerminalInspectorNavigation;
 }) {
   const { params, routeEnvironmentId, thread: selectedThread, terminalId } = props;
   const isInspector = props.presentation === "inspector";
-  const TerminalHeaderSlot = isInspector ? HiddenTerminalHeader : TerminalHeader;
+  const TerminalHeaderSlot =
+    isInspector && Platform.OS !== "android" ? HiddenTerminalHeader : TerminalHeader;
   const [applicationCursorKeys, setApplicationCursorKeys] = useState(false);
   const { selectedThreadProject, selectedEnvironmentConnection } = props.selection;
   const {
@@ -441,6 +448,7 @@ function ThreadTerminal(props: {
   );
   const [pasteSession] = useState(createTerminalPasteSession);
   const exitNavigation = useTerminalExitNavigation({
+    inspectorNavigation: props.inspectorNavigation,
     environmentId: String(selectedThread.environmentId),
     threadId: String(selectedThread.id),
     readFallbackTerminalId: () =>
@@ -693,26 +701,11 @@ function ThreadTerminal(props: {
       return;
     }
 
-    navigation.dispatch(
-      StackActions.replace("ThreadTerminal", {
-        environmentId: String(selectedThread.environmentId),
-        threadId: String(selectedThread.id),
-        terminalId: nextTerminalId,
-      }),
-    );
+    exitNavigation.selectTerminal(nextTerminalId);
   };
 
   const handleCloseTerminal = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-      return;
-    }
-    navigation.dispatch(
-      StackActions.replace("Thread", {
-        environmentId: params.environmentId,
-        threadId: params.threadId,
-      }),
-    );
+    exitNavigation.close();
   };
 
   const handleOpenNewTerminal = () => {
@@ -720,18 +713,14 @@ function ThreadTerminal(props: {
       return;
     }
 
-    navigation.dispatch(
-      StackActions.replace("ThreadTerminal", {
-        environmentId: String(selectedThread.environmentId),
-        threadId: String(selectedThread.id),
-        terminalId: nextOpenTerminalId({
-          listedTerminalIds: terminalMenuSessions.map((session) => session.terminalId),
-          activeRouteTerminalId: terminalId,
-          ...(knownSessions === null ||
-          !readEnvironmentScope(selectedThread.environmentId, AuthTerminalReadScope)
-            ? { uniqueSuffix: uuidv4() }
-            : {}),
-        }),
+    exitNavigation.selectTerminal(
+      nextOpenTerminalId({
+        listedTerminalIds: terminalMenuSessions.map((session) => session.terminalId),
+        activeRouteTerminalId: terminalId,
+        ...(knownSessions === null ||
+        !readEnvironmentScope(selectedThread.environmentId, AuthTerminalReadScope)
+          ? { uniqueSuffix: uuidv4() }
+          : {}),
       }),
     );
   };
@@ -827,7 +816,7 @@ function ThreadTerminal(props: {
           onClose={() => setCapturedOutput(null)}
           onAttach={() => {
             setCapturedOutput(null);
-            if (navigation.canGoBack()) navigation.goBack();
+            if (props.inspectorNavigation || navigation.canGoBack()) exitNavigation.close();
           }}
         />
       ) : null}
@@ -859,8 +848,7 @@ function ThreadTerminal(props: {
                 ? themeVariables["--color-card-alt"]
                 : terminalTheme.background,
             // Measured top reservation is zero when UIKit already inset the body or moved the bar.
-            // The Android inspector column has no header of its own, so the terminal starts below the status bar.
-            paddingTop: Platform.OS === "android" && isInspector ? insets.top : contentTopInset,
+            paddingTop: contentTopInset,
             paddingBottom: Platform.OS === "android" && !isKeyboardVisible ? insets.bottom : 0,
           }}
         >

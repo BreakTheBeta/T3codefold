@@ -31,11 +31,11 @@ const { StackRouter, StackActions, CommonActions } = requireNavigation(
 
 type Action = Parameters<ReturnType<typeof StackRouter>["getStateForAction"]>[1];
 
-function setup(fallbackTerminalId: string | null) {
+function setup(fallbackTerminalId: string | null, inspector = false, hasHistory = true) {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const router = StackRouter({});
+  const router = StackRouter({ initialRouteName: inspector ? "Home" : "Thread" });
   const options = {
-    routeNames: ["Thread", "ThreadTerminal", "ThreadFiles"],
+    routeNames: ["Home", "Thread", "ThreadTerminal", "ThreadFiles"],
     routeParamList: {},
     routeGetIdList: {},
   };
@@ -46,8 +46,15 @@ function setup(fallbackTerminalId: string | null) {
     state = router.getRehydratedState(next, options);
   };
   const thread = { environmentId: "environment", threadId: "thread" };
-  apply(StackActions.replace("Thread", thread));
-  apply(StackActions.push("ThreadTerminal", { ...thread, terminalId: "second" }));
+  apply(inspector ? StackActions.push("Thread", thread) : StackActions.replace("Thread", thread));
+  if (!inspector) {
+    apply(
+      (hasHistory ? StackActions.push : StackActions.replace)("ThreadTerminal", {
+        ...thread,
+        terminalId: "second",
+      }),
+    );
+  }
   const terminalKey = state.routes.at(-1)!.key;
   const focusListeners = new Set<() => void>();
   // A screen's navigation object stamps its route as the source but leaves the
@@ -64,10 +71,12 @@ function setup(fallbackTerminalId: string | null) {
     },
   };
   let exitNavigation!: ReturnType<typeof useTerminalExitNavigation>;
-  function Probe() {
+  const inspectorNavigation = { close: vi.fn(), selectTerminal: vi.fn() };
+  function Probe({ active }: { active: boolean }) {
     const value = useTerminalExitNavigation({
       ...thread,
       readFallbackTerminalId: () => fallbackTerminalId,
+      ...(inspector ? { inspectorNavigation: { ...inspectorNavigation, active } } : {}),
     });
     useLayoutEffect(() => {
       exitNavigation = value;
@@ -75,9 +84,13 @@ function setup(fallbackTerminalId: string | null) {
     return null;
   }
   const root = createRoot(document.createElement("div"));
-  act(() => root.render(<Probe />));
+  act(() => root.render(<Probe active />));
   return {
-    exitNavigation,
+    get exitNavigation() {
+      return exitNavigation;
+    },
+    inspectorNavigation,
+    setInspectorActive: (active: boolean) => act(() => root.render(<Probe active={active} />)),
     routes: () => state.routes.map((route) => [route.name, route.params]),
     openFiles: () => apply(StackActions.push("ThreadFiles", thread)),
     returnToTerminal: () => {
@@ -89,6 +102,44 @@ function setup(fallbackTerminalId: string | null) {
 }
 
 const thread = { environmentId: "environment", threadId: "thread" };
+
+it.each([false, true])(
+  "routes terminal controls through their owner (inspector: %s)",
+  (inspector) => {
+    using screen = setup(null, inspector);
+    for (const terminalId of ["first", "new-terminal"]) {
+      screen.exitNavigation.selectTerminal(terminalId);
+      if (inspector) {
+        expect(screen.inspectorNavigation.selectTerminal).toHaveBeenLastCalledWith(terminalId);
+        expect(screen.routes()).toEqual([
+          ["Home", undefined],
+          ["Thread", thread],
+        ]);
+      } else {
+        expect(screen.routes()).toEqual([
+          ["Thread", thread],
+          ["ThreadTerminal", { ...thread, terminalId }],
+        ]);
+      }
+    }
+    screen.exitNavigation.close();
+    expect(screen.routes()).toEqual(
+      inspector
+        ? [
+            ["Home", undefined],
+            ["Thread", thread],
+          ]
+        : [["Thread", thread]],
+    );
+    expect(screen.inspectorNavigation.close).toHaveBeenCalledTimes(inspector ? 1 : 0);
+  },
+);
+
+it("returns a standalone terminal without history to its thread", () => {
+  using screen = setup(null, false, false);
+  screen.exitNavigation.close();
+  expect(screen.routes()).toEqual([["Thread", thread]]);
+});
 
 it("leaves the screen on top alone when a terminal behind it exits, then goes back on return", () => {
   using screen = setup(null);
@@ -131,3 +182,35 @@ it("stays on a terminal that restarted before the user returned", () => {
     ["ThreadTerminal", { ...thread, terminalId: "second" }],
   ]);
 });
+
+it.each([null, "first"])(
+  "keeps the parent thread when an inspector terminal exits with fallback %s",
+  (fallback) => {
+    using screen = setup(fallback, true);
+    screen.exitNavigation.exited();
+    expect(screen.routes()).toEqual([
+      ["Home", undefined],
+      ["Thread", thread],
+    ]);
+    if (fallback === null) expect(screen.inspectorNavigation.close).toHaveBeenCalledOnce();
+    else expect(screen.inspectorNavigation.selectTerminal).toHaveBeenCalledWith(fallback);
+  },
+);
+
+it.each([null, "first"])(
+  "leaves other inspector features alone until the terminal with fallback %s is reopened",
+  (fallback) => {
+    using screen = setup(fallback, true);
+    screen.setInspectorActive(false);
+    screen.exitNavigation.exited();
+    expect(screen.inspectorNavigation.close).not.toHaveBeenCalled();
+    expect(screen.inspectorNavigation.selectTerminal).not.toHaveBeenCalled();
+    screen.setInspectorActive(true);
+    expect(screen.routes()).toEqual([
+      ["Home", undefined],
+      ["Thread", thread],
+    ]);
+    if (fallback === null) expect(screen.inspectorNavigation.close).toHaveBeenCalledOnce();
+    else expect(screen.inspectorNavigation.selectTerminal).toHaveBeenCalledWith(fallback);
+  },
+);
