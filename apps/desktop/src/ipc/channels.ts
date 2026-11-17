@@ -148,3 +148,5 @@ export const HERDR_ATTACH_OPEN_CHANNEL = "desktop:herdr:attach-open";
 export const HERDR_ATTACH_INPUT_CHANNEL = "desktop:herdr:attach-input";
 export const HERDR_ATTACH_EVENT_CHANNEL = "desktop:herdr:attach-event";
 export const RESTART_AUDIO_SERVICE_CHANNEL = "desktop:restart-audio-service";
+
+export const START_FILE_DRAG_CHANNEL = "desktop:start-file-drag";
