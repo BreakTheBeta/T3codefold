@@ -80,7 +80,7 @@ export function FoldWorkspaceInspectorPane(props: {
   if (retainedInspector === null || width === null) return null;
 
   return (
-    <>
+    <View nativeID="t3-controller-pane:inspector" className="shrink-0 flex-row">
       {visible && !props.fixedDivider && panes.auxiliaryPaneWidthRange !== null ? (
         <FoldWorkspacePaneDivider
           accessibilityLabel="Resize detail pane"
@@ -149,7 +149,7 @@ export function FoldWorkspaceInspectorPane(props: {
         </Animated.View>
         <VimPaneFocusMarker region="inspector" />
       </View>
-    </>
+    </View>
   );
 }
 

@@ -24,7 +24,10 @@ export function SettingsWorkspaceLayout(props: { readonly children: ReactNode })
     <View className="flex-1 flex-row">
       {visited ? (
         <Activity mode={split ? "visible" : "hidden"}>
-          <View style={{ width: layout.listPaneWidth ?? 0, marginRight: layout.listPaneGap ?? 0 }}>
+          <View
+            nativeID="t3-controller-pane:sidebar"
+            style={{ width: layout.listPaneWidth ?? 0, marginRight: layout.listPaneGap ?? 0 }}
+          >
             <PaneContext value="sidebar">
               <NavigationRouteContext value={route}>
                 <SettingsListScreen sidebar selected={root?.settingsPage ?? null} />
@@ -34,7 +37,7 @@ export function SettingsWorkspaceLayout(props: { readonly children: ReactNode })
         </Activity>
       ) : null}
       {/* A push slides the page underneath to the left; keep it out of the list beside it. */}
-      <View className="flex-1 overflow-hidden">
+      <View nativeID="t3-controller-pane:content" className="flex-1 overflow-hidden">
         <View
           className="flex-1"
           pointerEvents={emptyDetail ? "none" : "auto"}

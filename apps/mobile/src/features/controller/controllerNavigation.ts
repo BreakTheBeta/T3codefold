@@ -8,10 +8,12 @@ export type ControllerRegionKind =
   | "navigation";
 
 export type ControllerScene = {
+  readonly width?: number;
   readonly regions: ReadonlyArray<{
     readonly id: string;
     readonly kind: ControllerRegionKind;
     readonly surfaceId: string;
+    readonly pane?: "sidebar" | "content" | "inspector";
     readonly viewportHeight: number;
     readonly canScrollUp: boolean;
     readonly canScrollDown: boolean;
@@ -68,12 +70,17 @@ type Frame = {
   scene: ControllerScene;
   position: Position | null;
   editing: boolean;
+  inspecting: boolean;
   engaged: boolean;
   sceneRevision: number;
   suspended: boolean;
   request: number;
   pendingScroll: boolean;
   scroll: { direction: "up" | "down"; previous: ReadonlySet<string> } | null;
+  positions: Map<string, Position>;
+  pendingReply: { kind: "focus" | "dictate"; surfaceId: string | null } | null;
+  editorPosition: Position | null;
+  pendingEditor: Position | null;
 };
 const EMPTY_SCENE: ControllerScene = {
   regions: [],
@@ -125,10 +132,41 @@ export function createControllerNavigation() {
     frame.scene.targets.find((target) => target.id === frame.position?.targetId);
   const currentRegion = (frame: Frame) =>
     frame.scene.regions.find((region) => region.id === frame.position?.regionId);
+  const paneOf = (region: ControllerScene["regions"][number]) =>
+    region.pane ??
+    (region.kind === "inspector" ? "inspector" : region.kind === "threads" ? "sidebar" : "content");
+  const entryTarget = (
+    targets: ControllerScene["targets"],
+    region: ControllerScene["regions"][number],
+  ) =>
+    (region.kind === "threads" || region.kind === "navigation"
+      ? targets.find((target) => target.selected)
+      : undefined) ?? targets[0];
+  const defaultPosition = (frame: Frame, region: ControllerScene["regions"][number]): Position => ({
+    regionId: region.id,
+    targetId:
+      region.kind === "conversation"
+        ? null
+        : (entryTarget(
+            frame.scene.targets.filter((target) => target.regionId === region.id),
+            region,
+          )?.id ?? null),
+  });
   const localTargets = (frame: Frame) =>
     frame.scene.targets.filter((target) => target.regionId === frame.position?.regionId);
+  const relatedRegions = (frame: Frame, region: ControllerScene["regions"][number]) => {
+    const candidates = regions(frame).filter((candidate) => paneOf(candidate) === paneOf(region));
+    const surfaces = new Set(candidates.map((candidate) => candidate.surfaceId).filter(Boolean));
+    const surface = region.surfaceId || (surfaces.size === 1 ? [...surfaces][0] : "");
+    return candidates.filter(
+      (candidate) => !candidate.surfaceId || candidate.surfaceId === surface,
+    );
+  };
 
-  function updateScene(frame: Frame, scene: ControllerScene) {
+  function updateScene(frame: Frame, scene: ControllerScene, restoreEditor = true) {
+    if (restoreEditor && frame.scene.width && scene.width && frame.scene.width !== scene.width) {
+      frame.pendingEditor = frame.editorPosition;
+    }
     frame.scene = {
       ...scene,
       targets: scene.targets.filter(
@@ -138,18 +176,77 @@ export function createControllerNavigation() {
   }
 
   function reconcile(frame: Frame) {
+    if (frame.pendingEditor && enabled && !frame.suspended) {
+      const field = frame.scene.targets.find(
+        (candidate) =>
+          candidate.id === frame.pendingEditor?.targetId &&
+          candidate.regionId === frame.pendingEditor?.regionId &&
+          (candidate.kind === "editor" || candidate.kind === "reply"),
+      );
+      if (field) {
+        frame.position = frame.pendingEditor;
+        frame.editorPosition = frame.pendingEditor;
+        frame.pendingEditor = null;
+        frame.editing = true;
+        frame.engaged = true;
+        if (!frame.scene.editorFocused || frame.scene.focusedTargetId !== field.id) {
+          if (field.registered) frame.host.invoke(field.id, "activate");
+          else effect(frame, "edit");
+        }
+        return;
+      }
+    }
+    if (frame.pendingReply && enabled && !frame.suspended) {
+      const destination =
+        frame.pendingReply.surfaceId === null
+          ? sameSurface(frame, "composer")
+          : frame.scene.regions.find(
+              (candidate) =>
+                candidate.kind === "composer" &&
+                candidate.surfaceId === frame.pendingReply?.surfaceId,
+            );
+      const field = frame.scene.targets.find(
+        (candidate) => candidate.regionId === destination?.id && candidate.kind === "reply",
+      );
+      if (field) {
+        const intent = frame.pendingReply.kind;
+        frame.pendingReply = null;
+        frame.engaged = true;
+        focus(frame, { regionId: field.regionId, targetId: field.id });
+        if (intent === "dictate") frame.host.invoke(field.id, "dictate");
+        return;
+      }
+    }
     const region = currentRegion(frame);
     if (region && frame.engaged) {
       if (frame.position?.targetId && !selected(frame)) {
         frame.position = { regionId: region.id, targetId: null };
         frame.editing = false;
       }
+      if (region.kind === "composer" && frame.position?.targetId === null) {
+        requestReply(frame, "focus");
+        const field = frame.scene.targets.find(
+          (candidate) => candidate.regionId === region.id && candidate.kind === "reply",
+        );
+        if (field) {
+          frame.pendingReply = null;
+          focus(frame, { regionId: region.id, targetId: field.id });
+        }
+      }
       return;
     }
     const preferred = frame.host.initialRegion;
     const available = regions(frame);
+    const preferredPane =
+      preferred === "threads" || preferred === "navigation" ? "sidebar" : "content";
     const destination = preferred
-      ? (available.find((candidate) => candidate.kind === preferred && candidate.id !== "") ??
+      ? (available.find(
+          (candidate) =>
+            candidate.kind === preferred &&
+            paneOf(candidate) === preferredPane &&
+            candidate.id !== "",
+        ) ??
+        available.find((candidate) => candidate.kind === preferred && candidate.id !== "") ??
         available.find((candidate) => candidate.kind === preferred) ??
         (preferred === "conversation"
           ? undefined
@@ -157,8 +254,9 @@ export function createControllerNavigation() {
       : (available.find((candidate) => candidate.kind === "conversation") ??
         available.find((candidate) => candidate.kind === "threads") ??
         available[0]);
-    frame.position = destination ? { regionId: destination.id, targetId: null } : null;
+    frame.position = destination ? defaultPosition(frame, destination) : null;
     frame.editing = false;
+    frame.inspecting = false;
   }
 
   function effect(
@@ -195,8 +293,13 @@ export function createControllerNavigation() {
   }
 
   function focus(frame: Frame, position: Position) {
+    const previous = currentRegion(frame);
+    if (previous && frame.position) frame.positions.set(paneOf(previous), frame.position);
     frame.position = position;
     frame.editing = false;
+    frame.editorPosition = null;
+    frame.pendingEditor = null;
+    frame.inspecting = currentRegion(frame)?.kind === "conversation" && position.targetId !== null;
     frame.scroll = null;
     frame.pendingScroll = false;
     publish();
@@ -211,15 +314,46 @@ export function createControllerNavigation() {
     const targets = frame.scene.targets.filter((target) => target.regionId === region.id);
     const target = preferReply
       ? targets.find((candidate) => candidate.kind === "reply")
-      : undefined;
+      : region.kind === "conversation"
+        ? undefined
+        : entryTarget(targets, region);
     focus(frame, { regionId: region.id, targetId: target?.id ?? null });
   }
 
-  function neighbour(frame: Frame, direction: -1 | 1) {
-    const available = regions(frame);
-    const index = available.findIndex((region) => region.id === frame.position?.regionId);
-    const destination = available[index + direction];
-    if (destination) focusRegion(frame, destination, destination.kind === "composer");
+  function adjacentPane(frame: Frame, direction: -1 | 1) {
+    if (frame.host.modal) return false;
+    const region = currentRegion(frame);
+    if (!region) return false;
+    const order = ["sidebar", "content", "inspector"];
+    const available = order.filter((pane) =>
+      regions(frame).some((candidate) => paneOf(candidate) === pane),
+    );
+    const destinationPane = available[available.indexOf(paneOf(region)) + direction];
+    if (!destinationPane) return false;
+    const candidates = regions(frame).filter((candidate) => paneOf(candidate) === destinationPane);
+    const remembered = frame.positions.get(destinationPane);
+    if (
+      remembered &&
+      candidates.some((candidate) => candidate.id === remembered.regionId) &&
+      (remembered.targetId === null ||
+        frame.scene.targets.some(
+          (target) => target.id === remembered.targetId && target.regionId === remembered.regionId,
+        ))
+    ) {
+      focus(frame, remembered);
+    } else {
+      const destination =
+        candidates.find(
+          (candidate) =>
+            candidate.kind === "conversation" ||
+            candidate.kind === "threads" ||
+            candidate.kind === "inspector",
+        ) ??
+        candidates.find((candidate) => candidate.kind === "content" && candidate.id !== "") ??
+        candidates[0];
+      if (destination) focusRegion(frame, destination);
+    }
+    return true;
   }
 
   function sameSurface(frame: Frame, kind: ControllerRegionKind) {
@@ -229,6 +363,11 @@ export function createControllerNavigation() {
       candidates.find((region) => region.surfaceId === surface) ??
       (!surface && candidates.length === 1 ? candidates[0] : undefined)
     );
+  }
+
+  function requestReply(frame: Frame, kind: "focus" | "dictate") {
+    const surface = sameSurface(frame, "composer")?.surfaceId || currentRegion(frame)?.surfaceId;
+    frame.pendingReply = { kind, surfaceId: surface || null };
   }
 
   function invoke(
@@ -244,6 +383,18 @@ export function createControllerNavigation() {
     if (frame.pendingScroll) return;
     const region = currentRegion(frame);
     if (!region) return;
+    if (region.kind === "conversation" && !frame.inspecting) {
+      if (direction === "down" ? region.canScrollDown : region.canScrollUp) {
+        frame.pendingScroll = true;
+        effect(frame, "scroll", region.viewportHeight * 0.3 * (direction === "up" ? -1 : 1));
+      } else if (direction === "up") {
+        const header = relatedRegions(frame, region).find(
+          (candidate) => candidate.kind === "header",
+        );
+        if (header) focusRegion(frame, header);
+      }
+      return;
+    }
     const targets = localTargets(frame);
     const index = targets.findIndex((target) => target.id === frame.position?.targetId);
     const continuing = frame.scroll?.direction === direction;
@@ -269,10 +420,22 @@ export function createControllerNavigation() {
       return;
     }
     frame.scroll = null;
-    if (direction === "down" && region.kind === "conversation") {
-      const composer = sameSurface(frame, "composer");
-      if (composer) focusRegion(frame, composer, true);
-    } else neighbour(frame, direction === "down" ? 1 : -1);
+    if (region.kind === "conversation") return;
+    const order = (candidate: ControllerScene["regions"][number]) =>
+      candidate.id === "" ? 100 : candidate.kind === "header" ? -1 : REGION_ORDER[candidate.kind];
+    const local = relatedRegions(frame, region).sort((a, b) => order(a) - order(b));
+    const nextRegion =
+      local[
+        local.findIndex((candidate) => candidate.id === region.id) + (direction === "up" ? -1 : 1)
+      ];
+    if (nextRegion && nextRegion.kind !== "composer") {
+      const last =
+        direction === "up" && nextRegion.kind !== "conversation"
+          ? frame.scene.targets.filter((candidate) => candidate.regionId === nextRegion.id).at(-1)
+          : undefined;
+      if (last) focus(frame, { regionId: nextRegion.id, targetId: last.id });
+      else focusRegion(frame, nextRegion);
+    }
   }
 
   function dispatch(id: string, event: ControllerNativeEvent) {
@@ -289,15 +452,30 @@ export function createControllerNavigation() {
       for (const entry of frames.values()) {
         entry.request++;
         entry.pendingScroll = false;
+        entry.pendingReply = null;
+        entry.editorPosition = null;
+        entry.pendingEditor = null;
       }
       frame.host.selectionInput?.(event);
       publish();
       return;
     }
     if (active() !== frame) return;
+    const passive = ["scene", "enabled", "resumed", "suspended", "editorBlurred"].includes(
+      event.action,
+    );
+    if (!passive) {
+      frame.pendingReply = null;
+      frame.editorPosition = null;
+      frame.pendingEditor = null;
+    }
+    if (event.action === "suspended") {
+      frame.suspended = true;
+      if (frame.pendingReply?.kind === "dictate") frame.pendingReply.kind = "focus";
+    }
     if (event.scene) {
       frame.sceneRevision++;
-      updateScene(frame, event.scene);
+      updateScene(frame, event.scene, passive);
       reconcile(frame);
     }
     if (event.action === "suspended") {
@@ -319,6 +497,8 @@ export function createControllerNavigation() {
           frame.engaged = true;
           frame.position = { regionId: field.regionId, targetId: field.id };
           frame.editing = true;
+          frame.editorPosition = frame.position;
+          frame.inspecting = false;
         }
       }
       if (enabled && !frame.host.selectionInput) effect(frame, frame.editing ? "edit" : "focus");
@@ -345,6 +525,12 @@ export function createControllerNavigation() {
           ? { regionId: target.regionId, targetId: target.id }
           : { regionId: region!.id, targetId: null };
         frame.editing = frame.scene.editorFocused;
+        frame.editorPosition = frame.editing ? frame.position : null;
+        frame.inspecting =
+          target !== undefined &&
+          frame.scene.regions.some(
+            (candidate) => candidate.id === target.regionId && candidate.kind === "conversation",
+          );
         frame.scroll = null;
         frame.request++;
         frame.pendingScroll = false;
@@ -353,6 +539,10 @@ export function createControllerNavigation() {
       return;
     }
     if (!enabled || frame.suspended) return;
+    if (event.action === "chooser") {
+      frame.host.command("controllerHelp");
+      return;
+    }
     if (frame.host.selectionInput) {
       frame.host.selectionInput(event);
       return;
@@ -364,7 +554,12 @@ export function createControllerNavigation() {
     if (event.action === "back") {
       frame.pendingScroll = false;
       frame.request++;
-      if (frame.host.voice("cancel", voiceSurface)) return;
+      if (frame.host.voice("cancel", voiceSurface)) {
+        requestReply(frame, "focus");
+        reconcile(frame);
+        publish();
+        return;
+      }
       if (frame.editing || frame.scene.editorFocused) {
         frame.editing = false;
         const field = frame.scene.targets.find(
@@ -375,8 +570,19 @@ export function createControllerNavigation() {
         publish();
         return;
       }
+      if (
+        !frame.host.modal &&
+        frame.scene.regions.some((candidate) => paneOf(candidate) === "inspector")
+      ) {
+        frame.host.back();
+        return;
+      }
+      if (region?.kind === "conversation" && frame.inspecting) {
+        focusRegion(frame, region);
+        return;
+      }
       const destination =
-        region?.kind === "composer"
+        region?.kind === "composer" || region?.kind === "header"
           ? sameSurface(frame, "conversation")
           : region?.kind === "conversation"
             ? frame.scene.regions.find((candidate) => candidate.kind === "threads")
@@ -385,8 +591,8 @@ export function createControllerNavigation() {
       else frame.host.back();
       return;
     }
-    if (event.action === "menu" || event.action === "chooser") {
-      frame.host.command(event.action === "chooser" ? "controllerHelp" : "commandPalette");
+    if (event.action === "menu") {
+      frame.host.command("commandPalette");
       return;
     }
     if (event.action === "previous" || event.action === "next") {
@@ -405,17 +611,23 @@ export function createControllerNavigation() {
             );
       if (field) {
         frame.position = { regionId: field.regionId, targetId: field.id };
+        frame.inspecting = false;
         frame.host.invoke(field.id, "dictate");
         publish();
+      } else {
+        requestReply(frame, "dictate");
       }
       return;
     }
     if (event.action === "conversation" || event.action === "reply") {
-      const destination = sameSurface(
-        frame,
-        event.action === "reply" ? "composer" : "conversation",
-      );
-      if (destination) focusRegion(frame, destination, event.action === "reply");
+      if (event.action === "reply") {
+        requestReply(frame, "focus");
+        reconcile(frame);
+        publish();
+        return;
+      }
+      const destination = sameSurface(frame, "conversation");
+      if (destination) focusRegion(frame, destination);
       return;
     }
     if (event.action === "footer") {
@@ -436,6 +648,7 @@ export function createControllerNavigation() {
       }
       if (target.kind === "editor" || target.kind === "reply") {
         frame.editing = true;
+        frame.editorPosition = frame.position;
         if (target.registered) invoke(frame, target, "activate");
         else effect(frame, "edit");
         publish();
@@ -472,6 +685,19 @@ export function createControllerNavigation() {
       return;
     }
     if (
+      frame.host.modal ||
+      region?.kind === "header" ||
+      region?.kind === "navigation" ||
+      region?.kind === "composer"
+    ) {
+      const targets = localTargets(frame);
+      const index = targets.findIndex((candidate) => candidate.id === target?.id);
+      const next = targets[index + (event.action === "left" ? -1 : 1)];
+      if (next && region) focus(frame, { regionId: region.id, targetId: next.id });
+      return;
+    }
+    if (adjacentPane(frame, event.action === "left" ? -1 : 1)) return;
+    if (
       region?.kind === "conversation" &&
       event.action === "left" &&
       !frame.scene.regions.some((candidate) => candidate.kind === "threads")
@@ -479,29 +705,11 @@ export function createControllerNavigation() {
       frame.host.back();
       return;
     }
-    if (!frame.host.modal && (region?.kind === "content" || region?.kind === "inspector")) {
-      neighbour(frame, event.action === "left" ? -1 : 1);
-      return;
-    }
-    const destination =
-      region?.kind === "conversation"
-        ? event.action === "right"
-          ? sameSurface(frame, "composer")
-          : frame.scene.regions.find((candidate) => candidate.kind === "threads")
-        : region?.kind === "composer" && event.action === "left"
-          ? sameSurface(frame, "conversation")
-          : region?.kind === "threads" && event.action === "right"
-            ? sameSurface(frame, "conversation")
-            : undefined;
-    if (destination) {
-      focusRegion(frame, destination, destination.kind === "composer");
-      return;
-    }
+    if (region?.kind === "conversation" || region?.kind === "inspector") return;
     const targets = localTargets(frame);
     const index = targets.findIndex((candidate) => candidate.id === target?.id);
     const next = targets[index + (event.action === "left" ? -1 : 1)];
     if (next && region) focus(frame, { regionId: region.id, targetId: next.id });
-    else neighbour(frame, event.action === "left" ? -1 : 1);
   }
 
   return {
@@ -521,6 +729,7 @@ export function createControllerNavigation() {
         scopeId: frame?.host.id ?? null,
         suspended: frame?.suspended ?? false,
         editing: frame?.editing ?? false,
+        inspecting: frame?.inspecting ?? false,
         position: frame?.position ?? null,
         scene: frame?.scene ?? EMPTY_SCENE,
       };
@@ -535,17 +744,24 @@ export function createControllerNavigation() {
       if (frame && active() === frame) effect(frame, "snapshot");
     },
     present(host: ScopeHost) {
+      const previous = active();
+      if (previous?.pendingReply?.kind === "dictate") previous.pendingReply.kind = "focus";
       const frame: Frame = {
         host,
         scene: EMPTY_SCENE,
         position: null,
         editing: false,
+        inspecting: false,
         engaged: false,
         sceneRevision: 0,
         suspended: false,
         request: 0,
         pendingScroll: false,
         scroll: null,
+        positions: new Map(),
+        pendingReply: null,
+        editorPosition: null,
+        pendingEditor: null,
       };
       frames.set(host.id, frame);
       publish();

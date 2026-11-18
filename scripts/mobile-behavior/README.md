@@ -30,3 +30,19 @@ A case fails when half or more of its graded samples fail, and is `incomplete` w
 Cases are data in [`cases.ts`](cases.ts): an `id`, a `kind` (`bad` fails on `main` today, `guard` must keep passing, `control` is ordinary use), its `source` issue, the `scenario` that produces its metrics, a `key` metric, and `checks`. A new flow goes in [`scenarios.ts`](scenarios.ts). Add a case before its fix, so it fails on `main` while the bug exists; flip it from `bad` to `guard` when the fix lands.
 
 Not covered: Live Activities and notification taps (they need a T3 Connect relay and delivered pushes), native editor scroll, the background-work pill and async questions (Fx has no background tasks), and 120 Hz pacing.
+
+## Android controller graph
+
+`node scripts/controller-navigation.ts inventory --out /tmp/controller-audit` inventories production routes in compact and split layouts. Missing evidence exits with status 2. It does not connect to a device.
+
+For observed transitions, open Android through `test-t3-mobile`, install the matching native client, pair an isolated backend, and start Metro with `EXPO_PUBLIC_T3_BEHAVIOR_PROBE=1`. Then run:
+
+```sh
+node scripts/controller-navigation.ts run --out /tmp/controller-audit \
+  --agent-device <exact-command-from-device_open> \
+  --thread-path /threads/<environment>/<fixture-thread>
+```
+
+The runner sends native controller input and waits for declared UI outcomes. `controller-contract.ts` defines the intended transitions independently of the navigation engine. Route opening, reset and enable are setup, excluded from task button budgets. Use `--cases <journeys.json>` for additional fixtures; `--append` combines runs only when the source fingerprint matches. Set the device layout before each run. `--partial` permits incomplete coverage to exit successfully; failed or blocked journeys still exit 1.
+
+`index.html` shows observed states, button edges, unmet expectations and unknown route/layouts. `run.json`, `graph.dot` and `contract.dot` retain the evidence and desired contract. Visits do not prove every control works. Discovered controls are only mounted controls observed during the run; selection does not prove activation. Voice UI does not prove audio transcription. Native probes do not certify physical controllers, hinge transitions, system permission prompts or notifications.

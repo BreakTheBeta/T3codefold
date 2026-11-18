@@ -11,7 +11,8 @@ const controls = [
   ["A / ×", "Activate / edit text", "#a0e1b4"],
   ["B / ○", "Cancel / back", "#ffaaa0"],
   ["Y / △", "Reply actions", "#f6d389"],
-  ["D-PAD / LS", "Move between controls", "#d0c7f5"],
+  ["UP / DOWN", "Read / move locally", "#d0c7f5"],
+  ["LEFT / RIGHT", "Switch visible panes", "#d0c7f5"],
   ["RS", "Scroll", "#d0c7f5"],
   ["START", "Open commands", "#d0c7f5"],
   ["VIEW / SELECT", "Toggle this guide", "#75e5e0"],
@@ -82,8 +83,10 @@ export function ControllerGuide({ onClose }: { readonly onClose: () => void }) {
             ))}
           </View>
           <AppText className="text-[11px] leading-4 text-[#bdb0ce]">
-            B cancels recording first, then leaves editing or goes back. Y selects reply actions;
-            press A to activate. LS / RS = left / right stick.
+            Up/Down scrolls the chat. A selects a visible inline action; B returns to reading. In
+            forms and toolbars, arrows move between controls. B cancels recording or leaves editing
+            before closing a tool. Y selects reply actions; A activates. The left stick follows the
+            D-pad.
           </AppText>
         </ScrollView>
         <View className="border-t border-[#353047] px-4 py-3">

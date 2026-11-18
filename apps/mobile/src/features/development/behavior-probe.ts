@@ -273,6 +273,28 @@ function visibleFeed(feeds: ReadonlyArray<Feed>) {
 
 installCommitHook();
 
+function controllerObservation() {
+  const { controllerNavigation } =
+    require("../controller/controllerNavigation") as typeof import("../controller/controllerNavigation");
+  const app = snapshot();
+  const controller = controllerNavigation.snapshot();
+  return {
+    route: app.route ? { name: app.route.name, columns: app.route.columns } : null,
+    feed: app.feed ? { scroll: app.feed.scroll, atEnd: app.feed.atEnd } : null,
+    keyboard: app.composer.keyboard,
+    controller: {
+      ...controller,
+      scene: {
+        ...controller.scene,
+        targets: controller.scene.targets.map((target) => ({
+          ...target,
+          label: target.label === "Cancel dictation" ? target.label : "",
+        })),
+      },
+    },
+  };
+}
+
 Object.assign(globalThis, {
   __t3Behavior: {
     open(url: string) {
@@ -296,6 +318,34 @@ Object.assign(globalThis, {
       const { controllerNavigation } =
         require("../controller/controllerNavigation") as typeof import("../controller/controllerNavigation");
       return JSON.stringify(controllerNavigation.snapshot());
+    },
+    controllerObservation: () => JSON.stringify(controllerObservation()),
+    controllerWaitFor(predicate: (value: ReturnType<typeof controllerObservation>) => boolean) {
+      const { controllerNavigation } =
+        require("../controller/controllerNavigation") as typeof import("../controller/controllerNavigation");
+      return new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error("Controller outcome did not reach its contract within 5 seconds."));
+        }, 5000);
+        const check = () => {
+          const value = controllerObservation();
+          if (!predicate(value)) return;
+          clearTimeout(timer);
+          cleanup();
+          resolve(JSON.stringify(value));
+        };
+        const unsubscribe = controllerNavigation.subscribe(check);
+        const { Keyboard } = require("react-native") as typeof import("react-native");
+        const shown = Keyboard.addListener("keyboardDidShow", check);
+        const hidden = Keyboard.addListener("keyboardDidHide", check);
+        const cleanup = () => {
+          unsubscribe();
+          shown.remove();
+          hidden.remove();
+        };
+        check();
+      });
     },
     /** Removes these saved environments (and their cached threads) through the app's own command. */
     async forgetEnvironments(ids: ReadonlyArray<string>) {

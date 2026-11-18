@@ -114,6 +114,7 @@ class T3ControllerFocusTest {
   @Test fun sceneUsesReadingOrderFullRegionAndSurfaceIdsAndSuppressesRegisteredChildren() {
     Fixture().use { f ->
       val surface = FrameLayout(f.activity).apply { tagged("t3-controller-surface:settings:modal") }
+      val pane = FrameLayout(f.activity).apply { tagged("t3-controller-pane:sidebar") }
       val region = FrameLayout(f.activity).apply { tagged("t3-controller-region:composer:reply:current") }
       val registered = ReactViewGroup(f.activity).apply { tagged("t3-controller:reply:current"); isFocusable = true }
       registered.addView(EditText(f.activity), FrameLayout.LayoutParams(400, 60))
@@ -126,18 +127,23 @@ class T3ControllerFocusTest {
       region.add(disabled, 400)
       region.add(hidden, 500)
       region.add(View(f.activity).apply { isClickable = true }, 600)
-      surface.add(region, height = 900)
+      pane.add(region, height = 900)
+      val outside = ReactViewGroup(f.activity).apply { id = 45; ReactViewManager().setFocusable(this, true) }
+      pane.add(outside, 820)
+      surface.add(pane, height = 900)
       f.scope.addView(surface, FrameLayout.LayoutParams(900, 900))
       f.layout()
       val scene = T3ControllerHost.snapshot(f.scope)
-      assertEquals(listOf("native:42", "t3-controller:reply:current"), scene.targets.map { it.id })
-      assertEquals(listOf(false, true), scene.targets.map { it.registered })
-      assertEquals(listOf("action", "reply"), scene.targets.map { it.kind })
-      assertTrue(scene.targets.all { it.region == "t3-controller-region:composer:reply:current" })
+      assertEquals(listOf("native:42", "t3-controller:reply:current", "native:45"), scene.targets.map { it.id })
+      assertEquals(listOf(false, true, false), scene.targets.map { it.registered })
+      assertEquals(listOf("action", "reply", "action"), scene.targets.map { it.kind })
+      assertTrue(scene.targets.take(2).all { it.region == "t3-controller-region:composer:reply:current" })
+      assertEquals("t3-controller-pane:sidebar:content", scene.targets.last().region)
       assertEquals("t3-controller-surface:settings:modal", scene.regions.last().surface)
       assertEquals("composer", scene.regions.last().kind)
       assertEquals("product-id", T3ControllerHost.nativeId(ordinary))
-      assertEquals("composer", scene.regions.single().kind)
+      assertEquals("composer", scene.regions.last().kind)
+      assertTrue(scene.regions.all { it.pane == "sidebar" })
     }
   }
 

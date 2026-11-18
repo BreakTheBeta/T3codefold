@@ -1,6 +1,6 @@
 import { ControllerPressable } from "../controller/ControllerPressable";
 import type { VoiceInputPhase, VoiceInputState } from "@t3tools/client-runtime/voice-input";
-import { memo, useState, type ReactNode } from "react";
+import { memo, use, useState, type ReactNode } from "react";
 import { Linking, Text as SystemText, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
   Easing,
@@ -18,6 +18,9 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { cn } from "../../lib/cn";
+import { scheduleOnRN } from "react-native-worklets";
+import { ControllerScope } from "../controller/controllerScope";
+import { controllerNavigation } from "../controller/controllerNavigation";
 import type { VoiceComposerPresentation } from "./voiceInputPresentation";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
@@ -84,6 +87,10 @@ const WAVEFORM_TIMING = {
   reduceMotion: ReduceMotion.System,
 } as const;
 
+function refreshController(scope: string) {
+  controllerNavigation.refresh(scope);
+}
+
 export function ComposerDictationDraftContent(props: {
   readonly children: ReactNode;
   readonly className?: string;
@@ -91,7 +98,12 @@ export function ComposerDictationDraftContent(props: {
   readonly hidden: boolean;
 }) {
   const hidden = props.hidden;
-  const rotation = useDerivedValue(() => withTiming(hidden ? 1 : 0, TOOLBAR_FLIP_TIMING));
+  const scope = use(ControllerScope);
+  const rotation = useDerivedValue(() =>
+    withTiming(hidden ? 1 : 0, TOOLBAR_FLIP_TIMING, (finished) => {
+      if (finished) scheduleOnRN(refreshController, scope);
+    }),
+  );
   const compact = props.compact;
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: compact ? 1 - rotation.value : 1,

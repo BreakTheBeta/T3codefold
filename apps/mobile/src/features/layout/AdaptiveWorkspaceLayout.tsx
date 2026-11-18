@@ -988,7 +988,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
                 : safeAreaInsets
           }
         >
-          <View className="flex-1">
+          <View nativeID="t3-controller-pane:content" collapsable={false} className="flex-1">
             <PaneContext value="content">
               <SettingsWorkspaceLayout>{children}</SettingsWorkspaceLayout>
             </PaneContext>

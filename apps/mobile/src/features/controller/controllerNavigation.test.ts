@@ -9,7 +9,12 @@ const region = (
   id: string,
   kind: ControllerScene["regions"][number]["kind"],
   surfaceId = "chat",
-) => ({ id, kind, surfaceId, viewportHeight: 600, canScrollUp: false, canScrollDown: false });
+  pane: "sidebar" | "content" | "inspector" = kind === "threads"
+    ? "sidebar"
+    : kind === "inspector"
+      ? "inspector"
+      : "content",
+) => ({ id, kind, surfaceId, pane, viewportHeight: 600, canScrollUp: false, canScrollDown: false });
 const target = (
   id: string,
   regionId: string,
@@ -91,15 +96,31 @@ it("reaches the actual microphone in deterministic composer order and separates 
     regions: [region("root", "content", ""), ...conversation().regions],
   });
   f.send("scene");
+  const withHeader = conversation();
+  f.setScene({
+    ...withHeader,
+    regions: [region("header", "header", ""), ...withHeader.regions],
+    targets: [target("tools", "header"), ...withHeader.targets],
+  });
   f.send("enabled");
   expect(f.navigation.snapshot().position?.regionId).toBe("chat");
-  f.send("right");
+  f.send("up");
+  expect(f.navigation.snapshot().position?.targetId).toBe("tools");
+  f.send("down");
+  expect(f.navigation.snapshot().position?.regionId).toBe("chat");
+  f.setScene({
+    ...conversation(),
+    targets: conversation().targets.filter((candidate) => candidate.kind !== "reply"),
+  });
+  f.send("reply");
+  f.setScene(conversation());
+  f.send("scene");
   expect(f.navigation.snapshot().position?.targetId).toBe("field");
   f.send("down");
   expect(f.navigation.snapshot().position?.targetId).toBe("microphone");
-  f.send("left");
+  f.send("conversation");
   expect(f.navigation.snapshot().position?.regionId).toBe("chat");
-  f.send("right");
+  f.send("reply");
   f.send("down");
   expect(f.navigation.snapshot().position?.targetId).toBe("microphone");
   expect(f.invoke).not.toHaveBeenCalled();
@@ -109,6 +130,39 @@ it("reaches the actual microphone in deterministic composer order and separates 
   f.send("down");
   f.send("activate");
   expect(f.invoke).toHaveBeenCalledWith("send", "activate");
+  f.invoke.mockClear();
+  f.setScene({
+    ...conversation(),
+    targets: conversation().targets.filter((candidate) => candidate.regionId !== "reply"),
+  });
+  f.send("conversation");
+  f.send("dictate");
+  f.send("back");
+  f.setScene(conversation());
+  f.send("scene");
+  expect(f.invoke).not.toHaveBeenCalled();
+  f.setScene({
+    ...conversation(),
+    targets: conversation().targets.filter((candidate) => candidate.regionId !== "reply"),
+  });
+  f.send("conversation");
+  f.send("dictate");
+  f.setScene(conversation());
+  f.send("scene");
+  expect(f.invoke).toHaveBeenCalledOnce();
+  expect(f.invoke).toHaveBeenLastCalledWith("field", "dictate");
+  f.invoke.mockClear();
+  f.setScene({
+    ...conversation(),
+    targets: conversation().targets.filter((candidate) => candidate.regionId !== "reply"),
+  });
+  f.send("conversation");
+  f.send("dictate");
+  f.send("suspended");
+  f.setScene(conversation());
+  f.send("resumed");
+  expect(f.navigation.snapshot().position?.targetId).toBe("field");
+  expect(f.invoke).not.toHaveBeenCalled();
   const compact = conversation();
   f.setScene({
     ...compact,
@@ -124,7 +178,7 @@ it("reaches the actual microphone in deterministic composer order and separates 
 it("owns nested modal input by declared ancestry even when child presentation precedes its parent", async () => {
   const f = setup();
   f.send("enabled");
-  f.send("right");
+  f.send("reply");
   const child = f.navigation.present(f.host("child", "modal", true));
   const modal = f.navigation.present(f.host("modal", "workspace", true));
   expect(f.navigation.isActive("child")).toBe(true);
@@ -138,8 +192,6 @@ it("owns nested modal input by declared ancestry even when child presentation pr
   });
   f.send("scene", "child");
   f.send("activate", "child");
-  expect(f.invoke).not.toHaveBeenCalled();
-  f.send("activate", "child");
   expect(f.invoke).toHaveBeenCalledWith("cancel", "activate");
   child();
   expect(f.navigation.isActive("modal")).toBe(true);
@@ -151,7 +203,7 @@ it("owns nested modal input by declared ancestry even when child presentation pr
 it("preserves selection through interruptions and repairs removed controls without activating their replacements", async () => {
   const f = setup();
   f.send("enabled");
-  f.send("down");
+  f.send("activate");
   expect(f.navigation.snapshot().position?.targetId).toBe("fold");
   f.navigation.dispatch("workspace", {
     action: "activate",
@@ -231,6 +283,29 @@ it("keeps control-list changes separate from scope changes and restores editing 
   expect(f.navigation.snapshot().position?.targetId).toBe("microphone");
   f.send("back");
   expect(f.navigation.snapshot().position?.regionId).toBe("chat");
+  f.setScene({ ...initial, width: 1000, focusedTargetId: "field", editorFocused: true });
+  f.send("editorFocused", "workspace", "field");
+  f.setScene({ ...initial, width: 1000, targets: [] });
+  f.send("editorBlurred");
+  f.setScene({ ...initial, width: 700, targets: [] });
+  f.send("scene");
+  f.setScene({ ...initial, width: 700 });
+  f.send("scene");
+  expect(f.navigation.snapshot().editing).toBe(true);
+  expect(f.invoke).toHaveBeenLastCalledWith("field", "activate");
+  f.send("back");
+  f.invoke.mockClear();
+  f.setScene({ ...initial, width: 1000 });
+  f.send("scene");
+  expect(f.navigation.snapshot().editing).toBe(false);
+  expect(f.invoke).not.toHaveBeenCalled();
+  f.setScene({ ...initial, width: 1000, focusedTargetId: "field", editorFocused: true });
+  f.send("editorFocused", "workspace", "field");
+  f.send("next");
+  f.setScene({ ...initial, width: 700 });
+  f.send("scene");
+  expect(f.command).toHaveBeenLastCalledWith("thread.next");
+  expect(f.invoke).not.toHaveBeenCalled();
   await f.settle();
 });
 
@@ -256,13 +331,43 @@ it("binds dictation to the selected surface and respects an explicit touch-selec
   expect(f.invoke).toHaveBeenLastCalledWith("side-field", "dictate");
   expect(f.invoke).not.toHaveBeenCalledWith("field", "dictate");
   f.voice.mockReturnValue(true);
+  const beforeRecording = f.navigation.snapshot().scene;
+  f.setScene({
+    ...beforeRecording,
+    targets: beforeRecording.targets.filter((candidate) => candidate.id !== "side-field"),
+  });
   f.send("back");
+  f.setScene(beforeRecording);
+  f.send("scene");
+  expect(f.navigation.snapshot().position?.targetId).toBe("side-field");
+  expect(f.navigation.snapshot().editing).toBe(false);
+  f.send("back");
+  f.setScene({
+    ...beforeRecording,
+    targets: beforeRecording.targets.filter((candidate) => candidate.id !== "side-field"),
+  });
+  f.send("scene");
+  f.setScene(beforeRecording);
+  f.send("scene");
+  expect(f.navigation.snapshot().position?.targetId).toBe("side-field");
   expect(f.back).not.toHaveBeenCalled();
   expect(f.voice).toHaveBeenLastCalledWith("cancel", "side");
+  f.voice.mockReturnValue(false);
+  f.invoke.mockClear();
+  const both = f.navigation.snapshot().scene;
+  f.setScene({
+    ...both,
+    targets: both.targets.filter((candidate) => candidate.id !== "side-field"),
+  });
+  f.send("pointer", "workspace", "side-tool");
+  f.send("dictate");
+  f.setScene(conversation());
+  f.send("scene");
+  expect(f.invoke).not.toHaveBeenCalled();
   await f.settle();
 });
 
-it("waits for new visible actions after scrolling and reaches the reply only at a confirmed end", async () => {
+it("reads without selecting inline actions and keeps scrolling local until an explicit reply jump", async () => {
   const f = setup();
   const scene = conversation();
   f.setScene({
@@ -273,11 +378,14 @@ it("waits for new visible actions after scrolling and reaches the reply only at 
   });
   f.send("enabled");
   f.send("down");
-  f.send("down");
   expect(f.effects.at(-1)?.kind).toBe("scroll");
   expect(f.navigation.snapshot().position?.regionId).toBe("chat");
   f.send("down");
   expect(f.effects.filter((entry) => entry.kind === "scroll")).toHaveLength(1);
+  await f.settle();
+  f.send("activate");
+  f.send("down");
+  expect(f.navigation.snapshot().inspecting).toBe(true);
   await f.settle();
   f.setScene({
     ...scene,
@@ -288,6 +396,10 @@ it("waits for new visible actions after scrolling and reaches the reply only at 
   f.send("down");
   expect(f.navigation.snapshot().position?.targetId).toBe("next-fold");
   f.send("down");
+  expect(f.navigation.snapshot().position?.targetId).toBe("next-fold");
+  f.send("back");
+  expect(f.navigation.snapshot().position?.targetId).toBeNull();
+  f.send("reply");
   expect(f.navigation.snapshot().position?.targetId).toBe("field");
   await f.settle();
 });
@@ -305,7 +417,7 @@ it("rejects a late scroll completion from an underlying scope", async () => {
   expect(f.navigation.snapshot().scene.targets.some((target) => target.id === "new-target")).toBe(
     true,
   );
-  f.send("right");
+  f.send("reply");
   const dispose = f.navigation.present(f.host("modal", "workspace", true));
   f.setScene({
     regions: [region("modal-content", "content")],
@@ -327,7 +439,10 @@ it("rejects a late scroll completion from an underlying scope", async () => {
 it("crosses content panes directly while preserving modal controls and an editor focused before presentation", async () => {
   const f = setup();
   f.setScene({
-    regions: [region("settings", "content", ""), region("page", "content", "")],
+    regions: [
+      region("settings", "content", "", "sidebar"),
+      region("page", "content", "", "content"),
+    ],
     targets: [
       target("category", "settings"),
       target("another-category", "settings"),
@@ -337,11 +452,12 @@ it("crosses content panes directly while preserving modal controls and an editor
     editorFocused: false,
   });
   f.send("enabled");
-  f.send("down");
+  f.send("pointer", "workspace", "another-category");
   f.send("right");
   expect(f.navigation.snapshot().position?.regionId).toBe("page");
   f.send("left");
   expect(f.navigation.snapshot().position?.regionId).toBe("settings");
+  expect(f.navigation.snapshot().position?.targetId).toBe("another-category");
   const close = f.navigation.present(f.host("prompt", "workspace", true));
   f.setScene({
     regions: [region("prompt", "content", "")],
@@ -365,4 +481,57 @@ it("crosses content panes directly while preserving modal controls and an editor
   f.send("right", "prompt");
   expect(f.navigation.snapshot().position?.targetId).toBe("save");
   close();
+});
+
+it("keeps directions within a pane, unwinds inspector before chat regions, and exposes help inside selection-owned overlays", async () => {
+  const f = setup();
+  const scene = conversation();
+  f.setScene({
+    ...scene,
+    regions: [
+      region("header", "header", ""),
+      ...scene.regions,
+      region("terminal", "inspector", ""),
+    ],
+    targets: [
+      target("files", "header"),
+      target("terminal-button", "header"),
+      ...scene.targets,
+      { ...target("current-thread", "threads", "thread"), selected: true },
+      target("keyboard", "terminal"),
+      target("attach", "terminal"),
+    ],
+  });
+  f.send("enabled");
+  f.send("up");
+  f.send("right");
+  expect(f.navigation.snapshot().position?.targetId).toBe("terminal-button");
+  f.send("conversation");
+  f.send("left");
+  expect(f.navigation.snapshot().position?.targetId).toBe("current-thread");
+  f.send("right");
+  f.send("right");
+  expect(f.navigation.snapshot().position?.targetId).toBe("keyboard");
+  f.send("down");
+  f.send("down");
+  f.send("right");
+  expect(f.navigation.snapshot().position?.targetId).toBe("attach");
+  f.send("left");
+  expect(f.navigation.snapshot().position?.regionId).toBe("chat");
+  f.send("reply");
+  f.send("back");
+  expect(f.back).toHaveBeenCalledOnce();
+  expect(f.navigation.snapshot().position?.regionId).toBe("reply");
+  f.setScene(scene);
+  f.send("back");
+  expect(f.navigation.snapshot().position?.regionId).toBe("chat");
+  const selectionInput = vi.fn();
+  const dismiss = f.navigation.present({ ...f.host("palette", "workspace", true), selectionInput });
+  f.send("chooser", "palette");
+  expect(f.command).toHaveBeenLastCalledWith("controllerHelp");
+  expect(selectionInput).not.toHaveBeenCalled();
+  f.send("down", "palette");
+  expect(selectionInput).toHaveBeenCalledOnce();
+  dismiss();
+  await f.settle();
 });
