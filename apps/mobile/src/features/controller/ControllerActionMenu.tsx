@@ -3,7 +3,6 @@ import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
 import { Sheet } from "../../components/ui/Sheet";
-import { ControllerConsole } from "./ControllerConsole";
 
 export function ControllerActionMenu(props: {
   readonly title: string;
@@ -18,33 +17,28 @@ export function ControllerActionMenu(props: {
     else props.onClose();
   };
   return (
-    <Sheet title={parent?.title ?? props.title} onClose={props.onClose}>
-      <ControllerConsole
-        scopeKey={`actions:${path.map((action) => action.id).join(":")}`}
-        onBack={back}
-      >
-        <ScreenScrollView contentContainerClassName="gap-2 p-4">
-          {parent ? <Button label="Back" onPress={back} /> : null}
-          {(parent?.subactions ?? props.actions)
-            .filter((action) => !action.attributes?.hidden)
-            .map((action) => (
-              <Button
-                key={action.id ?? action.title}
-                label={action.title}
-                disabled={action.attributes?.disabled || (!action.subactions?.length && !action.id)}
-                tone={action.attributes?.destructive ? "danger" : "secondary"}
-                fullWidth
-                onPress={() => {
-                  if (action.subactions?.length) setPath((current) => [...current, action]);
-                  else if (action.id) {
-                    props.onClose();
-                    props.onSelect(action.id);
-                  }
-                }}
-              />
-            ))}
-        </ScreenScrollView>
-      </ControllerConsole>
+    <Sheet title={parent?.title ?? props.title} onClose={props.onClose} onControllerBack={back}>
+      <ScreenScrollView contentContainerClassName="gap-2 p-4">
+        {parent ? <Button label="Back" onPress={back} /> : null}
+        {(parent?.subactions ?? props.actions)
+          .filter((action) => !action.attributes?.hidden)
+          .map((action) => (
+            <Button
+              key={action.id ?? action.title}
+              label={action.title}
+              disabled={action.attributes?.disabled || (!action.subactions?.length && !action.id)}
+              tone={action.attributes?.destructive ? "danger" : "secondary"}
+              fullWidth
+              onPress={() => {
+                if (action.subactions?.length) setPath((current) => [...current, action]);
+                else if (action.id) {
+                  props.onClose();
+                  props.onSelect(action.id);
+                }
+              }}
+            />
+          ))}
+      </ScreenScrollView>
     </Sheet>
   );
 }

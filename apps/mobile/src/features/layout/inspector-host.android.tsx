@@ -1,3 +1,4 @@
+import { useControllerRegionId } from "../controller/ControllerRegion";
 import { View } from "react-native";
 
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
@@ -36,10 +37,11 @@ export function InspectorPanes(props: {
   readonly onClose: () => void;
 }) {
   const panes = useMountedInspectorPanes(props.content);
+  const regionId = useControllerRegionId("inspector");
   return (
     <InspectorCloseContext value={props.onClose}>
       <PaneContext value="inspector">
-        <View className="flex-1">
+        <View collapsable={false} nativeID={regionId} className="flex-1">
           {panes.map((pane) => {
             const visible = pane.key === props.content?.active;
             return (

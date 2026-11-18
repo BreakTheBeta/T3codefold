@@ -1,3 +1,4 @@
+import { useControllerRegionId, useControllerSurfaceId } from "../controller/ControllerRegion";
 import { ControllerPressable } from "../controller/ControllerPressable";
 import { useSidebarWorkspaceTabs } from "../layout/workspace/useSystemWorkspaceTabBar";
 import { Button } from "../../components/ui/Button";
@@ -504,6 +505,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   const [previewVideo, setPreviewVideo] = useState<VideoPreviewSource | null>(null);
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const composerDraftKey = props.draftKey ?? composerOwnerKey;
+  const composerRegionId = useControllerRegionId("composer");
+  const controllerSurfaceId = useControllerSurfaceId(
+    JSON.stringify([props.environmentId, props.isDraft ? "draft" : "thread", composerDraftKey]),
+  );
   const {
     text: draftMessage,
     attachments: draftAttachments,
@@ -928,6 +933,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
 
   return (
     <Animated.View
+      collapsable={false}
+      nativeID={controllerSurfaceId}
       onLayout={(event) => props.onHeightChange?.(event.nativeEvent.layout.height)}
       className="px-[12px]"
       style={{
@@ -947,6 +954,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         pointerEvents="none"
       />
       <Animated.View
+        collapsable={false}
+        nativeID={composerRegionId}
         className="relative w-full self-center"
         style={{ maxWidth: props.contentMaxWidth }}
       >

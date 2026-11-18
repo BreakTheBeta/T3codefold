@@ -1,3 +1,5 @@
+import { usePaneRole } from "./Pane";
+import { useControllerRegionId } from "../../features/controller/ControllerRegion";
 import type { ReactNode } from "react";
 import { Platform, View, type LayoutChangeEvent } from "react-native";
 
@@ -29,6 +31,10 @@ export function ScreenContent({
   readonly onLayout?: (event: LayoutChangeEvent) => void;
 }) {
   const { layout } = useAdaptiveWorkspaceLayout();
+  const paneRole = usePaneRole();
+  const controllerRegionId = useControllerRegionId(
+    paneRole === "inspector" ? "inspector" : "content",
+  );
   if (Platform.OS !== "android") {
     return onLayout ? (
       <View className="flex-1" onLayout={onLayout}>
@@ -43,6 +49,7 @@ export function ScreenContent({
     <View className={fitToContents ? "shrink bg-header" : "flex-1 bg-header"}>
       <View
         className={`overflow-hidden rounded-t-[28px] ${SURFACE_CLASS_NAMES[surface]}`}
+        nativeID={controllerRegionId}
         collapsable={false}
         onLayout={onLayout}
         style={{

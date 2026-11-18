@@ -1,5 +1,5 @@
-import { ControllerScope, ControllerTargetLifecycle } from "./controllerScope";
-import { use, useEffect, useId, useState, useEffectEvent } from "react";
+import { ControllerScope } from "./controllerScope";
+import { use, useEffect, useId, useEffectEvent } from "react";
 import { Platform, Pressable, View, type PressableProps } from "react-native";
 import { controllerTargets } from "./controllerTargets";
 
@@ -11,7 +11,6 @@ export function ControllerPressable({
   footer,
   reply,
   thread,
-  scopeBoundary,
   touchPassthrough = false,
   ...props
 }: PressableProps & {
@@ -22,14 +21,10 @@ export function ControllerPressable({
   readonly footer?: boolean;
   readonly reply?: boolean;
   readonly thread?: boolean;
-  readonly scopeBoundary?: boolean;
   readonly touchPassthrough?: boolean;
 }) {
   const scope = use(ControllerScope);
-  const lifecycleBoundary = use(ControllerTargetLifecycle);
-  const effectiveBoundary = scopeBoundary ?? lifecycleBoundary;
   const id = `t3-controller:${onAdjust ? "adjustable:" : footer ? "footer:" : reply ? "reply:" : thread ? "thread:" : ""}${useId()}:${scope}:${controllerKey}`;
-  const [focused, setFocused] = useState(false);
   const activate = useEffectEvent(() => {
     if (!props.disabled) onActivate();
   });
@@ -53,9 +48,8 @@ export function ControllerPressable({
         ...(hasAdjustment ? { adjust } : {}),
       },
       scope,
-      effectiveBoundary,
     );
-  }, [id, props.disabled, hasDictation, hasAdjustment, reply, scope, effectiveBoundary]);
+  }, [id, props.disabled, hasDictation, hasAdjustment, reply, scope]);
   // Native controls own their drags; Pressability would cancel those gestures.
   if (touchPassthrough) {
     return (
@@ -71,22 +65,6 @@ export function ControllerPressable({
     );
   }
   return (
-    <Pressable
-      {...props}
-      nativeID={props.disabled ? undefined : id}
-      focusable={!props.disabled}
-      onFocus={(event) => {
-        setFocused(true);
-        props.onFocus?.(event);
-      }}
-      onBlur={(event) => {
-        setFocused(false);
-        props.onBlur?.(event);
-      }}
-      style={(state) => [
-        typeof props.style === "function" ? props.style(state) : props.style,
-        focused && { borderWidth: 3, borderColor: "#ffdf00" },
-      ]}
-    />
+    <Pressable {...props} nativeID={props.disabled ? undefined : id} focusable={!props.disabled} />
   );
 }

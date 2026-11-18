@@ -1,3 +1,5 @@
+import { ControllerPressable } from "../../controller/ControllerPressable";
+import { useControllerRegionId } from "../../controller/ControllerRegion";
 import { selectedNavigationTab, visibleNavigationTabs } from "./navigation-tab-order";
 import { requireNativeView } from "expo";
 import { CommonActions, useNavigation } from "@react-navigation/native";
@@ -86,6 +88,7 @@ export function AndroidWorkspaceNavigation(props: {
   /** The rail needs the whole workspace while it widens over the list. */
   readonly onOverlayChange?: (overlay: boolean) => void;
 }) {
+  const regionId = useControllerRegionId("navigation");
   const workspace = useWorkspaceTabs()!;
   const order = useNavigationTabOrder();
   const hidden = useHiddenNavigationTabs();
@@ -101,7 +104,10 @@ export function AndroidWorkspaceNavigation(props: {
   const window = useWindowDimensions();
   const rail = Boolean(props.rail);
   const floating = !rail && Boolean(props.floating);
-  const tabs = [...visibleNavigationTabs(order, hidden, rail ? 5 : 4), "settings"];
+  const tabs: readonly AndroidWorkspaceNavigationTab[] = [
+    ...visibleNavigationTabs(order, hidden, rail ? 5 : 4),
+    "settings",
+  ];
   const { containerColor, indicatorColor, selectedColor, unselectedColor } =
     androidWorkspaceNavigationColors(colors, rail, floating);
   const selectedTab = selectedNavigationTab(
@@ -116,10 +122,29 @@ export function AndroidWorkspaceNavigation(props: {
     (props.paneWidth ?? window.width) -
     (Math.max(insets.left, FLOATING_TABS.edge) - FLOATING_TABS.edge);
   const metrics = floatingTabsMetrics(tabs.length, scale, fabSize, barWidth, props.fillWidth);
+  const selectTab = (tab: AndroidWorkspaceNavigationTab) => {
+    Keyboard.dismiss();
+    if (tab !== "settings") workspace.dispatch({ type: "select", tab });
+    // Reset the root stack even when a nested settings navigator has focus.
+    // The provider renders inside the root stack's layout, so the container's root state is
+    // that stack's current state.
+    const rootState = rootNavigationRef.getRootState();
+    if (root && rootState) {
+      navigation.dispatch({
+        ...CommonActions.reset(
+          androidWorkspaceTabNavigationState(rootState, tab, layout.usesSplitView),
+        ),
+        target: root.key,
+      });
+    }
+    props.onSelect?.();
+  };
   if (!rail && keyboardVisible) return null;
 
   return (
     <View
+      collapsable={false}
+      nativeID={regionId}
       style={
         // The rail draws its own surface and pads the system bars; while open it spans the
         // workspace, so the rest of it must stay transparent.
@@ -147,24 +172,7 @@ export function AndroidWorkspaceNavigation(props: {
         unselectedColor={nativeColor(unselectedColor)}
         actionColor={nativeColor(colors["--color-primary"])}
         actionContentColor={nativeColor(colors["--color-primary-foreground"])}
-        onTabSelected={(event) => {
-          Keyboard.dismiss();
-          const tab = event.nativeEvent.tab;
-          if (tab !== "settings") workspace.dispatch({ type: "select", tab });
-          // Reset the root stack even when a nested settings navigator has focus.
-          // The provider renders inside the root stack's layout, so the container's root state is
-          // that stack's current state.
-          const rootState = rootNavigationRef.getRootState();
-          if (root && rootState) {
-            navigation.dispatch({
-              ...CommonActions.reset(
-                androidWorkspaceTabNavigationState(rootState, tab, layout.usesSplitView),
-              ),
-              target: root.key,
-            });
-          }
-          props.onSelect?.();
-        }}
+        onTabSelected={(event) => selectTab(event.nativeEvent.tab)}
         onNewThread={() => {
           Keyboard.dismiss();
           props.onNewThread();
@@ -181,6 +189,39 @@ export function AndroidWorkspaceNavigation(props: {
               : { height: 80 * Math.max(1, scale) }
         }
       />
+      {!rail ? (
+        <View
+          pointerEvents="none"
+          className="absolute flex-row"
+          style={{
+            left: floating ? FLOATING_TABS.shadow : 0,
+            right: floating ? FLOATING_TABS.shadow : 0,
+            top: floating ? FLOATING_TABS.shadow : 0,
+            bottom: floating ? FLOATING_TABS.shadow : insets.bottom,
+          }}
+        >
+          {tabs.map((tab) => (
+            <ControllerPressable
+              key={tab}
+              touchPassthrough
+              accessible={false}
+              accessibilityRole="tab"
+              accessibilityLabel={
+                tab === "settings"
+                  ? "Settings"
+                  : tab === "threads"
+                    ? "Chats"
+                    : tab === "pullRequests"
+                      ? "Pull requests"
+                      : "Usage"
+              }
+              accessibilityState={{ selected: selectedTab === tab }}
+              onActivate={() => selectTab(tab)}
+              style={{ flex: 1 }}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }

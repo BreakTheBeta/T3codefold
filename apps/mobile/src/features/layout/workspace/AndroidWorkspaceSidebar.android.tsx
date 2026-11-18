@@ -1,3 +1,4 @@
+import { useControllerRegionId } from "../../controller/ControllerRegion";
 import { WorkspaceNoTabs } from "./WorkspaceNoTabs";
 import { useEnabledNavigationTabs } from "./navigation-tabs";
 import { NAVIGATION_TAB_ORDER } from "./navigation-tab-order";
@@ -22,6 +23,7 @@ import { WorkspaceTabSwitcher } from "./AndroidWorkspaceNavigation";
 /** The Home route in the sidebar column: the selected tab's list. */
 export function AndroidWorkspaceSidebar() {
   const workspace = useWorkspaceTabs()!;
+  const navigationRegionId = useControllerRegionId("navigation");
   const enabled = useEnabledNavigationTabs();
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
@@ -40,7 +42,11 @@ export function AndroidWorkspaceSidebar() {
     <WorkspaceAppBarScope>
       {/* Fold has no navigation rail: the sidebar switches Chats/PRs, opens Settings, and keeps
           New thread on both tabs. */}
-      <View className="flex-row items-center gap-1 bg-header pb-2 pl-2 pr-1">
+      <View
+        collapsable={false}
+        nativeID={navigationRegionId}
+        className="flex-row items-center gap-1 bg-header pb-2 pl-2 pr-1"
+      >
         <WorkspaceTabSwitcher className="flex-1" />
         <AndroidHeaderIconButton
           accessibilityLabel="Open settings"

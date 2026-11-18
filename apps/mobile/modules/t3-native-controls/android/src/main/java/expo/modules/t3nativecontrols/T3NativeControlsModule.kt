@@ -27,6 +27,11 @@ class T3NativeControlsModule : Module() {
 
     AsyncFunction("disableController") { T3ControllerRouter.reset() }.runOnQueue(Queues.MAIN)
 
+    AsyncFunction("controllerTestInput") { sequence: String, action: String ->
+      val activity = appContext.currentActivity ?: error("The app is not active.")
+      T3ControllerProbe.input(activity, sequence, action)
+    }.runOnQueue(Queues.MAIN)
+
     AsyncFunction("requestBack") {
       val activity = appContext.currentActivity as? com.facebook.react.ReactActivity
       activity?.onBackPressed()

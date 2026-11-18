@@ -112,7 +112,10 @@ export function HardwareKeyboardCommandProvider({
     const commands = new Set<HardwareKeyboardCommand>(getRegisteredHardwareKeyboardCommands());
     commands.add("newTask");
     commands.add("commandPalette");
-    if (pathname !== "/" && !pathname.startsWith("/threads/")) {
+    if (
+      pathname !== "/" &&
+      !(/^\/threads(?:\/[^/]+(?:\/[^/]+)?)?\/?$/.test(pathname) || pathname === "/new/draft")
+    ) {
       for (const command of commands) {
         if (command.startsWith("thread.")) commands.delete(command);
       }
@@ -211,7 +214,18 @@ export function HardwareKeyboardCommandProvider({
         vimKeysEnabled={vimKeysEnabled}
         onVimKey={dispatchVimKey}
       >
-        <ControllerConsole scopeKey={pathname} onCommand={onCommand}>
+        <ControllerConsole
+          modal={false}
+          scopeKey={pathname}
+          initialRegion={
+            /^\/threads(?:\/[^/]+(?:\/[^/]+)?)?\/?$/.test(pathname) || pathname === "/new/draft"
+              ? "conversation"
+              : pathname === "/"
+                ? "threads"
+                : "content"
+          }
+          onCommand={onCommand}
+        >
           {children}
         </ControllerConsole>
       </T3KeyboardCommands>

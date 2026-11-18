@@ -24,19 +24,23 @@ require an unrelated button mapping or an implicit jump to a different surface.
 
 ## Transition rules
 
-| State                    | Directional input                                                                                    | Activate                                                             | Back / Cancel                                                             |
-| ------------------------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Threads                  | Traverse threads; enter the selected conversation through the client's region command                | Select thread and enter its conversation                             | Unwind the owning screen                                                  |
-| Conversation             | Traverse inline actions and scroll within this conversation; region commands reach threads and reply | Acquire a visible action first, then activate it on a separate press | Return to threads, or unwind the owning screen if threads are unavailable |
-| Reply, navigation mode   | Return to conversation or traverse composer controls                                                 | Enter text editing; submit requires an explicit submit action        | Return to conversation                                                    |
-| Text editing             | Text movement or adjustment belongs to the editor                                                    | Preserve editor semantics                                            | Leave editing and restore navigation                                      |
-| Dictation                | Preserve the owning text destination                                                                 | Never submit as a side effect of starting/stopping voice             | Cancel recording without discarding another draft                         |
-| Inspector / Settings     | Traverse local controls and scroll local content                                                     | Perform the focused semantic action                                  | Unmaximize, close, or leave one level, restoring the invoking region      |
-| Menu / question / dialog | Stay inside the top scope; custom widgets own their local arrow behavior                             | Perform only the focused, enabled action                             | Close one scope and restore its invoking target or region                 |
-| Suspended / disconnected | No navigation repeats or stale activations                                                           | No stale activation on resume                                        | Resume requires neutral input before a held action can fire               |
+| State                    | Directional input                                                                                    | Activate                                                             | Back / Cancel                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Threads                  | Traverse threads; enter the selected conversation through the client's region command                | Select thread and enter its conversation                             | Unwind the owning screen                                                    |
+| Conversation             | Traverse inline actions and scroll within this conversation; region commands reach threads and reply | Acquire a visible action first, then activate it on a separate press | Return to threads, or unwind the owning screen if threads are unavailable   |
+| Reply, navigation mode   | Return to conversation or traverse composer controls                                                 | Enter text editing; submit requires an explicit submit action        | Return to conversation                                                      |
+| Text editing             | Text movement or adjustment belongs to the editor                                                    | Preserve editor semantics                                            | Leave editing and restore navigation                                        |
+| Dictation                | Preserve the owning text destination                                                                 | Never submit as a side effect of starting/stopping voice             | Cancel recording without discarding another draft                           |
+| Inspector / Settings     | Traverse local controls and scroll local content                                                     | Perform the focused semantic action                                  | Unmaximize, close, or leave one level, restoring the invoking region        |
+| Menu / question / dialog | Stay inside the top scope; custom widgets own their local arrow behavior                             | Perform only the focused, enabled action                             | Close one scope and restore its invoking target or region                   |
+| Suspended / disconnected | No navigation repeats or stale activations                                                           | No stale activation on resume                                        | Old holds are quarantined; a fresh press can recover after a missed release |
 
 Physical mappings may differ between clients; these semantic transitions must remain reachable.
-Android currently uses Right from conversation/inline content to reply, Left back to conversation,
+Android uses RT/R2 to jump to reply and LT/L2 to return to conversation, including while editing.
+X starts or finishes dictation; B cancels recording or leaves editing. LB/RB switch threads,
+A activates the selected control, and Y selects reply actions. The right stick scrolls.
+View/Select opens the controller guide above the current scope; View/Select or Back closes it.
+Right from conversation/inline content also reaches reply, Left goes back to conversation,
 and Left again to the visible thread list. Desktop exposes explicit conversation/reply commands
 and pane traversal. Do not infer identical behavior from identical button labels.
 
@@ -64,17 +68,17 @@ and pane traversal. Do not infer identical behavior from identical button labels
 
 ## Executable evidence
 
-Test these requirements through the production adapters, not through a second implementation
-of an ideal state graph. The Android focus tests call the router used by both D-pad and analog
-navigation against real Android View/ScrollView hierarchies. Vary viewport width, sidebar
-availability, content length, starting scroll position, and inline-action density. Assert both
-scope safety after each step and eventual arrival at reply/start within a content-derived bound.
-Keep concrete failure traces for bugs the combinations expose.
+Android selection belongs to the React Native controller session. Native focus is an effect of
+entering an editor, not the source of navigation authority. Scopes declare ancestry and active
+ownership; regions expose order and scroll bounds. Target registration refreshes availability
+without replacing a scope: virtualized rows and recording controls change during held navigation.
 
-Input edge tests separately cover held/released keys, neutral input, scope replacement, and
-editor ownership. Registry tests cover stale IDs and dictation destinations. Desktop browser
-adapter tests cover real DOM focus, clipping, dialogs, pane transitions, and custom widgets.
-None of these layers substitutes for the others.
+Session tests replay transitions through its production effect interface, including delayed
+scenes, recycled targets, surface ownership and overlay restoration. Native tests dispatch
+device-correct input through the installed window callback and exercise missed releases. The
+development-only input probe crosses native dispatch, Expo events, the active console and
+product actions in the running app. Desktop browser tests cover its separate DOM adapter.
+None of these layers individually establishes hardware acceptance.
 
 A claim that a workflow is controller-complete requires one uninterrupted run through the real
 client using controller input: enter the state, perform its action, reverse it, and recover after

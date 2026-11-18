@@ -1664,7 +1664,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   <View className="flex-row items-center">
                     <View className="flex-1">{rowContent(close, openMenu)}</View>
                     <ControllerPressable
-                      scopeBoundary={false}
                       controllerKey={`thread-actions:${thread.environmentId}:${thread.id}`}
                       accessibilityRole="button"
                       accessibilityLabel={`Thread actions for ${thread.title}`}

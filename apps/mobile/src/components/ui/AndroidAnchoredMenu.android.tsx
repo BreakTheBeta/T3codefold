@@ -1,3 +1,4 @@
+import { isAppSymbolName, SymbolView } from "./AppSymbol.android";
 import { dismissAndroidKeyboard } from "../../lib/android-back";
 import type { MenuAction, MenuComponentProps } from "@react-native-menu/menu";
 import type { ReactNode } from "react";
@@ -14,7 +15,10 @@ import {
 import { WindowHingeContext } from "../../native/window-hinge-context";
 import { OverlayPortal } from "./OverlayPortal";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
-import { MenuPopup } from "./MenuPopup";
+import { AppText } from "./AppText";
+import { ControllerConsole } from "../../features/controller/ControllerConsole";
+import { ControllerPressable } from "../../features/controller/ControllerPressable";
+import { useControllerRegionId } from "../../features/controller/ControllerRegion";
 
 const SCREEN_MARGIN = 12;
 const ANCHOR_GAP = 6;
@@ -45,7 +49,13 @@ export type AndroidAnchoredMenuProps = {
 };
 
 export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
-  const { scale, menuWidth: desiredMenuWidth, menuItemHeight } = useAndroidControlSizing();
+  const regionId = useControllerRegionId("content");
+  const {
+    scale,
+    menuWidth: desiredMenuWidth,
+    menuItemHeight,
+    iconSize,
+  } = useAndroidControlSizing();
   const [anchor, setAnchor] = useState<AnchorSnapshot | null>(null);
   const [path, setPath] = useState<readonly MenuAction[]>([]);
   const [overlay, setOverlay] = useState<OverlayFrame | null>(null);
@@ -79,15 +89,13 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
     });
   };
 
-  // Only the in-window (keyboard) presentation needs this; the native popup
-  // handles back itself.
-  useHardwareBack(anchor?.keyboardWasVisible === true, () => {
-    if (dismissAndroidKeyboard()) return true;
-    if (path.length > 0) {
-      setPath((current) => current.slice(0, -1));
-    } else {
-      close();
-    }
+  const back = () => {
+    if (dismissAndroidKeyboard()) return;
+    if (path.length > 0) setPath((current) => current.slice(0, -1));
+    else close();
+  };
+  useHardwareBack(anchor !== null, () => {
+    back();
     return true;
   });
 
@@ -168,60 +176,108 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
       )}
       {anchor === null ? null : (
         <OverlayPortal>
-          <View
-            ref={overlayRef}
-            collapsable={false}
-            className="absolute inset-0"
-            onLayout={measureOverlay}
-          >
-            <Pressable accessible={false} className="absolute inset-0" onPress={close} />
-            {local === null ? null : !anchor.keyboardWasVisible ? (
-              <MenuPopup
-                // Compose aligns to the trigger's start if it fits; hinge-safe triggers keep menus on their side.
-                anchor={windowHinge ? { ...local, x: left, width: menuWidth } : local}
-                menuWidth={menuWidth}
-                actions={levelActions}
-                title={props.title}
-                parent={parent}
-                onPress={onPressItem}
-                onBack={() => setPath((current) => current.slice(0, -1))}
-                onClose={close}
+          <ControllerConsole scopeKey={regionId} onBack={back}>
+            <View
+              ref={overlayRef}
+              collapsable={false}
+              className="absolute inset-0"
+              onLayout={measureOverlay}
+            >
+              <Pressable
+                accessible={false}
+                importantForAccessibility="no-hide-descendants"
+                className="absolute inset-0"
+                onPress={close}
               />
-            ) : (
-              <View
-                // No entering animation: it freezes this frame before the Compose host reports its size.
-                className="absolute overflow-hidden bg-card-alt shadow-md"
-                style={{
-                  left,
-                  width: menuWidth,
-                  borderRadius: 4 * scale,
-                  ...verticalPlacement,
-                }}
-              >
-                {/* Compose DropdownMenu takes focus; in-window editor menus preserve the keyboard. */}
-
-                {/* The first item tap must act while the keyboard is open. */}
-                <ScrollView
-                  contentContainerStyle={{ paddingVertical: 7 * scale }}
-                  bounces={false}
-                  keyboardShouldPersistTaps="always"
-                  showsVerticalScrollIndicator={false}
+              {local === null ? null : (
+                <View
+                  collapsable={false}
+                  nativeID={regionId}
+                  className="absolute overflow-hidden bg-card-alt shadow-md"
+                  style={{ left, width: menuWidth, borderRadius: 4 * scale, ...verticalPlacement }}
                 >
-                  <MenuPopup
-                    inline
-                    anchor={local}
-                    menuWidth={menuWidth}
-                    actions={levelActions}
-                    title={props.title}
-                    parent={parent}
-                    onPress={onPressItem}
-                    onBack={() => setPath((current) => current.slice(0, -1))}
-                    onClose={close}
-                  />
-                </ScrollView>
-              </View>
-            )}
-          </View>
+                  <ScrollView
+                    contentContainerStyle={{ paddingVertical: 7 * scale }}
+                    bounces={false}
+                    keyboardShouldPersistTaps="always"
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {parent ? (
+                      <ControllerPressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Back to ${props.title ?? "menu"}`}
+                        onActivate={() => setPath((current) => current.slice(0, -1))}
+                        onPress={() => setPath((current) => current.slice(0, -1))}
+                        style={{
+                          minHeight: menuItemHeight,
+                          paddingHorizontal: 16 * scale,
+                          justifyContent: "center",
+                        }}
+                      >
+                        <AppText>{parent.title}</AppText>
+                      </ControllerPressable>
+                    ) : props.title ? (
+                      <AppText className="px-4 py-2 text-foreground-muted">{props.title}</AppText>
+                    ) : null}
+                    {levelActions.map((action, index) => (
+                      <ControllerPressable
+                        key={action.id ?? `${index}:${action.title}`}
+                        accessibilityRole="menuitem"
+                        accessibilityLabel={action.title}
+                        accessibilityState={{
+                          disabled: action.attributes?.disabled,
+                          selected: action.state === "on",
+                        }}
+                        disabled={
+                          action.attributes?.disabled ||
+                          (!action.subactions?.length && action.id === undefined)
+                        }
+                        onActivate={() => onPressItem(action)}
+                        onPress={() => onPressItem(action)}
+                        className="flex-row items-center gap-3 active:bg-subtle"
+                        style={{
+                          minHeight: menuItemHeight,
+                          paddingHorizontal: 16 * scale,
+                          opacity: action.attributes?.disabled ? 0.4 : 1,
+                        }}
+                      >
+                        {action.image && isAppSymbolName(action.image) ? (
+                          <SymbolView
+                            name={action.image}
+                            size={iconSize}
+                            type="monochrome"
+                            tintColorClassName={
+                              action.attributes?.destructive
+                                ? "accent-danger-foreground"
+                                : "accent-foreground"
+                            }
+                          />
+                        ) : null}
+                        <View className="min-w-0 flex-1 py-2">
+                          <AppText
+                            className={
+                              action.attributes?.destructive
+                                ? "text-danger-foreground"
+                                : "text-foreground"
+                            }
+                          >
+                            {action.title}
+                          </AppText>
+                          {action.subtitle ? (
+                            <AppText className="text-sm text-foreground-muted">
+                              {action.subtitle}
+                            </AppText>
+                          ) : null}
+                        </View>
+                        {action.state === "on" ? <AppText>✓</AppText> : null}
+                        {action.subactions?.length ? <AppText>›</AppText> : null}
+                      </ControllerPressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+          </ControllerConsole>
         </OverlayPortal>
       )}
     </>

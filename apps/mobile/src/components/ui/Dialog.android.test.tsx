@@ -2,53 +2,35 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
-vi.mock("react-native", () => ({
-  Keyboard: { isVisible: () => false },
-  Platform: { OS: "android" },
-}));
-// Every click handler a button was rendered with, so a test can deliver a
-// native event that was dispatched against an older render.
+const modalBack = vi.hoisted(() => ({ current: () => {} }));
 const renderedClicks = vi.hoisted(() => [] as Array<() => void>);
-
-vi.mock("@expo/ui/jetpack-compose", () => {
+vi.mock("react-native", () => {
   const Slot = (props: { readonly children?: ReactNode }) => <div>{props.children}</div>;
-  const Button = (props: { readonly children?: ReactNode; readonly onClick?: () => void }) => {
-    if (props.onClick) renderedClicks.push(props.onClick);
-    return <button onClick={props.onClick}>{props.children}</button>;
-  };
   return {
-    AlertDialog: Object.assign(Slot, {
-      Title: Slot,
-      Text: Slot,
-      DismissButton: Slot,
-      ConfirmButton: Slot,
-    }),
-    Button,
-    OutlinedButton: Button,
-    Column: Slot,
-    FlowRow: Slot,
-    Icon: () => null,
-    OutlinedTextField: Object.assign(Slot, { Label: Slot, Placeholder: Slot }),
-    Text: Slot,
-    useNativeState: (value: unknown) => ({ get: () => value }),
+    Keyboard: { isVisible: () => false },
+    Platform: { OS: "android" },
+    Modal: (props: { readonly children?: ReactNode; readonly onRequestClose: () => void }) => {
+      modalBack.current = props.onRequestClose;
+      return <div>{props.children}</div>;
+    },
+    View: Slot,
+    Pressable: Slot,
+    ScrollView: Slot,
   };
 });
-vi.mock("./NativeThemeHost.android", () => ({
-  NativeThemeHost: (props: { readonly children?: ReactNode }) => <div>{props.children}</div>,
+vi.mock("../../features/controller/ControllerConsole", () => ({
+  ControllerConsole: (props: { readonly children?: ReactNode }) => <div>{props.children}</div>,
 }));
-vi.mock("../../features/settings/appearance/AppearancePreferencesProvider", () => ({
-  useAppearancePreferences: () => ({ themeVariables: {} }),
-}));
-vi.mock("../../features/settings/appearance/useScaledTextRole", () => ({
-  useScaledTextRole: () => ({}),
-}));
-vi.mock("../../lib/mobileTheme", () => ({ themeColorWithContrast: () => "#ffffff" }));
-
-vi.mock("../../features/layout/nested-stacks", () => ({ StandaloneStack: () => null }));
-vi.mock("../../features/controller/ControllerConsole", () => ({ ControllerConsole: () => null }));
 vi.mock("./ControllerTextInput", () => ({ ControllerTextInput: () => null }));
-vi.mock("./AppText", () => ({ AppText: () => null }));
-vi.mock("./Button", () => ({ Button: () => null }));
+vi.mock("./AppText", () => ({
+  AppText: (props: { readonly children?: ReactNode }) => <span>{props.children}</span>,
+}));
+vi.mock("./Button", () => ({
+  Button: (props: { readonly label: string; readonly onPress: () => void }) => {
+    renderedClicks.push(props.onPress);
+    return <button onClick={props.onPress}>{props.label}</button>;
+  },
+}));
 
 import * as Dialog from "./Dialog.android";
 
@@ -120,4 +102,40 @@ it("ignores a late action from a dialog that a newer one replaced", () => {
 
   expect(olderAction).toHaveBeenCalledOnce();
   expect(container.textContent).toContain("Newer");
+});
+
+it("respects alert cancelability and reports dismissal only for a cancelable alert", () => {
+  const { container } = mountHost();
+  const onDismiss = vi.fn();
+  act(() => Dialog.alert("Cannot cancel", undefined, undefined, { cancelable: false, onDismiss }));
+  act(() => modalBack.current());
+  expect(container.textContent).toContain("Cannot cancel");
+  expect(onDismiss).not.toHaveBeenCalled();
+  act(() => Dialog.alert("Can cancel", undefined, undefined, { cancelable: true, onDismiss }));
+  onDismiss.mockClear();
+  act(() => modalBack.current());
+  expect(container.textContent).toBe("");
+  expect(onDismiss).toHaveBeenCalledOnce();
+});
+
+it("confirms or cancels through the public confirm callbacks", () => {
+  const { container } = mountHost();
+  const onConfirm = vi.fn();
+  const onCancel = vi.fn();
+  const request = {
+    title: "Delete thread",
+    confirmText: "Delete",
+    destructive: true,
+    onConfirm,
+    onCancel,
+  };
+  act(() => Dialog.confirm(request));
+  act(() => modalBack.current());
+  expect(onCancel).toHaveBeenCalledOnce();
+  expect(onConfirm).not.toHaveBeenCalled();
+  act(() => Dialog.confirm(request));
+  act(() => container.querySelectorAll("button")[1]!.click());
+  expect(onConfirm).toHaveBeenCalledOnce();
+  expect(onCancel).toHaveBeenCalledOnce();
+  expect(container.textContent).toBe("");
 });

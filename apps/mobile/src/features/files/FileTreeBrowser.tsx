@@ -53,7 +53,6 @@ const FileTreeRow = function FileTreeRow(props: {
 
   return (
     <ControllerPressable
-      scopeBoundary={false}
       controllerKey={node.path}
       accessibilityRole="button"
       accessibilityLabel={node.path}

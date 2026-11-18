@@ -1,3 +1,4 @@
+import { useControllerRegionId } from "../controller/ControllerRegion";
 import { useContentTopInset } from "../../components/ui/useBarInset";
 import { usePaneRole } from "../../components/ui/Pane";
 import { ScreenContent } from "../../components/ui/ScreenContent";
@@ -195,6 +196,7 @@ function renderHomeScrollView(props: ScrollViewProps) {
 }
 
 export function HomeScreen(props: HomeScreenProps) {
+  const controllerRegionId = useControllerRegionId("threads");
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const workspace = useWorkspaceTabs();
   const [initialScrollOffset] = useState(() => workspace?.getScrollOffset("threads") ?? 0);
@@ -751,6 +753,8 @@ export function HomeScreen(props: HomeScreenProps) {
     return (
       <ScreenContent surface="screen">
         <View
+          nativeID={controllerRegionId}
+          collapsable={false}
           className="flex-1 items-center justify-center px-4"
           style={{ paddingBottom: insets.bottom }}
         >
@@ -763,7 +767,11 @@ export function HomeScreen(props: HomeScreenProps) {
   return (
     <View className={containerClassName}>
       <ScreenContent surface="screen">
-        <View className={cn("flex-1", Platform.OS !== "android" && contentBackground)}>
+        <View
+          nativeID={controllerRegionId}
+          collapsable={false}
+          className={cn("flex-1", Platform.OS !== "android" && contentBackground)}
+        >
           <SwipeableScrollGateProvider enabled={swipeEnabled} activation={swipeRowActivation}>
             <HomeThreadListDrag
               gesture={homeScrollGesture}

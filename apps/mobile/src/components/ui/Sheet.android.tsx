@@ -32,21 +32,22 @@ export function Sheet(props: SheetProps) {
         <RoutedFormSheetContext value={false}>
           {/* Android FormSheet does not bound flex children. */}
           <View collapsable={false} className="absolute inset-0 bg-header">
-            <AppBar
-              sheet
-              title={props.title}
-              onBack={props.dismissDisabled ? undefined : () => setIsOpen(false)}
-              hideBottomBorder
-            />
-            <ScreenContent>
-              <ControllerConsole scopeKey={controllerScope} onBack={androidKeyboardFirst(close)}>
-                {props.children}
-              </ControllerConsole>
-            </ScreenContent>
-            <View
-              pointerEvents="none"
-              className="absolute top-1 h-1 w-8 self-center rounded-full bg-header-foreground/40"
-            />
+            <ControllerConsole
+              scopeKey={controllerScope}
+              onBack={androidKeyboardFirst(props.onControllerBack ?? close)}
+            >
+              <AppBar
+                sheet
+                title={props.title}
+                onBack={props.dismissDisabled ? undefined : () => setIsOpen(false)}
+                hideBottomBorder
+              />
+              <ScreenContent>{props.children}</ScreenContent>
+              <View
+                pointerEvents="none"
+                className="absolute top-1 h-1 w-8 self-center rounded-full bg-header-foreground/40"
+              />
+            </ControllerConsole>
           </View>
         </RoutedFormSheetContext>
       </BottomSheetContext>

@@ -1,237 +1,369 @@
+@file:Suppress("INVISIBLE_REFERENCE", "INVISIBLE_MEMBER", "DEPRECATION")
+
 package expo.modules.t3nativecontrols
 
 import android.app.Activity
-import android.view.View
+import android.hardware.input.InputManager
 import android.os.Looper
-import android.widget.FrameLayout
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ScrollView
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.Assert.assertEquals
+import androidx.core.widget.NestedScrollView
+import com.facebook.react.bridge.BridgeReactContext
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
+import com.facebook.react.uimanager.events.EventDispatcher
+import com.facebook.react.uimanager.events.EventDispatcherProvider
+import com.facebook.react.uimanager.events.Event
+import com.facebook.react.uimanager.events.EventDispatcherListener
+import com.facebook.react.uimanager.events.BatchEventDispatchedListener
+import com.facebook.react.views.view.ReactViewGroup
+import com.facebook.react.views.view.ReactViewManager
+import expo.modules.kotlin.AppContext
+import expo.modules.kotlin.ModulesProvider
+import expo.modules.kotlin.modules.Module
+import java.lang.ref.WeakReference
+import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.InputDeviceBuilder
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], manifest = Config.NONE, qualifiers = "w1000dp-h1000dp-mdpi")
 class T3ControllerFocusTest {
-  @Test fun navigatingLongConversationScrollsThroughInlineActionsAndReachesReply() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
-    val root = FrameLayout(activity)
-    fun target(id: String) = View(activity).apply {
-      setTag(com.facebook.react.R.id.view_tag_native_id, id)
-      isFocusableInTouchMode = true
+  private class Sink(activity: Activity, appContext: AppContext) : T3KeyboardCommandsView(activity, appContext) {
+    init { orientation = android.widget.LinearLayout.VERTICAL }
+    val events = mutableListOf<Map<String, Any?>>()
+    override fun emitController(action: String, target: String, amount: Int?, scene: Map<String, Any?>?) {
+      events.add(mapOf("action" to action, "targetId" to target, "amount" to amount, "scene" to scene))
     }
-    val thread = target("t3-controller:thread:selected").apply { isSelected = true }
-    root.addView(thread, FrameLayout.LayoutParams(250, 80).apply { topMargin = 400 })
-    val chat = FrameLayout(activity).apply { setTag(com.facebook.react.R.id.view_tag_native_id, "t3-controller-conversation") }
-    root.addView(chat, FrameLayout.LayoutParams(650, 600).apply { leftMargin = 300 })
-    val scroller = ScrollView(activity)
-    val content = FrameLayout(activity).apply { minimumHeight = 2400 }
-    scroller.addView(content, FrameLayout.LayoutParams(650, 2400))
-    chat.addView(scroller, FrameLayout.LayoutParams(650, 600))
-    val first = target("t3-controller:fold:first")
-    content.addView(first, FrameLayout.LayoutParams(500, 80).apply { topMargin = 100 })
-    val last = target("t3-controller:fold:last")
-    content.addView(last, FrameLayout.LayoutParams(500, 80).apply { topMargin = 2200 })
-    val reply = target("t3-controller:reply:current")
-    root.addView(reply, FrameLayout.LayoutParams(650, 100).apply { leftMargin = 300; topMargin = 700 })
-    activity.setContentView(root)
-    activity.window.decorView.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY))
-    activity.window.decorView.layout(0, 0, 1000, 1000)
-    first.requestFocus()
-    T3ControllerRouter.move(root, "down")
-    assertTrue("Down at the last visible inline action scrolls the thread before leaving it", scroller.scrollY > 0)
-    assertTrue("Down must not escape to the sidebar or skip unread content for the reply", root.findFocus() !== thread && root.findFocus() !== reply)
-    repeat(12) { T3ControllerRouter.move(root, "down") }
-    assertEquals("All the conversation can be traversed", 1800, scroller.scrollY)
-    assertSame("Down at the end reaches the reply box", reply, root.findFocus())
-    T3ControllerRouter.move(root, "up")
-    assertSame("Up from the reply returns to the last inline action", last, root.findFocus())
-    T3ControllerRouter.move(root, "right")
-    assertSame("Right from any inline action is a direct route to the reply", reply, root.findFocus())
-    T3ControllerRouter.move(root, "up")
-    repeat(12) { T3ControllerRouter.move(root, "up") }
-    assertEquals("Up can traverse all the way back through gaps without inline controls", 0, scroller.scrollY)
-    assertSame("Up stays in the conversation instead of escaping to the sidebar", first, root.findFocus())
-    content.removeView(first)
-    T3ControllerRouter.move(root, "down")
-    assertTrue("Recycling the focused inline action must recover inside the conversation", generateSequence(root.findFocus()) { it.parent as? View }.any { it === chat })
-    T3ControllerRouter.reset()
   }
-
-  @Test fun conversationNavigationContractHoldsAcrossLayoutsAndContentStates() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
-    try {
-      for (width in listOf(600, 1000)) for (sidebar in listOf(false, true)) {
-        for (height in listOf(500, 2400, 7200)) for (density in listOf("none", "sparse", "dense")) {
-          for (position in listOf(0, (height - 500) / 2, height - 500).distinct()) {
-            val scenario = "width=$width sidebar=$sidebar height=$height controls=$density start=$position"
-            val root = FrameLayout(activity)
-            fun target(id: String) = View(activity).apply {
-              setTag(com.facebook.react.R.id.view_tag_native_id, id)
-              isFocusableInTouchMode = true
-            }
-            val thread = target("t3-controller:thread:selected").apply { isSelected = true }
-            if (sidebar) root.addView(thread, FrameLayout.LayoutParams(160, 80).apply { topMargin = 200 })
-            val chatLeft = if (sidebar) 180 else 0
-            val chatWidth = width - chatLeft
-            val chat = FrameLayout(activity).apply {
-              setTag(com.facebook.react.R.id.view_tag_native_id, "t3-controller-conversation")
-              isFocusableInTouchMode = true
-            }
-            root.addView(chat, FrameLayout.LayoutParams(chatWidth, 500).apply { leftMargin = chatLeft })
-            val scroller = ScrollView(activity)
-            val content = FrameLayout(activity).apply { minimumHeight = height }
-            scroller.addView(content, FrameLayout.LayoutParams(chatWidth, height))
-            chat.addView(scroller, FrameLayout.LayoutParams(chatWidth, 500))
-            val offsets = when (density) {
-              "sparse" -> listOf(40, height - 100).distinct()
-              "dense" -> (40..height - 100 step 160).toList()
-              else -> emptyList()
-            }
-            for (offset in offsets) content.addView(target("t3-controller:inline:$offset"), FrameLayout.LayoutParams(chatWidth - 20, 60).apply { topMargin = offset })
-            val reply = target("t3-controller:reply:current")
-            root.addView(reply, FrameLayout.LayoutParams(chatWidth, 80).apply { leftMargin = chatLeft; topMargin = 600 })
-            activity.setContentView(root)
-            activity.window.decorView.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
-            activity.window.decorView.layout(0, 0, width, 800)
-            scroller.scrollTo(0, position)
-            chat.requestFocus()
-            T3ControllerRouter.move(root, "right")
-            assertSame("Reply is directly reachable: $scenario", reply, root.findFocus())
-            T3ControllerRouter.move(root, "left")
-            assertSame("Reply has a route back to chat: $scenario", chat, root.findFocus())
-            val bound = offsets.size * 2 + height / 100 + 10
-            repeat(bound) {
-              if (root.findFocus() !== reply) T3ControllerRouter.move(root, "down")
-              val focus = root.findFocus()
-              assertTrue("Vertical navigation stays in chat or reply: $scenario", focus === reply || generateSequence(focus) { it.parent as? View }.any { it === chat })
-            }
-            assertSame("Down eventually reaches reply: $scenario", reply, root.findFocus())
-            assertTrue("Reply is reached only after the unread tail: $scenario", !scroller.canScrollVertically(1))
-            T3ControllerRouter.move(root, "up")
-            repeat(bound) { T3ControllerRouter.move(root, "up") }
-            assertEquals("Up eventually reaches the start: $scenario", 0, scroller.scrollY)
-            T3ControllerRouter.move(root, "right")
-            assertSame("Inline actions retain the reply shortcut: $scenario", reply, root.findFocus())
-            if (sidebar) {
-              T3ControllerRouter.move(root, "left")
-              T3ControllerRouter.move(root, "left")
-              assertSame("Chat has a route back to threads: $scenario", thread, root.findFocus())
-            }
-            T3ControllerRouter.reset()
-          }
-        }
-      }
-    } finally {
-      activity.finish()
+  private class TestReactContext(activity: Activity) : BridgeReactContext(activity), EventDispatcherProvider {
+    val clicks = mutableListOf<Int>()
+    private val dispatcher = object : EventDispatcher {
+      override fun dispatchEvent(event: Event<*>) { if (event.eventName == "topClick") clicks.add(event.viewTag) }
+      override fun dispatchAllEvents() = Unit
+      override fun addListener(listener: EventDispatcherListener) = Unit
+      override fun removeListener(listener: EventDispatcherListener) = Unit
+      override fun addBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
+      override fun removeBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
+      override fun onCatalystInstanceDestroyed() = Unit
+    }
+    override fun getEventDispatcher(): EventDispatcher = dispatcher
+  }
+  private class Fixture : AutoCloseable {
+    init { ReactNativeFeatureFlagsForTests.setUp() }
+    val controller = Robolectric.buildActivity(Activity::class.java).setup().visible()
+    val activity = controller.get()
+    val reactContext = TestReactContext(activity)
+    val appContext = AppContext(object : ModulesProvider {
+      override fun getModulesMap() = emptyMap<Class<out Module>, String?>()
+    }, expo.modules.core.ModuleRegistry(emptyList(), emptyList()), WeakReference(reactContext))
+    val root = FrameLayout(activity)
+    val scope = Sink(activity, appContext).apply { controllerScope = "test"; controllerEvents = true }
+    val device = InputDeviceBuilder.newBuilder().setId(7).setName("Controller")
+      .setSources(InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_JOYSTICK).build()
+    init {
+      shadowOf(activity.getSystemService(InputManager::class.java)).addInputDevice(device)
+      root.addView(scope, FrameLayout.LayoutParams(1000, 1000))
+      activity.setContentView(root)
+      T3KeyboardRouter.install(activity)
+      controller.windowFocusChanged(true)
+      layout()
+    }
+    fun layout() {
+      val decor = activity.window.decorView
+      decor.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY))
+      decor.layout(0, 0, 1000, 1000)
+      decor.viewTreeObserver.dispatchOnGlobalLayout()
+    }
+    fun key(code: Int, action: Int = KeyEvent.ACTION_DOWN, repeat: Int = 0, source: Int = InputDevice.SOURCE_GAMEPAD): Boolean {
+      val event = KeyEvent(0, 0, action, code, repeat, 0, 7, 0, 0, source)
+      shadowOf(event).setDevice(device)
+      return activity.window.callback.dispatchKeyEvent(event)
+    }
+    fun enable() { assertTrue(key(KeyEvent.KEYCODE_BUTTON_START)); key(KeyEvent.KEYCODE_BUTTON_START, KeyEvent.ACTION_UP) }
+    fun motion(vararg axes: Pair<Int, Float>): Boolean {
+      val coords = MotionEvent.PointerCoords().apply { axes.forEach { setAxisValue(it.first, it.second) } }
+      val pointer = MotionEvent.PointerProperties().apply { id = 0 }
+      val event = MotionEvent.obtain(0, 0, MotionEvent.ACTION_MOVE, 1, arrayOf(pointer), arrayOf(coords), 0, 0, 1f, 1f, 7, 0, InputDevice.SOURCE_JOYSTICK, 0)
+      return try { activity.window.callback.dispatchGenericMotionEvent(event) } finally { event.recycle() }
+    }
+    fun effect(kind: String, target: String = "", region: String = "", amount: Double = 0.0) =
+      T3ControllerRouter.effect("test", kind, target, region, amount)
+    override fun close() {
       T3ControllerRouter.reset()
+      controller.close()
+      appContext.javaClass.declaredMethods.first { it.name.startsWith("onDestroy") && it.parameterCount == 0 }.invoke(appContext)
+      reactContext.destroy()
+    }
+  }
+  private fun View.tagged(id: String): View { setTag(com.facebook.react.R.id.view_tag_native_id, id); return this }
+  private fun FrameLayout.add(view: View, top: Int = 0, height: Int = 70) {
+    addView(view, FrameLayout.LayoutParams(600, height).apply { topMargin = top })
+  }
+
+  @Test fun sceneUsesReadingOrderFullRegionAndSurfaceIdsAndSuppressesRegisteredChildren() {
+    Fixture().use { f ->
+      val surface = FrameLayout(f.activity).apply { tagged("t3-controller-surface:settings:modal") }
+      val region = FrameLayout(f.activity).apply { tagged("t3-controller-region:composer:reply:current") }
+      val registered = ReactViewGroup(f.activity).apply { tagged("t3-controller:reply:current"); isFocusable = true }
+      registered.addView(EditText(f.activity), FrameLayout.LayoutParams(400, 60))
+      val ordinary = ReactViewGroup(f.activity).apply { id = 42; tagged("product-id"); ReactViewManager().setFocusable(this, true) }
+      val disabled = View(f.activity).apply { id = 43; isClickable = true; isEnabled = false }
+      val hidden = FrameLayout(f.activity).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
+      hidden.add(View(f.activity).apply { id = 44; isClickable = true })
+      region.add(ordinary, 300)
+      region.add(registered, 20)
+      region.add(disabled, 400)
+      region.add(hidden, 500)
+      region.add(View(f.activity).apply { isClickable = true }, 600)
+      surface.add(region, height = 900)
+      f.scope.addView(surface, FrameLayout.LayoutParams(900, 900))
+      f.layout()
+      val scene = T3ControllerHost.snapshot(f.scope)
+      assertEquals(listOf("native:42", "t3-controller:reply:current"), scene.targets.map { it.id })
+      assertEquals(listOf(false, true), scene.targets.map { it.registered })
+      assertEquals(listOf("action", "reply"), scene.targets.map { it.kind })
+      assertTrue(scene.targets.all { it.region == "t3-controller-region:composer:reply:current" })
+      assertEquals("t3-controller-surface:settings:modal", scene.regions.last().surface)
+      assertEquals("composer", scene.regions.last().kind)
+      assertEquals("product-id", T3ControllerHost.nativeId(ordinary))
+      assertEquals("composer", scene.regions.single().kind)
     }
   }
 
-  @Test fun settingsAndDialogNavigationCanReachOffscreenControls() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
-    val root = FrameLayout(activity)
-    val scroller = ScrollView(activity)
-    val content = FrameLayout(activity).apply { minimumHeight = 2400 }
-    fun target(id: String, top: Int) = View(activity).apply {
-      setTag(com.facebook.react.R.id.view_tag_native_id, id)
-      isFocusableInTouchMode = true
-      content.addView(this, FrameLayout.LayoutParams(500, 60).apply { topMargin = top })
+  @Test fun effectsUseSemanticClicksExplicitEditorsAndEmptyRegionFocusAndRejectStaleTargets() {
+    Fixture().use { f ->
+      val action = ReactViewGroup(f.reactContext).apply { id = 52; ReactViewManager().setFocusable(this, true) }
+      val reply = FrameLayout(f.activity).apply { tagged("t3-controller:reply:current"); isFocusable = true }
+      val editor = EditText(f.activity)
+      reply.add(editor)
+      val empty = FrameLayout(f.activity).apply { tagged("t3-controller-region:conversation:empty") }
+      f.scope.addView(action, FrameLayout.LayoutParams(500, 80))
+      f.scope.addView(reply, FrameLayout.LayoutParams(500, 80).apply { topMargin = 100 })
+      f.scope.addView(empty, FrameLayout.LayoutParams(500, 500).apply { topMargin = 200 })
+      f.layout()
+      assertNotNull(f.effect("focus", "t3-controller:reply:current"))
+      assertFalse("Logical selection does not take Android editor focus", editor.hasFocus())
+      assertNotNull(f.effect("edit", "t3-controller:reply:current"))
+      assertSame(editor, f.root.findFocus())
+      assertEquals(true, f.effect("snapshot")!!["editorFocused"])
+      assertNotNull(f.effect("blur"))
+      assertFalse(editor.hasFocus())
+      assertNotNull(f.effect("focus", region = "t3-controller-region:conversation:empty"))
+      assertFalse(editor.hasFocus())
+      assertNotNull(f.effect("activate", "native:52"))
+      assertEquals(listOf(52), f.reactContext.clicks)
+      action.contentDescription = "Changed meaning"
+      assertNull("A recycled semantic control cannot activate under its old ID", f.effect("activate", "native:52"))
+      action.contentDescription = null
+      assertNull(f.effect("activate", "native:52", "t3-controller-region:conversation:empty"))
+      action.isEnabled = false
+      assertNull(f.effect("activate", "native:52"))
+      action.isEnabled = true
+      action.visibility = View.INVISIBLE
+      assertNull(f.effect("activate", "native:52"))
+      action.visibility = View.VISIBLE
+      f.scope.removeView(action)
+      assertNull(f.effect("activate", "native:52"))
+      assertEquals(listOf(52), f.reactContext.clicks)
+      f.scope.controllerActive = false
+      assertNull(f.effect("snapshot"))
     }
-    val first = target("t3-controller:adjustable:volume", 80)
-    val last = target("t3-controller:setting:last", 2200)
-    scroller.addView(content, FrameLayout.LayoutParams(650, 2400))
-    root.addView(scroller, FrameLayout.LayoutParams(650, 600))
-    activity.setContentView(root)
-    activity.window.decorView.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY))
-    activity.window.decorView.layout(0, 0, 1000, 1000)
-    first.requestFocus()
-    val adjustments = mutableListOf<Pair<String, String>>()
-    assertTrue(T3ControllerRouter.adjust(root, "right") { action, id -> adjustments.add(action to id) })
-    assertTrue(T3ControllerRouter.adjust(root, "left") { action, id -> adjustments.add(action to id) })
-    assertEquals(listOf("increment" to "t3-controller:adjustable:volume", "decrement" to "t3-controller:adjustable:volume"), adjustments)
-    assertTrue("Up and Down leave the adjustable field", !T3ControllerRouter.adjust(root, "down") { _, _ -> throw AssertionError("Down must navigate") })
-    T3ControllerRouter.move(root, "down")
-    assertTrue("Settings and dialogs scroll beyond their last visible control", scroller.scrollY > 0)
-    repeat(16) { T3ControllerRouter.move(root, "down") }
-    assertSame("Offscreen settings remain controller reachable", last, root.findFocus())
-    repeat(16) { T3ControllerRouter.move(root, "up") }
-    assertEquals("Settings have a reverse path", 0, scroller.scrollY)
-    assertSame(first, root.findFocus())
-    val field = FrameLayout(activity).apply {
-      setTag(com.facebook.react.R.id.view_tag_native_id, "t3-controller:settings-search")
-      isFocusableInTouchMode = true
-    }
-    val editor = EditText(activity).apply { isFocusableInTouchMode = true }
-    field.addView(editor, FrameLayout.LayoutParams(400, 60))
-    root.addView(field, FrameLayout.LayoutParams(500, 80).apply { topMargin = 700 })
-    activity.window.decorView.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY))
-    activity.window.decorView.layout(0, 0, 1000, 1000)
-    editor.requestFocus()
-    assertTrue("Back leaves a settings or dialog editor before closing its scope", T3ControllerRouter.leaveEditor(root))
-    assertSame(field, root.findFocus())
-    activity.finish()
-    T3ControllerRouter.reset()
   }
 
-  @Test fun horizontalNavigationLeavesAnEmptyConversationAndReturnsToItsSelectedThread() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
-    val root = FrameLayout(activity)
-    fun target(id: String, left: Int, top: Int, width: Int, height: Int) = FrameLayout(activity).apply {
-      setTag(com.facebook.react.R.id.view_tag_native_id, id)
-      isFocusableInTouchMode = true
-      root.addView(this, FrameLayout.LayoutParams(width, height).apply {
-        leftMargin = left; topMargin = top
-      })
+  @Test fun scrollingSupportsBothHostsAndExcludesNestedRegions() {
+    Fixture().use { f ->
+      for (nested in listOf(false, true)) {
+        val region = FrameLayout(f.activity).apply { tagged("t3-controller-region:content:own") }
+        val childRegion = FrameLayout(f.activity).apply { tagged("t3-controller-region:inspector:nested") }
+        val foreign = ScrollView(f.activity).apply { addView(View(f.activity).apply { minimumHeight = 2000 }, FrameLayout.LayoutParams(400, 2000)) }
+        childRegion.add(foreign, height = 150)
+        region.add(childRegion, height = 150)
+        val own = if (nested) NestedScrollView(f.activity) else ScrollView(f.activity)
+        (own as android.view.ViewGroup).addView(View(f.activity).apply { minimumHeight = 2000 }, FrameLayout.LayoutParams(400, 2000))
+        region.add(own, 200, 300)
+        f.scope.addView(region, FrameLayout.LayoutParams(600, 600))
+        f.layout()
+        assertNotNull(f.effect("scroll", region = "t3-controller-region:content:own", amount = 175.0))
+        assertEquals(175, own.scrollY)
+        assertEquals(0, foreign.scrollY)
+        val payload = T3ControllerHost.snapshot(f.scope).payload()
+        val regions = payload["regions"] as List<*>
+        val ownPayload = regions.map { it as Map<*, *> }.first { it["id"] == "t3-controller-region:content:own" }
+        assertEquals(300, ownPayload["viewportHeight"])
+        assertEquals(true, ownPayload["canScrollUp"])
+        assertEquals(true, ownPayload["canScrollDown"])
+        f.scope.removeView(region)
+      }
     }
-    target("t3-controller:thread:other", 0, 300, 250, 80)
-    val thread = target("t3-controller:thread:selected", 0, 200, 250, 80).apply { isSelected = true }
-    val conversation = target("t3-controller-conversation", 300, 0, 650, 700)
-    val reply = target("t3-controller:reply:current", 300, 750, 650, 100)
-    activity.setContentView(root)
-    activity.window.decorView.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY))
-    activity.window.decorView.layout(0, 0, 1000, 1000)
-    assertTrue("Thread is a visible navigation target", thread.getGlobalVisibleRect(android.graphics.Rect()))
-    thread.requestFocus()
-    T3ControllerRouter.move(root, "right")
-    assertSame("Right enters the chat even when it has no inline buttons", conversation, root.findFocus())
-    T3ControllerRouter.move(root, "left")
-    assertSame("Left returns to the selected thread", thread, root.findFocus())
-    val dispatched = mutableListOf<Pair<String, String>>()
-    T3ControllerRouter.activate(root, "activate") { action, id -> dispatched.add(action to id) }
-    shadowOf(Looper.getMainLooper()).idle()
-    assertSame("Selecting a thread enters its chat", conversation, root.findFocus())
-    assertEquals(listOf("activate" to "t3-controller:thread:selected"), dispatched)
-    T3ControllerRouter.scopeChanged()
-    shadowOf(Looper.getMainLooper()).idle()
-    assertSame("Route and reply registration must not strand focus back in the sidebar", conversation, root.findFocus())
-    T3ControllerRouter.activate(root, "activate") { action, id -> dispatched.add(action to id) }
-    assertSame("A on an empty chat acquires the reply without activating a random sidebar control", reply, root.findFocus())
-    assertEquals(1, dispatched.size)
-    T3ControllerRouter.move(root, "left")
-    assertSame(conversation, root.findFocus())
-    T3ControllerRouter.activate(root, "dictate") { action, id -> dispatched.add(action to id) }
-    assertSame("Speaking from chat focuses the current reply", reply, root.findFocus())
-    assertTrue("Back from reply navigation returns to the conversation", T3ControllerRouter.back(root))
-    assertSame(conversation, root.findFocus())
-    assertTrue("Back from conversation returns to threads", T3ControllerRouter.back(root))
-    assertSame(thread, root.findFocus())
-    T3ControllerRouter.move(root, "right")
-    T3ControllerRouter.move(root, "right")
-    assertEquals("dictate" to "t3-controller:reply:current", dispatched.last())
-    val editor = EditText(activity).apply { isFocusableInTouchMode = true }
-    reply.addView(editor, FrameLayout.LayoutParams(500, 80))
-    editor.requestFocus()
-    assertTrue("Back leaves text editing before navigating away", T3ControllerRouter.leaveEditor(root))
-    assertSame(conversation, root.findFocus())
-    T3ControllerRouter.move(root, "left")
-    assertSame("Navigation is restored after leaving the editor", thread, root.findFocus())
-    T3ControllerRouter.reset()
   }
+
+  @Test fun actualWindowInputEmitsSemanticsAndSuspensionRecoversMissingKeyRelease() {
+    Fixture().use { f ->
+      assertTrue("Initial window focus also supplies a scene", f.scope.events.any { it["action"] == "resumed" && it["scene"] is Map<*, *> })
+      val action = View(f.activity).apply { id = 71; isFocusableInTouchMode = true; isClickable = true }
+      f.scope.addView(action, FrameLayout.LayoutParams(500, 80))
+      f.layout()
+      action.requestFocus()
+      f.enable()
+      assertTrue(f.key(KeyEvent.KEYCODE_DPAD_DOWN))
+      assertEquals("down", f.scope.events.last()["action"])
+      assertSame(action, f.root.findFocus())
+      f.controller.windowFocusChanged(false)
+      assertEquals("suspended", f.scope.events.last()["action"])
+      assertNull(f.effect("activate", "native:71"))
+      val count = f.scope.events.size
+      shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+      assertEquals(count, f.scope.events.size)
+      f.key(KeyEvent.KEYCODE_BUTTON_A)
+      assertEquals(count, f.scope.events.size)
+      f.controller.windowFocusChanged(true)
+      assertEquals("resumed", f.scope.events.last()["action"])
+      assertTrue(f.scope.events.last()["scene"] is Map<*, *>)
+      assertTrue(f.key(KeyEvent.KEYCODE_DPAD_DOWN, repeat = 2))
+      assertEquals("resumed", f.scope.events.last()["action"])
+      assertTrue(f.key(KeyEvent.KEYCODE_DPAD_DOWN))
+      assertEquals("down", f.scope.events.last()["action"])
+      f.key(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.ACTION_UP)
+      assertTrue(f.motion(MotionEvent.AXIS_Y to 1f))
+      assertEquals("down", f.scope.events.last()["action"])
+      f.controller.windowFocusChanged(false)
+      f.controller.windowFocusChanged(true)
+      val resumedCount = f.scope.events.size
+      assertTrue(f.motion(MotionEvent.AXIS_Y to 1f))
+      assertEquals(resumedCount, f.scope.events.size)
+      assertTrue(f.motion(MotionEvent.AXIS_Y to 0f))
+      assertTrue(f.motion(MotionEvent.AXIS_Y to -1f))
+      assertEquals("up", f.scope.events.last()["action"])
+      f.motion(MotionEvent.AXIS_Y to 0f)
+      T3ControllerRouter.suspend(f.root.rootView)
+      assertEquals("suspended", f.scope.events.last()["action"])
+      assertTrue(f.key(KeyEvent.KEYCODE_BUTTON_A))
+      assertEquals("resumed", f.scope.events.last()["action"])
+      f.key(KeyEvent.KEYCODE_BUTTON_A, KeyEvent.ACTION_UP)
+      assertTrue(f.key(KeyEvent.KEYCODE_DPAD_DOWN))
+      assertEquals("down", f.scope.events.last()["action"])
+    }
+  }
+
+  @Test fun editorDirectionsPassThroughWhilePaletteSelectionAndAnalogScrollingStillWork() {
+    Fixture().use { f ->
+      val editor = EditText(f.activity).apply { id = 80 }
+      f.scope.addView(editor, FrameLayout.LayoutParams(500, 80))
+      f.layout()
+      assertNotNull(f.effect("focus", "native:80"))
+      assertFalse(editor.hasFocus())
+      assertNotNull(f.effect("edit", "native:80"))
+      assertTrue(editor.hasFocus())
+      f.enable()
+      val count = f.scope.events.size
+      f.key(KeyEvent.KEYCODE_DPAD_DOWN)
+      assertEquals(count, f.scope.events.size)
+      f.key(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.ACTION_UP)
+      f.scope.controllerSelection = true
+      assertTrue(f.key(KeyEvent.KEYCODE_DPAD_DOWN))
+      assertEquals("down", f.scope.events.last()["action"])
+      f.key(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.ACTION_UP)
+      f.scope.controllerSelection = false
+      for ((button, action) in listOf(KeyEvent.KEYCODE_BUTTON_L2 to "conversation", KeyEvent.KEYCODE_BUTTON_R2 to "reply")) {
+        assertTrue(f.key(button))
+        assertEquals(action, f.scope.events.last()["action"])
+        f.key(button, KeyEvent.ACTION_UP)
+      }
+      for ((axis, action) in listOf(MotionEvent.AXIS_LTRIGGER to "conversation", MotionEvent.AXIS_RTRIGGER to "reply")) {
+        assertTrue(f.motion(axis to .8f))
+        assertEquals(action, f.scope.events.last()["action"])
+        val count = f.scope.events.count { it["action"] == action }
+        assertTrue(f.motion(axis to .9f))
+        assertEquals(count, f.scope.events.count { it["action"] == action })
+        f.motion(axis to 0f)
+        assertTrue(f.motion(axis to .8f))
+        assertEquals(count + 1, f.scope.events.count { it["action"] == action })
+        f.motion(axis to 0f)
+      }
+      assertTrue(f.motion(MotionEvent.AXIS_RZ to .8f))
+      assertEquals("scroll", f.scope.events.last()["action"])
+      assertEquals(40, f.scope.events.last()["amount"])
+      assertTrue(f.key(KeyEvent.KEYCODE_BUTTON_A))
+      assertEquals("activate", f.scope.events.last()["action"])
+      assertTrue(f.key(KeyEvent.KEYCODE_BUTTON_A, repeat = 1))
+      assertEquals(1, f.scope.events.count { it["action"] == "activate" })
+      f.key(KeyEvent.KEYCODE_BUTTON_A, KeyEvent.ACTION_UP)
+      assertTrue("Gamepad devices may label button events as keyboard input", f.key(KeyEvent.KEYCODE_BUTTON_A, source = InputDevice.SOURCE_KEYBOARD))
+      assertEquals(2, f.scope.events.count { it["action"] == "activate" })
+      T3ControllerRouter.reset()
+      assertEquals("reset", f.scope.events.last()["action"])
+    }
+  }
+
+  @Test fun topologyNotificationsDeduplicateAndActiveModalOwnershipDoesNotDependOnMountOrder() {
+    Fixture().use { f ->
+      val modal = Sink(f.activity, f.appContext).apply { controllerScope = "modal"; controllerEvents = true; controllerModal = true; controllerActive = false }
+      f.root.addView(modal, FrameLayout.LayoutParams(900, 900))
+      f.layout()
+      f.enable()
+      f.scope.onWindowFocusChanged(false)
+      assertNotNull("A stale child focus callback cannot suspend the focused window", f.effect("snapshot"))
+      f.scope.events.clear()
+      f.layout()
+      assertTrue(f.scope.events.isEmpty())
+      val button = View(f.activity).apply { id = 91; setOnClickListener { } }
+      f.scope.addView(button, FrameLayout.LayoutParams(400, 60))
+      f.layout()
+      assertEquals(1, f.scope.events.count { it["action"] == "scene" })
+      f.layout()
+      assertEquals(1, f.scope.events.count { it["action"] == "scene" })
+      modal.controllerModal = false
+      modal.controllerActive = true
+      assertNotNull("Later mounts do not acquire controller authority", f.effect("snapshot"))
+      val backgroundEditor = EditText(f.activity)
+      f.scope.addView(backgroundEditor, FrameLayout.LayoutParams(500, 80))
+      backgroundEditor.requestFocus()
+      modal.controllerModal = true
+      T3ControllerRouter.reset()
+      f.enable()
+      assertEquals("enabled", modal.events.last()["action"])
+      assertTrue(f.key(KeyEvent.KEYCODE_DPAD_DOWN))
+      assertEquals("down", modal.events.last()["action"])
+      assertTrue("An overlay does not blur the underlying editor just to navigate", backgroundEditor.hasFocus())
+      f.key(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.ACTION_UP)
+      assertNull(f.effect("snapshot"))
+      modal.controllerActive = false
+      assertNotNull(f.effect("snapshot"))
+    }
+  }
+  @Test fun guardedProbeUsesProductionWindowRoutingAndAcknowledgesCompletion() {
+    Fixture().use { f ->
+      val flags = f.activity.applicationInfo.flags
+      f.activity.applicationInfo.flags = flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE.inv()
+      assertThrows(IllegalStateException::class.java) { T3ControllerProbe.input(f.activity, "blocked", "start") }
+      f.activity.applicationInfo.flags = flags or android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE
+      assertTrue(T3ControllerProbe.input(f.activity, "enabled", "start"))
+      assertEquals(listOf("enabled", "testComplete"), f.scope.events.takeLast(2).map { it["action"] })
+      assertTrue(T3ControllerProbe.input(f.activity, "move", "down"))
+      assertEquals(listOf("down", "testComplete"), f.scope.events.takeLast(2).map { it["action"] })
+      assertTrue(T3ControllerProbe.input(f.activity, "lost", "suspend"))
+      assertTrue(f.root.hasWindowFocus())
+      assertTrue(T3ControllerProbe.input(f.activity, "recover", "a"))
+      assertEquals(listOf("resumed", "testComplete"), f.scope.events.takeLast(2).map { it["action"] })
+      assertTrue(T3ControllerProbe.input(f.activity, "returned", "resume"))
+      assertTrue(T3ControllerProbe.input(f.activity, "fresh", "x"))
+      assertEquals(listOf("dictate", "testComplete"), f.scope.events.takeLast(2).map { it["action"] })
+      assertTrue(T3ControllerProbe.input(f.activity, "help", "select"))
+      assertEquals(listOf("chooser", "testComplete"), f.scope.events.takeLast(2).map { it["action"] })
+      assertFalse(T3ControllerProbe.acceptsVirtual(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_A, 0, 0, -7343, 0, 0, InputDevice.SOURCE_GAMEPAD)))
+      f.activity.applicationInfo.flags = flags
+    }
+  }
+
 }

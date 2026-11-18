@@ -1,26 +1,10 @@
 import { androidKeyboardFirst } from "../../lib/android-back";
-import { NativeThemeHost } from "./NativeThemeHost.android";
-import {
-  AlertDialog,
-  Button,
-  OutlinedButton,
-  Icon,
-  FlowRow,
-  Column,
-  Text,
-} from "@expo/ui/jetpack-compose";
-import { verticalScroll } from "@expo/ui/jetpack-compose/modifiers";
-
-import { useAppearancePreferences } from "../../features/settings/appearance/AppearancePreferencesProvider";
-import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
-
 import { useState, useSyncExternalStore } from "react";
-import { Modal, View } from "react-native";
+import { Modal, Pressable, ScrollView, View } from "react-native";
 import { ControllerConsole } from "../../features/controller/ControllerConsole";
 import { ControllerTextInput } from "./ControllerTextInput";
 import { AppText } from "./AppText";
 import { Button as AppButton } from "./Button";
-import { themeColorWithContrast } from "../../lib/mobileTheme";
 import type { Alert, AlertButton } from "react-native";
 import type { ConfirmDialogRequest, TextInputDialogRequest } from "./Dialog.types";
 
@@ -195,94 +179,59 @@ function PromptPresentation(props: {
 }
 
 function DialogPresentation(props: DialogPresentationProps) {
-  const { themeVariables: colors } = useAppearancePreferences();
-  const titleTypography = useScaledTextRole("title");
-  const bodyTypography = useScaledTextRole("footnote");
-  const confirm = () => {
-    props.onConfirm();
-  };
+  const cancel = androidKeyboardFirst(() => {
+    if (props.dismissable ?? true) props.onCancel();
+  });
   const actions = props.alertActions ?? [
     { text: props.request.cancelText ?? "Cancel", onPress: props.onCancel },
     {
       text: props.request.confirmText,
       style: props.request.destructive ? ("destructive" as const) : ("default" as const),
-      onPress: confirm,
+      onPress: () => props.onConfirm(),
     },
   ];
-  const destructive = actions.some((action) => action.style === "destructive");
-  // Error text colors can be pastel in dark themes. Filled actions need a white-label contrast pair.
-  const destructiveFill = themeColorWithContrast(colors["--color-danger-foreground"], "#ffffff");
-  const renderAction = (action: AlertButton, index: number) => {
-    const isDestructive = action.style === "destructive";
-    const isPrimary = isDestructive || index === actions.length - 1;
-    const Component = isPrimary ? Button : OutlinedButton;
-    return (
-      <Component
-        key={index}
-        onClick={() => (props.alertActions ? props.onAlertAction?.(action) : action.onPress?.())}
-        colors={{
-          containerColor: isDestructive
-            ? destructiveFill
-            : isPrimary
-              ? colors["--color-prominent-action"]
-              : "#00000000",
-          contentColor: isDestructive
-            ? "#ffffff"
-            : isPrimary
-              ? colors["--color-prominent-action-foreground"]
-              : colors["--color-foreground"],
-        }}
-      >
-        <Text style={bodyTypography}>{action.text ?? ""}</Text>
-      </Component>
-    );
-  };
   return (
-    <NativeThemeHost ignoreSafeAreaKeyboardInsets style={{ height: 0, width: 0 }}>
-      <AlertDialog
-        onDismissRequest={androidKeyboardFirst(props.onCancel)}
-        properties={{
-          dismissOnBackPress: props.dismissable ?? true,
-          dismissOnClickOutside: props.dismissable ?? true,
-        }}
-        tonalElevation={0}
-        colors={{
-          containerColor: colors["--color-card"],
-          titleContentColor: colors["--color-foreground"],
-          textContentColor: colors["--color-foreground-secondary"],
-        }}
-      >
-        <AlertDialog.Title>
-          <Column verticalArrangement={{ spacedBy: 16 }}>
-            {destructive ? (
-              <Icon
-                source={require("../../../assets/icons/delete.xml")}
-                tint={colors["--color-danger-foreground"]}
-                size={24}
-              />
+    <Modal transparent visible onRequestClose={cancel}>
+      <ControllerConsole scopeKey="confirmation-dialog" onBack={cancel}>
+        <View className="flex-1 justify-center bg-black/40 px-6">
+          <Pressable
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+            className="absolute inset-0"
+            onPress={cancel}
+          />
+          <View accessibilityViewIsModal className="max-h-[80%] gap-4 rounded-[28px] bg-card p-6">
+            <AppText accessibilityRole="header" className="text-xl font-t3-medium">
+              {props.request.title}
+            </AppText>
+            {props.request.message ? (
+              <ScrollView className="shrink" keyboardShouldPersistTaps="handled">
+                <AppText>{props.request.message}</AppText>
+              </ScrollView>
             ) : null}
-            <Text style={titleTypography}>{props.request.title}</Text>
-          </Column>
-        </AlertDialog.Title>
-        {props.request.message ? (
-          <AlertDialog.Text>
-            <Text modifiers={[verticalScroll()]} style={bodyTypography}>
-              {props.request.message}
-            </Text>
-          </AlertDialog.Text>
-        ) : null}
-        {actions.length > 1 ? (
-          <AlertDialog.DismissButton>
-            <FlowRow>{actions.slice(0, -1).map(renderAction)}</FlowRow>
-          </AlertDialog.DismissButton>
-        ) : null}
-        {actions.length > 0 ? (
-          <AlertDialog.ConfirmButton>
-            {renderAction(actions[actions.length - 1]!, actions.length - 1)}
-          </AlertDialog.ConfirmButton>
-        ) : null}
-      </AlertDialog>
-    </NativeThemeHost>
+            <View className="flex-row flex-wrap justify-end gap-3">
+              {actions.map((action, index) => (
+                <AppButton
+                  key={`${action.text}:${action.style ?? "default"}`}
+                  label={action.text ?? ""}
+                  controllerFooter={index === actions.length - 1}
+                  tone={
+                    action.style === "destructive"
+                      ? "danger"
+                      : index === actions.length - 1
+                        ? "primary"
+                        : "secondary"
+                  }
+                  onPress={() =>
+                    props.alertActions ? props.onAlertAction?.(action) : action.onPress?.()
+                  }
+                />
+              ))}
+            </View>
+          </View>
+        </View>
+      </ControllerConsole>
+    </Modal>
   );
 }
 

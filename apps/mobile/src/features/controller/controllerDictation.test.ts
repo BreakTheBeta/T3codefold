@@ -36,8 +36,10 @@ it("resets only a recording started by that controller surface, retaining later 
     focusedOwners: new Set<string>(),
     state: { phase: "idle", error: null, errorAction: null },
   };
-  ownership.start("workspace", session, recording);
+  ownership.start("workspace", session, recording, "composer-surface");
   expect(ownership.owns("workspace")).toBe(true);
+  expect(ownership.owns("workspace", "composer-surface")).toBe(true);
+  expect(ownership.owns("workspace", "other-surface")).toBe(false);
   expect(ownership.owns("unrelated-sheet")).toBe(false);
   ownership.cancel("unrelated-sheet");
   expect(session.controller.cancel).not.toHaveBeenCalled();

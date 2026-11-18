@@ -7,6 +7,7 @@ internal class T3ControllerRoutingState {
   private val axes = mutableMapOf<Int, Boolean>()
   private var device: Int? = null
   private var awaitingNeutral = false
+  private var quarantinedAxes = false
   var generation = 0
     private set
 
@@ -14,6 +15,18 @@ internal class T3ControllerRoutingState {
     if (device != id) { device = id; awaitingNeutral = !neutral() }
   }
   private fun neutral() = held.none { it.first == device } && axes[device] != true
+  fun suspend() {
+    generation += 1
+    quarantinedAxes = quarantinedAxes || axes[device] == true
+    held.clear()
+    axes.clear()
+    awaitingNeutral = false
+  }
+  fun reset() {
+    suspend()
+    quarantinedAxes = false
+    device = null
+  }
   fun scopeChanged() { generation += 1; awaitingNeutral = !neutral() }
   fun keyUp(deviceId: Int, key: Int): Boolean {
     val consumed = held.remove(deviceId to key)
@@ -30,6 +43,10 @@ internal class T3ControllerRoutingState {
   }
   fun isHeld(deviceId: Int, key: Int) = deviceId to key in held
   fun motion(deviceId: Int, active: Boolean): Boolean {
+    if (quarantinedAxes) {
+      if (active) return false
+      quarantinedAxes = false
+    }
     axes[deviceId] = active
     if (neutral()) awaitingNeutral = false
     return !awaitingNeutral

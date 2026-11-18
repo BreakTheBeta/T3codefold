@@ -10,6 +10,21 @@ class T3ControllerRoutingStateTest {
   private fun T3ControllerRoutingState.down(key: Int, action: String, editor: Boolean = false, selection: Boolean = false) =
     keyDown(7, key, action, editor, selection, 0)
 
+  @Test fun missedReleaseDuringSuspensionDoesNotTrapFreshKeysOrResumeHeldAxes() {
+    val state = state()
+    state.down(1, "down")
+    state.motion(7, true)
+    val generation = state.generation
+    state.suspend()
+    assertFalse(state.canRepeat(generation))
+    assertEquals(ControllerKeyDisposition.CONSUME, state.keyDown(7, 1, "down", false, false, 2))
+    assertEquals(ControllerKeyDisposition.DISPATCH, state.down(1, "down"))
+    assertFalse(state.motion(7, true))
+    state.keyUp(7, 1)
+    assertTrue(state.motion(7, false))
+    assertTrue(state.motion(7, true))
+  }
+
   @Test fun replacementRequestStopsRepeatAndGatesEveryActionUntilAllInputsRelease() {
     val state = state()
     assertEquals(ControllerKeyDisposition.DISPATCH, state.down(1, "down"))

@@ -38,7 +38,6 @@ export function RowPressable({
     <GestureDetector gesture={hoverGesture}>
       {controllerActivate ? (
         <ControllerPressable
-          scopeBoundary={false}
           {...props}
           onActivate={controllerActivate}
           thread={controllerThread}

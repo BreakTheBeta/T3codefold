@@ -1,6 +1,7 @@
+import { ControllerPressable } from "../../features/controller/ControllerPressable";
+import { ControllerActionMenu } from "../../features/controller/ControllerActionMenu";
 import {
   Box,
-  DropdownMenu,
   Icon,
   LoadingIndicator,
   RNHostView,
@@ -23,7 +24,6 @@ import { Pressable } from "react-native";
 import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
 import { SymbolView } from "./AppSymbol";
 import { Button } from "./Button";
-import { MenuPopupItems } from "./MenuPopup.android";
 import { NativeThemeHost } from "./NativeThemeHost.android";
 import type { SplitButtonProps } from "./SplitButton.types";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
@@ -32,7 +32,7 @@ import { useControlTheme } from "./useControlTheme";
 export function SplitButton(props: SplitButtonProps) {
   const { colors } = useControlTheme();
   const typography = useScaledTextRole("footnote");
-  const { scale, iconSize, mediumIconSize, menuWidth } = useAndroidControlSizing();
+  const { scale, iconSize, mediumIconSize } = useAndroidControlSizing();
   const [expanded, setExpanded] = useState(false);
   if (props.actions.length === 0) return <Button {...props} tone="primary" fullWidth />;
   const enabled = !props.disabled && !props.loading;
@@ -86,66 +86,80 @@ export function SplitButton(props: SplitButtonProps) {
     </Row>
   );
   return (
-    <NativeThemeHost
-      matchContents={{ vertical: true }}
-      ignoreSafeAreaKeyboardInsets
-      style={{ width: "100%" }}
-    >
-      <SplitButtonLayout modifiers={[fillMaxWidth()]}>
-        <SplitButtonLayout.LeadingButton>
-          <SplitButtonLeadingButton
-            enabled={enabled}
-            onClick={props.onPress}
-            colors={buttonColors}
-            modifiers={[
-              fillMaxWidth(),
-              defaultMinSize({ minHeight: 48 }),
-              semantics({ contentDescription: props.accessibilityLabel ?? props.label }),
-            ]}
-          >
-            {label}
-          </SplitButtonLeadingButton>
-        </SplitButtonLayout.LeadingButton>
-        <SplitButtonLayout.TrailingButton>
-          <SplitButtonTrailingButton
-            checked={expanded}
-            onCheckedChange={setExpanded}
-            enabled={menuEnabled}
-            colors={trailingColors}
-            modifiers={[
-              defaultMinSize({ minWidth: 48, minHeight: 48 }),
-              semantics({ contentDescription: props.menuTitle }),
-            ]}
-          >
-            <DropdownMenu
-              expanded={expanded && menuEnabled}
-              onDismissRequest={() => setExpanded(false)}
-              color={colors["--color-card-alt"]}
-            >
-              <DropdownMenu.Trigger>
-                <Icon
-                  source={require("../../../assets/icons/chevron-down.xml")}
-                  size={iconSize}
-                  modifiers={[rotate(expanded ? 180 : 0)]}
-                />
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Items>
-                <MenuPopupItems
-                  menuWidth={menuWidth}
-                  actions={props.actions}
-                  title={props.menuTitle}
-                  parent={null}
-                  onPress={(action) => {
-                    setExpanded(false);
-                    if (action.id !== undefined) props.onPressAction(action.id);
-                  }}
-                  onBack={() => {}}
-                />
-              </DropdownMenu.Items>
-            </DropdownMenu>
-          </SplitButtonTrailingButton>
-        </SplitButtonLayout.TrailingButton>
-      </SplitButtonLayout>
-    </NativeThemeHost>
+    <>
+      {expanded ? (
+        <ControllerActionMenu
+          title={props.menuTitle}
+          actions={props.actions}
+          onClose={() => setExpanded(false)}
+          onSelect={props.onPressAction}
+        />
+      ) : null}
+      <NativeThemeHost
+        matchContents={{ vertical: true }}
+        ignoreSafeAreaKeyboardInsets
+        style={{ width: "100%" }}
+      >
+        <SplitButtonLayout modifiers={[fillMaxWidth()]}>
+          <SplitButtonLayout.LeadingButton>
+            <RNHostView matchContents={{ vertical: true }} modifiers={[fillMaxWidth()]}>
+              <ControllerPressable
+                touchPassthrough
+                onActivate={props.onPress}
+                disabled={!enabled}
+                accessibilityRole="button"
+                accessibilityLabel={props.accessibilityLabel ?? props.label}
+                style={{ width: "100%" }}
+              >
+                <NativeThemeHost matchContents={{ vertical: true }} style={{ width: "100%" }}>
+                  <SplitButtonLeadingButton
+                    enabled={enabled}
+                    onClick={props.onPress}
+                    colors={buttonColors}
+                    modifiers={[
+                      fillMaxWidth(),
+                      defaultMinSize({ minHeight: 48 }),
+                      semantics({ contentDescription: props.accessibilityLabel ?? props.label }),
+                    ]}
+                  >
+                    {label}
+                  </SplitButtonLeadingButton>
+                </NativeThemeHost>
+              </ControllerPressable>
+            </RNHostView>
+          </SplitButtonLayout.LeadingButton>
+          <SplitButtonLayout.TrailingButton>
+            <RNHostView matchContents>
+              <ControllerPressable
+                touchPassthrough
+                onActivate={() => setExpanded(true)}
+                disabled={!menuEnabled}
+                accessibilityRole="button"
+                accessibilityLabel={props.menuTitle}
+              >
+                <NativeThemeHost matchContents>
+                  <SplitButtonTrailingButton
+                    checked={expanded}
+                    onCheckedChange={setExpanded}
+                    enabled={menuEnabled}
+                    colors={trailingColors}
+                    modifiers={[
+                      defaultMinSize({ minWidth: 48, minHeight: 48 }),
+                      semantics({ contentDescription: props.menuTitle }),
+                    ]}
+                  >
+                    <Icon
+                      source={require("../../../assets/icons/chevron-down.xml")}
+                      size={iconSize}
+                      modifiers={[rotate(expanded ? 180 : 0)]}
+                    />
+                  </SplitButtonTrailingButton>
+                </NativeThemeHost>
+              </ControllerPressable>
+            </RNHostView>
+          </SplitButtonLayout.TrailingButton>
+        </SplitButtonLayout>
+      </NativeThemeHost>
+    </>
   );
 }

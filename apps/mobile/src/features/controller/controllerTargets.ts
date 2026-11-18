@@ -9,21 +9,17 @@ export function createControllerTargets() {
       scope: string;
     }
   >();
-  const listeners = new Set<() => void>();
-  const versions = new Map<string, number>();
-  const changed = (scope: string) => {
-    versions.set(scope, (versions.get(scope) ?? 0) + 1);
-    listeners.forEach((listener) => listener());
-  };
+  const listeners = new Set<(scope: string) => void>();
+  const changed = (scope: string) => listeners.forEach((listener) => listener(scope));
   return {
-    subscribe(listener: () => void) {
+    subscribe(listener: (scope: string) => void) {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
       };
     },
-    getScopeVersion(scope: string) {
-      return versions.get(scope) ?? 0;
+    has(id: string, scope: string) {
+      return targets.get(id)?.scope === scope;
     },
     register(
       id: string,
@@ -34,24 +30,19 @@ export function createControllerTargets() {
         reply?: boolean;
       },
       scope = "",
-      scopeBoundary = true,
     ) {
       const registered = { ...target, scope };
       targets.set(id, registered);
-      if (scopeBoundary) changed(scope);
+      changed(scope);
       return () => {
         if (targets.get(id) === registered) {
           targets.delete(id);
-          if (scopeBoundary) changed(scope);
+          changed(scope);
         }
       };
     },
     dispatch(id: string, action: "activate" | "dictate" | "decrement" | "increment", scope = "") {
-      const focused = targets.get(id);
-      const target =
-        action === "dictate" && (id === "" || (focused?.scope === scope && !focused.dictate))
-          ? [...targets.values()].find((candidate) => candidate.scope === scope && candidate.reply)
-          : focused;
+      const target = targets.get(id);
       if (!target || target.scope !== scope) return false;
       if (action === "activate") {
         target.activate();

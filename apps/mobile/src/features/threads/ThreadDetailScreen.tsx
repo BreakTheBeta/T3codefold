@@ -1,3 +1,4 @@
+import { useControllerRegionId, useControllerSurfaceId } from "../controller/ControllerRegion";
 import { ChildThreadApprovals } from "./ChildThreadApprovals";
 import { useOpenThreadInspector } from "./thread-inspector-navigation";
 import { useSidebarWorkspaceTabs } from "../layout/workspace/useSystemWorkspaceTabBar";
@@ -408,6 +409,14 @@ function ThreadDetailBody(
     >;
   },
 ) {
+  const controllerSurfaceId = useControllerSurfaceId(
+    JSON.stringify([
+      props.environmentId,
+      props.draftMode ? "draft" : "thread",
+      props.composerDraftKey ?? scopedThreadKey(props.environmentId, props.selectedThread.id),
+    ]),
+  );
+  const conversationRegionId = useControllerRegionId("conversation");
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const { layout } = useAdaptiveWorkspaceLayout();
   const deviceType = useDeviceType();
@@ -1442,7 +1451,7 @@ function ThreadDetailBody(
   return (
     <View
       ref={detailViewRef}
-      nativeID="t3-controller-chat"
+      nativeID={controllerSurfaceId}
       onLayout={(event) => {
         measureDetailViewport();
         handleScreenLayout(event);
@@ -1451,7 +1460,11 @@ function ThreadDetailBody(
       className="flex-1"
     >
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
-      <View style={tabletop ? { height: tabletop.feedHeight, overflow: "hidden" } : { flex: 1 }}>
+      <View
+        collapsable={false}
+        nativeID={conversationRegionId}
+        style={tabletop ? { height: tabletop.feedHeight, overflow: "hidden" } : { flex: 1 }}
+      >
         {props.draftMode ? (
           props.draftMode.content(
             navigationHeaderHeight,
@@ -1626,7 +1639,7 @@ function ThreadDetailBody(
               {/* No paddingTop here: the overlay's measured height becomes the
                 list's bottom inset, so any padding above the pill/composer
                 pushes the resting content floor up by the same amount. */}
-              <View onLayout={onOverlayLayout} className="w-full">
+              <View collapsable={false} onLayout={onOverlayLayout} className="w-full">
                 <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
                   <FloatingWorkingControl
                     colorScheme={isDarkMode ? "dark" : "light"}

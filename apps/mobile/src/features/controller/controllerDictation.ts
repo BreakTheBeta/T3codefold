@@ -9,7 +9,8 @@ type Session = {
 
 export function createControllerDictationOwnership() {
   let owned: {
-    surface: string;
+    scope: string;
+    surfaceId: string | undefined;
     session: Session;
     ownerKey: string;
     unsubscribe: () => void;
@@ -20,12 +21,13 @@ export function createControllerDictationOwnership() {
     previous?.unsubscribe();
   };
   return {
-    owns(surface: string) {
-      if (owned?.surface !== surface) return false;
+    owns(scope: string, surfaceId?: string) {
+      if (owned?.scope !== scope || (surfaceId !== undefined && owned.surfaceId !== surfaceId))
+        return false;
       const current = owned.session.getSnapshot();
       return current.ownerKey === owned.ownerKey && voiceInputBlocksSubmission(current.state);
     },
-    start(surface: string, session: Session, start: () => unknown) {
+    start(scope: string, session: Session, start: () => unknown, surfaceId?: string) {
       if (voiceInputBlocksSubmission(session.getSnapshot().state)) return;
       start();
       const snapshot = session.getSnapshot();
@@ -40,10 +42,10 @@ export function createControllerDictationOwnership() {
           session.controller.cancel();
         }
       });
-      owned = { surface, session, ownerKey, unsubscribe };
+      owned = { scope, surfaceId, session, ownerKey, unsubscribe };
     },
-    cancel(surface: string) {
-      if (owned?.surface !== surface) return;
+    cancel(scope: string) {
+      if (owned?.scope !== scope) return;
       const captured = owned;
       release();
       const current = captured.session.getSnapshot();

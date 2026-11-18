@@ -1,6 +1,7 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import type { VoiceInputPhase, VoiceInputState } from "@t3tools/client-runtime/voice-input";
 import { memo, useState, type ReactNode } from "react";
-import { Linking, Pressable, Text as SystemText, View, type LayoutChangeEvent } from "react-native";
+import { Linking, Text as SystemText, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
   Easing,
   ReduceMotion,
@@ -272,12 +273,13 @@ function VoiceActionButton(props: {
   }));
 
   return (
-    <Pressable
+    <ControllerPressable
       accessibilityLabel={props.accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ busy: props.loading, disabled: props.disabled }}
       className="size-[44px] shrink-0 items-center justify-center active:opacity-70"
       disabled={props.disabled}
+      onActivate={props.onPress}
       onPress={props.onPress}
       style={{
         opacity: props.disabled && !props.loading ? 0.4 : 1,
@@ -315,7 +317,7 @@ function VoiceActionButton(props: {
           )}
         </View>
       </View>
-    </Pressable>
+    </ControllerPressable>
   );
 }
 
@@ -329,11 +331,12 @@ export function ComposerDictationError(props: {
       <Text accessibilityRole="alert" className="min-w-0 flex-1 text-sm text-danger-foreground">
         {props.error}
       </Text>
-      <Pressable
+      <ControllerPressable
         accessibilityLabel="Dismiss voice input error"
         accessibilityRole="button"
         className="size-7 items-center justify-center active:opacity-70"
         hitSlop={8}
+        onActivate={props.onDismiss}
         onPress={props.onDismiss}
       >
         <SymbolView
@@ -342,7 +345,7 @@ export function ComposerDictationError(props: {
           tintColorClassName="accent-icon-muted"
           type="monochrome"
         />
-      </Pressable>
+      </ControllerPressable>
     </View>
   );
 }

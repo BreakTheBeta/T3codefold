@@ -1,3 +1,4 @@
+import { useControllerRegionId } from "../../features/controller/ControllerRegion";
 import { androidKeyboardFirst } from "../../lib/android-back";
 import { AppActivityIndicator } from "./AppActivityIndicator";
 import { Column, Text as NativeText, RNHostView } from "@expo/ui/jetpack-compose";
@@ -47,6 +48,7 @@ export function AndroidScreenHeader(props: {
   readonly embedded?: boolean;
   readonly hideBottomBorder?: boolean;
 }) {
+  const regionId = useControllerRegionId("header");
   const { colors } = useControlTheme();
   const titleTypography = useScaledTextRole("title");
   const subtitleTypography = useScaledTextRole("label");
@@ -60,6 +62,8 @@ export function AndroidScreenHeader(props: {
 
   return (
     <View
+      collapsable={false}
+      nativeID={regionId}
       onLayout={(event) => setHeaderWidth(event.nativeEvent.layout.width)}
       className="border-b border-header-border bg-header"
       style={{

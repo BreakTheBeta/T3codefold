@@ -1,3 +1,5 @@
+import { ControllerPressable } from "../../features/controller/ControllerPressable";
+import { useControllerRegionId } from "../../features/controller/ControllerRegion";
 import { Box, Icon, IconButton, RNHostView } from "@expo/ui/jetpack-compose";
 import { size } from "@expo/ui/jetpack-compose/modifiers";
 import type { MenuAction } from "@react-native-menu/menu";
@@ -128,6 +130,7 @@ export function WorkspaceAppBar(props: WorkspaceAppBarProps) {
  * by a frame whenever its size changes, which showed as the filter jumping between tabs.
  */
 function WorkspaceAppBarView(props: WorkspaceAppBarProps) {
+  const regionId = useControllerRegionId("header");
   const { search, filter } = props;
   const searching = search?.active === true;
   const { colors } = useControlTheme();
@@ -163,7 +166,12 @@ function WorkspaceAppBarView(props: WorkspaceAppBarProps) {
     </AndroidAnchoredMenu>
   ) : null;
   return (
-    <View className="bg-header" style={{ paddingTop, paddingBottom }}>
+    <View
+      collapsable={false}
+      nativeID={regionId}
+      className="bg-header"
+      style={{ paddingTop, paddingBottom }}
+    >
       <View
         pointerEvents={searching ? "none" : "auto"}
         accessibilityElementsHidden={searching}
@@ -204,6 +212,23 @@ function WorkspaceAppBarView(props: WorkspaceAppBarProps) {
             </>
           }
         />
+        {search && !searching ? (
+          <ControllerPressable
+            touchPassthrough
+            pointerEvents="none"
+            accessible={false}
+            accessibilityRole="button"
+            accessibilityLabel={search.accessibilityLabel}
+            onActivate={search.onOpen}
+            style={{
+              position: "absolute",
+              right: ACTION_END_INSET + ACTION_SIZE,
+              top: (height - ACTION_SIZE) / 2,
+              width: ACTION_SIZE,
+              height: ACTION_SIZE,
+            }}
+          />
+        ) : null}
         {filter && !searching ? (
           <View
             className="absolute"

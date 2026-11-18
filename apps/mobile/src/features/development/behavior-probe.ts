@@ -287,6 +287,16 @@ Object.assign(globalThis, {
       return true;
     },
     state: () => JSON.stringify(snapshot()),
+    async controllerInput(action: string) {
+      const { runControllerInput } =
+        require("../controller/controllerInputProbe") as typeof import("../controller/controllerInputProbe");
+      return JSON.stringify(await runControllerInput(action));
+    },
+    controllerState() {
+      const { controllerNavigation } =
+        require("../controller/controllerNavigation") as typeof import("../controller/controllerNavigation");
+      return JSON.stringify(controllerNavigation.snapshot());
+    },
     /** Removes these saved environments (and their cached threads) through the app's own command. */
     async forgetEnvironments(ids: ReadonlyArray<string>) {
       const { runAtomCommand } = require("@t3tools/client-runtime/state/runtime") as {

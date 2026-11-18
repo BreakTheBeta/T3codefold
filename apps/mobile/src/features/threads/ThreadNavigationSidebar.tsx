@@ -1,3 +1,4 @@
+import { useControllerRegionId } from "../controller/ControllerRegion";
 import { useActiveNewTask } from "../../state/active-new-task";
 import { ThreadUndoNotice } from "../home/ThreadUndoNotice";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
@@ -122,6 +123,7 @@ export function ThreadNavigationSidebar(props: ThreadNavigationSidebarProps) {
 }
 
 function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
+  const controllerRegionId = useControllerRegionId("threads");
   const { themeVariables: materialTheme } = useAppearancePreferences();
   const drawerColor = materialTheme["--color-drawer"];
 
@@ -669,7 +671,12 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
 
   // Android: the bar floats below the list.
   return (
-    <View testID="thread-navigation-sidebar" className="flex-1 bg-header">
+    <View
+      collapsable={false}
+      nativeID={controllerRegionId}
+      testID="thread-navigation-sidebar"
+      className="flex-1 bg-header"
+    >
       <View
         className="flex-1"
         style={{

@@ -1,3 +1,4 @@
+import { ControllerConsole } from "../controller/ControllerConsole";
 import * as Dialog from "../../components/ui/Dialog";
 import { nextThreadNeedingAttention } from "@t3tools/client-runtime/state/thread-sort";
 import { threadHasUnseenCompletion, resolveThreadListV2RowStatus } from "../threads/threadListV2";
@@ -57,7 +58,6 @@ import { cn } from "../../lib/cn";
 import { deriveBottomControlInsets } from "../../lib/reserved-regions";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
-import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
 import {
   useDelegatedUnderParent,
   useProjects,
@@ -767,12 +767,12 @@ export function CommandPalette(props: {
       onDismiss={handleDismissed}
     >
       <GestureHandlerRootView className="flex-1">
-        <T3KeyboardCommands
-          controllerScope="palette"
-          controllerSelection
+        <ControllerConsole
+          scopeKey="palette"
+          selection
           enabledCommands={PALETTE_COMMANDS}
           onCommand={onCommand}
-          onController={({ action }) => {
+          onSelectionInput={({ action }) => {
             if (action === "back") {
               if (paletteVoice.isBusy) paletteVoice.cancel();
               else if (!dismissAndroidKeyboard()) close();
@@ -899,7 +899,7 @@ export function CommandPalette(props: {
               />
             </GlassSurface>
           </KeyboardAvoidingView>
-        </T3KeyboardCommands>
+        </ControllerConsole>
       </GestureHandlerRootView>
     </Modal>
   );

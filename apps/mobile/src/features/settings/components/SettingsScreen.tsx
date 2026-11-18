@@ -1,3 +1,4 @@
+import { useControllerRegionId } from "../../controller/ControllerRegion";
 import { useRoute } from "@react-navigation/native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
@@ -34,10 +35,13 @@ export function SettingsScreen(
   // Opened as a workspace tab, the Settings list has nothing to go back to.
   const workspaceRoot = props.workspaceRoot || (workspace !== null && route.name === "Settings");
 
+  const regionId = useControllerRegionId(
+    props.workspaceRoot || route.name === "Settings" ? "navigation" : "content",
+  );
   const surfaceClassName = workspaceRoot || cover ? "bg-screen" : "bg-sheet";
 
   return (
-    <View collapsable={false} className={`flex-1 ${surfaceClassName}`}>
+    <View nativeID={regionId} collapsable={false} className={`flex-1 ${surfaceClassName}`}>
       <AppBar
         title={props.title}
         actions={props.actions}

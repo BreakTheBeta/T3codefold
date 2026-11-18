@@ -38,38 +38,27 @@ it("rejects an event queued by another route or modal scope", () => {
   expect(approve).toHaveBeenCalledOnce();
 });
 
-it("dictates into the current reply from a non-text action without crossing modal scopes", () => {
+it("requires an explicit dictation target in the current scope", () => {
   const targets = createControllerTargets();
   const dictate = vi.fn();
-  const activate = vi.fn();
-  targets.register("reply", { activate, dictate, reply: true }, "thread-a");
-  targets.register("tool", { activate }, "thread-a");
-  expect(targets.dispatch("tool", "dictate", "thread-a")).toBe(true);
+  targets.register("reply", { activate: vi.fn(), dictate }, "thread-a");
+  targets.register("tool", { activate: vi.fn() }, "thread-a");
+  expect(targets.dispatch("tool", "dictate", "thread-a")).toBe(false);
+  expect(targets.dispatch("", "dictate", "thread-a")).toBe(false);
+  expect(targets.dispatch("reply", "dictate", "modal")).toBe(false);
+  expect(dictate).not.toHaveBeenCalled();
+  expect(targets.dispatch("reply", "dictate", "thread-a")).toBe(true);
   expect(dictate).toHaveBeenCalledOnce();
-  expect(targets.dispatch("", "dictate", "thread-a")).toBe(true);
-  expect(dictate).toHaveBeenCalledTimes(2);
-  expect(targets.dispatch("stale-field", "dictate", "thread-a")).toBe(false);
-  expect(activate).not.toHaveBeenCalled();
-  expect(targets.dispatch("", "dictate", "modal")).toBe(false);
-  expect(dictate).toHaveBeenCalledTimes(2);
-  targets.register(
-    "unavailable-reply",
-    { activate, dictate: () => false, reply: true },
-    "thread-b",
-  );
-  expect(targets.dispatch("", "dictate", "thread-b")).toBe(false);
 });
 
-it("keeps held navigation armed when virtualized inline actions mount and unmount", () => {
+it("rejects a retired registration without deleting its replacement", () => {
   const targets = createControllerTargets();
-  targets.register("reply", { activate: vi.fn(), reply: true }, "thread-a");
-  const version = targets.getScopeVersion("thread-a");
-  const activate = vi.fn();
-  const remove = targets.register("fold", { activate }, "thread-a", false);
-  expect(targets.getScopeVersion("thread-a")).toBe(version);
-  expect(targets.dispatch("fold", "activate", "thread-a")).toBe(true);
-  expect(activate).toHaveBeenCalledOnce();
-  remove();
-  expect(targets.getScopeVersion("thread-a")).toBe(version);
-  expect(targets.dispatch("fold", "activate", "thread-a")).toBe(false);
+  const oldAction = vi.fn();
+  const nextAction = vi.fn();
+  const dispose = targets.register("row", { activate: oldAction }, "thread-a");
+  targets.register("row", { activate: nextAction }, "thread-a");
+  dispose();
+  expect(targets.dispatch("row", "activate", "thread-a")).toBe(true);
+  expect(oldAction).not.toHaveBeenCalled();
+  expect(nextAction).toHaveBeenCalledOnce();
 });
