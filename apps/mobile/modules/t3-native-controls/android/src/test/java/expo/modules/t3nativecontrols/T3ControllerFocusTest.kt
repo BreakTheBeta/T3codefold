@@ -124,6 +124,9 @@ class T3ControllerFocusTest {
       hidden.add(View(f.activity).apply { id = 44; isClickable = true })
       region.add(ordinary, 300)
       region.add(registered, 20)
+      listOf("voice", "voiceFinish", "voiceCancel", "choice").forEachIndexed { index, role ->
+        region.add(ReactViewGroup(f.activity).apply { tagged("t3-controller:$role:current"); isFocusable = true }, 400 + index * 70)
+      }
       region.add(disabled, 400)
       region.add(hidden, 500)
       region.add(View(f.activity).apply { isClickable = true }, 600)
@@ -134,16 +137,26 @@ class T3ControllerFocusTest {
       f.scope.addView(surface, FrameLayout.LayoutParams(900, 900))
       f.layout()
       val scene = T3ControllerHost.snapshot(f.scope)
-      assertEquals(listOf("native:42", "t3-controller:reply:current", "native:45"), scene.targets.map { it.id })
-      assertEquals(listOf(false, true, false), scene.targets.map { it.registered })
-      assertEquals(listOf("action", "reply", "action"), scene.targets.map { it.kind })
-      assertTrue(scene.targets.take(2).all { it.region == "t3-controller-region:composer:reply:current" })
+      assertEquals(listOf("native:42", "t3-controller:reply:current", "t3-controller:voice:current", "t3-controller:voiceFinish:current", "t3-controller:voiceCancel:current", "t3-controller:choice:current", "native:45"), scene.targets.map { it.id })
+      assertEquals(listOf(false, true, true, true, true, true, false), scene.targets.map { it.registered })
+      assertEquals(listOf("action", "reply", "voice", "voiceFinish", "voiceCancel", "choice", "action"), scene.targets.map { it.kind })
+      assertTrue(scene.targets.take(6).all { it.region == "t3-controller-region:composer:reply:current" })
       assertEquals("t3-controller-pane:sidebar:content", scene.targets.last().region)
       assertEquals("t3-controller-surface:settings:modal", scene.regions.last().surface)
       assertEquals("composer", scene.regions.last().kind)
       assertEquals("product-id", T3ControllerHost.nativeId(ordinary))
       assertEquals("composer", scene.regions.last().kind)
       assertTrue(scene.regions.all { it.pane == "sidebar" })
+      region.setTag(com.facebook.react.R.id.accessibility_role, com.facebook.react.uimanager.ReactAccessibilityDelegate.AccessibilityRole.RADIOGROUP)
+      ReactViewManager().setAccessibilityRole(ordinary, "radio")
+      ReactViewManager().setViewState(ordinary, com.facebook.react.bridge.JavaOnlyMap.of("checked", true))
+      val choice = T3ControllerHost.snapshot(f.scope).payload()["targets"] as List<Map<String, Any?>>
+      assertEquals("RADIO", ordinary.getTag(com.facebook.react.R.id.accessibility_role)?.toString())
+      val radio = choice.first { it["id"] == "native:42" }
+      assertEquals(radio.toString(), "choice", radio["kind"])
+      assertEquals(true, radio["selected"])
+      assertEquals("t3-controller-region:composer:reply:current", radio["groupId"])
+
     }
   }
 
@@ -232,6 +245,9 @@ class T3ControllerFocusTest {
       shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
       assertEquals(count, f.scope.events.size)
       f.key(KeyEvent.KEYCODE_BUTTON_A)
+      assertEquals(count, f.scope.events.size)
+      T3ControllerRouter.resume(f.root.rootView)
+      shadowOf(Looper.getMainLooper()).idle()
       assertEquals(count, f.scope.events.size)
       f.controller.windowFocusChanged(true)
       assertEquals("resumed", f.scope.events.last()["action"])
@@ -346,6 +362,14 @@ class T3ControllerFocusTest {
       assertNull(f.effect("snapshot"))
       modal.controllerActive = false
       assertNotNull(f.effect("snapshot"))
+      f.scope.controllerActive = false
+      modal.alpha = 0f
+      modal.controllerActive = true
+      modal.events.clear()
+      modal.alpha = 1f
+      modal.viewTreeObserver.dispatchOnPreDraw()
+      assertEquals("resumed", modal.events.lastOrNull()?.get("action"))
+
     }
   }
   @Test fun guardedProbeUsesProductionWindowRoutingAndAcknowledgesCompletion() {

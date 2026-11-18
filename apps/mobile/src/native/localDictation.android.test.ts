@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     addListener: vi.fn(() => ({ remove: vi.fn() })),
   },
 }));
+vi.mock("../components/ui/Dialog", () => ({ alert: vi.fn() }));
 vi.mock("expo", () => ({ requireOptionalNativeModule: () => mocks.native }));
 vi.mock("react-native", () => ({
   Alert: { alert: vi.fn() },

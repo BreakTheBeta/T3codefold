@@ -2,8 +2,8 @@ import { isAppSymbolName, SymbolView } from "./AppSymbol.android";
 import { dismissAndroidKeyboard } from "../../lib/android-back";
 import type { MenuAction, MenuComponentProps } from "@react-native-menu/menu";
 import type { ReactNode } from "react";
-import { use, useRef, useState } from "react";
-import type { StyleProp, ViewInstance, ViewStyle } from "react-native";
+import { isValidElement, use, useRef, useState } from "react";
+import type { StyleProp, ViewInstance, ViewStyle, ScrollViewInstance } from "react-native";
 import { Pressable, ScrollView, View } from "react-native";
 import { useKeyboardState } from "react-native-keyboard-controller";
 
@@ -16,6 +16,7 @@ import { WindowHingeContext } from "../../native/window-hinge-context";
 import { OverlayPortal } from "./OverlayPortal";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 import { AppText } from "./AppText";
+import { isMenuActionEnabled, menuActionKey, resolveMenuPath } from "./menuActionItems";
 import { ControllerConsole } from "../../features/controller/ControllerConsole";
 import { ControllerPressable } from "../../features/controller/ControllerPressable";
 import { useControllerRegionId } from "../../features/controller/ControllerRegion";
@@ -49,7 +50,9 @@ export type AndroidAnchoredMenuProps = {
 };
 
 export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
+  const menuScroll = useRef<ScrollViewInstance>(null);
   const regionId = useControllerRegionId("content");
+  const headerRegionId = useControllerRegionId("header");
   const {
     scale,
     menuWidth: desiredMenuWidth,
@@ -57,7 +60,11 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
     iconSize,
   } = useAndroidControlSizing();
   const [anchor, setAnchor] = useState<AnchorSnapshot | null>(null);
-  const [path, setPath] = useState<readonly MenuAction[]>([]);
+  const [path, setPath] = useState<readonly string[]>([]);
+  const [returnTo, setReturnTo] = useState<string | null>(null);
+  const level = resolveMenuPath(props.actions, path);
+  const activePath = path.slice(0, level.owners.length);
+  if (activePath.length !== path.length) setPath(activePath);
   const [overlay, setOverlay] = useState<OverlayFrame | null>(null);
   const windowHinge = use(WindowHingeContext);
   // State, not a ref: `open` reaches render-prop children, and the compiler
@@ -70,6 +77,7 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
   const close = () => {
     setAnchor(null);
     setPath([]);
+    setReturnTo(null);
     setOverlay(null);
   };
   // The in-window menu is pinned to the trigger's spot above the keyboard, which is stale once it hides.
@@ -90,19 +98,19 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
   };
 
   const back = () => {
-    if (dismissAndroidKeyboard()) return;
-    if (path.length > 0) setPath((current) => current.slice(0, -1));
-    else close();
+    if (activePath.length > 0) {
+      setReturnTo(activePath.at(-1) ?? null);
+      setPath(activePath.slice(0, -1));
+    } else close();
   };
   useHardwareBack(anchor !== null, () => {
+    if (dismissAndroidKeyboard()) return true;
     back();
     return true;
   });
 
-  const parent = path[path.length - 1] ?? null;
-  const levelActions = (parent?.subactions ?? props.actions).filter(
-    (action) => !(action.attributes?.hidden ?? false),
-  );
+  const parent = level.owners.at(-1);
+  const levelActions = level.actions;
 
   const local =
     anchor === null || overlay === null
@@ -138,9 +146,11 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
           minHeight: 2 * menuItemHeight + 14 * scale,
         });
 
-  const onPressItem = (action: MenuAction) => {
+  const onPressItem = (action: MenuAction, index: number) => {
+    if (!isMenuActionEnabled(action)) return;
+    setReturnTo(null);
     if ((action.subactions?.length ?? 0) > 0) {
-      setPath((current) => [...current, action]);
+      setPath([...activePath, menuActionKey(action, index)]);
       return;
     }
     close();
@@ -163,20 +173,37 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
           {props.children(open)}
         </View>
       ) : (
-        <Pressable
+        <View
           ref={setAnchorNode}
-          accessibilityRole="button"
-          className={props.className}
           collapsable={false}
+          className={props.className}
           style={props.style}
-          onPress={open}
         >
-          <View pointerEvents="none">{props.children}</View>
-        </Pressable>
+          <ControllerPressable
+            onActivate={open}
+            accessibilityRole="button"
+            accessibilityLabel={
+              props.title ??
+              (isValidElement<{ accessibilityLabel?: string }>(props.children)
+                ? props.children.props.accessibilityLabel
+                : undefined)
+            }
+            onPress={open}
+          >
+            <View pointerEvents="none" importantForAccessibility="no-hide-descendants">
+              {props.children}
+            </View>
+          </ControllerPressable>
+        </View>
       )}
       {anchor === null ? null : (
         <OverlayPortal>
-          <ControllerConsole scopeKey={regionId} onBack={back}>
+          <ControllerConsole
+            key={JSON.stringify(activePath)}
+            scopeKey={regionId}
+            initialRegion="content"
+            onBack={back}
+          >
             <View
               ref={overlayRef}
               collapsable={false}
@@ -197,43 +224,59 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
                   style={{ left, width: menuWidth, borderRadius: 4 * scale, ...verticalPlacement }}
                 >
                   <ScrollView
+                    ref={menuScroll}
                     contentContainerStyle={{ paddingVertical: 7 * scale }}
                     bounces={false}
                     keyboardShouldPersistTaps="always"
                     showsVerticalScrollIndicator={false}
                   >
                     {parent ? (
-                      <ControllerPressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Back to ${props.title ?? "menu"}`}
-                        onActivate={() => setPath((current) => current.slice(0, -1))}
-                        onPress={() => setPath((current) => current.slice(0, -1))}
-                        style={{
-                          minHeight: menuItemHeight,
-                          paddingHorizontal: 16 * scale,
-                          justifyContent: "center",
-                        }}
-                      >
-                        <AppText>{parent.title}</AppText>
-                      </ControllerPressable>
+                      <View nativeID={headerRegionId} collapsable={false}>
+                        <ControllerPressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Back to ${props.title ?? "menu"}`}
+                          onActivate={back}
+                          onPress={back}
+                          style={{
+                            minHeight: menuItemHeight,
+                            paddingHorizontal: 16 * scale,
+                            justifyContent: "center",
+                          }}
+                        >
+                          <AppText>{parent.title}</AppText>
+                        </ControllerPressable>
+                      </View>
                     ) : props.title ? (
                       <AppText className="px-4 py-2 text-foreground-muted">{props.title}</AppText>
                     ) : null}
                     {levelActions.map((action, index) => (
                       <ControllerPressable
-                        key={action.id ?? `${index}:${action.title}`}
+                        key={menuActionKey(action, index)}
+                        choice
+                        onLayout={(event) => {
+                          if (
+                            isMenuActionEnabled(action) &&
+                            (returnTo !== null
+                              ? menuActionKey(action, index) === returnTo
+                              : action.state === "on")
+                          )
+                            menuScroll.current?.scrollTo({
+                              y: Math.max(0, event.nativeEvent.layout.y - menuItemHeight),
+                              animated: false,
+                            });
+                        }}
                         accessibilityRole="menuitem"
                         accessibilityLabel={action.title}
                         accessibilityState={{
-                          disabled: action.attributes?.disabled,
-                          selected: action.state === "on",
+                          disabled: !isMenuActionEnabled(action),
+                          selected:
+                            returnTo !== null
+                              ? menuActionKey(action, index) === returnTo
+                              : action.state === "on",
                         }}
-                        disabled={
-                          action.attributes?.disabled ||
-                          (!action.subactions?.length && action.id === undefined)
-                        }
-                        onActivate={() => onPressItem(action)}
-                        onPress={() => onPressItem(action)}
+                        disabled={!isMenuActionEnabled(action)}
+                        onActivate={() => onPressItem(action, index)}
+                        onPress={() => onPressItem(action, index)}
                         className="flex-row items-center gap-3 active:bg-subtle"
                         style={{
                           minHeight: menuItemHeight,

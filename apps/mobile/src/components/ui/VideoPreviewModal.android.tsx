@@ -1,6 +1,8 @@
+import { ControllerConsole } from "../../features/controller/ControllerConsole";
+import { ControllerPressable } from "../../features/controller/ControllerPressable";
 import { MISSING_FILE_ACCESS_MESSAGE } from "@t3tools/client-runtime/state/assets";
 import { videoMimeType } from "@t3tools/shared/video";
-import { Modal, Pressable, View } from "react-native";
+import { Modal, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppActivityIndicator } from "./AppActivityIndicator";
@@ -118,51 +120,54 @@ function OpenVideoPreviewModal(props: {
       statusBarTranslucent
       navigationBarTranslucent
     >
-      <View
-        className="flex-1 bg-black"
-        style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
-      >
-        <MediaPreviewHeader
-          title={props.name}
-          media={mediaActions}
-          closeAccessibilityLabel="Close video"
-          onClose={props.onRequestClose}
-        />
-        {playback.uri === null && !playback.unavailable ? (
-          <View className="flex-1 items-center justify-center gap-3 px-6">
-            <AppActivityIndicator color="#ffffff" />
-            <AppText className="text-sm text-white/80">Loading video...</AppText>
-          </View>
-        ) : (
-          <MediaVideoPlayer
-            uri={playback.uri}
-            resolvePlaybackUri={playback.resolvePlaybackUri}
-            name={props.name}
-            thumbnailKey={props.thumbnailKey}
-            unavailable={playback.unavailable}
-            unavailableDetail={playback.unavailableDetail}
-            paused={mediaActions.sharing}
-            expanded
-            autoPlay
-          />
-        )}
-        {playback.error ? (
-          <AppText accessibilityRole="alert" className="px-4 pb-3 text-sm text-white/80">
-            {playback.error}
-          </AppText>
-        ) : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Save or share video"
-          disabled={playback.uri === null || mediaActions.sharing}
-          onPress={mediaActions.share}
-          className="mx-4 my-3 min-h-12 items-center justify-center rounded-xl bg-white/15 px-4"
+      <ControllerConsole scopeKey="video-preview" onBack={props.onRequestClose}>
+        <View
+          className="flex-1 bg-black"
+          style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
         >
-          <AppText className="font-t3-medium text-base text-white">
-            {mediaActions.sharing ? "Opening share sheet..." : "Save or share video"}
-          </AppText>
-        </Pressable>
-      </View>
+          <MediaPreviewHeader
+            title={props.name}
+            media={mediaActions}
+            closeAccessibilityLabel="Close video"
+            onClose={props.onRequestClose}
+          />
+          {playback.uri === null && !playback.unavailable ? (
+            <View className="flex-1 items-center justify-center gap-3 px-6">
+              <AppActivityIndicator color="#ffffff" />
+              <AppText className="text-sm text-white/80">Loading video...</AppText>
+            </View>
+          ) : (
+            <MediaVideoPlayer
+              uri={playback.uri}
+              resolvePlaybackUri={playback.resolvePlaybackUri}
+              name={props.name}
+              thumbnailKey={props.thumbnailKey}
+              unavailable={playback.unavailable}
+              unavailableDetail={playback.unavailableDetail}
+              paused={mediaActions.sharing}
+              expanded
+              autoPlay
+            />
+          )}
+          {playback.error ? (
+            <AppText accessibilityRole="alert" className="px-4 pb-3 text-sm text-white/80">
+              {playback.error}
+            </AppText>
+          ) : null}
+          <ControllerPressable
+            onActivate={mediaActions.share}
+            accessibilityRole="button"
+            accessibilityLabel="Save or share video"
+            disabled={playback.uri === null || mediaActions.sharing}
+            onPress={mediaActions.share}
+            className="mx-4 my-3 min-h-12 items-center justify-center rounded-xl bg-white/15 px-4"
+          >
+            <AppText className="font-t3-medium text-base text-white">
+              {mediaActions.sharing ? "Opening share sheet..." : "Save or share video"}
+            </AppText>
+          </ControllerPressable>
+        </View>
+      </ControllerConsole>
     </Modal>
   );
 }

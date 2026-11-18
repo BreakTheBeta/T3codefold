@@ -15,7 +15,7 @@ import android.graphics.drawable.GradientDrawable
 
 internal object T3ControllerHost {
   internal data class Region(val view: View, val id: String, val kind: String, val surface: String, val implicit: Boolean = false, val pane: String = "content")
-  internal data class Target(val view: View, val id: String, val region: String, val kind: String, val registered: Boolean)
+  internal data class Target(val view: View, val id: String, val region: String, val kind: String, val registered: Boolean, val group: String? = null)
   internal data class Scene(val root: View, val regions: List<Region>, val targets: List<Target>) {
     fun payload(): Map<String, Any?> {
       val focused = root.findFocus()
@@ -23,7 +23,7 @@ internal object T3ControllerHost {
         "width" to root.width,
         "regions" to regions.map { region ->
           val scroller = scroller(region.view)
-          mapOf("id" to region.id, "kind" to region.kind, "surfaceId" to region.surface, "pane" to region.pane,
+          mapOf("id" to region.id, "kind" to region.kind, "surfaceId" to region.surface, "pane" to region.pane, "implicit" to region.implicit,
             "viewportHeight" to Rect().let { (scroller ?: region.view).getGlobalVisibleRect(it); it.height() },
             "canScrollUp" to (scroller?.canScrollVertically(-1) == true),
             "canScrollDown" to (scroller?.canScrollVertically(1) == true))
@@ -34,8 +34,8 @@ internal object T3ControllerHost {
             { Rect().also { rect -> it.view.getGlobalVisibleRect(rect) }.top },
             { Rect().also { rect -> it.view.getGlobalVisibleRect(rect) }.left }
           ))
-        }.map { mapOf("id" to it.id, "regionId" to it.region, "kind" to it.kind,
-          "registered" to it.registered, "selected" to it.view.isSelected, "label" to (it.view.contentDescription?.toString() ?: "")) },
+        }.map { mapOf("id" to it.id, "regionId" to it.region, "kind" to it.kind, "groupId" to it.group,
+          "registered" to it.registered, "selected" to selected(it.view), "label" to (it.view.contentDescription?.toString() ?: "")) },
         "focusedTargetId" to targets.lastOrNull { within(focused, it.view) }?.id,
         "editorFocused" to (focused?.onCheckIsTextEditor() == true)
       )
@@ -106,6 +106,13 @@ internal object T3ControllerHost {
     if (!id.startsWith("t3-controller-region:")) return null
     return id.removePrefix("t3-controller-region:").substringBefore(':').takeIf { it in regionKinds }
   }
+  private fun role(view: View) = view.getTag(com.facebook.react.R.id.accessibility_role)?.toString()?.lowercase()
+  private fun selected(view: View): Boolean {
+    if (view.isSelected || (view is android.widget.RadioButton && view.isChecked)) return true
+    if (role(view) != "radio") return false
+    val state = view.getTag(com.facebook.react.R.id.accessibility_state) as? com.facebook.react.bridge.ReadableMap ?: return false
+    return state.hasKey("checked") && state.getType("checked") == com.facebook.react.bridge.ReadableType.Boolean && state.getBoolean("checked")
+  }
   private fun eligible(view: View) = view.isShown && view.isEnabled && view.alpha > 0 &&
     view.importantForAccessibility != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS &&
     view.getGlobalVisibleRect(Rect())
@@ -113,10 +120,11 @@ internal object T3ControllerHost {
   fun snapshot(root: View): Scene {
     val regions = mutableListOf(Region(root, "", "content", "", true))
     val targets = mutableListOf<Target>()
-    fun visit(view: View, regionId: String, surface: String, registeredParent: Boolean, pane: String) {
+    fun visit(view: View, regionId: String, surface: String, registeredParent: Boolean, pane: String, group: String?) {
       if (!eligible(view)) return
       if (view !== root && view is T3KeyboardCommandsView) return
       val id = nativeId(view)
+      val currentGroup = if (role(view) == "radiogroup") id ?: fallbackId(view) else group
       val kind = regionKind(view)
       val declaredPane = id?.takeIf { it.startsWith("t3-controller-pane:") }
         ?.removePrefix("t3-controller-pane:")?.takeIf { it in setOf("sidebar", "content", "inspector") }
@@ -132,18 +140,19 @@ internal object T3ControllerHost {
         val targetId = if (registered) id else fallbackId(view)
         if (targetId != null) {
           val targetKind = when {
-            registered && id!!.removePrefix("t3-controller:").substringBefore(':') in setOf("reply", "thread", "footer", "adjustable") -> id.removePrefix("t3-controller:").substringBefore(':')
+            registered && id!!.removePrefix("t3-controller:").substringBefore(':') in setOf("reply", "thread", "footer", "adjustable", "voice", "voiceFinish", "voiceCancel", "choice") -> id.removePrefix("t3-controller:").substringBefore(':')
+            role(view) in setOf("radio", "menuitem", "checkbox") -> "choice"
             editor(view) != null -> "editor"
             else -> "action"
           }
-          targets.add(Target(view, targetId, currentRegion, targetKind, registered))
+          targets.add(Target(view, targetId, currentRegion, targetKind, registered, currentGroup))
         }
       }
       if (view is ViewGroup) for (index in 0 until view.childCount) {
-        visit(view.getChildAt(index), currentRegion, currentSurface, registeredParent || registered, currentPane)
+        visit(view.getChildAt(index), currentRegion, currentSurface, registeredParent || registered, currentPane, currentGroup)
       }
     }
-    visit(root, "", "", false, "content")
+    visit(root, "", "", false, "content", null)
     val meaningful = regions.filter { region -> !region.implicit || regions.size == 1 || targets.any { it.region == region.id } || scroller(region.view) != null }
     return Scene(root, meaningful, targets)
   }

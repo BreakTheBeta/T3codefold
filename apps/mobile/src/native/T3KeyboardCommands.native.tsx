@@ -34,6 +34,7 @@ export function T3KeyboardCommands(
     readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
     readonly onCommand: (command: HardwareKeyboardCommand) => void;
     readonly controllerScope?: string;
+    readonly fitContent?: boolean;
     readonly controllerActive?: boolean;
     readonly controllerModal?: boolean;
     readonly controllerSelection?: boolean;
@@ -59,7 +60,7 @@ export function T3KeyboardCommands(
       enabledCommands={props.enabledCommands}
       vimKeysEnabled={props.vimKeysEnabled ?? false}
       onVimKey={(event) => props.onVimKey?.(event.nativeEvent)}
-      style={{ flex: 1 }}
+      style={props.fitContent ? undefined : { flex: 1 }}
     >
       {props.children}
     </NativeKeyboardCommands>

@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import * as Dialog from "../../components/ui/Dialog";
 import {
   ComposerContextId,
@@ -7,7 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
 import { useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { REVIEW_MONO_FONT_FAMILY } from "../review/reviewDiffRendering";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -31,6 +32,15 @@ export function TerminalContextSheet(props: {
   const [anchor, setAnchor] = useState<number | null>(null);
   const selectedText = lines.slice(range.start, range.end + 1).join("\n");
   const tooLarge = selectedText.length > COMPOSER_CONTEXT_TERMINAL_TEXT_MAX_CHARS;
+  const selectLine = (index: number) => {
+    if (anchor === null) {
+      setAnchor(index);
+      setRange({ start: index, end: index });
+    } else {
+      setRange({ start: Math.min(anchor, index), end: Math.max(anchor, index) });
+      setAnchor(null);
+    }
+  };
   const attach = () => {
     if (!selectedText.trim() || tooLarge) return;
     const record = {
@@ -69,20 +79,13 @@ export function TerminalContextSheet(props: {
         <View className="overflow-hidden rounded-xl bg-card-alt">
           {lines.map(
             (line, index) => (
-              /* oxlint-disable react/no-array-index-key -- Selection is addressed by line number in this captured terminal snapshot. */ <Pressable
+              /* oxlint-disable react/no-array-index-key -- Selection is addressed by line number in this captured terminal snapshot. */ <ControllerPressable
                 key={index}
                 accessibilityRole="button"
                 accessibilityLabel={`Line ${index + 1}: ${line}`}
                 accessibilityState={{ selected: index >= range.start && index <= range.end }}
-                onPress={() => {
-                  if (anchor === null) {
-                    setAnchor(index);
-                    setRange({ start: index, end: index });
-                  } else {
-                    setRange({ start: Math.min(anchor, index), end: Math.max(anchor, index) });
-                    setAnchor(null);
-                  }
-                }}
+                onActivate={() => selectLine(index)}
+                onPress={() => selectLine(index)}
                 className={
                   index >= range.start && index <= range.end
                     ? "flex-row gap-3 bg-primary/10 px-3 py-2"
@@ -101,7 +104,7 @@ export function TerminalContextSheet(props: {
                 >
                   {line || " "}
                 </Text>
-              </Pressable>
+              </ControllerPressable>
             ) /* oxlint-enable react/no-array-index-key */,
           )}
         </View>

@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { useVoiceViewContext } from "../voice-input/VoiceWorkspaceProvider";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
@@ -10,14 +11,7 @@ import type { AppBarMenuItem } from "../../components/ui/AppBar.types";
 import type { ReviewSectionItem } from "./reviewModel";
 import { useReviewHeaderPresentation } from "./useReviewHeaderPresentation";
 import { type Ref, type ReactElement, useImperativeHandle, useRef, useState } from "react";
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  type NativeSyntheticEvent,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Platform, ScrollView, type NativeSyntheticEvent, StyleSheet, View } from "react-native";
 import { RefreshControl } from "../../components/ui/RefreshControl";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useReduceMotionEnabled } from "../../lib/appState";
@@ -197,20 +191,26 @@ function ReviewSelectionActionBar(props: {
       }}
     >
       {props.onOpenComment ? (
-        <Pressable
+        <ControllerPressable
+          accessibilityRole="button"
+          accessibilityLabel={props.title}
           className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-primary px-5"
+          onActivate={props.onOpenComment}
           onPress={props.onOpenComment}
         >
           {content}
-        </Pressable>
+        </ControllerPressable>
       ) : (
         <View className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-primary px-5">
           {content}
         </View>
       )}
 
-      <Pressable
+      <ControllerPressable
+        accessibilityRole="button"
+        accessibilityLabel="Clear selection"
         className="h-12 w-12 items-center justify-center rounded-full bg-primary"
+        onActivate={props.onClear}
         onPress={props.onClear}
       >
         <SymbolView
@@ -219,7 +219,7 @@ function ReviewSelectionActionBar(props: {
           tintColorClassName="accent-primary-foreground"
           type="monochrome"
         />
-      </Pressable>
+      </ControllerPressable>
     </View>
   );
 }

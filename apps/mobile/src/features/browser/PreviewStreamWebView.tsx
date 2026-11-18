@@ -19,7 +19,8 @@ import {
   useState,
   type Ref,
 } from "react";
-import { Platform, Pressable, TextInput, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
+import { ControllerTextInput as TextInput } from "../../components/ui/ControllerTextInput";
 import { WebView } from "react-native-webview";
 import * as Clipboard from "expo-clipboard";
 

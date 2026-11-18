@@ -64,3 +64,11 @@ export function resolveVoiceComposerPresentation(
       };
   }
 }
+
+export function resolveComposerDictationStartAction(
+  state: VoiceInputState,
+  isAvailable: boolean,
+): "start" | "microphone-settings" | "voice-settings" {
+  if (state.phase === "error" && state.errorAction === "settings") return "microphone-settings";
+  return isAvailable ? "start" : "voice-settings";
+}

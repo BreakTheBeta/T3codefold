@@ -1,3 +1,4 @@
+import { ControllerConsole } from "../../features/controller/ControllerConsole";
 import { Button } from "./Button";
 import * as Dialog from "./Dialog";
 import { createContext, useContext, useEffect, useEffectEvent } from "react";
@@ -39,30 +40,32 @@ function PdfDocumentPreview(props: {
       statusBarTranslucent
       navigationBarTranslucent
     >
-      <View
-        className="flex-1 bg-card"
-        style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
-      >
-        <SheetHeader
-          presentation="inline"
-          title={props.source.name ?? "PDF"}
-          onClose={props.onRequestClose}
-          actions={
-            save
-              ? [
-                  {
-                    accessibilityLabel: "Save or share",
-                    icon: "square.and.arrow.up",
-                    disabled: save.disabled,
-                    loading: media.sharing,
-                    onPress: () => void save.run(),
-                  },
-                ]
-              : []
-          }
-        />
-        <PdfPreview uri={props.source.uri} />
-      </View>
+      <ControllerConsole scopeKey="pdf-preview" onBack={props.onRequestClose}>
+        <View
+          className="flex-1 bg-card"
+          style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+        >
+          <SheetHeader
+            presentation="inline"
+            title={props.source.name ?? "PDF"}
+            onClose={props.onRequestClose}
+            actions={
+              save
+                ? [
+                    {
+                      accessibilityLabel: "Save or share",
+                      icon: "square.and.arrow.up",
+                      disabled: save.disabled,
+                      loading: media.sharing,
+                      onPress: () => void save.run(),
+                    },
+                  ]
+                : []
+            }
+          />
+          <PdfPreview uri={props.source.uri} />
+        </View>
+      </ControllerConsole>
     </Modal>
   );
 }
@@ -107,17 +110,19 @@ function DocumentPreview(props: {
   }, [uri, name, props.source.mimeType, props.source.kind]);
   return (
     <Modal transparent animationType="fade" onRequestClose={props.onRequestClose}>
-      <View className="flex-1 items-center justify-center bg-backdrop p-6">
-        <View className="w-full max-w-sm gap-4 rounded-2xl bg-sheet-solid p-6">
-          <Text className="font-t3-semibold text-foreground">Opening document…</Text>
-          <Text className="text-foreground-muted" numberOfLines={2}>
-            {name ?? "Document"}
-          </Text>
-          <View className="items-end">
-            <Button label="Cancel" tone="text" onPress={props.onRequestClose} />
+      <ControllerConsole scopeKey="document-preview" onBack={props.onRequestClose}>
+        <View className="flex-1 items-center justify-center bg-backdrop p-6">
+          <View className="w-full max-w-sm gap-4 rounded-2xl bg-sheet-solid p-6">
+            <Text className="font-t3-semibold text-foreground">Opening document…</Text>
+            <Text className="text-foreground-muted" numberOfLines={2}>
+              {name ?? "Document"}
+            </Text>
+            <View className="items-end">
+              <Button label="Cancel" tone="text" onPress={props.onRequestClose} />
+            </View>
           </View>
         </View>
-      </View>
+      </ControllerConsole>
     </Modal>
   );
 }
@@ -135,14 +140,16 @@ function ImagePreviewHeader(header: { readonly imageIndex: number }) {
   const insets = useSafeAreaInsets();
   const mediaActions = useMediaActions(source?.actionsSource, props.onRequestClose);
   return (
-    <View className="bg-black/70" style={{ paddingTop: insets.top }}>
-      <MediaPreviewHeader
-        title={source?.name ?? "Image"}
-        media={mediaActions}
-        closeAccessibilityLabel="Close image"
-        onClose={props.onRequestClose}
-      />
-    </View>
+    <ControllerConsole fitContent scopeKey="image-preview" onBack={props.onRequestClose}>
+      <View className="bg-black/70" style={{ paddingTop: insets.top }}>
+        <MediaPreviewHeader
+          title={source?.name ?? "Image"}
+          media={mediaActions}
+          closeAccessibilityLabel="Close image"
+          onClose={props.onRequestClose}
+        />
+      </View>
+    </ControllerConsole>
   );
 }
 
@@ -176,17 +183,7 @@ function AndroidFilePreview(props: FilePreviewViewerProps) {
   const { source } = props;
   if (source.kind === "pdf") return <PdfDocumentPreview {...props} source={source} />;
   if (source.kind !== "image") return <DocumentPreview {...props} source={source} />;
-  if (source.images[source.selectedIndex]?.actionsSource)
-    return <ImagePreview source={source} onRequestClose={props.onRequestClose} />;
-  return (
-    <ImageViewing
-      {...imageViewingProps(source)}
-      visible
-      onRequestClose={props.onRequestClose}
-      swipeToCloseEnabled={false}
-      doubleTapToZoomEnabled
-    />
-  );
+  return <ImagePreview source={source} onRequestClose={props.onRequestClose} />;
 }
 
 /** Shows images, PDFs and documents full screen. */

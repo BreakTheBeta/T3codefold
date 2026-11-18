@@ -4,11 +4,11 @@ import { AppText } from "../../components/ui/AppText";
 import { ControllerPressable } from "./ControllerPressable";
 
 const controls = [
-  ["RT / R2", "Reply input", "#ff91c8"],
+  ["RT / R2", "Microphone / voice reply", "#ff91c8"],
   ["LT / L2", "Conversation", "#75e5e0"],
   ["LB / RB", "Previous / next thread", "#d0c7f5"],
   ["X / □", "Dictate / finish", "#83baff"],
-  ["A / ×", "Activate / edit text", "#a0e1b4"],
+  ["A / ×", "Choose / start or finish voice", "#a0e1b4"],
   ["B / ○", "Cancel / back", "#ffaaa0"],
   ["Y / △", "Reply actions", "#f6d389"],
   ["UP / DOWN", "Read / move locally", "#d0c7f5"],
@@ -59,7 +59,7 @@ export function ControllerGuide({ onClose }: { readonly onClose: () => void }) {
               THE QUICK REPLY
             </AppText>
             <AppText className="text-[16px] font-t3-bold text-[#fff1e6]">
-              RT → X → Speak → X → Review
+              RT → A → Speak → A → Review
             </AppText>
             <AppText className="mt-1 text-[11px] text-[#dbbfd5]">
               Finish dictation, then review. Sending is always a separate action.
@@ -84,9 +84,10 @@ export function ControllerGuide({ onClose }: { readonly onClose: () => void }) {
           </View>
           <AppText className="text-[11px] leading-4 text-[#bdb0ce]">
             Up/Down scrolls the chat. A selects a visible inline action; B returns to reading. In
-            forms and toolbars, arrows move between controls. B cancels recording or leaves editing
-            before closing a tool. Y selects reply actions; A activates. The left stick follows the
-            D-pad.
+            forms and toolbars, arrows move between controls. B cancels recording before closing a
+            tool. Reply opens on the microphone, without the keyboard. While recording, A finishes;
+            Left/Right selects Cancel or Finish. Y selects reply actions; A activates. The left
+            stick follows the D-pad.
           </AppText>
         </ScrollView>
         <View className="border-t border-[#353047] px-4 py-3">

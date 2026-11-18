@@ -1,5 +1,6 @@
 import { requireOptionalNativeModule } from "expo";
-import { Alert, AppState, PermissionsAndroid, Platform } from "react-native";
+import * as Dialog from "../components/ui/Dialog";
+import { AppState, PermissionsAndroid, Platform } from "react-native";
 import type { LocalDictationBackend } from "./localDictation.ts";
 
 type Settings = { configured: boolean; bluetooth: boolean; architecture: number; ready: boolean };
@@ -54,7 +55,7 @@ export function getLocalDictationBackend(): LocalDictationBackend | null {
         const size =
           settings.architecture === 2 ? "43" : settings.architecture === 5 ? "257" : "136";
         const download = await new Promise<boolean>((resolve) =>
-          Alert.alert(
+          Dialog.alert(
             "Download on-device speech model",
             `Download approximately ${size} MB once. English dictation then runs on your phone without uploading audio.`,
             [

@@ -39,6 +39,7 @@ export function RowPressable({
       {controllerActivate ? (
         <ControllerPressable
           {...props}
+          choice={["menuitem", "radio", "checkbox"].includes(props.accessibilityRole ?? "")}
           onActivate={controllerActivate}
           thread={controllerThread}
           controllerKey={controllerKey}

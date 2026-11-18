@@ -30,6 +30,7 @@ export interface PendingUserInputQuestionsProps {
   ) => void;
   /** Fires on custom-answer focus/blur; hosts use it to vet stale keyboard state. */
   readonly onInputFocusChange?: (focused: boolean) => void;
+  readonly onBeforeOpenVoiceSettings?: () => void;
   /**
    * Reading mode for the full-screen presentation: same content, larger type
    * and taller targets, sized for an unfolded foldable or a tablet.
@@ -93,8 +94,9 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
                     }
                     controllerKey={`${props.pendingUserInput.requestId}:${question.id}:${optionValue}`}
                     key={optionValue}
+                    choice
                     accessibilityRole={question.multiSelect ? "checkbox" : "radio"}
-                    accessibilityState={{ checked: selected, disabled: responseDisabled }}
+                    accessibilityState={{ checked: selected, selected, disabled: responseDisabled }}
                     disabled={responseDisabled}
                     className={cn(
                       "w-full rounded-2xl border",
@@ -141,6 +143,7 @@ export function PendingUserInputQuestions(props: PendingUserInputQuestionsProps)
                   props.onChangeCustomAnswer(props.pendingUserInput.requestId, question.id, value)
                 }
                 onInputFocusChange={props.onInputFocusChange}
+                onBeforeOpenVoiceSettings={props.onBeforeOpenVoiceSettings}
               />
             ) : null}
           </View>

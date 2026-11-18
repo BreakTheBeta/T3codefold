@@ -16,6 +16,7 @@ import { ControlPill } from "../../components/ui/ControlPill";
 import { Menu } from "../../components/ui/Menu";
 import { previewEnvironment } from "../../state/preview";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { browserTabMenuActions } from "./browserTabMenuActions";
 
 const APPEARANCES = [
   { id: "system", title: "System" },
@@ -53,6 +54,8 @@ export function BrowserTabMenu({
   const resize = useAtomCommand(previewEnvironment.resize, "browser viewport change");
   const close = useAtomCommand(previewEnvironment.close, "browser tab close");
   const canClose = useAtomValue(previewEnvironment.close.permissionAtom(environmentId));
+  const canAdjust = useAtomValue(previewEnvironment.adjust.permissionAtom(environmentId));
+  const canResize = useAtomValue(previewEnvironment.resize.permissionAtom(environmentId));
   const target = { threadId: tab.threadId as PreviewAdjustInput["threadId"], tabId: tab.tabId };
   const colorScheme = tab.colorScheme ?? "system";
   const zoomFactor = tab.zoomFactor ?? DEFAULT_PREVIEW_ZOOM_FACTOR;
@@ -126,12 +129,14 @@ export function BrowserTabMenu({
 
   const onAction = (id: string) => {
     if (id === "close") {
+      if (!canClose) return;
       void close({ environmentId, input: target }).then((result) => {
         if (result._tag === "Failure") Dialog.alert("Could not close this browser tab");
       });
       return;
     }
     if (id === "paste") return onPaste?.();
+    if (id.startsWith("viewport:") ? !canResize : !canAdjust) return;
     if (id === "hard-reload") return void run({ hardReload: true });
     if (id === "zoom:in") return void run({ zoomFactor: zoomTo(1) });
     if (id === "zoom:out") return void run({ zoomFactor: zoomTo(-1) });
@@ -162,7 +167,11 @@ export function BrowserTabMenu({
       accessible
       accessibilityLabel="Browser tab options"
       accessibilityRole="button"
-      actions={streaming ? actions : [closeAction]}
+      actions={browserTabMenuActions(streaming ? actions : [closeAction], {
+        adjust: canAdjust,
+        resize: canResize,
+        close: canClose,
+      })}
       onPressAction={({ nativeEvent }) => onAction(nativeEvent.event)}
     >
       <ControlPill icon="ellipsis" accessibilityLabel="Browser tab options" />

@@ -6,7 +6,8 @@ import { EnvironmentId, ThreadId, type PreviewSessionSnapshot } from "@t3tools/c
 import { normalizePreviewUrl, previewPdfAssetUrl } from "@t3tools/shared/preview";
 import * as Option from "effect/Option";
 import { useEffect, useRef, useState } from "react";
-import { Platform, TextInput, View } from "react-native";
+import { Platform, View } from "react-native";
+import { ControllerTextInput as TextInput } from "../../components/ui/ControllerTextInput";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ControlPill } from "../../components/ui/ControlPill";
@@ -236,6 +237,7 @@ function BrowserAddressBar({
         onPress={() => onCommand({ type: "history", delta: 1 })}
       />
       <TextInput
+        containerStyle={{ flex: 1 }}
         accessibilityLabel="Address"
         editable={ready}
         value={draft ?? url}

@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -7,7 +8,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-execution";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
-import { Pressable, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SheetHeader } from "../../components/ui/SheetHeader";
@@ -95,13 +96,14 @@ function BackgroundWorkRow(props: {
   return childThreadId === undefined ? (
     <View accessible>{row}</View>
   ) : (
-    <Pressable
+    <ControllerPressable
       accessibilityRole="link"
       accessibilityLabel={`Open subagent ${item.label}`}
+      onActivate={() => props.onOpen(childThreadId)}
       onPress={() => props.onOpen(childThreadId)}
       className="active:opacity-70"
     >
       {row}
-    </Pressable>
+    </ControllerPressable>
   );
 }

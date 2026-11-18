@@ -14,6 +14,7 @@ export type ControllerScene = {
     readonly kind: ControllerRegionKind;
     readonly surfaceId: string;
     readonly pane?: "sidebar" | "content" | "inspector";
+    readonly implicit?: boolean;
     readonly viewportHeight: number;
     readonly canScrollUp: boolean;
     readonly canScrollDown: boolean;
@@ -21,7 +22,18 @@ export type ControllerScene = {
   readonly targets: ReadonlyArray<{
     readonly id: string;
     readonly regionId: string;
-    readonly kind: "action" | "editor" | "reply" | "thread" | "footer" | "adjustable";
+    readonly kind:
+      | "action"
+      | "editor"
+      | "reply"
+      | "thread"
+      | "footer"
+      | "adjustable"
+      | "voice"
+      | "voiceFinish"
+      | "voiceCancel"
+      | "choice";
+    readonly groupId?: string | null;
     readonly registered: boolean;
     readonly selected: boolean;
     readonly label?: string;
@@ -52,6 +64,7 @@ type ScopeHost = {
   readonly parentId: string | null;
   readonly modal: boolean;
   readonly initialRegion?: ControllerRegionKind;
+  readonly voiceReplies?: boolean;
   readonly native: (effect: ControllerNativeEffect) => Promise<ControllerScene | null>;
   readonly invoke: (targetId: string, action: ControllerTargetAction) => boolean;
   readonly available?: (targetId: string) => boolean;
@@ -102,6 +115,7 @@ export function createControllerNavigation() {
   const frames = new Map<string, Frame>();
   const listeners = new Set<() => void>();
   const pending = new Set<Promise<void>>();
+  const scheduledSnapshots = new Set<Frame>();
   const inputs = new Map<string, () => void>();
   let enabled = false;
   const publish = () => listeners.forEach((listener) => listener());
@@ -135,13 +149,23 @@ export function createControllerNavigation() {
   const paneOf = (region: ControllerScene["regions"][number]) =>
     region.pane ??
     (region.kind === "inspector" ? "inspector" : region.kind === "threads" ? "sidebar" : "content");
+  const voiceTarget = (targets: ControllerScene["targets"]) =>
+    targets.find((target) => target.kind === "voiceFinish") ??
+    targets.find((target) => target.kind === "voice") ??
+    targets.find((target) => target.kind === "voiceCancel");
+  const composerTarget = (frame: Frame, regionId: string | undefined) => {
+    const targets = frame.scene.targets.filter((target) => target.regionId === regionId);
+    return voiceTarget(targets) ?? targets.find((target) => target.kind === "reply");
+  };
   const entryTarget = (
     targets: ControllerScene["targets"],
     region: ControllerScene["regions"][number],
   ) =>
-    (region.kind === "threads" || region.kind === "navigation"
-      ? targets.find((target) => target.selected)
-      : undefined) ?? targets[0];
+    (region.kind === "composer" ? voiceTarget(targets) : undefined) ??
+    targets.find((target) => target.kind === "choice" && target.selected) ??
+    targets.find((target) => target.selected) ??
+    (region.kind === "threads" ? targets.find((target) => target.kind === "thread") : undefined) ??
+    targets[0];
   const defaultPosition = (frame: Frame, region: ControllerScene["regions"][number]): Position => ({
     regionId: region.id,
     targetId:
@@ -152,8 +176,15 @@ export function createControllerNavigation() {
             region,
           )?.id ?? null),
   });
-  const localTargets = (frame: Frame) =>
-    frame.scene.targets.filter((target) => target.regionId === frame.position?.regionId);
+  const localTargets = (frame: Frame) => {
+    const targets = frame.scene.targets.filter(
+      (target) => target.regionId === frame.position?.regionId,
+    );
+    return currentRegion(frame)?.kind === "composer" &&
+      (frame.host.voiceReplies || voiceTarget(targets))
+      ? targets.filter((target) => target.kind !== "reply" && target.kind !== "editor")
+      : targets;
+  };
   const relatedRegions = (frame: Frame, region: ControllerScene["regions"][number]) => {
     const candidates = regions(frame).filter((candidate) => paneOf(candidate) === paneOf(region));
     const surfaces = new Set(candidates.map((candidate) => candidate.surfaceId).filter(Boolean));
@@ -205,15 +236,30 @@ export function createControllerNavigation() {
                 candidate.kind === "composer" &&
                 candidate.surfaceId === frame.pendingReply?.surfaceId,
             );
-      const field = frame.scene.targets.find(
-        (candidate) => candidate.regionId === destination?.id && candidate.kind === "reply",
-      );
+      const field = composerTarget(frame, destination?.id);
       if (field) {
         const intent = frame.pendingReply.kind;
-        frame.pendingReply = null;
+        if (field.kind !== "voiceCancel") frame.pendingReply = null;
         frame.engaged = true;
-        focus(frame, { regionId: field.regionId, targetId: field.id });
-        if (intent === "dictate") frame.host.invoke(field.id, "dictate");
+        if (frame.position?.targetId !== field.id)
+          focus(frame, { regionId: field.regionId, targetId: field.id });
+        if (intent === "dictate" && field.kind !== "voiceCancel")
+          frame.host.invoke(field.id, field.kind === "reply" ? "dictate" : "activate");
+        return;
+      }
+    }
+    if (!frame.engaged && frame.scene.editorFocused) {
+      const field = frame.scene.targets.find(
+        (target) =>
+          target.id === frame.scene.focusedTargetId &&
+          (target.kind === "editor" || target.kind === "reply"),
+      );
+      if (field) {
+        frame.engaged = true;
+        frame.position = { regionId: field.regionId, targetId: field.id };
+        frame.editing = true;
+        frame.editorPosition = frame.position;
+        frame.inspecting = false;
         return;
       }
     }
@@ -222,14 +268,15 @@ export function createControllerNavigation() {
       if (frame.position?.targetId && !selected(frame)) {
         frame.position = { regionId: region.id, targetId: null };
         frame.editing = false;
+        if (frame.host.modal && region.kind !== "conversation") {
+          focus(frame, defaultPosition(frame, region));
+        }
       }
       if (region.kind === "composer" && frame.position?.targetId === null) {
         requestReply(frame, "focus");
-        const field = frame.scene.targets.find(
-          (candidate) => candidate.regionId === region.id && candidate.kind === "reply",
-        );
+        const field = composerTarget(frame, region.id);
         if (field) {
-          frame.pendingReply = null;
+          if (field.kind !== "voiceCancel") frame.pendingReply = null;
           focus(frame, { regionId: region.id, targetId: field.id });
         }
       }
@@ -244,19 +291,34 @@ export function createControllerNavigation() {
           (candidate) =>
             candidate.kind === preferred &&
             paneOf(candidate) === preferredPane &&
-            candidate.id !== "",
+            candidate.id !== "" &&
+            !candidate.implicit,
         ) ??
-        available.find((candidate) => candidate.kind === preferred && candidate.id !== "") ??
+        available.find(
+          (candidate) => candidate.kind === preferred && !candidate.implicit && candidate.id !== "",
+        ) ??
         available.find((candidate) => candidate.kind === preferred) ??
-        (preferred === "conversation"
+        (preferred === "conversation" || preferred === "composer"
           ? undefined
           : (available.find((candidate) => candidate.kind === "navigation") ?? available[0])))
-      : (available.find((candidate) => candidate.kind === "conversation") ??
+      : ((frame.host.modal
+          ? (available.find(
+              (candidate) =>
+                candidate.kind === "content" && !candidate.implicit && candidate.id !== "",
+            ) ?? available.find((candidate) => candidate.kind === "content"))
+          : undefined) ??
+        available.find((candidate) => candidate.kind === "conversation") ??
         available.find((candidate) => candidate.kind === "threads") ??
         available[0]);
-    frame.position = destination ? defaultPosition(frame, destination) : null;
+    const position = destination ? defaultPosition(frame, destination) : null;
+    const changed =
+      position?.regionId !== frame.position?.regionId ||
+      position?.targetId !== frame.position?.targetId;
+    frame.position = position;
     frame.editing = false;
     frame.inspecting = false;
+    if (changed && position && enabled && !frame.suspended && !frame.host.selectionInput)
+      focus(frame, position);
   }
 
   function effect(
@@ -290,6 +352,7 @@ export function createControllerNavigation() {
       });
     pending.add(operation);
     void operation.finally(() => pending.delete(operation));
+    return operation;
   }
 
   function focus(frame: Frame, position: Position) {
@@ -313,7 +376,7 @@ export function createControllerNavigation() {
   ) {
     const targets = frame.scene.targets.filter((target) => target.regionId === region.id);
     const target = preferReply
-      ? targets.find((candidate) => candidate.kind === "reply")
+      ? composerTarget(frame, region.id)
       : region.kind === "conversation"
         ? undefined
         : entryTarget(targets, region);
@@ -349,7 +412,9 @@ export function createControllerNavigation() {
             candidate.kind === "threads" ||
             candidate.kind === "inspector",
         ) ??
-        candidates.find((candidate) => candidate.kind === "content" && candidate.id !== "") ??
+        candidates.find(
+          (candidate) => candidate.kind === "content" && !candidate.implicit && candidate.id !== "",
+        ) ??
         candidates[0];
       if (destination) focusRegion(frame, destination);
     }
@@ -473,6 +538,7 @@ export function createControllerNavigation() {
       frame.suspended = true;
       if (frame.pendingReply?.kind === "dictate") frame.pendingReply.kind = "focus";
     }
+    const previousTarget = frame.position?.targetId;
     if (event.scene) {
       frame.sceneRevision++;
       updateScene(frame, event.scene, passive);
@@ -606,13 +672,16 @@ export function createControllerNavigation() {
       const field =
         target?.registered && (target.kind === "reply" || target.kind === "editor")
           ? target
-          : frame.scene.targets.find(
-              (candidate) => candidate.regionId === replyRegion?.id && candidate.kind === "reply",
-            );
+          : composerTarget(frame, replyRegion?.id);
       if (field) {
         frame.position = { regionId: field.regionId, targetId: field.id };
         frame.inspecting = false;
-        frame.host.invoke(field.id, "dictate");
+        frame.host.invoke(
+          field.id,
+          field.kind === "voice" || field.kind === "voiceFinish" || field.kind === "voiceCancel"
+            ? "activate"
+            : "dictate",
+        );
         publish();
       } else {
         requestReply(frame, "dictate");
@@ -641,9 +710,20 @@ export function createControllerNavigation() {
       return;
     }
     if (event.action === "activate") {
+      if (
+        target &&
+        previousTarget !== target.id &&
+        (!previousTarget ||
+          !frame.scene.targets.some((candidate) => candidate.id === previousTarget))
+      )
+        return;
       if (!target) {
         const first = localTargets(frame)[0];
         if (first && region) focus(frame, { regionId: region.id, targetId: first.id });
+        return;
+      }
+      if (target.kind === "reply" && frame.host.voiceReplies) {
+        invoke(frame, target, "dictate");
         return;
       }
       if (target.kind === "editor" || target.kind === "reply") {
@@ -686,11 +766,20 @@ export function createControllerNavigation() {
     }
     if (
       frame.host.modal ||
+      target?.kind === "choice" ||
       region?.kind === "header" ||
       region?.kind === "navigation" ||
       region?.kind === "composer"
     ) {
-      const targets = localTargets(frame);
+      const local = localTargets(frame);
+      const targets =
+        target?.kind === "choice"
+          ? local.filter(
+              (candidate) =>
+                candidate.kind === "choice" &&
+                (candidate.groupId ?? candidate.regionId) === (target.groupId ?? target.regionId),
+            )
+          : local;
       const index = targets.findIndex((candidate) => candidate.id === target?.id);
       const next = targets[index + (event.action === "left" ? -1 : 1)];
       if (next && region) focus(frame, { regionId: region.id, targetId: next.id });
@@ -741,7 +830,15 @@ export function createControllerNavigation() {
     settled: () => Promise.all(pending),
     refresh(id: string) {
       const frame = frames.get(id);
-      if (frame && active() === frame) effect(frame, "snapshot");
+      if (!frame || active() !== frame || scheduledSnapshots.has(frame)) return;
+      scheduledSnapshots.add(frame);
+      const operation = Promise.resolve().then(() => {
+        scheduledSnapshots.delete(frame);
+        if (frames.get(frame.host.id) === frame && active() === frame)
+          return effect(frame, "snapshot");
+      });
+      pending.add(operation);
+      void operation.finally(() => pending.delete(operation));
     },
     present(host: ScopeHost) {
       const previous = active();

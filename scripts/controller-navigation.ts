@@ -20,7 +20,11 @@ import {
   type GraphCase,
   type GraphState,
 } from "./mobile-behavior/controller-graph.ts";
-import { controllerRoutes } from "./mobile-behavior/controller-inventory.ts";
+import {
+  controllerRoutes,
+  controllerMenuSites,
+  androidControllerSources,
+} from "./mobile-behavior/controller-inventory.ts";
 
 const root = NodePath.resolve(import.meta.dirname, "..");
 const hash = (value: string) => NodeCrypto.createHash("sha256").update(value).digest("hex");
@@ -176,6 +180,35 @@ export async function controllerAudit(args: string[]) {
   await NodeFSP.mkdir(output, { recursive: true });
   const routes = controllerRoutes(
     await NodeFSP.readFile(NodePath.join(root, "apps/mobile/src/Stack.tsx"), "utf8"),
+  );
+  const sourceFiles = androidControllerSources(
+    NodeChildProcess.execFileSync("rg", ["--files", "apps/mobile/src"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n"),
+  );
+  const menuSites = (
+    await Promise.all(
+      sourceFiles.map(async (path) =>
+        controllerMenuSites(path, await NodeFSP.readFile(NodePath.join(root, path), "utf8")),
+      ),
+    )
+  ).flat();
+  await NodeFSP.writeFile(
+    NodePath.join(output, "menu-inventory.json"),
+    JSON.stringify(
+      {
+        evidence:
+          "Source candidates only. Reachability, ownership and runtime usability require review; dynamic data and OS-owned menus are not exhaustively enumerated by source scanning.",
+        sourceFiles: sourceFiles.length,
+        routes,
+        sites: menuSites,
+      },
+      null,
+      2,
+    ),
   );
   const commit = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: root,

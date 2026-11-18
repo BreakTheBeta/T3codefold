@@ -508,6 +508,11 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
     <Sheet
       title={editing ? CLOUD_SPEECH_LABELS[editing.provider] : "Cloud providers"}
       onClose={onClose}
+      onControllerBack={() => {
+        if (saving) return;
+        if (editing) reset();
+        else onClose();
+      }}
       dismissDisabled={saving}
     >
       <ScrollView

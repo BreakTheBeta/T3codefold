@@ -1,3 +1,4 @@
+import { useNavigation } from "@react-navigation/native";
 import { ControllerPressable } from "../controller/ControllerPressable";
 import type { VoiceInputPhase, VoiceInputState } from "@t3tools/client-runtime/voice-input";
 import { memo, use, useState, type ReactNode } from "react";
@@ -21,7 +22,10 @@ import { cn } from "../../lib/cn";
 import { scheduleOnRN } from "react-native-worklets";
 import { ControllerScope } from "../controller/controllerScope";
 import { controllerNavigation } from "../controller/controllerNavigation";
-import type { VoiceComposerPresentation } from "./voiceInputPresentation";
+import {
+  resolveComposerDictationStartAction,
+  type VoiceComposerPresentation,
+} from "./voiceInputPresentation";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
 const DICTATION_TIMING = {
@@ -264,6 +268,7 @@ export function DictationElapsedTime(props: {
 }
 
 function VoiceActionButton(props: {
+  readonly controllerAction?: "voice" | "voiceFinish" | "voiceCancel";
   readonly size?: "regular" | "large";
   readonly accessibilityLabel: string;
   readonly disabled?: boolean;
@@ -286,6 +291,7 @@ function VoiceActionButton(props: {
 
   return (
     <ControllerPressable
+      voiceAction={props.controllerAction}
       accessibilityLabel={props.accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ busy: props.loading, disabled: props.disabled }}
@@ -411,6 +417,7 @@ export function ComposerDictationCancelAction(props: {
   return (
     <VoiceActionButton
       size={props.size}
+      controllerAction="voiceCancel"
       accessibilityLabel="Cancel dictation"
       icon="xmark"
       onPress={props.onCancel}
@@ -432,6 +439,7 @@ export function ComposerDictationPrimaryAction(props: {
     return (
       <VoiceActionButton
         size={props.size}
+        controllerAction="voiceFinish"
         accessibilityLabel={
           props.presentation.confirmationEnabled
             ? "Finish dictation"
@@ -457,21 +465,30 @@ export function ComposerDictationStartAction(props: {
   readonly onStart: () => void;
   readonly onCancel: () => void;
 }) {
-  if (!props.isAvailable) return null;
-  const openSettings = props.state.phase === "error" && props.state.errorAction === "settings";
+  const navigation = useNavigation();
+  const action = resolveComposerDictationStartAction(props.state, props.isAvailable);
   return (
     <VoiceActionButton
       size={props.size}
-      accessibilityLabel={openSettings ? "Open microphone settings" : "Start dictation"}
+      controllerAction="voice"
+      accessibilityLabel={
+        action === "microphone-settings"
+          ? "Open microphone settings"
+          : action === "voice-settings"
+            ? "Set up voice input"
+            : "Start dictation"
+      }
       disabled={props.disabled}
       icon="mic"
       onPress={
-        openSettings
+        action === "microphone-settings"
           ? () => {
               props.onCancel();
               void Linking.openSettings();
             }
-          : props.onStart
+          : action === "voice-settings"
+            ? () => navigation.navigate("SettingsVoice")
+            : props.onStart
       }
     />
   );

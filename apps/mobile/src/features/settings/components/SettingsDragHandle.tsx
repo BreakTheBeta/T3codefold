@@ -1,9 +1,9 @@
 import { useEffectEvent, useState } from "react";
-import { View } from "react-native";
 import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
 import type { SharedValue } from "react-native-reanimated";
 
 import { SymbolView } from "../../../components/ui/AppSymbol";
+import { ControllerPressable } from "../../controller/ControllerPressable";
 import { useUIThreadDrag } from "../../threads/use-ui-thread-drag";
 
 interface SettingsDragHandleProps {
@@ -66,7 +66,17 @@ function SettingsDragHandleView(
 ) {
   return (
     <GestureDetector gesture={props.gesture}>
-      <View
+      <ControllerPressable
+        touchPassthrough
+        disabled={!props.canMoveUp && !props.canMoveDown}
+        onActivate={() => {
+          if (props.canMoveDown) props.onStep("down");
+          else if (props.canMoveUp) props.onStep("up");
+        }}
+        onAdjust={(direction) => {
+          if (direction < 0 && props.canMoveUp) props.onStep("up");
+          if (direction > 0 && props.canMoveDown) props.onStep("down");
+        }}
         collapsable={false}
         accessible
         accessibilityRole="adjustable"
@@ -86,7 +96,7 @@ function SettingsDragHandleView(
           size={20}
           tintColorClassName="accent-foreground-muted"
         />
-      </View>
+      </ControllerPressable>
     </GestureDetector>
   );
 }

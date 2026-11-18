@@ -41,7 +41,7 @@ export function SelectionRow(props: {
           ) : null
         }
         accessibilityRole={role}
-        accessibilityState={{ checked: props.selected }}
+        accessibilityState={{ selected: props.selected, checked: props.selected }}
         disabled={props.disabled}
         onPress={props.onPress}
       />
@@ -49,7 +49,7 @@ export function SelectionRow(props: {
       <Pressable
         accessibilityLabel={[props.title, props.subtitle].filter(Boolean).join(", ")}
         accessibilityRole={role}
-        accessibilityState={{ checked: props.selected }}
+        accessibilityState={{ selected: props.selected, checked: props.selected }}
         className={cn(
           "min-h-14 flex-row items-center gap-3 bg-grouped-card px-4 py-3 active:bg-subtle",
           !props.isLast && "border-b border-border-subtle",

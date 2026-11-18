@@ -5,6 +5,8 @@ import { controllerTargets } from "./controllerTargets";
 
 export function ControllerPressable({
   controllerKey = "",
+  voiceAction,
+  choice,
   onActivate,
   onDictate,
   onAdjust,
@@ -15,6 +17,8 @@ export function ControllerPressable({
   ...props
 }: PressableProps & {
   readonly controllerKey?: string;
+  readonly choice?: boolean;
+  readonly voiceAction?: "voice" | "voiceFinish" | "voiceCancel";
   readonly onActivate: () => void;
   readonly onDictate?: () => boolean | void;
   readonly onAdjust?: (direction: -1 | 1) => void;
@@ -24,7 +28,7 @@ export function ControllerPressable({
   readonly touchPassthrough?: boolean;
 }) {
   const scope = use(ControllerScope);
-  const id = `t3-controller:${onAdjust ? "adjustable:" : footer ? "footer:" : reply ? "reply:" : thread ? "thread:" : ""}${useId()}:${scope}:${controllerKey}`;
+  const id = `t3-controller:${voiceAction ? `${voiceAction}:` : choice ? "choice:" : onAdjust ? "adjustable:" : footer ? "footer:" : reply ? "reply:" : thread ? "thread:" : ""}${useId()}:${scope}:${controllerKey}`;
   const activate = useEffectEvent(() => {
     if (!props.disabled) onActivate();
   });

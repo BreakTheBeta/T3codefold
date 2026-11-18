@@ -82,6 +82,74 @@ function setup() {
   };
 }
 
+it("enters the voice menu on its primary action and follows recording controls without opening an editor", async () => {
+  const f = setup();
+  const idle = {
+    ...conversation(),
+    targets: conversation().targets.map((entry) =>
+      entry.id === "microphone" ? target("microphone", "reply", "voice") : entry,
+    ),
+  };
+  f.navigation.present({
+    ...f.host("voice-workspace"),
+    initialRegion: "composer",
+    voiceReplies: true,
+  });
+  f.setScene({
+    ...idle,
+    regions: [region("tabs", "navigation", "", "sidebar")],
+    targets: [target("tab", "tabs")],
+  });
+  f.send("enabled", "voice-workspace");
+  expect(f.navigation.snapshot().position).toBeNull();
+  f.setScene(idle);
+  f.send("scene", "voice-workspace");
+  expect(f.navigation.snapshot().position?.targetId).toBe("microphone");
+  f.send("conversation", "voice-workspace");
+  f.send("left", "voice-workspace");
+  expect(f.navigation.snapshot().position?.targetId).toBe("thread");
+  f.send("reply", "voice-workspace");
+  f.send("activate", "voice-workspace");
+  expect(f.invoke).toHaveBeenLastCalledWith("microphone", "activate");
+  const recording = {
+    ...idle,
+    targets: [target("cancel", "reply", "voiceCancel"), target("finish", "reply", "voiceFinish")],
+  };
+  f.setScene({ ...recording, targets: [target("cancel", "reply", "voiceCancel")] });
+  f.send("scene", "voice-workspace");
+  expect(f.navigation.snapshot().position?.targetId).toBe("cancel");
+  f.setScene(recording);
+  f.send("scene", "voice-workspace");
+  expect(f.navigation.snapshot().position?.targetId).toBe("finish");
+  f.send("left", "voice-workspace");
+  expect(f.navigation.snapshot().position?.targetId).toBe("cancel");
+  f.send("right", "voice-workspace");
+  f.send("activate", "voice-workspace");
+  expect(f.invoke).toHaveBeenLastCalledWith("finish", "activate");
+  f.setScene(idle);
+  f.send("scene", "voice-workspace");
+  expect(f.navigation.snapshot().position?.targetId).toBe("microphone");
+  f.send("reply", "voice-workspace");
+  f.send("left", "voice-workspace");
+  expect(f.navigation.snapshot().position?.targetId).not.toBe("field");
+  f.send("dictate", "voice-workspace");
+  expect(f.invoke).toHaveBeenLastCalledWith("microphone", "activate");
+  expect(f.navigation.snapshot().editing).toBe(false);
+  expect(f.effects.some((effect) => effect.kind === "edit")).toBe(false);
+  f.setScene({ ...recording, targets: [target("cancel", "reply", "voiceCancel")] });
+  f.send("scene", "voice-workspace");
+  f.send("left", "voice-workspace");
+  f.setScene(recording);
+  f.send("scene", "voice-workspace");
+  expect(f.navigation.snapshot().position?.targetId).toBe("cancel");
+  f.setScene({ ...idle, targets: [target("field", "reply", "reply")] });
+  f.send("pointer", "voice-workspace", "field");
+  f.send("activate", "voice-workspace");
+  expect(f.navigation.snapshot().editing).toBe(false);
+  expect(f.invoke).toHaveBeenLastCalledWith("field", "dictate");
+  await f.settle();
+});
+
 it("reaches the actual microphone in deterministic composer order and separates acquisition from activation", async () => {
   const f = setup();
   f.setScene({
@@ -437,13 +505,23 @@ it("rejects a late scroll completion from an underlying scope", async () => {
 });
 
 it("crosses content panes directly while preserving modal controls and an editor focused before presentation", async () => {
+  const threadList = setup();
+  threadList.setScene({
+    ...conversation(),
+    targets: [target("project-group", "threads"), ...conversation().targets],
+  });
+  threadList.send("enabled");
+  threadList.send("left");
+  expect(threadList.navigation.snapshot().position?.targetId).toBe("thread");
   const f = setup();
   f.setScene({
     regions: [
+      { ...region("sidebar-wrapper", "content", "", "sidebar"), implicit: true },
       region("settings", "content", "", "sidebar"),
       region("page", "content", "", "content"),
     ],
     targets: [
+      target("floating-action", "sidebar-wrapper"),
       target("category", "settings"),
       target("another-category", "settings"),
       target("setting", "page"),
@@ -452,6 +530,9 @@ it("crosses content panes directly while preserving modal controls and an editor
     editorFocused: false,
   });
   f.send("enabled");
+  f.send("pointer", "workspace", "setting");
+  f.send("left");
+  expect(f.navigation.snapshot().position?.regionId).toBe("settings");
   f.send("pointer", "workspace", "another-category");
   f.send("right");
   expect(f.navigation.snapshot().position?.regionId).toBe("page");
@@ -469,6 +550,10 @@ it("crosses content panes directly while preserving modal controls and an editor
     focusedTargetId: "name",
     editorFocused: true,
   });
+  const beforeEditorScene = f.effects.length;
+  f.send("scene", "prompt");
+  expect(f.navigation.snapshot().editing).toBe(true);
+  expect(f.effects.slice(beforeEditorScene).some((effect) => effect.kind === "focus")).toBe(false);
   f.send("resumed", "prompt");
   await f.settle();
   expect(f.navigation.snapshot().editing).toBe(true);
@@ -527,11 +612,119 @@ it("keeps directions within a pane, unwinds inspector before chat regions, and e
   expect(f.navigation.snapshot().position?.regionId).toBe("chat");
   const selectionInput = vi.fn();
   const dismiss = f.navigation.present({ ...f.host("palette", "workspace", true), selectionInput });
+  const paletteScene = {
+    regions: [region("query", "content")],
+    targets: [target("query", "query", "editor", false)],
+    editorFocused: false,
+    focusedTargetId: null,
+  };
+  f.setScene(paletteScene);
+  const effectsBeforePresentation = f.effects.length;
+  f.send("scene", "palette");
+  await f.settle();
+  expect(f.effects.slice(effectsBeforePresentation).some((effect) => effect.kind === "focus")).toBe(
+    false,
+  );
+  f.setScene({ ...paletteScene, editorFocused: true, focusedTargetId: "query" });
+  f.send("scene", "palette");
+  expect(f.navigation.snapshot().editing).toBe(true);
   f.send("chooser", "palette");
   expect(f.command).toHaveBeenLastCalledWith("controllerHelp");
   expect(selectionInput).not.toHaveBeenCalled();
   f.send("down", "palette");
   expect(selectionInput).toHaveBeenCalledOnce();
   dismiss();
+  await f.settle();
+});
+
+it("opens a submenu on its current choice and reacquires a replacement menu without activating it", async () => {
+  const f = setup();
+  f.send("enabled");
+  const dispose = f.navigation.present(f.host("models", "workspace", true));
+  const menu = {
+    regions: [{ ...region("", "content"), implicit: true }, region("choices", "content")],
+    targets: [
+      target("close", ""),
+      target("model-a", "choices", "choice"),
+      { ...target("favorite", "choices"), selected: true },
+      { ...target("model-b", "choices", "choice"), selected: true },
+      target("model-c", "choices", "choice"),
+    ],
+    focusedTargetId: null,
+    editorFocused: false,
+  };
+  f.setScene(menu);
+  f.send("scene", "models");
+  expect(f.navigation.snapshot().position?.targetId).toBe("model-b");
+  f.send("left", "models");
+  expect(f.navigation.snapshot().position?.targetId).toBe("model-a");
+  f.send("right", "models");
+  f.send("activate", "models");
+  expect(f.invoke).toHaveBeenLastCalledWith("model-b", "activate");
+  f.invoke.mockClear();
+  f.setScene({
+    ...menu,
+    targets: [target("new-first", "choices"), target("new-second", "choices")],
+  });
+  f.send("activate", "models");
+  expect(f.navigation.snapshot().position?.targetId).toBe("new-first");
+  expect(f.invoke).not.toHaveBeenCalled();
+  f.send("activate", "models");
+  expect(f.invoke).toHaveBeenLastCalledWith("new-first", "activate");
+  dispose();
+  await f.settle();
+});
+
+it("highlights late menu choices and requires a fresh activation after acquiring a loading menu", async () => {
+  const f = setup();
+  f.send("enabled");
+  f.navigation.present(f.host("loading", "workspace", true));
+  const empty = { ...conversation(), regions: [region("menu", "content")], targets: [] };
+  f.setScene(empty);
+  f.send("scene", "loading");
+  f.setScene({ ...empty, targets: [target("loaded-choice", "menu")] });
+  f.send("activate", "loading");
+  expect(f.navigation.snapshot().position?.targetId).toBe("loaded-choice");
+  expect(f.effects.at(-1)).toMatchObject({ kind: "focus", targetId: "loaded-choice" });
+  expect(f.invoke).not.toHaveBeenCalled();
+  f.send("activate", "loading");
+  expect(f.invoke).toHaveBeenLastCalledWith("loaded-choice", "activate");
+  await f.settle();
+  const snapshots = f.effects.filter((effect) => effect.kind === "snapshot").length;
+  f.navigation.refresh("loading");
+  f.navigation.refresh("loading");
+  f.navigation.refresh("loading");
+  await f.navigation.settled();
+  expect(f.effects.filter((effect) => effect.kind === "snapshot")).toHaveLength(snapshots + 1);
+});
+
+it("keeps horizontal choices within their radio group and leaves vertical form navigation available", async () => {
+  const f = setup();
+  f.setScene({
+    regions: [
+      region("categories", "content", "", "sidebar"),
+      region("form", "content", "", "content"),
+    ],
+    targets: [
+      target("category", "categories"),
+      { ...target("light", "form", "choice"), groupId: "appearance" },
+      { ...target("dark", "form", "choice"), groupId: "appearance" },
+      { ...target("minutes", "form", "choice"), groupId: "duration" },
+      { ...target("hours", "form", "choice"), groupId: "duration" },
+    ],
+    editorFocused: false,
+    focusedTargetId: null,
+  });
+  f.send("enabled");
+  f.send("pointer", "workspace", "dark");
+  f.send("right");
+  expect(f.navigation.snapshot().position?.targetId).toBe("dark");
+  f.send("left");
+  expect(f.navigation.snapshot().position?.targetId).toBe("light");
+  f.send("down");
+  f.send("down");
+  expect(f.navigation.snapshot().position?.targetId).toBe("minutes");
+  f.send("right");
+  expect(f.navigation.snapshot().position?.targetId).toBe("hours");
   await f.settle();
 });

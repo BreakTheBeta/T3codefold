@@ -1,6 +1,14 @@
 import type { MenuAction } from "@react-native-menu/menu";
-import { useState } from "react";
-import { Button } from "../../components/ui/Button";
+import { useRef, useState } from "react";
+import type { ScrollViewInstance } from "react-native";
+import { NavigationRow } from "../../components/ui/NavigationRow";
+import { ControllerConsole } from "./ControllerConsole";
+import { ScreenContent } from "../../components/ui/ScreenContent";
+import {
+  isMenuActionEnabled,
+  menuActionKey,
+  resolveMenuPath,
+} from "../../components/ui/menuActionItems";
 import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
 import { Sheet } from "../../components/ui/Sheet";
 
@@ -10,35 +18,73 @@ export function ControllerActionMenu(props: {
   readonly onSelect: (id: string) => void;
   readonly onClose: () => void;
 }) {
-  const [path, setPath] = useState<readonly MenuAction[]>([]);
-  const parent = path.at(-1);
+  const menuScroll = useRef<ScrollViewInstance>(null);
+  const [path, setPath] = useState<readonly string[]>([]);
+  const level = resolveMenuPath(props.actions, path);
+  const activePath = path.slice(0, level.owners.length);
+  if (activePath.length !== path.length) setPath(activePath);
+  const parent = level.owners.at(-1);
+  const [returnTo, setReturnTo] = useState<string | null>(null);
   const back = () => {
-    if (path.length) setPath((current) => current.slice(0, -1));
-    else props.onClose();
+    if (activePath.length) {
+      setReturnTo(activePath.at(-1) ?? null);
+      setPath(activePath.slice(0, -1));
+    } else props.onClose();
   };
   return (
     <Sheet title={parent?.title ?? props.title} onClose={props.onClose} onControllerBack={back}>
-      <ScreenScrollView contentContainerClassName="gap-2 p-4">
-        {parent ? <Button label="Back" onPress={back} /> : null}
-        {(parent?.subactions ?? props.actions)
-          .filter((action) => !action.attributes?.hidden)
-          .map((action) => (
-            <Button
-              key={action.id ?? action.title}
-              label={action.title}
-              disabled={action.attributes?.disabled || (!action.subactions?.length && !action.id)}
-              tone={action.attributes?.destructive ? "danger" : "secondary"}
-              fullWidth
-              onPress={() => {
-                if (action.subactions?.length) setPath((current) => [...current, action]);
-                else if (action.id) {
-                  props.onClose();
-                  props.onSelect(action.id);
+      <ControllerConsole
+        key={JSON.stringify(activePath)}
+        scopeKey="menu-level"
+        initialRegion="content"
+        onBack={back}
+      >
+        <ScreenContent>
+          <ScreenScrollView ref={menuScroll} contentContainerClassName="gap-2 p-4">
+            {level.actions.map((action, index) => (
+              <NavigationRow
+                key={menuActionKey(action, index)}
+                title={action.title}
+                onLayout={(event) => {
+                  if (
+                    isMenuActionEnabled(action) &&
+                    (returnTo !== null
+                      ? menuActionKey(action, index) === returnTo
+                      : action.state === "on")
+                  )
+                    menuScroll.current?.scrollTo({
+                      y: Math.max(0, event.nativeEvent.layout.y - 48),
+                      animated: false,
+                    });
+                }}
+                subtitle={action.subtitle}
+                accessibilityRole="menuitem"
+                trailing={action.subactions?.length ? undefined : null}
+                accessibilityState={{
+                  selected:
+                    returnTo !== null
+                      ? menuActionKey(action, index) === returnTo
+                      : action.state === "on",
+                }}
+                disabled={!isMenuActionEnabled(action)}
+                titleClassName={
+                  action.attributes?.destructive ? "text-danger-foreground" : undefined
                 }
-              }}
-            />
-          ))}
-      </ScreenScrollView>
+                onPress={() => {
+                  if (!isMenuActionEnabled(action)) return;
+                  setReturnTo(null);
+                  if (action.subactions?.length)
+                    setPath([...activePath, menuActionKey(action, index)]);
+                  else if (action.id !== undefined) {
+                    props.onClose();
+                    props.onSelect(action.id);
+                  }
+                }}
+              />
+            ))}
+          </ScreenScrollView>
+        </ScreenContent>
+      </ControllerConsole>
     </Sheet>
   );
 }

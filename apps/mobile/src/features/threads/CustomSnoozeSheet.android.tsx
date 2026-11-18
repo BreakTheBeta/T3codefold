@@ -27,13 +27,18 @@ import {
   type CustomSnoozeInput,
 } from "@t3tools/client-runtime/state/thread-settled";
 import { requireNativeModule } from "expo";
-import { useEffect, useState } from "react";
-import { AppState, useWindowDimensions } from "react-native";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { AppState, Modal, ScrollView, View, useWindowDimensions } from "react-native";
+import { AppText } from "../../components/ui/AppText";
+import { ControllerConsole } from "../controller/ControllerConsole";
+import { ControllerPressable } from "../controller/ControllerPressable";
+import { controllerNavigation } from "../controller/controllerNavigation";
 
 import { OverlayPortal } from "../../components/ui/OverlayPortal";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import {
+  adjustSnoozeDate,
   applySnoozePickerDate,
   applySnoozePickerTime,
   snoozeDateToPickerDate,
@@ -73,6 +78,11 @@ export function CustomSnoozeSheet(props: Props) {
   const titleTypography = useScaledTextRole("title");
   const bodyTypography = useScaledTextRole("footnote");
   const { width: windowWidth } = useWindowDimensions();
+  const controllerEnabled = useSyncExternalStore(
+    controllerNavigation.subscribe,
+    () => controllerNavigation.snapshot().enabled,
+    () => false,
+  );
   const [mode, setMode] = useState<CustomSnoozeInput["mode"]>("date");
   const [date, setDate] = useState(() => new Date(Date.now() + 3_600_000));
   const [picker, setPicker] = useState<"date" | "time">("date");
@@ -94,6 +104,112 @@ export function CustomSnoozeSheet(props: Props) {
     props.onSnooze(snoozedUntil);
     props.onClose();
   };
+  if (controllerEnabled) {
+    const adjustDate = (field: "day" | "hour" | "minute", direction: -1 | 1) => {
+      setDate((current) => adjustSnoozeDate(current, field, direction));
+      setError(null);
+    };
+    return (
+      <Modal transparent visible onRequestClose={props.onClose}>
+        <ControllerConsole scopeKey="custom-snooze" initialRegion="content" onBack={props.onClose}>
+          <View className="flex-1 items-center justify-center bg-black/50 p-4">
+            <View
+              className="rounded-2xl bg-card-alt"
+              style={{ width: Math.min(400, windowWidth - 32), maxHeight: "90%" }}
+            >
+              <ScrollView contentContainerClassName="gap-3 p-5">
+                <AppText
+                  accessibilityRole="header"
+                  className="text-xl font-t3-bold text-foreground"
+                >
+                  Custom snooze
+                </AppText>
+                <AppText className="text-sm text-foreground-muted">
+                  Up/down selects a field. Left/right adjusts. A increases or confirms. B cancels.
+                </AppText>
+                <SnoozeControllerField
+                  label="Mode"
+                  value={mode === "date" ? "Date and time" : "Duration"}
+                  initial
+                  onAdjust={() => {
+                    setMode((current) => (current === "date" ? "duration" : "date"));
+                    setError(null);
+                  }}
+                />
+                {mode === "date" ? (
+                  <>
+                    <SnoozeControllerField
+                      label="Day"
+                      value={localSnoozeDate(date)}
+                      onAdjust={(direction) => adjustDate("day", direction)}
+                    />
+                    <SnoozeControllerField
+                      label="Hour"
+                      value={String(date.getHours()).padStart(2, "0")}
+                      onAdjust={(direction) => adjustDate("hour", direction)}
+                    />
+                    <SnoozeControllerField
+                      label="Minute"
+                      value={String(date.getMinutes()).padStart(2, "0")}
+                      onAdjust={(direction) => adjustDate("minute", direction)}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <SnoozeControllerField
+                      label="Duration"
+                      value={String(amount)}
+                      onAdjust={(direction) => {
+                        setAmount((current) => Math.max(1, Math.min(99, current + direction)));
+                        setError(null);
+                      }}
+                    />
+                    <SnoozeControllerField
+                      label="Unit"
+                      value={units.find((entry) => entry.value === unit)?.label ?? unit}
+                      onAdjust={(direction) => {
+                        setUnit((current) => {
+                          const index = units.findIndex((entry) => entry.value === current);
+                          return units[(index + direction + units.length) % units.length]!.value;
+                        });
+                        setError(null);
+                      }}
+                    />
+                  </>
+                )}
+                {error ? (
+                  <AppText accessibilityRole="alert" className="text-sm text-danger-foreground">
+                    {error}
+                  </AppText>
+                ) : null}
+                <ControllerPressable
+                  controllerKey="confirm-snooze"
+                  footer
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirm snooze"
+                  onActivate={submit}
+                  onPress={submit}
+                  className="min-h-12 items-center justify-center rounded-xl bg-primary px-4 py-3"
+                >
+                  <AppText className="font-t3-bold text-primary-foreground">Confirm snooze</AppText>
+                </ControllerPressable>
+                <ControllerPressable
+                  controllerKey="cancel-snooze"
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel snooze"
+                  onActivate={props.onClose}
+                  onPress={props.onClose}
+                  className="min-h-12 items-center justify-center rounded-xl bg-secondary px-4 py-3"
+                >
+                  <AppText className="font-t3-bold text-foreground">Cancel</AppText>
+                </ControllerPressable>
+              </ScrollView>
+            </View>
+          </View>
+        </ControllerConsole>
+      </Modal>
+    );
+  }
   const pickerColors = {
     containerColor: colors["--color-card-alt"],
     titleContentColor: colors["--color-foreground-secondary"],
@@ -299,5 +415,34 @@ function SnoozeDateTimePicker(props: {
         if (date) props.onChange(date);
       }}
     />
+  );
+}
+
+function SnoozeControllerField(props: {
+  readonly label: string;
+  readonly value: string;
+  readonly initial?: boolean;
+  readonly onAdjust: (direction: -1 | 1) => void;
+}) {
+  return (
+    <ControllerPressable
+      controllerKey={`snooze:${props.label}`}
+      accessibilityRole="adjustable"
+      accessibilityLabel={`${props.label}: ${props.value}`}
+      accessibilityState={{ selected: props.initial }}
+      accessibilityValue={{ text: props.value }}
+      accessibilityActions={[{ name: "decrement" }, { name: "increment" }]}
+      onAccessibilityAction={({ nativeEvent }) => {
+        if (nativeEvent.actionName === "decrement") props.onAdjust(-1);
+        else if (nativeEvent.actionName === "increment") props.onAdjust(1);
+      }}
+      onAdjust={props.onAdjust}
+      onActivate={() => props.onAdjust(1)}
+      onPress={() => props.onAdjust(1)}
+      className="min-h-14 flex-row items-center justify-between gap-4 rounded-xl bg-secondary px-4 py-3"
+    >
+      <AppText className="font-t3-medium text-foreground">{props.label}</AppText>
+      <AppText className="text-foreground">{props.value}</AppText>
+    </ControllerPressable>
   );
 }

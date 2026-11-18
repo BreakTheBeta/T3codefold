@@ -14,3 +14,11 @@ export function applySnoozePickerTime(date: Date, selected: Date): Date {
   next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
   return next;
 }
+
+export function adjustSnoozeDate(date: Date, field: "day" | "hour" | "minute", direction: -1 | 1) {
+  const next = new Date(date);
+  // Calendar days retain local time across DST; clock steps traverse repeated or missing hours.
+  if (field === "day") next.setDate(next.getDate() + direction);
+  else next.setTime(next.getTime() + direction * (field === "hour" ? 3_600_000 : 60_000));
+  return next;
+}

@@ -41,6 +41,7 @@ export function QuestionAttachments(props: {
   value: string;
   onChangeText: (value: string) => void;
   onInputFocusChange?: ((focused: boolean) => void) | undefined;
+  onBeforeOpenVoiceSettings?: (() => void) | undefined;
 }) {
   const dictationInstance = useId();
   const { selectedThread } = useThreadSelection();
@@ -219,13 +220,25 @@ export function QuestionAttachments(props: {
       <VideoPreviewModal source={previewVideo} onRequestClose={() => setPreviewVideo(null)} />
       <ControllerPressable
         controllerKey={`${props.requestId}:${props.question.id}`}
-        accessibilityLabel={`Edit ${props.question.header}. Square dictates`}
+        reply
+        accessibilityLabel={`Reply to ${props.question.header}. A starts or finishes dictation`}
         disabled={props.disabled}
-        onActivate={() => inputRef.current?.focus()}
+        onActivate={() => {
+          if (voice.isBusy) voice.stop();
+          else if (voice.isAvailable) voice.start();
+          else {
+            props.onBeforeOpenVoiceSettings?.();
+            navigation.navigate("SettingsVoice");
+          }
+        }}
         onPress={() => inputRef.current?.focus()}
         onDictate={() => {
           if (voice.isBusy) voice.stop();
           else if (voice.isAvailable) voice.start();
+          else {
+            props.onBeforeOpenVoiceSettings?.();
+            navigation.navigate("SettingsVoice");
+          }
         }}
       >
         <TextInputWrapper onPaste={paste}>
@@ -255,7 +268,7 @@ export function QuestionAttachments(props: {
       </ControllerPressable>
       {voice.isBusy ? (
         <Text accessibilityLiveRegion="polite" className="text-sm text-foreground-secondary">
-          Dictating {props.question.header} · Square finishes · Circle cancels
+          Dictating {props.question.header} · A finishes · B cancels
         </Text>
       ) : voice.state.phase === "error" ? (
         <Text accessibilityLiveRegion="polite" className="text-sm text-danger-foreground">

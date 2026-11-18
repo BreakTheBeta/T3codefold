@@ -32,6 +32,8 @@ export function ControllerConsole({
   scopeKey,
   modal = true,
   initialRegion,
+  voiceReplies = false,
+  fitContent = false,
   selection = false,
   onSelectionInput,
   enabledCommands = [],
@@ -39,6 +41,8 @@ export function ControllerConsole({
   readonly scopeKey?: string;
   readonly modal?: boolean;
   readonly initialRegion?: ControllerRegionKind;
+  readonly voiceReplies?: boolean;
+  readonly fitContent?: boolean;
   readonly selection?: boolean;
   readonly onSelectionInput?: (event: ControllerNativeEvent) => void;
   readonly enabledCommands?: ReadonlyArray<HardwareKeyboardCommand>;
@@ -107,6 +111,7 @@ export function ControllerConsole({
       parentId: parentId || null,
       modal,
       initialRegion,
+      voiceReplies,
       native: (effect) => controllerNativeEffect(scope, effect),
       invoke,
       available: (targetId) => controllerTargets.has(targetId, scope),
@@ -121,12 +126,13 @@ export function ControllerConsole({
       unsubscribe();
       dismiss();
     };
-  }, [scope, parentId, modal, selection, initialRegion]);
+  }, [scope, parentId, modal, selection, initialRegion, voiceReplies]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- controller recordings belong to the lifetime of this exact route or overlay
   useEffect(() => () => controllerDictation.cancel(scope), [scope]);
   if (Platform.OS !== "android") return children;
   return (
     <T3KeyboardCommands
+      fitContent={fitContent}
       controllerScope={scope}
       controllerActive={active}
       controllerModal={modal}
@@ -139,7 +145,7 @@ export function ControllerConsole({
       }}
     >
       <ControllerScope value={scope}>
-        <View className="flex-1">{children}</View>
+        <View className={fitContent ? undefined : "flex-1"}>{children}</View>
         {helpVisible ? (
           <Modal transparent visible onRequestClose={() => setHelpVisible(false)}>
             <ControllerConsole

@@ -24,6 +24,7 @@ import { Pressable } from "react-native";
 import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
 import { SymbolView } from "./AppSymbol";
 import { Button } from "./Button";
+import { isMenuActionEnabled } from "./menuActionItems";
 import { NativeThemeHost } from "./NativeThemeHost.android";
 import type { SplitButtonProps } from "./SplitButton.types";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
@@ -36,7 +37,7 @@ export function SplitButton(props: SplitButtonProps) {
   const [expanded, setExpanded] = useState(false);
   if (props.actions.length === 0) return <Button {...props} tone="primary" fullWidth />;
   const enabled = !props.disabled && !props.loading;
-  const menuEnabled = props.actions.some((action) => !action.attributes?.disabled);
+  const menuEnabled = props.actions.some(isMenuActionEnabled);
   const buttonColors = {
     containerColor: colors["--color-primary"],
     contentColor: colors["--color-primary-foreground"],

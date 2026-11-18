@@ -33,7 +33,7 @@ Not covered: Live Activities and notification taps (they need a T3 Connect relay
 
 ## Android controller graph
 
-`node scripts/controller-navigation.ts inventory --out /tmp/controller-audit` inventories production routes in compact and split layouts. Missing evidence exits with status 2. It does not connect to a device.
+`node scripts/controller-navigation.ts inventory --out /tmp/controller-audit` inventories production routes in compact and split layouts. Missing evidence exits with status 2. It does not connect to a device. `menu-inventory.json` additionally records menu, sheet, dialog, nested-route and system-window source candidates, resolving Android/native file overrides. Aliases and data-driven submenu declarations are included; this is a syntactic discovery list to reconcile with review, not a usability pass or proof of runtime reachability.
 
 For observed transitions, open Android through `test-t3-mobile`, install the matching native client, pair an isolated backend, and start Metro with `EXPO_PUBLIC_T3_BEHAVIOR_PROBE=1`. Then run:
 

@@ -37,6 +37,7 @@ export type AppBarMenuItem =
       readonly title?: string;
       readonly icon?: string;
       readonly inline?: boolean;
+      readonly disabled?: boolean;
       readonly items: ReadonlyArray<AppBarMenuItem>;
     };
 

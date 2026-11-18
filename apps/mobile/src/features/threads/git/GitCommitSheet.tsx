@@ -1,13 +1,15 @@
+import { ControllerPressable } from "../../controller/ControllerPressable";
 import { FitSheet } from "../../../components/ui/FitSheet";
 import { SheetHeader } from "../../../components/ui/SheetHeader";
 import { Button } from "../../../components/ui/Button";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 
 import { SymbolView } from "../../../components/ui/AppSymbol";
-import { AppText as Text, AppTextInput as TextInput } from "../../../components/ui/AppText";
+import { AppText as Text } from "../../../components/ui/AppText";
+import { ControllerTextInput as TextInput } from "../../../components/ui/ControllerTextInput";
 import { cn } from "../../../lib/cn";
 import { useEnvironmentQuery } from "../../../state/query";
 import { useThreadSelection } from "../../../state/use-thread-selection";
@@ -44,6 +46,14 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
 
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
+  const toggleFile = (path: string) => {
+    setExcludedFiles((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
 
   const selectedFiles = allFiles.filter((file) => !excludedFiles.has(file.path));
   const allSelected = excludedFiles.size === 0;
@@ -128,20 +138,14 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
             const name = file.path.slice(slash + 1);
             const directory = slash >= 0 ? file.path.slice(0, slash) : null;
             return (
-              <Pressable
+              <ControllerPressable
                 key={file.path}
                 className="min-h-16 flex-row items-center gap-3 border-t border-border-subtle py-3"
                 accessibilityRole="checkbox"
                 accessibilityLabel={file.path}
                 accessibilityState={{ checked: included }}
-                onPress={() =>
-                  setExcludedFiles((current) => {
-                    const next = new Set(current);
-                    if (next.has(file.path)) next.delete(file.path);
-                    else next.add(file.path);
-                    return next;
-                  })
-                }
+                onActivate={() => toggleFile(file.path)}
+                onPress={() => toggleFile(file.path)}
               >
                 <View
                   className={cn(
@@ -183,7 +187,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                     −{formatDiffCount(file.deletions)}
                   </Text>
                 </View>
-              </Pressable>
+              </ControllerPressable>
             );
           })
         )}

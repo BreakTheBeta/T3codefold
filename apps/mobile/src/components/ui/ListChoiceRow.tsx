@@ -24,7 +24,11 @@ export function ListChoiceRow(props: {
       accessibilityRole="radio"
       accessibilityLabel={props.label}
       accessibilityHint={props.description}
-      accessibilityState={{ checked: props.selected, disabled: Boolean(props.disabled) }}
+      accessibilityState={{
+        selected: props.selected,
+        checked: props.selected,
+        disabled: Boolean(props.disabled),
+      }}
       disabled={props.disabled}
       controllerActivate={props.onPress}
       onPress={props.onPress}

@@ -216,10 +216,11 @@ export function HardwareKeyboardCommandProvider({
       >
         <ControllerConsole
           modal={false}
+          voiceReplies
           scopeKey={pathname}
           initialRegion={
             /^\/threads(?:\/[^/]+(?:\/[^/]+)?)?\/?$/.test(pathname) || pathname === "/new/draft"
-              ? "conversation"
+              ? "composer"
               : pathname === "/"
                 ? "threads"
                 : "content"

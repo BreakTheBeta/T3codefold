@@ -1,5 +1,6 @@
+import { ControllerPressable } from "../../features/controller/ControllerPressable";
 import { useState } from "react";
-import { I18nManager, Platform, Pressable, View } from "react-native";
+import { I18nManager, Platform, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useDerivedValue,
@@ -42,7 +43,7 @@ export function SegmentedControl<Value extends string | number>(
   const minHeight = props.size === "compact" ? 32 : Platform.OS === "android" ? 40 : 36;
 
   return (
-    <View collapsable={false} className={props.className}>
+    <View accessibilityRole="radiogroup" collapsable={false} className={props.className}>
       <View
         onLayout={(event) => setLayout(event.nativeEvent.layout)}
         className="flex-row rounded-full p-[3px]"
@@ -66,7 +67,9 @@ export function SegmentedControl<Value extends string | number>(
         {props.options.map((option) => {
           const selected = option.value === props.selected;
           return (
-            <Pressable
+            <ControllerPressable
+              choice
+              onActivate={() => props.onSelect(option.value)}
               key={`${typeof option.value}:${option.value}`}
               accessibilityRole={props.role ?? "button"}
               accessibilityLabel={option.accessibilityLabel ?? option.label}
@@ -84,7 +87,7 @@ export function SegmentedControl<Value extends string | number>(
               >
                 {option.label}
               </AppText>
-            </Pressable>
+            </ControllerPressable>
           );
         })}
       </View>

@@ -25,7 +25,7 @@ class T3KeyboardCommandsModule : Module() {
         view.enabledCommands = commands.toSet()
       }
       Prop("controllerScope") { view: T3KeyboardCommandsView, scope: String ->
-        if (view.controllerScope != scope) { view.controllerScope = scope; T3ControllerRouter.scopeChanged() }
+        if (view.controllerScope != scope) { view.controllerScope = scope; T3ControllerRouter.scopeChanged(); view.awaitControllerPresentation() }
       }
       Prop("controllerActive") { view: T3KeyboardCommandsView, active: Boolean -> view.controllerActive = active }
       Prop("controllerModal") { view: T3KeyboardCommandsView, modal: Boolean -> view.controllerModal = modal }
@@ -55,21 +55,40 @@ open class T3KeyboardCommandsView(
   private val layoutListener = ViewTreeObserver.OnGlobalLayoutListener { T3ControllerRouter.sceneChanged(this) }
   private val scrollListener = ViewTreeObserver.OnScrollChangedListener { T3ControllerRouter.sceneChanged(this) }
   private val focusListener = ViewTreeObserver.OnGlobalFocusChangeListener { _, _ -> T3ControllerRouter.sceneChanged(this); T3ControllerRouter.editorFocused(this) }
+  private var presentationObserver: ViewTreeObserver? = null
+  private val presentationListener = ViewTreeObserver.OnPreDrawListener {
+    if (controllerActive && controllerEvents && T3ControllerRouter.activated(this)) clearControllerPresentation()
+    true
+  }
+  private fun clearControllerPresentation() {
+    presentationObserver?.takeIf { it.isAlive }?.removeOnPreDrawListener(presentationListener)
+    presentationObserver = null
+  }
+  internal fun awaitControllerPresentation() {
+    if (!isAttachedToWindow) return
+    if (!controllerActive || !controllerEvents) { clearControllerPresentation(); return }
+    if (presentationObserver?.isAlive != true) {
+      presentationObserver = viewTreeObserver
+      presentationObserver?.addOnPreDrawListener(presentationListener)
+    }
+    postInvalidateOnAnimation()
+  }
   var controllerActive = true
     set(value) { if (field != value) {
       field = value
       if (!value) T3ControllerHost.clearHighlight(this)
       T3ControllerRouter.scopeChanged()
       if (value) { ensureControllerDelivery(); T3ControllerRouter.activated(this) }
+      awaitControllerPresentation()
     } }
   var controllerModal = false
-    set(value) { if (field != value) { field = value; T3ControllerRouter.scopeChanged() } }
+    set(value) { if (field != value) { field = value; T3ControllerRouter.scopeChanged(); awaitControllerPresentation() } }
   private val onCommand by EventDispatcher()
   private val onVimKey by EventDispatcher()
   var controllerScope = ""
   var controllerSelection = false
   var controllerEvents = false
-    set(value) { if (field != value) { field = value; T3ControllerRouter.scopeChanged() } }
+    set(value) { if (field != value) { field = value; T3ControllerRouter.scopeChanged(); awaitControllerPresentation() } }
   var enabledCommands = emptySet<String>()
   var vimKeysEnabled = false
 
@@ -99,6 +118,7 @@ open class T3KeyboardCommandsView(
     T3KeyboardRouter.register(this)
     T3ControllerRouter.register(this)
     ensureControllerDelivery()
+    awaitControllerPresentation()
     val activity = appContext.currentActivity
     if (activity != null && activity.window?.decorView === rootView) {
       T3KeyboardRouter.install(activity)
@@ -106,6 +126,7 @@ open class T3KeyboardCommandsView(
   }
 
   override fun onDetachedFromWindow() {
+    clearControllerPresentation()
     if (viewTreeObserver.isAlive) {
       viewTreeObserver.removeOnGlobalLayoutListener(layoutListener)
       viewTreeObserver.removeOnScrollChangedListener(scrollListener)
@@ -118,7 +139,7 @@ open class T3KeyboardCommandsView(
 
   override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
     super.onWindowFocusChanged(hasWindowFocus)
-    if (hasWindowFocus) { ensureControllerDelivery(); T3ControllerRouter.resume(rootView) } else if (isAttachedToWindow && !rootView.hasWindowFocus()) T3ControllerRouter.suspend(rootView)
+    if (hasWindowFocus) { ensureControllerDelivery(); T3ControllerRouter.resume(rootView); awaitControllerPresentation() } else if (isAttachedToWindow && !rootView.hasWindowFocus()) T3ControllerRouter.suspend(rootView)
   }
 
   override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {

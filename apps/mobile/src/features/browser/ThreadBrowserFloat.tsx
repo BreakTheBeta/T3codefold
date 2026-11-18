@@ -1,9 +1,10 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { useIsFocused } from "@react-navigation/native";
 import type { EnvironmentId, PreviewSessionSnapshot, ThreadId } from "@t3tools/contracts";
 import { previewPdfAssetUrl } from "@t3tools/shared/preview";
 import * as Option from "effect/Option";
 import { useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 
 import { SymbolView } from "../../components/ui/AppSymbol";
@@ -98,10 +99,11 @@ function FloatingBrowserPlayer(props: {
       className="absolute right-3 z-30 overflow-hidden rounded-2xl border border-border shadow-md shadow-black/20"
       style={{ top: props.top, width, height, backgroundColor: background }}
     >
-      <Pressable
+      <ControllerPressable
         accessibilityRole="button"
         accessibilityLabel={`Open browser, ${browserTabTitle(props.tab)}`}
         accessibilityHint="Opens the browser tab full screen"
+        onActivate={props.onOpen}
         onPress={props.onOpen}
         className="flex-1"
       >
@@ -123,16 +125,17 @@ function FloatingBrowserPlayer(props: {
             onGone={props.onClose}
           />
         </View>
-      </Pressable>
-      <Pressable
+      </ControllerPressable>
+      <ControllerPressable
         accessibilityRole="button"
         accessibilityLabel="Close floating preview"
         hitSlop={8}
+        onActivate={props.onClose}
         onPress={props.onClose}
         className="absolute right-1.5 top-1.5 size-6 items-center justify-center rounded-full bg-black/55"
       >
         <SymbolView name="xmark" size={11} tintColor="#ffffff" type="monochrome" />
-      </Pressable>
+      </ControllerPressable>
     </Animated.View>
   );
 }

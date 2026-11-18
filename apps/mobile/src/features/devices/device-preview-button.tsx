@@ -1,4 +1,5 @@
-import { Pressable, View } from "react-native";
+import { ControllerPressable } from "../controller/ControllerPressable";
+import { View } from "react-native";
 
 import { AppText } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
@@ -10,10 +11,11 @@ export function DevicePreviewButton(props: {
 }) {
   const compact = props.compact ?? true;
   return (
-    <Pressable
+    <ControllerPressable
       accessibilityRole="button"
       accessibilityLabel={props.count === 1 ? "View device" : `View ${props.count} devices`}
       accessibilityHint="Watch and control devices open in this thread"
+      onActivate={props.onPress}
       onPress={props.onPress}
       className={
         compact
@@ -36,6 +38,6 @@ export function DevicePreviewButton(props: {
           <AppText className="text-2xs font-t3-bold text-primary-foreground">{props.count}</AppText>
         </View>
       ) : null}
-    </Pressable>
+    </ControllerPressable>
   );
 }

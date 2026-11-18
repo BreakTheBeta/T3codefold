@@ -32,6 +32,7 @@ export function NavigationRow({
   const { smallIconSize } = useAndroidControlSizing();
   return (
     <ControllerPressable
+      choice={["menuitem", "radio", "checkbox"].includes(props.accessibilityRole ?? "")}
       onActivate={() => props.onPress?.()}
       accessibilityRole="button"
       accessibilityLabel={[title, subtitle].filter(Boolean).join(", ")}

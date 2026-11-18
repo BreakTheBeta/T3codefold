@@ -16,6 +16,7 @@ export function T3KeyboardCommands(
     readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
     readonly onCommand: (command: HardwareKeyboardCommand) => void;
     readonly controllerScope?: string;
+    readonly fitContent?: boolean;
     readonly controllerActive?: boolean;
     readonly controllerModal?: boolean;
     readonly controllerSelection?: boolean;
@@ -24,7 +25,7 @@ export function T3KeyboardCommands(
     readonly onVimKey?: (key: VimKey) => void;
   }>,
 ) {
-  return <View className="flex-1">{props.children}</View>;
+  return <View className={props.fitContent ? undefined : "flex-1"}>{props.children}</View>;
 }
 
 export function controllerNativeEffect(

@@ -19,7 +19,13 @@ export interface ControllerCapture {
         canScrollDown: boolean;
       }[];
       editorFocused: boolean;
-      targets: readonly { id: string; regionId: string; kind: string; label?: string }[];
+      targets: readonly {
+        id: string;
+        regionId: string;
+        kind: string;
+        label?: string;
+        selected?: boolean;
+      }[];
     };
   };
 }
@@ -63,6 +69,7 @@ export function controllerFacts(value: ControllerCapture) {
     region: region?.kind ?? null,
     pane: region?.pane ?? null,
     targetKind: target?.kind ?? null,
+    targetSelected: target?.selected ?? false,
     target: target?.id ?? null,
     surface: region?.surfaceId ?? null,
     nativeEditorFocused: controller.scene.editorFocused,
@@ -81,6 +88,7 @@ export interface ControllerExpectation {
   region?: string;
   pane?: string;
   targetKind?: string;
+  targetSelected?: boolean;
   keyboard?: boolean;
   ready?: boolean;
   path?: string;
@@ -107,6 +115,7 @@ export function controllerFailures(
     "region",
     "pane",
     "targetKind",
+    "targetSelected",
     "keyboard",
     "ready",
     "nativeEditorFocused",
@@ -154,7 +163,7 @@ export const controllerStateContract = [
   { from: "reading", input: "X", to: "voice-ui", limit: 1 },
   { from: "reading", input: "A", to: "inspection", limit: 1 },
   { from: "inspection", input: "B", to: "reading", limit: 1 },
-  { from: "reply", input: "A", to: "editing", limit: 1 },
+  { from: "reply", input: "A", to: "voice-ui", limit: 1 },
   { from: "editing", input: "B", to: "reply", limit: 1 },
   { from: "voice-ui", input: "B", to: "reply", limit: 1 },
   { from: "reply", input: "LT", to: "reading", limit: 1 },
@@ -198,19 +207,30 @@ export function controllerJourneys(threadPath?: string): ControllerJourney[] {
   if (threadPath)
     journeys.push(
       {
-        id: "thread:reply-edit-back",
+        id: "thread:microphone-record-cancel",
         path: threadPath,
         page: "Thread",
-        maxPresses: 4,
+        maxPresses: 6,
         steps: [
-          { input: "r2", expect: { region: "composer", targetKind: "reply" } },
-          { input: "a", expect: { mode: "editing", nativeEditorFocused: true, sameSurface: true } },
+          { input: "r2", expect: { region: "composer", targetKind: "voice" } },
+          {
+            input: "a",
+            expect: {
+              mode: "voice-ui",
+              targetKind: "voiceFinish",
+              nativeEditorFocused: false,
+              keyboard: false,
+              sameSurface: true,
+            },
+          },
+          { input: "left", expect: { targetKind: "voiceCancel", sameSurface: true } },
+          { input: "right", expect: { targetKind: "voiceFinish", sameSurface: true } },
           {
             input: "b",
             expect: {
               mode: "navigation",
               region: "composer",
-              targetKind: "reply",
+              targetKind: "voice",
               sameSurface: true,
               nativeEditorFocused: false,
               keyboard: false,
@@ -232,7 +252,7 @@ export function controllerJourneys(threadPath?: string): ControllerJourney[] {
             expect: {
               mode: "navigation",
               region: "composer",
-              targetKind: "reply",
+              targetKind: "voice",
               sameSurface: true,
               nativeEditorFocused: false,
               keyboard: false,
@@ -246,14 +266,14 @@ export function controllerJourneys(threadPath?: string): ControllerJourney[] {
         page: "Thread",
         maxPresses: 3,
         steps: [
-          { input: "r2", expect: { targetKind: "reply" } },
+          { input: "r2", expect: { targetKind: "voice" } },
           { input: "x", expect: { mode: "voice-ui" } },
           {
             input: "b",
             expect: {
               mode: "navigation",
               region: "composer",
-              targetKind: "reply",
+              targetKind: "voice",
               sameSurface: true,
               nativeEditorFocused: false,
               keyboard: false,

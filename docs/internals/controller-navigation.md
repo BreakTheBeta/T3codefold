@@ -24,20 +24,24 @@ require an unrelated button mapping or an implicit jump to a different surface.
 
 ## Transition rules
 
-| State                    | Directional input                                                                            | Activate                                                             | Back / Cancel                                                                |
-| ------------------------ | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Threads                  | Traverse threads; enter the selected conversation through the client's region command        | Select thread and enter its conversation                             | Unwind the owning screen                                                     |
-| Conversation             | Read with Up/Down; Activate enters visible inline actions; Left/Right switches visible panes | Acquire a visible action first, then activate it on a separate press | Leave inline inspection, or unwind the inspector before returning to threads |
-| Reply, navigation mode   | Return to conversation or traverse composer controls                                         | Enter text editing; submit requires an explicit submit action        | Return to conversation                                                       |
-| Text editing             | Text movement or adjustment belongs to the editor                                            | Preserve editor semantics                                            | Leave editing and restore navigation                                         |
-| Dictation                | Preserve the owning text destination                                                         | Never submit as a side effect of starting/stopping voice             | Cancel recording without discarding another draft                            |
-| Inspector / Settings     | Traverse local controls and scroll local content                                             | Perform the focused semantic action                                  | Unmaximize, close, or leave one level, restoring the invoking region         |
-| Menu / question / dialog | Stay inside the top scope; custom widgets own their local arrow behavior                     | Perform only the focused, enabled action                             | Close one scope and restore its invoking target or region                    |
-| Suspended / disconnected | No navigation repeats or stale activations                                                   | No stale activation on resume                                        | Old holds are quarantined; a fresh press can recover after a missed release  |
+| State                    | Directional input                                                                            | Activate                                                                | Back / Cancel                                                                |
+| ------------------------ | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Threads                  | Traverse threads; enter the selected conversation through the client's region command        | Select thread and enter its voice reply menu                            | Unwind the owning screen                                                     |
+| Conversation             | Read with Up/Down; Activate enters visible inline actions; Left/Right switches visible panes | Acquire a visible action first, then activate it on a separate press    | Leave inline inspection, or unwind the inspector before returning to threads |
+| Reply, navigation mode   | Return to conversation or traverse composer controls                                         | Activate the microphone or selected voice action; submit stays separate | Return to conversation                                                       |
+| Text editing             | Text movement or adjustment belongs to the editor                                            | Preserve editor semantics                                               | Leave editing and restore navigation                                         |
+| Dictation                | Preserve the owning text destination                                                         | Never submit as a side effect of starting/stopping voice                | Cancel recording without discarding another draft                            |
+| Inspector / Settings     | Traverse local controls and scroll local content                                             | Perform the focused semantic action                                     | Unmaximize, close, or leave one level, restoring the invoking region         |
+| Menu / question / dialog | Stay inside the top scope; custom widgets own their local arrow behavior                     | Perform only the focused, enabled action                                | Close one scope and restore its invoking target or region                    |
+| Suspended / disconnected | No navigation repeats or stale activations                                                   | No stale activation on resume                                           | Old holds are quarantined; a fresh press can recover after a missed release  |
+
+Submenus enter on the current selected option, otherwise the first enabled content action,
+not the header's Close button. Thread lists prefer a thread over group headers when no current choice exists. Arrows choose locally, A confirms, and Back restores the invoking
+menu. Replacing submenu choices reacquires an enabled choice without activating it.
 
 Physical mappings may differ between clients; these semantic transitions must remain reachable.
-Android uses RT/R2 to jump to reply and LT/L2 to return to conversation, including while editing.
-X starts or finishes dictation; B cancels recording or leaves editing. LB/RB switch threads,
+Android thread entry and RT/R2 select the visible microphone (Finish during recording), without opening the keyboard. Composer arrows exclude the text editor when voice controls are available. Touch retains text editing. Android uses RT/R2 to jump to voice reply and LT/L2 to return to conversation, including while editing.
+A activates the selected microphone or Finish action; X also starts or finishes dictation; B cancels recording or leaves editing. LB/RB switch threads,
 A activates the selected control, and Y selects reply actions. The right stick scrolls.
 View/Select opens the controller guide above the current scope; View/Select or Back closes it.
 Up/Down reads a conversation until Activate selects an inline action. RT remains a direct reply
@@ -76,7 +80,7 @@ Android selection belongs to the React Native controller session. Native focus i
 entering an editor, not the source of navigation authority. Scopes declare ancestry and active
 ownership; regions expose order, declared workspace pane and scroll bounds. Pane ownership is
 carried by the layout containers, so folding does not change a region's identity. Target registration refreshes availability
-without replacing a scope: virtualized rows and recording controls change during held navigation.
+without replacing a scope: virtualized rows and recording controls change during held navigation. Native menu acquisition uses the active view's first visible draw: attachment and layout can precede modal visibility. The presentation listener is one-shot and does not drive a repaint loop. Left/Right stays within a radio group; Up/Down preserves a route through the surrounding form.
 
 Session tests replay transitions through its production effect interface, including delayed
 scenes, recycled targets, surface ownership and overlay restoration. Native tests dispatch

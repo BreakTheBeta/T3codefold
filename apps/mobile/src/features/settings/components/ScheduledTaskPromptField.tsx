@@ -1,4 +1,5 @@
-import { TextInput, View } from "react-native";
+import { useRef } from "react";
+import { TextInput, View, type TextInputInstance } from "react-native";
 
 import { AppText as Text } from "../../../components/ui/AppText";
 import type { ComposerEditorSelection } from "../../../components/ComposerEditor";
@@ -12,6 +13,7 @@ import {
 } from "../../voice-input/ComposerDictationControl";
 import type { useVoiceInputController } from "../../voice-input/useVoiceInputController";
 import { resolveVoiceComposerPresentation } from "../../voice-input/voiceInputPresentation";
+import { ControllerPressable } from "../../controller/ControllerPressable";
 
 export function ScheduledTaskPromptField(props: {
   readonly value: string;
@@ -22,6 +24,7 @@ export function ScheduledTaskPromptField(props: {
   readonly voiceInput: ReturnType<typeof useVoiceInputController>;
 }) {
   const voice = props.voiceInput;
+  const inputRef = useRef<TextInputInstance>(null);
   const presentation = resolveVoiceComposerPresentation(voice.state, voice.elapsedSeconds);
   const showsDictation = presentation.statusKind === "active";
   const showsIdleTrigger = voice.isAvailable && !showsDictation;
@@ -30,20 +33,35 @@ export function ScheduledTaskPromptField(props: {
     <View className="gap-2 border-t border-border-subtle px-4 py-3">
       <Text className="text-sm text-foreground-muted">Prompt</Text>
       <View className="flex-row items-end">
-        <TextInput
-          accessibilityLabel="Prompt"
-          value={props.value}
-          onChangeText={props.onChange}
-          selection={props.selection}
-          onSelectionChange={({ nativeEvent }) => props.onChangeSelection(nativeEvent.selection)}
-          readOnly={props.disabled || voice.freezesEditor}
-          multiline
-          scrollEnabled
-          textAlignVertical="top"
-          placeholder="What should the agent do each time?"
-          placeholderTextColorClassName="accent-foreground-muted"
-          className="max-h-40 min-h-24 min-w-0 flex-1 font-sans text-base text-foreground"
-        />
+        <ControllerPressable
+          touchPassthrough
+          reply
+          style={{ flex: 1, minWidth: 0 }}
+          accessibilityLabel="Prompt. X or Square dictates"
+          disabled={props.disabled}
+          onActivate={() => inputRef.current?.focus()}
+          onDictate={() => {
+            if (voice.isBusy) voice.stop();
+            else if (voice.isAvailable) voice.start();
+            else return false;
+          }}
+        >
+          <TextInput
+            ref={inputRef}
+            accessibilityLabel="Prompt"
+            value={props.value}
+            onChangeText={props.onChange}
+            selection={props.selection}
+            onSelectionChange={({ nativeEvent }) => props.onChangeSelection(nativeEvent.selection)}
+            readOnly={props.disabled || voice.freezesEditor}
+            multiline
+            scrollEnabled
+            textAlignVertical="top"
+            placeholder="What should the agent do each time?"
+            placeholderTextColorClassName="accent-foreground-muted"
+            className="max-h-40 min-h-24 min-w-0 flex-1 font-sans text-base text-foreground"
+          />
+        </ControllerPressable>
         {showsIdleTrigger ? (
           <ComposerDictationStartAction
             state={voice.state}

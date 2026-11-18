@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -50,11 +51,15 @@ export function ModelRowContent(
         props.isLast ? "rounded-b-2xl" : "border-b border-border-subtle",
       )}
     >
-      <Pressable
+      <ControllerPressable
+        choice
+        onActivate={props.onPress}
+        controllerKey={`${props.option.providerLabel}:${props.option.label}`}
         accessibilityLabel={[props.option.label, props.option.subtitle].filter(Boolean).join(", ")}
         accessibilityRole="radio"
         accessibilityState={{
           checked: props.selected,
+          selected: props.selected,
           disabled: props.option.isUnavailable === true || props.option.isHidden === true,
         }}
         className="min-h-11 min-w-0 flex-1 flex-row items-center gap-2 active:opacity-70"
@@ -97,7 +102,7 @@ export function ModelRowContent(
           ) : null}
         </View>
         {props.trailingSelection}
-      </Pressable>
+      </ControllerPressable>
       {props.onToggleHidden ? (
         <Pressable
           accessibilityLabel={`${props.option.isHidden ? "Show" : "Hide"} model: ${props.option.providerLabel}, ${props.option.label}`}
@@ -138,10 +143,16 @@ export function ModelRowContent(
 
 export function ChoiceRowContent(props: ChoiceRowProps & RowSelectionProps) {
   return (
-    <Pressable
+    <ControllerPressable
+      choice
+      onActivate={props.onPress}
       accessibilityLabel={props.description ? `${props.label}. ${props.description}` : props.label}
       accessibilityRole="radio"
-      accessibilityState={{ checked: props.selected, disabled: props.disabled === true }}
+      accessibilityState={{
+        checked: props.selected,
+        selected: props.selected,
+        disabled: props.disabled === true,
+      }}
       disabled={props.disabled}
       onPress={props.onPress}
       style={props.minimumHeight === undefined ? undefined : { minHeight: props.minimumHeight }}
@@ -158,6 +169,6 @@ export function ChoiceRowContent(props: ChoiceRowProps & RowSelectionProps) {
         ) : null}
       </View>
       {props.trailingSelection}
-    </Pressable>
+    </ControllerPressable>
   );
 }

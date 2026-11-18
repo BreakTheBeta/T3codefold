@@ -124,6 +124,7 @@ export function PendingUserInputFullScreen(props: PendingUserInputFullScreenProp
                 style={{ maxWidth: layout.contentMaxWidth }}
               >
                 <PendingUserInputQuestions
+                  onBeforeOpenVoiceSettings={props.onRequestClose}
                   roomy
                   pendingUserInput={props.pendingUserInput}
                   canRespond={props.canRespond}

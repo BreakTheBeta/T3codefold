@@ -321,8 +321,13 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                             optionValue,
                           )
                         }
+                        choice
                         accessibilityRole={question.multiSelect ? "checkbox" : "radio"}
-                        accessibilityState={{ checked: selected, disabled: responseDisabled }}
+                        accessibilityState={{
+                          checked: selected,
+                          selected,
+                          disabled: responseDisabled,
+                        }}
                         disabled={responseDisabled}
                         className={cn(
                           "min-h-12 w-full rounded-2xl border px-3.5 py-3",

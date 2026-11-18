@@ -11,6 +11,23 @@ type PanHandlers = {
 };
 
 const pans = vi.hoisted(() => [] as PanHandlers[]);
+const controller = vi.hoisted(() => ({
+  current: null as null | {
+    onActivate: () => void;
+    onAdjust: (direction: -1 | 1) => void;
+  },
+}));
+
+vi.mock("../../controller/ControllerPressable", () => ({
+  ControllerPressable: (props: {
+    children?: ReactNode;
+    onActivate: () => void;
+    onAdjust: (direction: -1 | 1) => void;
+  }) => {
+    controller.current = props;
+    return <div>{props.children}</div>;
+  },
+}));
 
 vi.mock("react-native", () => ({
   View: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -43,6 +60,48 @@ vi.mock("../../threads/use-ui-thread-drag", () => ({ useUIThreadDrag: () => null
 import { SettingsDragHandle } from "./SettingsDragHandle";
 
 describe("SettingsDragHandle", () => {
+  it("keeps controller reordering within the available microphone positions", () => {
+    controller.current = null;
+    const moves: string[] = [];
+    const root = createRoot(document.createElement("div"));
+    const render = (canMoveUp: boolean, canMoveDown: boolean) =>
+      act(() =>
+        root.render(
+          <SettingsDragHandle
+            title="Built-in microphone"
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            onStart={() => {}}
+            onMove={() => {}}
+            onEnd={() => {}}
+            onStep={(direction) => moves.push(direction)}
+          />,
+        ),
+      );
+    try {
+      render(false, true);
+      act(() => {
+        controller.current!.onAdjust(-1);
+        controller.current!.onAdjust(1);
+      });
+      expect(moves).toEqual(["down"]);
+      render(true, false);
+      act(() => {
+        controller.current!.onAdjust(1);
+        controller.current!.onAdjust(-1);
+      });
+      expect(moves).toEqual(["down", "up"]);
+      render(false, false);
+      act(() => {
+        controller.current!.onAdjust(-1);
+        controller.current!.onAdjust(1);
+        controller.current!.onActivate();
+      });
+      expect(moves).toEqual(["down", "up"]);
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   // The worklets Babel plugin copies values a gesture callback closes over when the gesture is
   // built, so a drop must not read a translation tracked in a local variable.
   it("reports the released translation when the pan ends", () => {

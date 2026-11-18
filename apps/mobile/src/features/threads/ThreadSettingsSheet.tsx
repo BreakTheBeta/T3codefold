@@ -1,3 +1,6 @@
+import { controllerNavigation } from "../controller/controllerNavigation";
+import { ControllerPressable } from "../controller/ControllerPressable";
+import { ControllerConsole } from "../controller/ControllerConsole";
 import {
   getPromptControlledTraits,
   getTraitSelectChange,
@@ -20,7 +23,7 @@ import type {
   ServerSettings,
   ThreadId,
 } from "@t3tools/contracts";
-import type { LegendListRenderItemProps } from "@legendapp/list/react-native";
+import type { LegendListRenderItemProps, LegendListRef } from "@legendapp/list/react-native";
 import { RegistryContext, useAtomMount, useAtomValue } from "@effect/atom-react";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import {
@@ -43,6 +46,7 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { Pressable, ScrollView, View } from "react-native";
@@ -208,8 +212,10 @@ function DisclosureRow(props: {
   readonly isLast?: boolean;
 }) {
   return (
-    <Pressable
+    <ControllerPressable
       accessibilityRole="button"
+      accessibilityLabel={props.value ? `${props.label}: ${props.value}` : props.label}
+      onActivate={props.onPress}
       onPress={props.onPress}
       className={cn(
         "flex-row items-center gap-2 bg-grouped-card px-4 py-2 active:bg-subtle",
@@ -230,7 +236,7 @@ function DisclosureRow(props: {
         tintColorClassName="accent-icon-subtle"
         type="monochrome"
       />
-    </Pressable>
+    </ControllerPressable>
   );
 }
 
@@ -990,6 +996,13 @@ function ThreadSettingsMainContent(props: {
   const reducedMotion = useReducedMotion();
   const reduceMotionEnabled = useReduceMotionEnabled();
   const animationsReady = listLoaded && !reducedMotion && !reduceMotionEnabled;
+  const controllerEnabled = useSyncExternalStore(
+    controllerNavigation.subscribe,
+    () => controllerNavigation.snapshot().enabled,
+    () => false,
+  );
+  const controllerList = useRef<LegendListRef>(null);
+  const entryRevealed = useRef(false);
   const catalogItems = buildThreadSettingsCatalogItems(session);
   const hasActiveCatalogFilter =
     session.providerFilter !== null || session.searchQuery.trim().length > 0;
@@ -997,6 +1010,24 @@ function ThreadSettingsMainContent(props: {
     ...(catalogItems.length === 0 ? ([{ kind: "empty", key: "empty" }] as const) : catalogItems),
     { kind: "options", key: "options" },
   ] satisfies ReadonlyArray<ThreadSettingsCatalogItem>;
+  const selectedIndex = listItems.findIndex(
+    (item) =>
+      item.kind === "model" &&
+      session.isDisplayed(item.option) &&
+      !item.option.isUnavailable &&
+      !item.option.isHidden,
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reveal the controller menu's current model after its virtualized list loads
+  useEffect(() => {
+    if (controllerEnabled && listLoaded && selectedIndex >= 0 && !entryRevealed.current) {
+      entryRevealed.current = true;
+      controllerList.current?.scrollToIndex({
+        index: selectedIndex,
+        viewPosition: 0.25,
+        animated: false,
+      });
+    }
+  }, [controllerEnabled, listLoaded, selectedIndex]);
   const renderCatalogItem = (itemProps: LegendListRenderItemProps<ThreadSettingsCatalogItem>) => {
     const item = itemProps.item;
     let content: ReactNode;
@@ -1050,6 +1081,12 @@ function ThreadSettingsMainContent(props: {
   return (
     // oxlint-disable-next-line t3code/require-registered-list-scroll -- Sheet content; sheets sit outside workspace columns and keep their own header handling.
     <AnimatedLegendList
+      ref={controllerList}
+      initialScrollIndex={
+        controllerEnabled && selectedIndex >= 0
+          ? { index: selectedIndex, viewPosition: 0.25 }
+          : undefined
+      }
       alwaysBounceVertical
       automaticallyAdjustsScrollIndicatorInsets
       className="flex-1 bg-sheet"
@@ -1230,7 +1267,11 @@ function ThreadSettingsModelsScreen() {
   ];
 
   return (
-    <>
+    <ControllerConsole
+      scopeKey="thread-model-menu"
+      initialRegion="content"
+      onBack={presentation.onClose}
+    >
       <AppBar
         title="Thread settings"
         onClose={presentation.onClose}
@@ -1292,7 +1333,7 @@ function ThreadSettingsModelsScreen() {
           }}
         />
       </ScreenContent>
-    </>
+    </ControllerConsole>
   );
 }
 
@@ -1301,7 +1342,11 @@ function ThreadSettingsChoiceScreen() {
   const route = useRoute<RouteProp<ThreadSettingsPickerStackParams, "ThreadSettingsChoice">>();
 
   return (
-    <>
+    <ControllerConsole
+      scopeKey={`thread-option:${route.params.title}`}
+      initialRegion="content"
+      onBack={() => navigation.goBack()}
+    >
       <AppBar title={route.params.title} onBack={() => navigation.goBack()} hideBottomBorder />
       <ScreenContent>
         <ThreadSettingsChoiceContent
@@ -1309,7 +1354,7 @@ function ThreadSettingsChoiceScreen() {
           onSelected={() => navigation.goBack()}
         />
       </ScreenContent>
-    </>
+    </ControllerConsole>
   );
 }
 

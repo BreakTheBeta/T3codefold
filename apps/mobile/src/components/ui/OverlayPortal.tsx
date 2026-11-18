@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
+import { ControllerScope } from "../../features/controller/controllerScope";
+import { type ReactNode, use, useEffect, useState, useSyncExternalStore } from "react";
 import { View } from "react-native";
 
 // RN Modals move native window focus and close the keyboard. Keep composer menus in-window.
@@ -33,6 +34,7 @@ function getSnapshot() {
 
 export function OverlayPortal(props: { readonly children: ReactNode }) {
   const [key] = useState(allocateKey);
+  const controllerScope = use(ControllerScope);
 
   // RN has no createPortal, so projecting into the out-of-tree host has to
   // happen after commit. No dependency array: re-project after every render so
@@ -40,7 +42,7 @@ export function OverlayPortal(props: { readonly children: ReactNode }) {
   // drill-in, theme).
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- projects children into the out-of-tree overlay host store after every commit
   useEffect(() => {
-    entries.set(key, props.children);
+    entries.set(key, <ControllerScope value={controllerScope}>{props.children}</ControllerScope>);
     emit();
   });
 

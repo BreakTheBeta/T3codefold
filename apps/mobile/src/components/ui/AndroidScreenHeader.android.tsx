@@ -163,7 +163,7 @@ export function AndroidScreenHeader(props: {
                     subtitle: action.subtitle,
                     state: action.selected ? "on" : undefined,
                     attributes: {
-                      disabled: Boolean(action.disabled),
+                      disabled: Boolean(action.disabled || action.loading),
                       destructive: action.destructive,
                     },
                   }))}

@@ -75,9 +75,10 @@ internal object T3ControllerRouter {
     }
   }
   fun resume(root: View) {
-    if (suspendedRoots.put(root, false) == false) return
     fun deliver() {
-      if (root.hasWindowFocus() && suspendedRoots[root] == false) owner(root)?.let { emit(it, "resumed") }
+      if (!root.hasWindowFocus()) return
+      val changed = suspendedRoots.put(root, false) != false
+      owner(root)?.let { if (changed) emit(it, "resumed") else sceneChanged(it) }
     }
     if (root.hasWindowFocus()) deliver() else handler.post { deliver() }
   }
@@ -112,8 +113,11 @@ internal object T3ControllerRouter {
     view.lastControllerScene = scene
     view.emitController("scene", scene = scene)
   }
-  fun activated(view: T3KeyboardCommandsView) {
-    if (enabled && owner(view.rootView) === view) emit(view, "resumed")
+  fun activated(view: T3KeyboardCommandsView): Boolean {
+    if (!enabled) return true
+    if (owner(view.rootView) !== view) return false
+    emit(view, "resumed")
+    return true
   }
   fun editorFocused(view: T3KeyboardCommandsView) {
     if (enabled && owner(view.rootView) === view) emit(view, if (view.findFocus()?.onCheckIsTextEditor() == true) "editorFocused" else "editorBlurred")

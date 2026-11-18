@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { useAtomValue } from "@effect/atom-react";
 import {
   deriveWorkflowGroups,
@@ -16,7 +17,7 @@ import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
 import * as Haptics from "expo-haptics";
 import { useMemo } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SheetHeader } from "../../components/ui/SheetHeader";
@@ -170,14 +171,15 @@ function AgentRow(props: {
         {row}
       </View>
     ) : (
-      <Pressable
+      <ControllerPressable
         accessibilityRole="link"
         accessibilityHint="Opens this agent's thread"
+        onActivate={() => props.onOpen(target)}
         onPress={() => props.onOpen(target)}
         className="min-w-0 flex-1 active:opacity-70"
       >
         {row}
-      </Pressable>
+      </ControllerPressable>
     );
 
   return (

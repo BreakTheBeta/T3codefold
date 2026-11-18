@@ -1,3 +1,4 @@
+import { ControllerPressable } from "../controller/ControllerPressable";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import {
   ARCHIVE_ENTRY_MAX_BYTES,
@@ -17,7 +18,8 @@ import { fetch } from "expo/fetch";
 import { File } from "expo-file-system";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { Keyboard, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Keyboard, ScrollView, View } from "react-native";
+import { ControllerTextInput as TextInput } from "../../components/ui/ControllerTextInput";
 
 import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 import { AppBar } from "../../components/ui/AppBar";
@@ -248,10 +250,11 @@ function ZipTreeRowView(props: {
   const entry = node.entry;
   const folder = entry ? null : zipFolderLabel(node.label);
   return (
-    <Pressable
+    <ControllerPressable
       accessibilityRole="button"
       accessibilityLabel={entry ? entry.path : `${node.path} folder`}
       accessibilityState={entry ? undefined : { expanded: !props.collapsed }}
+      onActivate={() => (entry ? props.onOpen(entry) : props.onToggle(node.path))}
       onPress={() => (entry ? props.onOpen(entry) : props.onToggle(node.path))}
       className="mx-2 h-11 flex-row items-center gap-1.5 rounded-lg pr-2.5 active:bg-subtle"
       style={{ paddingLeft: 8 + depth * 18 }}
@@ -286,7 +289,7 @@ function ZipTreeRowView(props: {
             ? `${node.fileCount} ${node.fileCount === 1 ? "file" : "files"}`
             : ""}
       </Text>
-    </Pressable>
+    </ControllerPressable>
   );
 }
 
@@ -417,6 +420,7 @@ function ZipArchiveList(props: {
             <View className="h-[38px] flex-row items-center gap-2 rounded-[10px] bg-subtle px-3">
               <SymbolView name="magnifyingglass" size={15} tintColorClassName="accent-icon-muted" />
               <TextInput
+                containerStyle={{ flex: 1 }}
                 accessibilityLabel="Filter files in ZIP"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -428,10 +432,11 @@ function ZipArchiveList(props: {
                 onChangeText={setQuery}
               />
               {query ? (
-                <Pressable
+                <ControllerPressable
                   accessibilityRole="button"
                   accessibilityLabel="Clear filter"
                   hitSlop={10}
+                  onActivate={() => setQuery("")}
                   onPress={() => setQuery("")}
                 >
                   <SymbolView
@@ -439,7 +444,7 @@ function ZipArchiveList(props: {
                     size={16}
                     tintColorClassName="accent-icon-muted"
                   />
-                </Pressable>
+                </ControllerPressable>
               ) : null}
             </View>
           </View>
