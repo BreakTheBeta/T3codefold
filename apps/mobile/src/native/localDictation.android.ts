@@ -1,5 +1,4 @@
 import { requireOptionalNativeModule } from "expo";
-import * as Dialog from "../components/ui/Dialog";
 import { AppState, PermissionsAndroid, Platform } from "react-native";
 import type { LocalDictationBackend } from "./localDictation.ts";
 
@@ -52,6 +51,8 @@ export function getLocalDictationBackend(): LocalDictationBackend | null {
       signal.throwIfAborted();
       settings = module.getDictationSettings();
       if (!settings.ready) {
+        const Dialog = await import("../components/ui/Dialog");
+        signal.throwIfAborted();
         const size =
           settings.architecture === 2 ? "43" : settings.architecture === 5 ? "257" : "136";
         const download = await new Promise<boolean>((resolve) =>
