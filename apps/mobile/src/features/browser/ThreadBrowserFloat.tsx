@@ -3,6 +3,7 @@ import { useIsFocused } from "@react-navigation/native";
 import type { EnvironmentId, PreviewSessionSnapshot, ThreadId } from "@t3tools/contracts";
 import { previewPdfAssetUrl } from "@t3tools/shared/preview";
 import * as Option from "effect/Option";
+import { useGT, useMessages } from "gt-react-native";
 import { useState } from "react";
 import { View } from "react-native";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
@@ -85,6 +86,8 @@ function FloatingBrowserPlayer(props: {
   readonly onClose: () => void;
 }) {
   const { themeVariables } = useAppearancePreferences();
+  const gt = useGT();
+  const resolveMessage = useMessages();
   const prepared = usePreparedConnection(props.environmentId);
   const httpBaseUrl = Option.isSome(prepared) ? prepared.value.httpBaseUrl : null;
   const [viewport, setViewport] = useState<{ width: number; height: number } | null>(null);
@@ -101,8 +104,10 @@ function FloatingBrowserPlayer(props: {
     >
       <ControllerPressable
         accessibilityRole="button"
-        accessibilityLabel={`Open browser, ${browserTabTitle(props.tab)}`}
-        accessibilityHint="Opens the browser tab full screen"
+        accessibilityLabel={gt("Open browser, {title}", {
+          title: browserTabTitle(props.tab, resolveMessage),
+        })}
+        accessibilityHint={gt("Opens the browser tab full screen")}
         onActivate={props.onOpen}
         onPress={props.onOpen}
         className="flex-1"
@@ -128,7 +133,7 @@ function FloatingBrowserPlayer(props: {
       </ControllerPressable>
       <ControllerPressable
         accessibilityRole="button"
-        accessibilityLabel="Close floating preview"
+        accessibilityLabel={gt("Close floating preview")}
         hitSlop={8}
         onActivate={props.onClose}
         onPress={props.onClose}

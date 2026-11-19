@@ -44,6 +44,7 @@ export function ControllerActionMenu(props: {
             {level.actions.map((action, index) => (
               <NavigationRow
                 key={menuActionKey(action, index)}
+                controllerKey={menuActionKey(action, index)}
                 title={action.title}
                 onLayout={(event) => {
                   if (

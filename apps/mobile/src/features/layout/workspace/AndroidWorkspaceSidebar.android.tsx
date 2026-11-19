@@ -1,3 +1,4 @@
+import { useGT } from "gt-react-native";
 import { useControllerRegionId } from "../../controller/ControllerRegion";
 import { WorkspaceNoTabs } from "./WorkspaceNoTabs";
 import { useEnabledNavigationTabs } from "./navigation-tabs";
@@ -9,7 +10,9 @@ import { View } from "react-native";
 import { ScreenContent } from "../../../components/ui/ScreenContent";
 import { AndroidHeaderIconButton } from "../../../components/ui/AndroidScreenHeader.android";
 import { PullRequestsScreen } from "../../pull-requests/PullRequestsScreen";
-import { PullRequestToolbar } from "./PullRequestToolbar.android";
+import { ListSearchToolbar } from "./ListSearchToolbar.android";
+import { IssuesScreen } from "../../issues/IssuesScreen";
+import { selectedIssueKey } from "../../issues/issueParams";
 import { selectedPullRequestKey } from "../../pull-requests/pullRequestSelection";
 import { AndroidHomeFabLayout } from "../../home/AndroidHomeFab";
 import { useAdaptiveWorkspaceLayout } from "../adaptive-workspace-context";
@@ -22,6 +25,7 @@ import { WorkspaceTabSwitcher } from "./AndroidWorkspaceNavigation";
 
 /** The Home route in the sidebar column: the selected tab's list. */
 export function AndroidWorkspaceSidebar() {
+  const gt = useGT();
   const workspace = useWorkspaceTabs()!;
   const navigationRegionId = useControllerRegionId("navigation");
   const enabled = useEnabledNavigationTabs();
@@ -29,6 +33,7 @@ export function AndroidWorkspaceSidebar() {
   const { fabClearance } = useAndroidControlSizing();
   const { openWorkspaceTab, revealPrimarySidebar, startNewTask } = useAdaptiveWorkspaceLayout();
   const selectedPullRequest = useNavigationState(selectedPullRequestKey);
+  const selectedIssue = useNavigationState(selectedIssueKey);
   // Settings and Usage cover the sidebar.
   const coveredByPage =
     (useAndroidWorkspaceRoot()?.settingsOpen ?? false) || workspace.state.selectedTab === "usage";
@@ -49,7 +54,7 @@ export function AndroidWorkspaceSidebar() {
       >
         <WorkspaceTabSwitcher className="flex-1" />
         <AndroidHeaderIconButton
-          accessibilityLabel="Open settings"
+          accessibilityLabel={gt("Open settings")}
           icon="gearshape"
           onPress={() => openWorkspaceTab("settings")}
         />
@@ -61,8 +66,25 @@ export function AndroidWorkspaceSidebar() {
           renderTab={(tab) =>
             tab === "threads" ? (
               <WorkspaceThreadSidebar />
-            ) : tab !== "pullRequests" ? (
+            ) : tab === "usage" ? (
               <View className="flex-1 bg-screen" />
+            ) : tab === "issues" ? (
+              <WorkspaceTabsContext value={context}>
+                <IssuesScreen
+                  sidebar
+                  selectedIssueKey={selectedIssue}
+                  renderFrame={(filters, list) => (
+                    <View className="flex-1 bg-header">
+                      <ListSearchToolbar
+                        tab="issues"
+                        filters={filters}
+                        onRequestVisibility={revealPrimarySidebar}
+                      />
+                      <ScreenContent insetHorizontal>{list}</ScreenContent>
+                    </View>
+                  )}
+                />
+              </WorkspaceTabsContext>
             ) : (
               <WorkspaceTabsContext value={context}>
                 <PullRequestsScreen
@@ -70,7 +92,8 @@ export function AndroidWorkspaceSidebar() {
                   selectedPullRequestKey={selectedPullRequest}
                   renderFrame={(filters, list) => (
                     <View className="flex-1 bg-header">
-                      <PullRequestToolbar
+                      <ListSearchToolbar
+                        tab="pullRequests"
                         filters={filters}
                         onRequestVisibility={revealPrimarySidebar}
                       />

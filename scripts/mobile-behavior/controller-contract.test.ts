@@ -46,6 +46,21 @@ it("checks actual mode, destination, selection and scroll rather than accepting 
     "nativeEditorFocused: wanted true, observed false",
     "Did not select the next declared control.",
   ]);
+  expect(controllerFailures(value, value, { targetKey: "snooze:custom" })).toEqual([
+    "Selected control does not match the expected semantic key.",
+  ]);
+  const custom = {
+    ...value,
+    controller: {
+      ...value.controller,
+      position: { regionId: "reply", targetId: "scope:snooze:custom" },
+      scene: {
+        ...value.controller.scene,
+        targets: [{ id: "scope:snooze:custom", kind: "choice", regionId: "reply" }],
+      },
+    },
+  };
+  expect(controllerFailures(custom, value, { targetKey: "snooze:custom" })).toEqual([]);
   const edited = { ...value, controller: { ...value.controller, editing: true } };
   expect(
     controllerFailures(edited, value, { mode: "editing", region: "composer", targetKind: "reply" }),

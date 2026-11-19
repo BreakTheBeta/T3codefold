@@ -1,5 +1,6 @@
-import { useId, useState } from "react";
+import { useId, useState, useSyncExternalStore } from "react";
 import { ControllerConsole } from "../../features/controller/ControllerConsole";
+import { controllerNavigation } from "../../features/controller/controllerNavigation";
 import { androidKeyboardFirst } from "../../lib/android-back";
 import { View } from "react-native";
 import { FormSheet } from "react-native-screens";
@@ -15,13 +16,18 @@ export function Sheet(props: SheetProps) {
   const containerStyle = useResolveClassNames("bg-header");
   const [isOpen, setIsOpen] = useState(true);
   const controllerScope = useId();
+  const controllerEnabled = useSyncExternalStore(
+    controllerNavigation.subscribe,
+    () => controllerNavigation.snapshot().enabled,
+  );
   const close = () => {
     if (!props.dismissDisabled) setIsOpen(false);
   };
   return (
     <FormSheet
       isOpen={isOpen}
-      detents={[0.5, 0.9]}
+      // A collapsed detent clips the measured scroll viewport and hides controller targets.
+      detents={controllerEnabled ? [0.9] : [0.5, 0.9]}
       prefersGrabberVisible={false}
       preventNativeDismiss={props.dismissDisabled}
       nativeContainerStyle={containerStyle}

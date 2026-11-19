@@ -20,6 +20,7 @@ export function NavigationRow({
   ...props
 }: Omit<ComponentProps<typeof Pressable>, "children" | "onPress"> & {
   readonly title: string;
+  readonly controllerKey?: string;
   readonly onPress?: () => void;
   readonly titleClassName?: string;
   readonly subtitle?: string | null;

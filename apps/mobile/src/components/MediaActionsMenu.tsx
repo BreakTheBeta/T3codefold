@@ -5,6 +5,7 @@ import { ScreenScrollView } from "./ui/ScreenScrollView";
 import { NavigationRow } from "./ui/NavigationRow";
 import { AppText } from "./ui/AppText";
 import { MenuView } from "@react-native-menu/menu";
+import { useGT } from "gt-react-native";
 import { useState, useSyncExternalStore, cloneElement, type ReactElement } from "react";
 import {
   Modal,
@@ -32,6 +33,7 @@ export function MediaActionsMenu(props: {
     () => false,
   );
   const [open, setOpen] = useState(false);
+  const gt = useGT();
   if (props.media.actions.length === 0) return props.children ?? null;
   // Android's normal anchored menu lives in the app-root portal, behind native modals.
   const nativeAndroidMenu = props.inModal && Platform.OS === "android";
@@ -43,7 +45,7 @@ export function MediaActionsMenu(props: {
           onActivate={() => setOpen(true)}
           onPress={() => setOpen(true)}
           accessibilityRole="button"
-          accessibilityLabel="Media actions"
+          accessibilityLabel={gt("Media actions")}
           style={props.style}
         >
           {props.children ? (
@@ -72,7 +74,7 @@ export function MediaActionsMenu(props: {
                   className="max-h-[80%] overflow-hidden rounded-3xl bg-sheet-solid p-4"
                 >
                   <AppText className="mb-3 text-lg font-t3-semibold">
-                    {props.media.title ?? "Media actions"}
+                    {props.media.title ?? gt("Media actions")}
                   </AppText>
                   <ScreenScrollView>
                     {props.media.actions.map((action) => (
@@ -115,7 +117,7 @@ export function MediaActionsMenu(props: {
         <View
           accessible
           accessibilityRole="button"
-          accessibilityLabel="Media actions"
+          accessibilityLabel={gt("Media actions")}
           className="min-h-11 min-w-11 items-center justify-center rounded-md bg-black/60"
         >
           <SymbolView name="ellipsis" size={20} tintColor="#ffffff" type="monochrome" />

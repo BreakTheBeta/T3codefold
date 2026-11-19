@@ -1,3 +1,6 @@
+import type { StaticScreenProps } from "@react-navigation/native";
+import { IssueCommentComposer } from "../issues/IssueCommentComposer";
+import { useControllerRegionId, useControllerSurfaceId } from "../controller/ControllerRegion";
 import { NativeAppBarExample } from "./NativeAppBarExample";
 import { Toast } from "../../components/ui/Toast";
 import { Progress } from "../../components/ui/Progress";
@@ -34,7 +37,11 @@ const CHOICES = [
   { value: "activity", label: "Activity" },
 ];
 
-export function ComponentCatalogScreen() {
+export function ComponentCatalogScreen({
+  route,
+}: StaticScreenProps<{ fixture?: string } | undefined>) {
+  const controllerSurfaceId = useControllerSurfaceId("controller-issue-fixture");
+  const readingRegionId = useControllerRegionId("conversation", "controller-issue-fixture");
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const appearance = useAppearancePreferences();
@@ -57,6 +64,29 @@ export function ComponentCatalogScreen() {
       onConfirm: () => setText(""),
     });
   };
+  if (route.params?.fixture === "issue-comment")
+    return (
+      <View className="flex-1 bg-screen" collapsable={false} nativeID={controllerSurfaceId}>
+        <AppBar title="Issue comment controller fixture" onBack={() => navigation.goBack()} />
+        <ScreenScrollView
+          nativeID={readingRegionId}
+          className="flex-1"
+          contentContainerClassName="p-4"
+        >
+          <AppText>Isolated comment composer. Posting is disabled in this fixture.</AppText>
+        </ScreenScrollView>
+        <IssueCommentComposer
+          ownerKey="controller-issue-fixture"
+          label="Controller fixture"
+          blocked={null}
+          posting={false}
+          bottomInset={insets.bottom}
+          onSubmit={async () => false}
+          onHeightChange={() => {}}
+          onFocusChange={() => {}}
+        />
+      </View>
+    );
   return (
     <View className="flex-1 bg-screen">
       <AppBar title="UI components" onBack={() => navigation.goBack()} />

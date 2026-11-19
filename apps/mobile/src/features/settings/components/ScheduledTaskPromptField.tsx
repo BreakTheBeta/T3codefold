@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { TextInput, View, type TextInputInstance } from "react-native";
+import { T, useGT, useMessages } from "gt-react-native";
 
 import { AppText as Text } from "../../../components/ui/AppText";
 import type { ComposerEditorSelection } from "../../../components/ComposerEditor";
@@ -23,21 +24,25 @@ export function ScheduledTaskPromptField(props: {
   readonly disabled: boolean;
   readonly voiceInput: ReturnType<typeof useVoiceInputController>;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const voice = props.voiceInput;
   const inputRef = useRef<TextInputInstance>(null);
-  const presentation = resolveVoiceComposerPresentation(voice.state, voice.elapsedSeconds);
+  const presentation = resolveVoiceComposerPresentation(voice.state, voice.elapsedSeconds, m);
   const showsDictation = presentation.statusKind === "active";
   const showsIdleTrigger = voice.isAvailable && !showsDictation;
 
   return (
     <View className="gap-2 border-t border-border-subtle px-4 py-3">
-      <Text className="text-sm text-foreground-muted">Prompt</Text>
+      <Text className="text-sm text-foreground-muted">
+        <T>Prompt</T>
+      </Text>
       <View className="flex-row items-end">
         <ControllerPressable
           touchPassthrough
           reply
           style={{ flex: 1, minWidth: 0 }}
-          accessibilityLabel="Prompt. X or Square dictates"
+          accessibilityLabel={gt("Prompt. X or Square dictates")}
           disabled={props.disabled}
           onActivate={() => inputRef.current?.focus()}
           onDictate={() => {
@@ -48,7 +53,7 @@ export function ScheduledTaskPromptField(props: {
         >
           <TextInput
             ref={inputRef}
-            accessibilityLabel="Prompt"
+            accessibilityLabel={gt("Prompt")}
             value={props.value}
             onChangeText={props.onChange}
             selection={props.selection}
@@ -57,7 +62,7 @@ export function ScheduledTaskPromptField(props: {
             multiline
             scrollEnabled
             textAlignVertical="top"
-            placeholder="What should the agent do each time?"
+            placeholder={gt("What should the agent do each time?")}
             placeholderTextColorClassName="accent-foreground-muted"
             className="max-h-40 min-h-24 min-w-0 flex-1 font-sans text-base text-foreground"
           />

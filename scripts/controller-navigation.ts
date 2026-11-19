@@ -164,6 +164,21 @@ function htmlReport(report: ReturnType<typeof buildControllerGraph>, source: obj
   return `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:var(--font-sans);color:var(--foreground)}p{line-height:1.5}.stats{display:flex;gap:8px;flex-wrap:wrap}.stat{padding:14px;background:var(--card);border-radius:var(--radius);flex:1;min-width:110px}.stat b{display:block;font-size:24px}pre{font:12px/1.6 var(--font-mono);overflow:auto;background:var(--code-background);padding:16px;border-radius:var(--radius)}select{font:inherit;color:var(--foreground);background:var(--secondary);border:1px solid var(--border);padding:8px;border-radius:8px;max-width:100%;margin:8px 0}details{margin:12px 0}table{border-collapse:collapse;width:100%;font-size:12px}td,th{padding:8px;text-align:left;border-bottom:1px solid var(--border)}.passed{color:var(--success)}.failed{color:var(--destructive)}.blocked{color:var(--warning)}svg{width:100%;height:420px}.node{fill:var(--card);stroke:var(--border)}text{fill:var(--foreground);font:11px var(--font-sans)}.unknown{color:var(--muted-foreground)}button{font:inherit}</style></head><body><p><b>Verification is incomplete.</b> Observed native-probe transitions are software evidence. Page visits, model tests, voice UI and physical GameSir acceptance are different claims.</p><div class="stats"><div class="stat"><b>${report.coverage.routeLayouts.visited}/${report.coverage.routeLayouts.expected}</b>route/layout visits</div><div class="stat"><b>${report.cases.filter((c) => c.status === "passed").length}/${report.cases.length}</b>journeys passed</div><div class="stat"><b>${report.coverage.primaryButtons.exercised}/${report.coverage.primaryButtons.expected}</b>primary buttons asserted</div><div class="stat"><b>${report.back.confirmedFailedExits}</b>failed Back assertions</div></div><details open><summary>First-principles transition contract</summary><pre>${escape(expected)}</pre><p>Global invariants: one input owner; restore the invoking scope; no activation on recovery; scrolling stays local; layout changes preserve the destination. Voice-ui means recording controls appeared, not verified audio transcription.</p></details><p>Inspect an observed page graph. Unvisited pages stay unknown.</p><select id="page" onchange="draw()"></select><select id="layout" onchange="draw()"><option>compact</option><option>split</option></select><div id="graph"></div><details open><summary>Journey outcomes and button budgets</summary><table><thead><tr><th>Journey</th><th>Outcome</th><th>Presses / budget</th><th>Failures</th></tr></thead><tbody>${report.cases.map((c) => `<tr><td>${escape(c.id)}</td><td class="${c.status}">${c.status}</td><td>${c.presses} / ${c.maxPresses}</td><td>${escape(c.errors.join("; "))}${c.failedExpectations ? ` ${c.failedExpectations} unmet expectations` : ""}</td></tr>`).join("")}</tbody></table></details><details><summary>${report.coverage.routeLayouts.untested.length} untested route/layouts</summary><pre>${escape(report.coverage.routeLayouts.untested.map((r) => `${r.page} / ${r.layout}`).join("\n"))}</pre></details><details><summary>Evidence limits and source</summary><pre>${escape(JSON.stringify(source, null, 2))}</pre><p>Discovered controls are only the mounted controls seen in this run; discovery/selection is not activation. Missing Back edges are unknown, not proven traps. Generic UI modes, OS permission screens and physical notifications still need fixtures. Input timing includes the inspector/harness.</p></details><script>const report=${data};const pages=[...new Set([...report.nodes.map(n=>n.state.page),...report.coverage.routeLayouts.entries.map(r=>r.page)])];document.getElementById('page').innerHTML=pages.map(p=>'<option>'+p+'</option>').join('');function draw(){const page=document.getElementById('page').value,layout=document.getElementById('layout').value;const ns=report.nodes.filter(n=>n.state.page===page&&n.state.layout===layout);if(!ns.length){document.getElementById('graph').innerHTML='<p class="unknown">UNTESTED: no native graph evidence for this page/layout.</p>';return;}const shown=ns.slice(0,24);const positions=new Map(shown.map((n,i)=>[n.id,{x:10+(i%3)*230,y:20+Math.floor(i/3)*100}]));const esc=s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;');let lines='';for(const e of report.edges){const a=positions.get(e.from),b=positions.get(e.to);if(!a||!b)continue;lines+='<path d="M '+(a.x+100)+' '+(a.y+55)+' Q '+(b.x+90)+' '+(a.y+70)+' '+(b.x+100)+' '+b.y+'" fill="none" stroke="'+(e.pass?'var(--chart-1)':'var(--destructive)')+'" opacity=".55" marker-end="url(#arrow)"/><text x="'+(b.x+10)+'" y="'+(b.y-3)+'">'+esc(e.input)+'</text>';}for(const n of shown){const p=positions.get(n.id);lines+='<rect class="node" x="'+p.x+'" y="'+p.y+'" width="210" height="58" rx="8"/><text x="'+(p.x+10)+'" y="'+(p.y+18)+'">'+esc(n.state.scope+' / '+n.state.mode)+'</text><text x="'+(p.x+10)+'" y="'+(p.y+36)+'">'+esc((n.state.pane||'none')+' / '+(n.state.region||'none').split(':')[0])+'</text><text x="'+(p.x+10)+'" y="'+(p.y+50)+'">'+esc(n.state.target?n.state.target.split(':')[0]:'region selected')+'</text>';}document.getElementById('graph').innerHTML='<svg viewBox="0 0 710 '+(Math.ceil(shown.length/3)*100+40)+'"><defs><marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6" fill="var(--chart-1)"/></marker></defs>'+lines+'</svg>'+(ns.length>24?'<p>First 24 states shown; full graph is in JSON/DOT.</p>':'');}draw();</script></body></html>`;
 }
 
+export function controllerTrackedDiff(directory: string) {
+  return NodeChildProcess.execFileSync(
+    "git",
+    [
+      "diff",
+      "HEAD",
+      "--",
+      "apps/mobile",
+      "scripts/controller-navigation.ts",
+      "scripts/mobile-behavior",
+    ],
+    { cwd: directory, encoding: "utf8", maxBuffer: 128 * 1024 * 1024 },
+  );
+}
+
 export async function controllerAudit(args: string[]) {
   const mode = args.shift() ?? "inventory";
   const option = (name: string, fallback = "") => {
@@ -214,18 +229,7 @@ export async function controllerAudit(args: string[]) {
     cwd: root,
     encoding: "utf8",
   }).trim();
-  const tracked = NodeChildProcess.execFileSync(
-    "git",
-    [
-      "diff",
-      "HEAD",
-      "--",
-      "apps/mobile",
-      "scripts/controller-navigation.ts",
-      "scripts/mobile-behavior",
-    ],
-    { cwd: root, encoding: "utf8" },
-  );
+  const tracked = controllerTrackedDiff(root);
   const untrackedPaths = NodeChildProcess.execFileSync(
     "git",
     [

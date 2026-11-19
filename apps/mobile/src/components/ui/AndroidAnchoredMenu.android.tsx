@@ -1,3 +1,4 @@
+import { useGT } from "gt-react-native";
 import { isAppSymbolName, SymbolView } from "./AppSymbol.android";
 import { dismissAndroidKeyboard } from "../../lib/android-back";
 import type { MenuAction, MenuComponentProps } from "@react-native-menu/menu";
@@ -50,6 +51,7 @@ export type AndroidAnchoredMenuProps = {
 };
 
 export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
+  const gt = useGT();
   const menuScroll = useRef<ScrollViewInstance>(null);
   const regionId = useControllerRegionId("content");
   const headerRegionId = useControllerRegionId("header");
@@ -234,7 +236,9 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
                       <View nativeID={headerRegionId} collapsable={false}>
                         <ControllerPressable
                           accessibilityRole="button"
-                          accessibilityLabel={`Back to ${props.title ?? "menu"}`}
+                          accessibilityLabel={gt("Back to {title}", {
+                            title: props.title ?? gt("Menu"),
+                          })}
                           onActivate={back}
                           onPress={back}
                           style={{
@@ -252,6 +256,7 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
                     {levelActions.map((action, index) => (
                       <ControllerPressable
                         key={menuActionKey(action, index)}
+                        controllerKey={menuActionKey(action, index)}
                         choice
                         onLayout={(event) => {
                           if (

@@ -27,6 +27,7 @@ import {
   type CustomSnoozeInput,
 } from "@t3tools/client-runtime/state/thread-settled";
 import { requireNativeModule } from "expo";
+import { msg, T, useGT, useMessages } from "gt-react-native";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppState, Modal, ScrollView, View, useWindowDimensions } from "react-native";
 import { AppText } from "../../components/ui/AppText";
@@ -52,13 +53,13 @@ type Props = {
 const roundedCorner = Shape.RoundedCorner;
 
 const modes = [
-  { value: "date", label: "Date and time" },
-  { value: "duration", label: "Duration" },
+  { value: "date", label: msg("Date and time") },
+  { value: "duration", label: msg("Duration") },
 ] as const;
 const units = [
-  { value: "minutes", label: "Minutes" },
-  { value: "hours", label: "Hours" },
-  { value: "days", label: "Days" },
+  { value: "minutes", label: msg("Minutes") },
+  { value: "hours", label: msg("Hours") },
+  { value: "days", label: msg("Days") },
 ] as const;
 
 function systemUses24HourClock() {
@@ -66,6 +67,8 @@ function systemUses24HourClock() {
 }
 
 export function CustomSnoozeSheet(props: Props) {
+  const gt = useGT();
+  const m = useMessages();
   const { themeAppearance, themeVariables: colors } = useAppearancePreferences();
   const [is24Hour, setIs24Hour] = useState(systemUses24HourClock);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to AppState to re-read the native 24-hour clock setting when the app resumes
@@ -97,7 +100,9 @@ export function CustomSnoozeSheet(props: Props) {
     const snoozedUntil = resolveCustomSnooze(input, new Date());
     if (!snoozedUntil) {
       setError(
-        mode === "date" ? "Choose a date and time in the future." : "Enter a positive duration.",
+        mode === "date"
+          ? gt("Choose a date and time in the future.")
+          : gt("Enter a positive duration."),
       );
       return;
     }
@@ -122,14 +127,16 @@ export function CustomSnoozeSheet(props: Props) {
                   accessibilityRole="header"
                   className="text-xl font-t3-bold text-foreground"
                 >
-                  Custom snooze
+                  <T>Custom snooze</T>
                 </AppText>
                 <AppText className="text-sm text-foreground-muted">
-                  Up/down selects a field. Left/right adjusts. A increases or confirms. B cancels.
+                  <T>
+                    Up/down selects a field. Left/right adjusts. A increases or confirms. B cancels.
+                  </T>
                 </AppText>
                 <SnoozeControllerField
-                  label="Mode"
-                  value={mode === "date" ? "Date and time" : "Duration"}
+                  label={gt("Mode")}
+                  value={mode === "date" ? gt("Date and time") : gt("Duration")}
                   initial
                   onAdjust={() => {
                     setMode((current) => (current === "date" ? "duration" : "date"));
@@ -139,17 +146,17 @@ export function CustomSnoozeSheet(props: Props) {
                 {mode === "date" ? (
                   <>
                     <SnoozeControllerField
-                      label="Day"
+                      label={gt("Day")}
                       value={localSnoozeDate(date)}
                       onAdjust={(direction) => adjustDate("day", direction)}
                     />
                     <SnoozeControllerField
-                      label="Hour"
+                      label={gt("Hour")}
                       value={String(date.getHours()).padStart(2, "0")}
                       onAdjust={(direction) => adjustDate("hour", direction)}
                     />
                     <SnoozeControllerField
-                      label="Minute"
+                      label={gt("Minute")}
                       value={String(date.getMinutes()).padStart(2, "0")}
                       onAdjust={(direction) => adjustDate("minute", direction)}
                     />
@@ -157,7 +164,7 @@ export function CustomSnoozeSheet(props: Props) {
                 ) : (
                   <>
                     <SnoozeControllerField
-                      label="Duration"
+                      label={gt("Duration")}
                       value={String(amount)}
                       onAdjust={(direction) => {
                         setAmount((current) => Math.max(1, Math.min(99, current + direction)));
@@ -165,8 +172,8 @@ export function CustomSnoozeSheet(props: Props) {
                       }}
                     />
                     <SnoozeControllerField
-                      label="Unit"
-                      value={units.find((entry) => entry.value === unit)?.label ?? unit}
+                      label={gt("Unit")}
+                      value={m(units.find((entry) => entry.value === unit)!.label)}
                       onAdjust={(direction) => {
                         setUnit((current) => {
                           const index = units.findIndex((entry) => entry.value === current);
@@ -186,22 +193,26 @@ export function CustomSnoozeSheet(props: Props) {
                   controllerKey="confirm-snooze"
                   footer
                   accessibilityRole="button"
-                  accessibilityLabel="Confirm snooze"
+                  accessibilityLabel={gt("Confirm snooze")}
                   onActivate={submit}
                   onPress={submit}
                   className="min-h-12 items-center justify-center rounded-xl bg-primary px-4 py-3"
                 >
-                  <AppText className="font-t3-bold text-primary-foreground">Confirm snooze</AppText>
+                  <AppText className="font-t3-bold text-primary-foreground">
+                    <T>Confirm snooze</T>
+                  </AppText>
                 </ControllerPressable>
                 <ControllerPressable
                   controllerKey="cancel-snooze"
                   accessibilityRole="button"
-                  accessibilityLabel="Cancel snooze"
+                  accessibilityLabel={gt("Cancel snooze")}
                   onActivate={props.onClose}
                   onPress={props.onClose}
                   className="min-h-12 items-center justify-center rounded-xl bg-secondary px-4 py-3"
                 >
-                  <AppText className="font-t3-bold text-foreground">Cancel</AppText>
+                  <AppText className="font-t3-bold text-foreground">
+                    <T>Cancel</T>
+                  </AppText>
                 </ControllerPressable>
               </ScrollView>
             </View>
@@ -260,11 +271,11 @@ export function CustomSnoozeSheet(props: Props) {
                 verticalArrangement={{ spacedBy: 16 }}
                 modifiers={[fillMaxWidth(), padding(24, 24, 24, 16)]}
               >
-                <Text style={titleTypography}>Custom snooze</Text>
+                <Text style={titleTypography}>{gt("Custom snooze")}</Text>
                 <RNHostView matchContents={{ vertical: true }} modifiers={[fillMaxWidth()]}>
                   <SegmentedControl
                     variant="card"
-                    options={modes}
+                    options={modes.map((option) => ({ ...option, label: m(option.label) }))}
                     selected={mode}
                     onSelect={(value) => {
                       setMode(value);
@@ -353,7 +364,7 @@ export function CustomSnoozeSheet(props: Props) {
                   <RNHostView matchContents={{ vertical: true }} modifiers={[fillMaxWidth()]}>
                     <SegmentedControl
                       variant="card"
-                      options={units}
+                      options={units.map((option) => ({ ...option, label: m(option.label) }))}
                       selected={unit}
                       onSelect={setUnit}
                     />
@@ -374,13 +385,15 @@ export function CustomSnoozeSheet(props: Props) {
                     onClick={props.onClose}
                     colors={{ contentColor: colors["--color-foreground"] }}
                   >
-                    <Text style={bodyTypography}>Cancel</Text>
+                    <Text style={bodyTypography}>{gt("Cancel")}</Text>
                   </TextButton>
                   <TextButton
                     onClick={submit}
                     colors={{ contentColor: colors["--color-foreground"] }}
                   >
-                    <Text style={bodyTypography}>Snooze</Text>
+                    <Text style={bodyTypography}>
+                      {gt("Snooze", { $context: "verb, confirm button" })}
+                    </Text>
                   </TextButton>
                 </Row>
               </Column>

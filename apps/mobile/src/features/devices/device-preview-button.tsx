@@ -1,5 +1,6 @@
 import { ControllerPressable } from "../controller/ControllerPressable";
 import { View } from "react-native";
+import { Plural, T, useGT, Var } from "gt-react-native";
 
 import { AppText } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
@@ -10,11 +11,14 @@ export function DevicePreviewButton(props: {
   readonly compact?: boolean;
 }) {
   const compact = props.compact ?? true;
+  const gt = useGT();
   return (
     <ControllerPressable
       accessibilityRole="button"
-      accessibilityLabel={props.count === 1 ? "View device" : `View ${props.count} devices`}
-      accessibilityHint="Watch and control devices open in this thread"
+      accessibilityLabel={gt("{count, plural, =1 {View device} other {View {count} devices}}", {
+        count: props.count,
+      })}
+      accessibilityHint={gt("Watch and control devices open in this thread")}
       onActivate={props.onPress}
       onPress={props.onPress}
       className={
@@ -31,7 +35,17 @@ export function DevicePreviewButton(props: {
       />
       {!compact ? (
         <AppText className="font-t3-medium text-xs text-foreground">
-          {props.count === 1 ? "One device open" : `${props.count} devices open`}
+          <T>
+            <Plural
+              n={props.count}
+              singular="One device open"
+              other={
+                <>
+                  <Var>{props.count}</Var> devices open
+                </>
+              }
+            />
+          </T>
         </AppText>
       ) : props.count > 1 ? (
         <View className="absolute right-1.5 top-1.5 min-w-4 items-center rounded-full bg-primary px-1">

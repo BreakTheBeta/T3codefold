@@ -89,6 +89,7 @@ export interface ControllerExpectation {
   pane?: string;
   targetKind?: string;
   targetSelected?: boolean;
+  targetKey?: string;
   keyboard?: boolean;
   ready?: boolean;
   path?: string;
@@ -123,6 +124,8 @@ export function controllerFailures(
     if (expected[key] !== undefined && facts[key] !== expected[key])
       failures.push(`${key}: wanted ${String(expected[key])}, observed ${String(facts[key])}`);
   }
+  if (expected.targetKey !== undefined && !facts.target?.endsWith(`:${expected.targetKey}`))
+    failures.push("Selected control does not match the expected semantic key.");
   if (expected.path !== undefined && facts.path !== expected.path)
     failures.push("Owning route scope has not reached the requested page.");
   if (expected.changed === "selection" && facts.target === prior.target)
