@@ -1,3 +1,4 @@
+import { useAtomCommand } from "../../state/use-atom-command";
 import { WindowHingeContext } from "../../native/window-hinge-context";
 import { useGT } from "gt-react-native";
 import {
@@ -17,7 +18,7 @@ import {
 import { threadSelectionDeferral } from "./deferred-navigation";
 import { uuidv4 } from "../../lib/uuid";
 import { EnvironmentId, ThreadId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { NavigationContext, NavigationRouteContext, useNavigation } from "@react-navigation/native";
 import {
   use,
@@ -48,7 +49,7 @@ import {
 import { shouldRestorePrimarySidebar } from "../../lib/fold-workspace-navigation";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import type { Preferences } from "../../persistence/mobile-preferences";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { useProjects } from "../../state/entities";
 import { withKnownPullRequestSummary } from "../../state/use-thread-pr";
@@ -266,7 +267,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const workspacePage =
     Platform.OS === "android" && (androidSettingsOpen || workspace?.state.selectedTab === "usage");
   const navigation = useNavigation();
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
   const {
     layout,
     width,
@@ -294,7 +295,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
   const setPrimarySidebarPreferredVisible = useCallback(
     (visible: boolean) => {
       setPrimarySidebarPreferredVisibleState(visible);
-      savePreferences({ workspaceSidebarVisible: visible });
+      void savePreferences({ workspaceSidebarVisible: visible });
     },
     [savePreferences],
   );
@@ -351,7 +352,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
   useEffect(() => {
     const previousWidth = props.initialPreferences.workspaceInspectorWidth;
     if (!layout.usesSplitView || previousWidth === undefined) return;
-    savePreferences({
+    void savePreferences({
       transform: (current) => ({
         workspaceInspectorWidth: undefined,
         workspaceInspectorRatios: {
@@ -645,7 +646,7 @@ function AdaptiveWorkspaceLayoutContent(props: {
         case "resize":
           setInspectorMaximized(false);
           const ratio = release.width / Math.max(1, width);
-          savePreferences({
+          void savePreferences({
             transform: (current) => ({
               workspaceInspectorRatios: {
                 ...current.workspaceInspectorRatios,

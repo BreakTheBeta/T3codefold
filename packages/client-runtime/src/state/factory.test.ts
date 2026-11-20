@@ -148,7 +148,7 @@ it.effect("routes Factory switches and live boards independently for two connect
       yield* waitFor(boardB, false);
       expect(boardA).not.toBe(boardB);
       expect(
-        (yield* Effect.promise(() =>
+        (yield* Effect.exit(
           server.factorySetEnabled.run(registry, {
             environmentId: b,
             input: { enabled: true },
@@ -159,7 +159,7 @@ it.effect("routes Factory switches and live boards independently for two connect
       expect(getServer(a).writes).toEqual([]);
       expect((yield* SubscriptionRef.get(getServer(a).board)).status.enabled).toBe(true);
       expect(
-        (yield* Effect.promise(() =>
+        (yield* Effect.exit(
           server.factorySetEnabled.run(registry, {
             environmentId: a,
             input: { enabled: false },
@@ -174,7 +174,7 @@ it.effect("routes Factory switches and live boards independently for two connect
       expect(registry.get(server.factorySetEnabled.permissionAtom(a))).toBe(false);
       expect(registry.get(server.factorySetEnabled.permissionAtom(b))).toBe(true);
       expect(
-        (yield* Effect.promise(() =>
+        (yield* Effect.exit(
           server.factorySetEnabled.run(registry, {
             environmentId: a,
             input: { enabled: true },

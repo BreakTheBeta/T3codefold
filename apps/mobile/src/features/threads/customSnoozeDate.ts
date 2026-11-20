@@ -22,3 +22,15 @@ export function adjustSnoozeDate(date: Date, field: "day" | "hour" | "minute", d
   else next.setTime(next.getTime() + direction * (field === "hour" ? 3_600_000 : 60_000));
   return next;
 }
+
+/** Format the segment labels without changing the device's hour-cycle setting. */
+export function snoozePickerLabels(date: Date, locale: string, is24Hour: boolean) {
+  return {
+    date: date.toLocaleDateString(locale, { month: "short", day: "numeric" }),
+    time: date.toLocaleTimeString(locale, {
+      hour: "numeric",
+      minute: "2-digit",
+      hourCycle: is24Hour ? "h23" : "h12",
+    }),
+  };
+}

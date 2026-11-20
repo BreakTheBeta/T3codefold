@@ -231,6 +231,7 @@ export const make = Effect.gen(function* () {
       pullRequestChecks: true,
       issues: true,
       linkedThreadRefreshes: true,
+      issueLinkedThreads: true,
       sideChats: true,
       vcsBranchStatus: true,
       inlineMessageContext: true,
@@ -273,6 +274,7 @@ export const make = Effect.gen(function* () {
       serverResolvedCommandContext: true,
       threadStop: true,
       ...(hostPlatform === "win32" ? {} : { localServerStop: true }),
+      previewTunnelSetting: true,
       environmentIcon: true,
       projectCloneTracking: true,
       // Fold: clients only self-update hosts whose updater installs Fold releases.

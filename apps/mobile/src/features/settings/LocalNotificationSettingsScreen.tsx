@@ -1,4 +1,6 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useGT } from "gt-react-native";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { useAtomValue } from "@effect/atom-react";
 import {
   reportAtomCommandResult,
   settleAsyncResult,
@@ -12,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { runtime } from "../../lib/runtime";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { requestAgentNotificationPermission } from "../agent-awareness/notificationPermissions";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -23,9 +25,10 @@ import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
  * delivered as local notifications while the app stays connected in the background.
  */
 export function LocalNotificationSettingsScreen() {
+  const gt = useGT();
   const insets = useSafeAreaInsets();
   return (
-    <SettingsScreen title="Notifications">
+    <SettingsScreen title={gt("Notifications")}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -40,8 +43,9 @@ export function LocalNotificationSettingsScreen() {
 }
 
 function LocalNotificationSettingsSection() {
+  const gt = useGT();
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
   const [granted, setGranted] = useState(false);
   const [busy, setBusy] = useState(true);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads native notification permission on mount and on every foreground
@@ -60,7 +64,7 @@ function LocalNotificationSettingsSection() {
   }, []);
   const changeEnabled = async (enabled: boolean) => {
     if (!enabled) {
-      savePreferences({ notificationsEnabled: false });
+      void savePreferences({ notificationsEnabled: false });
       return;
     }
     setBusy(true);
@@ -74,20 +78,24 @@ function LocalNotificationSettingsSection() {
     }
     const allowed = result.value.type === "granted";
     setGranted(allowed);
-    if (allowed) savePreferences({ notificationsEnabled: true });
+    if (allowed) void savePreferences({ notificationsEnabled: true });
     else if (result.value.type === "denied" && !result.value.canAskAgain) {
-      Alert.alert("Notifications disabled", "Open system Settings to enable notifications.", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Open Settings", onPress: () => void Linking.openSettings() },
-      ]);
+      Alert.alert(
+        gt("Notifications disabled"),
+        gt("Open system Settings to enable notifications."),
+        [
+          { text: gt("Cancel"), style: "cancel" },
+          { text: gt("Open Settings"), onPress: () => void Linking.openSettings() },
+        ],
+      );
     }
   };
   return (
-    <SettingsSection title="Agent activity">
+    <SettingsSection title={gt("Agent activity")}>
       <SettingsSwitchRow
         icon="bell.badge"
-        label="Device Notifications"
-        subtitle="While connected in the background"
+        label={gt("Device Notifications")}
+        subtitle={gt("While connected in the background")}
         disabled={busy || !AsyncResult.isSuccess(preferences)}
         value={
           granted &&

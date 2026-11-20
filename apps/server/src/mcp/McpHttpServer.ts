@@ -2,9 +2,12 @@ import { FactoryToolkit } from "./toolkits/factory/tools.ts";
 import * as FactoryHandlers from "./toolkits/factory/handlers.ts";
 import { FoldThreadStartToolkit } from "./toolkits/foldThreadStart/tools.ts";
 import * as FoldThreadStartHandlers from "./toolkits/foldThreadStart/handlers.ts";
+import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -37,6 +40,8 @@ import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as PullRequestWatchService from "../pullRequest/PullRequestWatchService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
@@ -281,6 +286,24 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     Effect.map((settings) => settings.linkedEnvironmentsEnabled),
     Effect.orElseSucceed(() => false),
   );
+  const pullRequests = yield* Effect.serviceOption(PullRequestService.PullRequestService);
+  const projections = yield* Effect.serviceOption(ProjectionStore.ProjectionStoreV2);
+  // Every request reads it, and a remote added mid-thread shows the tools within a minute.
+  const forgeOfThread = yield* Cache.make({
+    capacity: 1_000,
+    timeToLive: Duration.minutes(1),
+    lookup: (threadId: ThreadId): Effect.Effect<boolean | undefined> =>
+      Option.isNone(pullRequests) || Option.isNone(projections)
+        ? Effect.undefined
+        : projections.value.getThreadShell(threadId).pipe(
+            Effect.flatMap((thread) =>
+              thread === null
+                ? Effect.undefined
+                : pullRequests.value.servesProject(thread.projectId),
+            ),
+            Effect.orElseSucceed(() => undefined),
+          ),
+  });
   const authenticateRequest = Effect.fn("McpHttpServer.authenticateRequest")(function* (
     request: HttpServerRequest.HttpServerRequest,
   ) {
@@ -314,7 +337,11 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     const linkedEnvironments = yield* linksEnabled;
     if (limited.client?.linked === true && !linkedEnvironments) return linkedEnvironmentsOff;
     const origin = Option.getOrUndefined(Option.map(requestUrl(request), (url) => url.origin));
-    return { ...limited, linkedEnvironments, origin };
+    const forge =
+      limited.thread === undefined
+        ? undefined
+        : yield* Cache.get(forgeOfThread, limited.thread.threadId);
+    return { ...limited, linkedEnvironments, origin, ...(forge === undefined ? {} : { forge }) };
   });
   // Untraced: a span here would wrap the tool call; the HTTP server span already covers it.
   return Effect.fnUntraced(function* (httpEffect) {
@@ -324,9 +351,19 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     const admitted = yield* authenticateRequest(request);
     if (HttpServerResponse.isHttpServerResponse(admitted)) return admitted;
     if (yield* isUndefinedNotification(request)) return HttpServerResponse.empty({ status: 202 });
+    const linkExpiresAt = admitted.client?.linkExpiresAt;
     return yield* httpEffect.pipe(
       Effect.provideService(McpInvocationContext.McpInvocationContext, admitted),
       Effect.map(normalizeMcpHttpResponse),
+      Effect.map((response) =>
+        linkExpiresAt === undefined
+          ? response
+          : HttpServerResponse.setHeader(
+              response,
+              McpInvocationContext.LINK_EXPIRES_AT_HEADER,
+              DateTime.formatIso(linkExpiresAt),
+            ),
+      ),
     );
   }) satisfies McpAuthMiddleware;
 }).pipe(Effect.withSpan("McpHttpServer.makeAuthMiddleware"));

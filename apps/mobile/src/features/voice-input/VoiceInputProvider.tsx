@@ -1,4 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { AudioModule, RecordingPresets, type RecordingStatus } from "expo-audio";
 import { File } from "expo-file-system";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -16,7 +17,7 @@ import {
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { getLocalDictationBackend } from "../../native/localDictation";
 import { createVoiceRecorder } from "../../native/voiceRecorder";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
   voiceInputBlocksSubmission,
@@ -81,9 +82,8 @@ const liveCallActiveAtom = Atom.make(false).pipe(Atom.keepAlive);
 
 const voiceInputAtom = Atom.make((get) => {
   const registry = get.registry;
-  // Mounted so the recorder can read and remember microphones synchronously.
+  // Mounted so the recorder can read known microphones synchronously.
   get.mount(mobilePreferencesAtom);
-  get.mount(updateMobilePreferencesAtom);
   const audioLevels = makeMutable<ReadonlyArray<number>>(
     Array<number>(VOICE_WAVEFORM_SAMPLE_COUNT).fill(0),
   );
@@ -114,7 +114,7 @@ const voiceInputAtom = Atom.make((get) => {
       const known = deviceMicrophoneOrder(preferences.value.microphones);
       const order = rememberMicrophones(known, inputs);
       if (order !== known) {
-        registry.set(updateMobilePreferencesAtom, {
+        void runAtomCommand(registry, saveMobilePreferences, {
           transform: (current) => ({
             microphones: rememberMicrophones(deviceMicrophoneOrder(current.microphones), inputs),
           }),

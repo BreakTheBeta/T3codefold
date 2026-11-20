@@ -13,9 +13,11 @@ const reactTests = [
   "src/features/settings/EnvironmentRoutesSection.test.tsx",
   "src/features/threads/useQuestionDraftText.test.tsx",
   "src/features/layout/fold-workspace-geometry.test.tsx",
+  "src/features/threads/ThreadGuestShareSheet.test.tsx",
   "src/features/threads/useSubmitAfterNativeImages.test.tsx",
   "src/features/threads/git/GitBranchesSheet.test.tsx",
   "src/features/threads/new-task-flow-provider.test.tsx",
+  "src/features/threads/NewTaskRouteScreen.test.tsx",
   "src/features/layout/workspace/workspace-tabs-state.test.ts",
   "src/state/use-thread-pr.demand.test.tsx",
   "src/features/threads/git/GitBranchesSheet.occupancy.test.tsx",
@@ -124,6 +126,7 @@ export default defineConfig({
           setupFiles: [
             "../../packages/shared/src/testing/longTempDir.ts",
             "../../packages/shared/src/testing/providerEnv.ts",
+            "../../packages/shared/src/testing/gitEnv.ts",
           ],
         },
       },
@@ -175,7 +178,10 @@ export default defineConfig({
           include,
           // Native components mock React Native and render through react-dom in these tests.
           environment: "jsdom",
-          setupFiles: ["../../packages/shared/src/testing/providerEnv.ts"],
+          setupFiles: [
+            "../../packages/shared/src/testing/providerEnv.ts",
+            "../../packages/shared/src/testing/gitEnv.ts",
+          ],
         },
       })),
     ],
