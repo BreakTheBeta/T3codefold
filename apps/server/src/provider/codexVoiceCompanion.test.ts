@@ -50,6 +50,15 @@ it.effect(
             incoming({ id: 2, result: { account: { type: "chatgpt" } } }),
             out({
               id: 3,
+              method: "config/read",
+              params: { cwd: "/workspace", includeLayers: false },
+            }),
+            incoming({
+              id: 3,
+              result: { config: { mcp_servers: { "outside-host": { command: "acme" } } } },
+            }),
+            out({
+              id: 4,
               method: "thread/start",
               params: {
                 cwd: "/workspace",
@@ -58,12 +67,24 @@ it.effect(
                 sandbox: "read-only",
                 developerInstructions: instructions,
                 dynamicTools: [{ type: "function", ...spec }],
-                config: { "features.shell_tool": false, "features.apply_patch_freeform": false },
+                config: {
+                  "features.shell_tool": false,
+                  "features.apply_patch_freeform": false,
+                  "features.apps": false,
+                  "features.connectors": false,
+                  "features.plugins": false,
+                  "features.hooks": false,
+                  "features.multi_agent": false,
+                  "features.multi_agent_v2": false,
+                  web_search: "disabled",
+                  project_doc_max_bytes: 0,
+                  mcp_servers: { "outside-host": { enabled: false } },
+                },
               },
             }),
-            incoming({ id: 3, result: { thread: { id: "voice-native" } } }),
+            incoming({ id: 4, result: { thread: { id: "voice-native" } } }),
             out({
-              id: 4,
+              id: 5,
               method: "thread/realtime/start",
               params: {
                 threadId: "voice-native",
@@ -74,7 +95,7 @@ it.effect(
                 initialItems: [{ role: "developer", text: instructions }],
               },
             }),
-            incoming({ id: 4, result: {} }),
+            incoming({ id: 5, result: {} }),
             incoming({
               method: "thread/realtime/sdp",
               params: { threadId: "voice-native", sdp: "answer" },
@@ -97,8 +118,8 @@ it.effect(
                 contentItems: [{ type: "inputText", text: "thread-result" }],
               },
             }),
-            out({ id: 5, method: "thread/realtime/stop", params: { threadId: "voice-native" } }),
-            incoming({ id: 5, result: {} }),
+            out({ id: 6, method: "thread/realtime/stop", params: { threadId: "voice-native" } }),
+            incoming({ id: 6, result: {} }),
           ],
         };
         yield* Effect.scoped(

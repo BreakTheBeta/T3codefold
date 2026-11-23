@@ -1,4 +1,8 @@
 import * as NodeURL from "node:url";
+import { build } from "vite-plus/pack";
+import { loadConfigFromFile } from "vite-plus";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import * as Stream from "effect/Stream";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
@@ -51,6 +55,89 @@ describe("shouldBundleCliDependency", () => {
     assert.strictEqual(shouldBundleCliDependency("node-gyp-build-optional-packages"), false);
   });
 });
+
+it.live("keeps the Node HTTP client executable-safe with staged Undici", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const serverDir = path.resolve(import.meta.dirname, "../../apps/server");
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-undici-bundle-" });
+    yield* fs.makeDirectory(path.join(root, "src"));
+    yield* fs.symlink(path.join(serverDir, "node_modules"), path.join(root, "src/node_modules"));
+    const entry = path.join(root, "src/client.mjs");
+    yield* fs.writeFileString(
+      entry,
+      'export { makeDispatcher } from "@effect/platform-node/NodeHttpClient";\nexport { runPromise, scoped } from "effect/Effect";\nexport { Agent, fetch, WebSocket } from "undici";\n',
+    );
+    const config = yield* Effect.promise(() =>
+      loadConfigFromFile(
+        { command: "build", mode: "production" },
+        path.join(serverDir, "vite.config.ts"),
+        serverDir,
+      ),
+    );
+    const pack = config?.config.pack;
+    if (!pack || Array.isArray(pack)) throw new Error("Expected one server pack config");
+    yield* Effect.promise(() =>
+      build({
+        ...pack,
+        config: false,
+        cwd: serverDir,
+        entry: [entry],
+        outDir: path.join(root, "dist"),
+        sourcemap: false,
+        dts: false,
+        outputOptions: { codeSplitting: false },
+      }),
+    );
+    const bundle = path.join(root, "dist/client.mjs");
+    assert.deepStrictEqual(findEsmImportsOfExternalPackages(yield* fs.readFileString(bundle)), []);
+    const server = decodeManifest(yield* fs.readFileString(path.join(serverDir, "package.json")));
+    assert.property(selectCliRuntimeExternalDependencies(server.dependencies ?? {}), "undici");
+    yield* fs.makeDirectory(path.join(root, "dist/node_modules"));
+    yield* fs.copy(
+      yield* fs.realPath(path.join(serverDir, "node_modules/undici")),
+      path.join(root, "dist/node_modules/undici"),
+    );
+    const child = yield* spawner.spawn(
+      ChildProcess.make(process.execPath, [
+        "--input-type=module",
+        "-e",
+        `import { Agent, fetch, WebSocket, makeDispatcher, runPromise, scoped } from ${JSON.stringify(NodeURL.pathToFileURL(bundle).href)};
+           import { createServer } from "node:http";
+           import { createHash } from "node:crypto";
+           import { strict as assert } from "node:assert";
+           await runPromise(scoped(makeDispatcher));
+           const server = createServer((_request, response) => response.end("sea-http"));
+           server.on("upgrade", (request, socket) => {
+             const accept = createHash("sha1").update(request.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
+             socket.end("HTTP/1.1 101 Switching Protocols\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\nSec-WebSocket-Accept: " + accept + "\\r\\n\\r\\n");
+           });
+           await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+           const agent = new Agent();
+           try {
+             const origin = "127.0.0.1:" + server.address().port;
+             const response = await fetch("http://" + origin, { dispatcher: agent });
+             assert.equal(await response.text(), "sea-http");
+             const socket = new WebSocket("ws://" + origin);
+             await new Promise((resolve, reject) => {
+               socket.addEventListener("open", resolve, { once: true });
+               socket.addEventListener("error", reject, { once: true });
+             });
+           } finally {
+             await agent.close();
+             await new Promise(resolve => server.close(resolve));
+           }`,
+      ]),
+    );
+    const [stderr, code] = yield* Effect.all(
+      [child.stderr.pipe(Stream.decodeText(), Stream.mkString), child.exitCode],
+      { concurrency: "unbounded" },
+    );
+    assert.strictEqual(Number(code), 0, stderr);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.layer(NodeServices.layer)("external package dependency closure", (it) => {
   // Read the pnpm store directly: isolation hides transitive names and exports maps can block package.json.

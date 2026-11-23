@@ -119,6 +119,7 @@ export default mergeConfig(
           : ["src/bin.ts", "src/claude-history-worker.ts"],
       outDir: packBootstrap ? "dist-exe" : packExecutable ? cliAssetDir : "dist",
       sourcemap: !packExecutable,
+      shims: true,
       clean: true,
       // SEA can only resolve built-ins; keep dynamic imports inside each emitted module.
       ...(packExecutable ? { outputOptions: { codeSplitting: false } } : {}),
@@ -141,14 +142,17 @@ export default mergeConfig(
       // jsonc-parser's UMD main requires its own files at runtime, which the bundle cannot follow.
       alias: {
         "jsonc-parser": "jsonc-parser/lib/esm/main.js",
+        // SEA resolves staged Undici through require; Effect also imports it from ESM.
+        undici: NodePath.join(import.meta.dirname, "scripts/undici.cjs"),
         // Cursor's CommonJS entry avoids the ESM entry's dynamic bun:sqlite import in SEA.
         "@cursor/sdk": NodeModule.createRequire(import.meta.url).resolve("@cursor/sdk"),
       },
       deps: {
         // alwaysBundle=false has no opinion; neverBundle must retain transitive native acceleration.
-        alwaysBundle: shouldBundleCliDependency,
+        alwaysBundle: (id: string) => id === "undici" || shouldBundleCliDependency(id),
         neverBundle: (id: string) =>
-          (packBootstrap && id === "./binMain.ts") || isExternalCliDependency(id),
+          (packBootstrap && id === "./binMain.ts") ||
+          (id !== "undici" && isExternalCliDependency(id)),
         onlyBundle: false,
       },
       banner: {

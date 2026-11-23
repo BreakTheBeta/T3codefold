@@ -52,6 +52,25 @@ export const makeCodexVoiceCompanion = Effect.fn("CodexVoiceCompanion.open")(fun
   yield* request("account/read", {}).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(ChatGptAccount)),
   );
+  const { config } = yield* request("config/read", {
+    cwd: input.cwd,
+    includeLayers: false,
+  }).pipe(
+    Effect.flatMap(
+      Schema.decodeUnknownEffect(
+        Schema.Struct({ config: Schema.Record(Schema.String, Schema.Unknown) }),
+      ),
+    ),
+  );
+  const servers = config.mcp_servers;
+  const disabledServers =
+    servers && typeof servers === "object" && !Array.isArray(servers)
+      ? {
+          mcp_servers: Object.fromEntries(
+            Object.keys(servers).map((name) => [name, { enabled: false }]),
+          ),
+        }
+      : {};
   const { thread } = yield* request("thread/start", {
     cwd: input.cwd,
     ephemeral: true,
@@ -59,7 +78,19 @@ export const makeCodexVoiceCompanion = Effect.fn("CodexVoiceCompanion.open")(fun
     sandbox: "read-only",
     developerInstructions: input.instructions,
     dynamicTools: input.tools.map((tool) => ({ type: "function", ...tool })),
-    config: { "features.shell_tool": false, "features.apply_patch_freeform": false },
+    config: {
+      "features.shell_tool": false,
+      "features.apply_patch_freeform": false,
+      "features.apps": false,
+      "features.connectors": false,
+      "features.plugins": false,
+      "features.hooks": false,
+      "features.multi_agent": false,
+      "features.multi_agent_v2": false,
+      web_search: "disabled",
+      project_doc_max_bytes: 0,
+      ...disabledServers,
+    },
   }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(NativeThread)));
   yield* client.handleServerRequest("item/tool/call", (payload) =>
     (payload.threadId === thread.id
