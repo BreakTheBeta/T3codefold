@@ -391,8 +391,10 @@ function main() {
   }
   // Cached tasks inject a filesystem tracer that breaks browser mock imports, the task cache and
   // scripts tests that spawn nested `vp run` or inspect NODE_OPTIONS, and ssh's login shells.
+  // Its native preload also SIGBUSes in React Native test workers.
   const uncachedTests = new Set([
     "@t3tools/web",
+    "@t3tools/mobile",
     "@t3tools/task-cache",
     "@t3tools/scripts",
     "@t3tools/ssh",
