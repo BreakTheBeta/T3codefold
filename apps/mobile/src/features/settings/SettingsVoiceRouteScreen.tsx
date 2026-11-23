@@ -1,3 +1,8 @@
+import { BASIC_VOICE_NOTICE } from "@t3tools/client-runtime/realtime-voice/workspace";
+import { mediaDevices } from "react-native-webrtc";
+import { ListToggleRow } from "../../components/ui/ListToggleRow";
+import { useVoiceWorkspace } from "../voice-input/VoiceWorkspaceProvider";
+import { LocalDictationSettings } from "../voice-input/LocalDictationSettings";
 import { ControllerPressable } from "../controller/ControllerPressable";
 import { msg, useGT, useMessages } from "gt-react-native";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
@@ -297,6 +302,8 @@ export function SettingsVoiceRouteScreen() {
         contentContainerClassName="gap-3 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
+        <LiveVoiceSettings />
+        <LocalDictationSettings />
         <SettingsSection title={gt("Transcribe on")}>
           <ListChoiceRow
             label={gt("This device")}
@@ -409,6 +416,120 @@ export function SettingsVoiceRouteScreen() {
         </Text>
       </ScrollView>
     </SettingsScreen>
+  );
+}
+
+function LiveVoiceSettings() {
+  const gt = useGT();
+  const { workspace, state, audio } = useVoiceWorkspace();
+  const enhanced = workspace.supportsVoiceControls();
+  const [microphones, setMicrophones] = useState<Array<{ deviceId: string; label: string }>>([]);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  const refresh = async () => {
+    try {
+      if (enhanced) await workspace.loadVoices();
+      const devices = await mediaDevices.enumerateDevices();
+      if (Array.isArray(devices)) {
+        setMicrophones(
+          devices
+            .filter((device) => device.kind === "audioinput")
+            .map((device) => ({
+              deviceId: String(device.deviceId),
+              label: String(device.label || gt("Microphone")),
+            })),
+        );
+      }
+      setDeviceError(null);
+    } catch {
+      setDeviceError(
+        gt("Could not refresh voice devices. Check microphone access and the voice connection."),
+      );
+    }
+  };
+  return (
+    <>
+      <SettingsSection title={gt("Live voice")} footer={!enhanced ? BASIC_VOICE_NOTICE : undefined}>
+        <SettingsActionRow
+          icon="waveform"
+          label={gt("Refresh voice devices")}
+          description={enhanced ? gt("Voices and microphones") : gt("Microphones")}
+          onPress={() => void refresh()}
+        />
+      </SettingsSection>
+      {deviceError ? (
+        <Text className="px-2 text-sm text-danger-foreground">{deviceError}</Text>
+      ) : null}
+      {enhanced ? (
+        <SettingsSection
+          title={gt("Speaking voice")}
+          footer={gt("Changes apply to the next call.")}
+        >
+          <ListChoiceRow
+            label={gt("Provider default")}
+            selected={!state.preferences.voice}
+            onPress={() => void workspace.setPreferences({ voice: "" })}
+          />
+          {state.voices.map((voice) => (
+            <ListChoiceRow
+              key={voice}
+              label={voice}
+              separated
+              selected={state.preferences.voice === voice}
+              onPress={() => void workspace.setPreferences({ voice })}
+            />
+          ))}
+        </SettingsSection>
+      ) : null}
+      <SettingsSection title={gt("Live voice microphone on this device")}>
+        <ListChoiceRow
+          label={gt("System default")}
+          selected={!state.preferences.microphoneId}
+          onPress={() => void workspace.setPreferences({ microphoneId: "" })}
+        />
+        {microphones
+          .filter((device) => device.deviceId)
+          .map((device) => (
+            <ListChoiceRow
+              key={device.deviceId}
+              label={device.label}
+              separated
+              selected={state.preferences.microphoneId === device.deviceId}
+              onPress={() => void workspace.setPreferences({ microphoneId: device.deviceId })}
+            />
+          ))}
+      </SettingsSection>
+      <SettingsSection title={gt("Call audio on this device")}>
+        <SettingsActionRow
+          icon={audio.speaker ? "speaker.wave.2.fill" : "iphone"}
+          label={gt("Audio output")}
+          description={audio.audioRoute}
+          onPress={() => void audio.chooseAudioOutput()}
+        />
+        {Platform.OS === "android" ? (
+          <SettingsActionRow
+            icon="plus"
+            label={gt("Increase call volume")}
+            onPress={() => audio.volumeUp()}
+          />
+        ) : null}
+        <ListToggleRow
+          icon="speaker.wave.2.fill"
+          label={gt("Mute speaker")}
+          value={state.preferences.outputMuted}
+          onValueChange={(outputMuted) => void workspace.setPreferences({ outputMuted })}
+        />
+      </SettingsSection>
+      <SettingsSection title={gt("Live voice context")}>
+        <ListToggleRow
+          icon="eye"
+          label={gt("Share what I’m viewing")}
+          description={gt("Files, diffs and questions only")}
+          disabled={!enhanced}
+          value={enhanced && state.preferences.shareContext}
+          onValueChange={(shareContext) => void workspace.setPreferences({ shareContext })}
+        />
+      </SettingsSection>
+    </>
   );
 }
 

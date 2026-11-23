@@ -1,3 +1,4 @@
+import { mFallback, msg } from "gt-i18n";
 import type { ProviderRealtimeVoiceEvent } from "@t3tools/contracts";
 
 export type VoiceTranscript = { id: number; role: "user" | "assistant"; text: string };
@@ -9,6 +10,7 @@ export type VoiceFeed = {
   partial: { user: string; assistant: string };
   transcripts: ReadonlyArray<VoiceTranscript>;
   lastEvent: ProviderRealtimeVoiceEvent | null;
+  targetThreadId: ProviderRealtimeVoiceEvent["threadId"] | null;
 };
 export const emptyVoiceFeed: VoiceFeed = {
   callId: "",
@@ -18,6 +20,7 @@ export const emptyVoiceFeed: VoiceFeed = {
   partial: { user: "", assistant: "" },
   transcripts: [],
   lastEvent: null,
+  targetThreadId: null,
 };
 /** Keep final speech distinct from the coding agent's accepted messages. */
 export function reduceVoiceFeed(previous: VoiceFeed, event: ProviderRealtimeVoiceEvent): VoiceFeed {
@@ -25,11 +28,13 @@ export function reduceVoiceFeed(previous: VoiceFeed, event: ProviderRealtimeVoic
     previous.callId === event.callId ? previous : { ...emptyVoiceFeed, callId: event.callId };
   if (event.sequence <= state.sequence) return state;
   const next = { ...state, sequence: event.sequence, lastEvent: event };
+  if (event.type === "target")
+    return { ...next, targetThreadId: event.threadId ?? state.targetThreadId };
   if (event.type !== "transcript")
     return {
       ...next,
       phase: event.type === "started" ? "live" : event.type,
-      error: event.type === "error" ? (event.text ?? "Voice failed") : state.error,
+      error: event.type === "error" ? (event.text ?? mFallback(msg("Voice failed"))) : state.error,
     };
   if (!event.role) return next;
   const text = event.text ?? "";

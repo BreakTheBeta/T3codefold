@@ -172,6 +172,7 @@ export const openCodexSessionClient = Effect.fn("CodexAdapterV2.openSessionClien
       | Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>
       | undefined;
     readonly onConnectionRevoked: Effect.Effect<void> | undefined;
+    readonly isBusy?: Effect.Effect<boolean>;
     readonly open: (
       settings: CodexSettings,
       environment: NodeJS.ProcessEnv,
@@ -193,7 +194,7 @@ export const openCodexSessionClient = Effect.fn("CodexAdapterV2.openSessionClien
             resolve: resolveRuntime,
             open: (runtime) => input.open(runtime.config, runtime.environment),
             onOpenError: input.onOpenError,
-            isBusy: voices.isActive,
+            isBusy: input.isBusy ?? voices.isActive,
           });
     const classifyManagedError = Effect.fn("classifyManagedError")(function* (value: unknown) {
       if (resolveRuntime === undefined) return undefined;

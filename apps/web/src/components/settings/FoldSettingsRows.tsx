@@ -559,7 +559,7 @@ export function VimKeyboardSettingsRows() {
   );
 }
 
-/** General: live voice settings, anchored for settings search. */
+/** Voice: live voice settings, anchored for settings search. */
 export function LiveVoiceSettingsSection() {
   const searchableSetting = useSearchableSetting();
   return (

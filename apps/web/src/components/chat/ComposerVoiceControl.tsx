@@ -1,4 +1,5 @@
 import { memo, type PointerEventHandler, type ReactElement } from "react";
+import { useGT } from "gt-react";
 import { MicIcon, MicOffIcon, PhoneOffIcon, Volume2Icon } from "lucide-react";
 
 import {
@@ -28,6 +29,7 @@ const ComposerVoiceControl = memo(function ComposerVoiceControl(props: {
   readonly disabledReason?: string;
 }) {
   const { voice } = props;
+  const gt = useGT();
   const active =
     voice.status === "connecting" ||
     voice.status === "reconnecting" ||
@@ -36,24 +38,20 @@ const ComposerVoiceControl = memo(function ComposerVoiceControl(props: {
 
   if (!active) {
     const tooltip = !voice.supported
-      ? "Codex voice requires microphone and WebRTC support"
+      ? gt("Codex voice requires microphone and WebRTC support")
       : props.disabled
-        ? (props.disabledReason ?? "Codex voice is unavailable while this thread connects")
-        : (voice.error ?? "Talk to Codex");
+        ? (props.disabledReason ?? gt("Codex voice is unavailable while this thread connects"))
+        : (voice.error ?? gt("Call this thread"));
     return (
       <VoiceButtonTooltip label={tooltip}>
         <Button
           type="button"
-          size="icon-sm"
-          variant="ghost"
-          className={cn(
-            "rounded-full text-secondary-label [--control-icon-color:currentColor] hover:text-foreground",
-            voice.status === "error" && "text-destructive hover:text-destructive",
-          )}
+          size="icon-sm-pill"
+          variant={voice.status === "error" ? "destructive-outline" : "ghost-muted"}
           disabled={props.disabled || !voice.supported}
           onPointerDown={preserveComposerFocus}
           onClick={() => void voice.start()}
-          aria-label="Talk to Codex"
+          aria-label={gt("Call this thread")}
           data-codex-voice-state={voice.status}
         >
           <MicIcon className="size-4" />
@@ -64,14 +62,14 @@ const ComposerVoiceControl = memo(function ComposerVoiceControl(props: {
 
   const label =
     voice.status === "connecting"
-      ? "Connecting…"
+      ? gt("Connecting…")
       : voice.status === "reconnecting"
-        ? "Reconnecting…"
+        ? gt("Reconnecting…")
         : voice.status === "playback-blocked"
-          ? "Audio paused"
+          ? gt("Audio paused")
           : voice.muted
-            ? "Muted"
-            : "Voice live";
+            ? gt("Muted")
+            : gt("Voice live");
   return (
     <div
       className="flex h-8 items-center gap-0.5 rounded-full border border-border/70 bg-muted/50 ps-2 pe-1"
@@ -90,43 +88,40 @@ const ComposerVoiceControl = memo(function ComposerVoiceControl(props: {
       />
       <span className="hidden text-xs text-secondary-label sm:inline">{label}</span>
       {voice.status === "playback-blocked" ? (
-        <VoiceButtonTooltip label={voice.error ?? "Resume Codex audio"}>
+        <VoiceButtonTooltip label={voice.error ?? gt("Resume Codex audio")}>
           <Button
             type="button"
             size="icon-xs"
-            variant="ghost"
-            className="rounded-full text-warning [--control-icon-color:currentColor] hover:text-warning"
+            variant="warning-outline"
             onPointerDown={preserveComposerFocus}
             onClick={() => void voice.resumeAudio()}
-            aria-label="Resume Codex audio"
+            aria-label={gt("Resume Codex audio")}
           >
             <Volume2Icon className="size-3.5" />
           </Button>
         </VoiceButtonTooltip>
       ) : null}
-      <VoiceButtonTooltip label={voice.muted ? "Unmute microphone" : "Mute microphone"}>
+      <VoiceButtonTooltip label={voice.muted ? gt("Unmute microphone") : gt("Mute microphone")}>
         <Button
           type="button"
           size="icon-xs"
-          variant="ghost"
-          className="rounded-full text-secondary-label [--control-icon-color:currentColor] hover:text-foreground"
+          variant="ghost-muted"
           disabled={voice.status === "connecting"}
           onPointerDown={preserveComposerFocus}
           onClick={voice.toggleMuted}
-          aria-label={voice.muted ? "Unmute microphone" : "Mute microphone"}
+          aria-label={voice.muted ? gt("Unmute microphone") : gt("Mute microphone")}
         >
           {voice.muted ? <MicOffIcon className="size-3.5" /> : <MicIcon className="size-3.5" />}
         </Button>
       </VoiceButtonTooltip>
-      <VoiceButtonTooltip label="End Codex voice">
+      <VoiceButtonTooltip label={gt("End Codex voice")}>
         <Button
           type="button"
           size="icon-xs"
-          variant="ghost"
-          className="rounded-full text-destructive [--control-icon-color:currentColor] hover:bg-destructive/10 hover:text-destructive"
+          variant="ghost-destructive"
           onPointerDown={preserveComposerFocus}
           onClick={() => void voice.stop()}
-          aria-label="End Codex voice"
+          aria-label={gt("End Codex voice")}
         >
           <PhoneOffIcon className="size-3.5" />
         </Button>
@@ -148,13 +143,15 @@ export function CodexComposerVoiceControl(props: {
   readonly providerVersion: string | null;
   readonly disabled: boolean;
 }) {
-  const versionSupported = supportsCodexRealtimeVoiceVersion(props.providerVersion);
+  const gt = useGT();
+  const versionSupported =
+    props.voice.companion || supportsCodexRealtimeVoiceVersion(props.providerVersion);
   return (
     <ComposerVoiceControl
       voice={props.voice}
       disabled={props.disabled || !versionSupported}
       {...(!versionSupported
-        ? { disabledReason: "Update Codex to 0.145.0 or newer to use voice" }
+        ? { disabledReason: gt("Update Codex to 0.145.0 or newer to use voice") }
         : {})}
     />
   );

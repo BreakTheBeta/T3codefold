@@ -281,6 +281,7 @@ export const make = Effect.gen(function* () {
       updateRepository: FOLD_REPOSITORY,
       fleetOrchestration: true,
       realtimeVoiceControls: true,
+      voiceCompanion: true,
       projectOrganization: true,
       ignoredFileListing: true,
       ignoredFileSearch: true,

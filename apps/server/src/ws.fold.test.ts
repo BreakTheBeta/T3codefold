@@ -16,6 +16,7 @@ import { OrchestratorProjectionError } from "./orchestration-v2/Orchestrator.ts"
 import { ProviderSessionManagerV2 } from "./orchestration-v2/ProviderSessionManager.ts";
 import { ThreadManagementService } from "./orchestration-v2/ThreadManagementService.ts";
 import { makeFoldWsHandlers } from "./foldWs.ts";
+import { VoiceCompanion } from "./provider/VoiceCompanion.ts";
 
 const threadId = ThreadId.make("missing");
 const unexpectedFactoryCall = () =>
@@ -23,6 +24,7 @@ const unexpectedFactoryCall = () =>
 
 const services = (threads: Partial<ThreadManagementService["Service"]>) =>
   Layer.mergeAll(
+    Layer.mock(VoiceCompanion, {}),
     Layer.mock(Factory, {
       agents: {
         ensureCommander: unexpectedFactoryCall,

@@ -18,6 +18,7 @@ function buildCodexRealtimeStartParams(
   threadId: string,
   sdp: string,
   options?: RealtimeVoiceOptions,
+  instructions = CODEX_VOICE_CLIENT_INSTRUCTIONS,
 ) {
   return {
     threadId,
@@ -25,9 +26,7 @@ function buildCodexRealtimeStartParams(
     version: "v3",
     transport: { type: "webrtc", sdp },
     ...(options?.voice ? { voice: options.voice } : {}),
-    ...(options?.callId
-      ? { initialItems: [{ role: "developer", text: CODEX_VOICE_CLIENT_INSTRUCTIONS }] }
-      : {}),
+    ...(options?.callId ? { initialItems: [{ role: "developer", text: instructions }] } : {}),
   } as const;
 }
 
@@ -139,6 +138,7 @@ export const makeCodexRealtimeVoice = Effect.fn("makeCodexRealtimeVoice")(functi
     readonly providerThreadId: string;
     readonly negotiationTimeoutMs?: number;
     readonly stopTimeoutMs?: number;
+    readonly instructions?: string;
   },
 ) {
   const { providerThreadId } = options;
@@ -366,7 +366,7 @@ export const makeCodexRealtimeVoice = Effect.fn("makeCodexRealtimeVoice")(functi
     client.raw
       .request(
         "thread/realtime/start",
-        buildCodexRealtimeStartParams(providerThreadId, sdp, voiceOptions),
+        buildCodexRealtimeStartParams(providerThreadId, sdp, voiceOptions, options.instructions),
       )
       .pipe(
         Effect.catchIf(
@@ -383,7 +383,12 @@ export const makeCodexRealtimeVoice = Effect.fn("makeCodexRealtimeVoice")(functi
                 Effect.andThen(
                   client.raw.request(
                     "thread/realtime/start",
-                    buildCodexRealtimeStartParams(providerThreadId, sdp, voiceOptions),
+                    buildCodexRealtimeStartParams(
+                      providerThreadId,
+                      sdp,
+                      voiceOptions,
+                      options.instructions,
+                    ),
                   ),
                 ),
               ),

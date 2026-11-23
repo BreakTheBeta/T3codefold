@@ -237,6 +237,19 @@ describe("searchSettings", () => {
 });
 
 describe("settings search targets", () => {
+  it("finds live voice on the Voice page", () => {
+    expect(searchSettings("live voice").find((item) => item.id === "live-voice")?.to).toBe(
+      "/settings/voice",
+    );
+    const translate = (message: string) =>
+      decodeMsg(message) === "Live voice" ? "Voz en directo" : decodeMsg(message);
+    expect(
+      searchSettings("voz en directo", SETTINGS_SEARCH_ITEMS, translate).find(
+        (item) => item.id === "live-voice",
+      )?.to,
+    ).toBe("/settings/voice");
+  });
+
   it("requires an environment for the resolved telemetry export destination", () => {
     const result = searchSettings("OpenTelemetry export").find(
       (item) => item.id === "telemetry-export",

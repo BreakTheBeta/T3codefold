@@ -3388,14 +3388,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerFooterHidden =
     (isComposerCollapsedMobile || isComposerApprovalState) && speechInput.state.phase === "idle";
   const codexVoiceControl =
-    routeKind === "server" &&
-    selectedProvider === ProviderDriverKind.make("codex") &&
-    activeThreadId ? (
+    routeKind === "server" && codexRealtimeVoice.supported && activeThreadId ? (
       <CodexComposerVoiceControl
         voice={codexRealtimeVoice}
         providerVersion={selectedProviderStatus?.version ?? null}
         disabled={
-          environmentUnavailable !== null || noProviderAvailable || projectSelectionRequired
+          !canOperateThread ||
+          environmentUnavailable !== null ||
+          noProviderAvailable ||
+          projectSelectionRequired
         }
       />
     ) : null;

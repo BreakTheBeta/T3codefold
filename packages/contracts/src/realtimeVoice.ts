@@ -2,6 +2,20 @@
 import * as Schema from "effect/Schema";
 
 import { ThreadId } from "./baseSchemas.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
+
+export const VoiceCompanionCallInput = Schema.Struct({
+  threadId: ThreadId,
+  callId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80)),
+});
+export type VoiceCompanionCallInput = typeof VoiceCompanionCallInput.Type;
+export const VoiceCompanionStartInput = Schema.Struct({
+  ...VoiceCompanionCallInput.fields,
+  sdp: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256 * 1024)),
+  instanceId: Schema.optional(ProviderInstanceId),
+  voice: Schema.optional(Schema.String.check(Schema.isMaxLength(40))),
+});
+export type VoiceCompanionStartInput = typeof VoiceCompanionStartInput.Type;
 
 const RealtimeSessionDescription = Schema.String.check(
   Schema.isMinLength(1),
@@ -27,7 +41,8 @@ export type ProviderRealtimeVoiceListResult = typeof ProviderRealtimeVoiceListRe
 export const ProviderRealtimeVoiceEvent = Schema.Struct({
   callId: Schema.String,
   sequence: Schema.Number,
-  type: Schema.Literals(["started", "closed", "error", "transcript"]),
+  type: Schema.Literals(["started", "closed", "error", "transcript", "target"]),
+  threadId: Schema.optional(ThreadId),
   role: Schema.optional(Schema.Literals(["user", "assistant"])),
   text: Schema.optional(Schema.String.check(Schema.isMaxLength(8_192))),
   final: Schema.optional(Schema.Boolean),

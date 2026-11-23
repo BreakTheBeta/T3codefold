@@ -7,6 +7,10 @@ import { ComposerActionButton } from "../../components/ComposerToolbar";
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import { useCodexRealtimeVoice } from "./useCodexRealtimeVoice";
 import { useGlobalVoiceInput } from "./VoiceInputProvider";
+import { useVoiceWorkspace } from "./VoiceWorkspaceProvider";
+import { useGT } from "gt-react-native";
+import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { useEnvironmentScopeDenied } from "../../state/session";
 
 /**
  * The thread composer's Codex realtime voice button. Null for non-Codex threads and while a call
@@ -19,27 +23,38 @@ export function useCodexVoiceComposerControl(input: {
   readonly threadId: ThreadId;
   readonly connectionState: RemoteClientConnectionState;
 }) {
+  const gt = useGT();
   // Any dictation, here or on another screen, holds the microphone a call needs.
   const dictationBusy = useGlobalVoiceInput().isBusy;
-  const isCodexThread = input.providerStatus?.driver === "codex";
+  const operateDenied = useEnvironmentScopeDenied(
+    input.environmentId,
+    AuthOrchestrationOperateScope,
+  );
+  const { state } = useVoiceWorkspace();
+  const destination = state.targets.find(
+    (target) => target.environmentId === input.environmentId && target.threadId === input.threadId,
+  );
+  const available = destination !== undefined;
   const codexVoice = useCodexRealtimeVoice({
     title: input.title,
     environmentId: input.environmentId,
     threadId: input.threadId,
-    enabled: isCodexThread && input.connectionState === "connected" && !dictationBusy,
+    enabled: available && !operateDenied && input.connectionState === "connected" && !dictationBusy,
   });
   const codexVoiceActive = codexVoice.status !== "idle" && codexVoice.status !== "error";
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- shows a native alert when the voice session reports a new error
   useEffect(() => {
-    if (codexVoice.error) Alert.alert("Codex voice", codexVoice.error);
-  }, [codexVoice.error]);
-  return isCodexThread && !codexVoiceActive ? (
+    if (codexVoice.error) Alert.alert(gt("Codex voice"), codexVoice.error);
+  }, [codexVoice.error, gt]);
+  return available && !codexVoiceActive ? (
     <CodexVoiceControl
       voice={codexVoice}
       disabled={
         dictationBusy ||
+        operateDenied ||
         input.connectionState !== "connected" ||
-        !supportsCodexRealtimeVoiceVersion(input.providerStatus.version)
+        (!destination.companion &&
+          !supportsCodexRealtimeVoiceVersion(input.providerStatus?.version ?? ""))
       }
     />
   ) : null;
@@ -52,15 +67,16 @@ export function CodexVoiceControl({
   voice: ReturnType<typeof useCodexRealtimeVoice>;
   disabled: boolean;
 }) {
+  const gt = useGT();
   const active = ["connecting", "reconnecting", "live"].includes(voice.status);
   const label =
     voice.status === "connecting"
-      ? "Connecting…"
+      ? gt("Connecting…")
       : voice.status === "reconnecting"
-        ? "Reconnecting…"
+        ? gt("Reconnecting…")
         : voice.muted
-          ? "Mic muted"
-          : "Voice live";
+          ? gt("Mic muted")
+          : gt("Voice live");
   return (
     <View className="shrink flex-col gap-1">
       {active ? (
@@ -70,13 +86,13 @@ export function CodexVoiceControl({
           </AppText>
           <View className="flex-row items-center gap-1">
             <ComposerActionButton
-              accessibilityLabel={voice.muted ? "Unmute Codex voice" : "Mute Codex voice"}
+              accessibilityLabel={voice.muted ? gt("Unmute Codex voice") : gt("Mute Codex voice")}
               icon={voice.muted ? "mic.slash" : "mic"}
               disabled={voice.status === "connecting"}
               onPress={voice.toggleMuted}
             />
             <ComposerActionButton
-              accessibilityLabel="Choose call audio output"
+              accessibilityLabel={gt("Choose call audio output")}
               icon={voice.speaker ? "speaker.wave.2.fill" : "iphone"}
               disabled={voice.status === "connecting"}
               onPress={() => {
@@ -85,13 +101,13 @@ export function CodexVoiceControl({
             />
             {Platform.OS === "android" ? (
               <ComposerActionButton
-                accessibilityLabel="Increase call volume"
+                accessibilityLabel={gt("Increase call volume")}
                 icon="plus"
                 onPress={voice.volumeUp}
               />
             ) : null}
             <ComposerActionButton
-              accessibilityLabel="End Codex voice"
+              accessibilityLabel={gt("End Codex voice")}
               icon="phone.down.fill"
               variant="danger"
               onPress={voice.stop}
@@ -105,14 +121,14 @@ export function CodexVoiceControl({
         <View className="flex-row items-center gap-1">
           <ComposerActionButton
             accessibilityLabel={
-              voice.status === "error" ? "Reconnect Codex voice" : "Talk to Codex"
+              voice.status === "error" ? gt("Reconnect voice call") : gt("Call this thread")
             }
             icon="waveform"
             disabled={disabled}
             onPress={voice.start}
           />
           {voice.status === "error" ? (
-            <AppText className="text-xs text-foreground-muted">Call ended · Retry</AppText>
+            <AppText className="text-xs text-foreground-muted">{gt("Call ended · Retry")}</AppText>
           ) : null}
         </View>
       )}

@@ -51,7 +51,7 @@ Android's native selection handles work across a whole response: headings, parag
 
 ## Talk to Codex
 
-Open a Codex thread and choose **Talk to Codex** for a live, two-way voice conversation.
+Open a thread and choose **Call this thread** for a live conversation with a separate Codex voice companion. It can read, message, steer and interrupt work threads using any provider while keeping their model unchanged.
 
 - Pick the speaking voice and microphone, and mute the speaker and mic separately.
 - Read the transcript and agent status while you talk.
@@ -79,7 +79,7 @@ Compared with upstream `main` at [4d5bf2d557](https://github.com/pingdotgg/t3cod
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
 | **Foldable workspace**               | Side-by-side chat, files, terminal and git, with a resizable, fold-aware divider and remembered layout.                                                                                                                                                | Android                                  |
 | **Hardware keyboard and Vim**        | Laptop-style shortcuts, a keyboard-friendly composer and optional Vim navigation.                                                                                                                                                                      | Android · Web · Desktop                  |
-| **Live Codex voice**                 | Two-way voice with transcripts, separate mutes, background calls and Bluetooth routing.                                                                                                                                                                | Web · Desktop · Mobile                   |
+| **Live Codex voice**                 | A Codex voice companion for any provider’s work threads, with transcripts, separate mutes, background calls and Bluetooth routing.                                                                                                                     | Web · Desktop · Mobile                   |
 | **Handoffs between machines**        | An agent can discover connected environments, start or message a thread elsewhere, and read or wait for its response.                                                                                                                                  | Server · Connected clients               |
 | **Fleet CLI**                        | `t3 fleet` discovers environments and projects, creates threads, sends messages, reads results and waits. Retried requests keep their original receipt.                                                                                                | CLI                                      |
 | **Task handoff skill**               | Give another thread ownership of work with its objective, progress, code location, constraints and a return contact. [Handoff instructions](.agents/skills/t3-handoff/SKILL.md).                                                                       | Agents with T3 tools or CLI              |
@@ -106,7 +106,7 @@ Compared with upstream `main` at [4d5bf2d557](https://github.com/pingdotgg/t3cod
 - Cross-environment delivery requires a running client connected to both servers. Accepted work continues on the destination if that client disconnects; follow-up delivery needs the connection restored.
 - A handoff passes context and code references. It does not copy your checkout or uncommitted changes to another machine.
 - Compatibility mode connects updated Fold clients to older servers. New orchestration actions still need a current server; it does not retrofit old client binaries.
-- Updated clients preserve basic voice on older Fold hosts and enable advanced controls per host as servers are updated. Older clients retain basic voice on updated hosts. Task switching reconnects audio; view sharing is optional and bounded, without screen capture. Recheck upstream voice controls, context sharing, and call ownership across clients before retiring these differences.
+- Updated clients preserve basic voice on older Fold hosts and enable advanced controls per host as servers are updated. Older clients retain basic voice on updated hosts. The voice companion keeps audio connected when switching work threads on the same updated host; older hosts and cross-environment switches reconnect. View sharing is optional and bounded, without screen capture. Recheck upstream voice controls, context sharing, and call ownership across clients before retiring these differences.
 - Android activity notifications are local, connected-app notifications, not disconnected push delivery. Bluetooth behavior, including Meta Ray-Ban glasses, still needs physical-device verification.
 - Installers and source availability differ. macOS automatic updates require signed builds; unsigned Mac builds are manual downloads. See [releases](https://github.com/BreakTheBeta/T3codefold/releases) for available artifacts.
 

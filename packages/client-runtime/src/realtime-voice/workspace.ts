@@ -1,3 +1,5 @@
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
 import type {
   EnvironmentId,
   ThreadId,
@@ -12,6 +14,7 @@ export type VoiceTarget = {
   threadId: ThreadId;
   title: string;
   enhancedVoice?: boolean;
+  companion?: boolean;
 };
 export type VoicePreferences = {
   voice: string;
@@ -22,6 +25,7 @@ export type VoicePreferences = {
 export type VoiceWorkspaceState = {
   targets: readonly VoiceTarget[];
   target: VoiceTarget | null;
+  callTarget: VoiceTarget | null;
   view: VoiceTarget | null;
   callId: string;
   voice: VoiceState;
@@ -37,10 +41,12 @@ export interface VoiceWorkspaceDependencies {
     preferences: VoicePreferences,
   ) => ReturnType<VoiceDependencies["openMedia"]>;
   startRemote(target: VoiceTarget, sdp: string, callId: string, voice: string): Promise<string>;
-  stopRemote(target: VoiceTarget): Promise<void>;
+  stopRemote(target: VoiceTarget, callId?: string): Promise<void>;
   listVoices(target: VoiceTarget): Promise<ProviderRealtimeVoiceListResult>;
   appendContext(target: VoiceTarget, callId: string, text: string): Promise<void>;
+  switchRemote?(current: VoiceTarget, destination: VoiceTarget, callId: string): Promise<void>;
   createCallId(): string;
+  resolve?: MFunctionType;
   savePreferences?(preferences: VoicePreferences): void;
 }
 function sameVoiceTarget(a: VoiceTarget | null, b: VoiceTarget | null) {
@@ -61,13 +67,15 @@ export function voiceStartInput(
     ...(target.enhancedVoice === true ? { options: { callId, ...(voice ? { voice } : {}) } } : {}),
   };
 }
-export const BASIC_VOICE_NOTICE =
-  "This host supports basic voice. Update it for voice selection, transcripts, view sharing and spoken call controls. Microphone and speaker controls still work.";
+export const BASIC_VOICE_NOTICE = msg(
+  "This host supports basic voice. Update it for voice selection, transcripts, view sharing and spoken call controls. Microphone and speaker controls still work.",
+);
 /** A client owns one call. Browsing and switching the call's agent are separate operations. */
 export class VoiceWorkspace {
   private state: VoiceWorkspaceState = {
     targets: [],
     target: null,
+    callTarget: null,
     view: null,
     callId: "",
     voice: { status: "idle", muted: false, error: null },
@@ -86,8 +94,10 @@ export class VoiceWorkspace {
   private preferencesChanged = false;
   private contextSources = new Map<string, string>();
   private dependencies: VoiceWorkspaceDependencies;
+  private resolve: MFunctionType;
   constructor(dependencies: VoiceWorkspaceDependencies, preferences?: Partial<VoicePreferences>) {
     this.dependencies = dependencies;
+    this.resolve = dependencies.resolve ?? mFallback;
     this.state = { ...this.state, preferences: { ...this.state.preferences, ...preferences } };
   }
   getSnapshot = () => this.state;
@@ -119,7 +129,9 @@ export class VoiceWorkspace {
   }
   get hasVoiceEvents() {
     return (
-      this.state.target?.enhancedVoice === true && this.supportsVoiceControls(this.state.target)
+      this.state.target?.enhancedVoice === true &&
+      this.supportsVoiceControls(this.state.target) &&
+      (!this.state.target.companion || this.state.voice.status === "live")
     );
   }
   setTargets(targets: readonly VoiceTarget[]) {
@@ -143,7 +155,9 @@ export class VoiceWorkspace {
   }
   async loadVoices(target = this.settingsTarget) {
     if (!target) {
-      this.update({ notice: "Open a connected Codex thread first." });
+      this.update({
+        notice: this.resolve(msg("Open a connected thread on a host with Codex voice.")),
+      });
       return;
     }
     if (!this.supportsVoiceControls(target)) {
@@ -159,7 +173,11 @@ export class VoiceWorkspace {
         return;
       this.update({ voices: result.voices, notice: null });
     } catch {
-      this.update({ notice: "Voice choices need a connected Codex thread on an updated host." });
+      this.update({
+        notice: this.resolve(
+          msg("Voice choices need a connected Codex thread on an updated host."),
+        ),
+      });
     }
   }
   restorePreferences(preferences: Partial<VoicePreferences>) {
@@ -176,7 +194,9 @@ export class VoiceWorkspace {
         await this.controller?.changeMicrophone(patch.microphoneId);
       } catch {
         this.update({
-          notice: "Could not change microphone. The previous microphone is still active.",
+          notice: this.resolve(
+            msg("Could not change microphone. The previous microphone is still active."),
+          ),
         });
       }
     }
@@ -197,7 +217,9 @@ export class VoiceWorkspace {
   }
   async start(target = this.state.view) {
     if (!target) {
-      this.update({ notice: "Open a connected Codex thread first." });
+      this.update({
+        notice: this.resolve(msg("Open a connected thread on a host with Codex voice.")),
+      });
       return;
     }
     if (
@@ -206,7 +228,33 @@ export class VoiceWorkspace {
       this.state.voice.status !== "error"
     )
       return;
-    target = { ...target, enhancedVoice: this.supportsVoiceControls(target) };
+    target = {
+      ...target,
+      ...this.state.targets.find((candidate) => sameVoiceTarget(candidate, target)),
+      enhancedVoice: this.supportsVoiceControls(target),
+    };
+    const current = this.state.target;
+    if (
+      current?.companion &&
+      target.companion &&
+      current.environmentId === target.environmentId &&
+      this.state.voice.status === "live" &&
+      this.dependencies.switchRemote
+    ) {
+      const generation = this.generation;
+      try {
+        await this.dependencies.switchRemote(current, target, this.state.callId);
+        if (generation === this.generation) this.update({ target, notice: null });
+      } catch {
+        if (generation === this.generation)
+          this.update({
+            notice: this.resolve(
+              msg("Could not switch work threads. The call remains on its previous thread."),
+            ),
+          });
+      }
+      return;
+    }
     const generation = ++this.generation;
     const previous = this.controller;
     this.controller = null;
@@ -216,6 +264,7 @@ export class VoiceWorkspace {
     // Retire the old identity before awaiting its close notification.
     this.update({
       target,
+      callTarget: target,
       callId,
       feed: emptyVoiceFeed,
       notice: null,
@@ -232,7 +281,10 @@ export class VoiceWorkspace {
           callId,
           target.enhancedVoice ? this.state.preferences.voice : "",
         ),
-      stopRemote: () => this.dependencies.stopRemote(target),
+      stopRemote: () =>
+        target.companion
+          ? this.dependencies.stopRemote(target, callId)
+          : this.dependencies.stopRemote(target),
       changed: (voice) => {
         if (generation !== this.generation) return;
         this.update({ voice });
@@ -249,7 +301,11 @@ export class VoiceWorkspace {
     ++this.generation;
     const controller = this.controller;
     this.controller = null;
-    this.update({ callId: "", voice: { status: "idle", muted: false, error: null } });
+    this.update({
+      callId: "",
+      callTarget: null,
+      voice: { status: "idle", muted: false, error: null },
+    });
     await controller?.stop();
   }
   dismiss() {
@@ -276,8 +332,11 @@ export class VoiceWorkspace {
     if (candidates.length !== 1) {
       this.update({
         notice: candidates.length
-          ? "Several threads have that name. Choose a task in the voice panel."
-          : `No connected Codex task named “${title}”. Choose a task in the voice panel.`,
+          ? this.resolve(msg("Several threads have that name. Choose a task in the voice panel."))
+          : this.resolve(
+              msg("No connected task named “{title}”. Choose a task in the voice panel."),
+              { title },
+            ),
       });
       return;
     }
@@ -291,6 +350,14 @@ export class VoiceWorkspace {
     )
       return;
     this.update({ feed });
+    if (this.state.target?.companion && feed.targetThreadId) {
+      const target = this.state.targets.find(
+        (candidate) =>
+          candidate.environmentId === this.state.target?.environmentId &&
+          candidate.threadId === feed.targetThreadId,
+      );
+      if (target) this.update({ target });
+    }
     if (feed.phase === "closed" || feed.phase === "error") {
       const notice = feed.error ?? feed.lastEvent?.text ?? "The provider ended this call.";
       void this.stop();
@@ -352,7 +419,9 @@ export class VoiceWorkspace {
         return;
       await this.dependencies.appendContext(target, callId, text).catch(() =>
         this.update({
-          notice: "View context could not be shared. Your call is still connected.",
+          notice: this.resolve(
+            msg("View context could not be shared. Your call is still connected."),
+          ),
         }),
       );
     });

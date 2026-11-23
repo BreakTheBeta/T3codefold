@@ -40,6 +40,24 @@ function fixture() {
   return { workspace, deps, media, connected: () => handlers?.connected() };
 }
 describe("voice workspace", () => {
+  it("changes a companion's work thread without replacing its voice call or audio", async () => {
+    const f = fixture();
+    const origin = { ...first, companion: true };
+    const destination = { ...second, companion: true };
+    const switchRemote = vi.fn(async () => {});
+    Object.assign(f.deps, { switchRemote });
+    f.workspace.setTargets([origin, destination]);
+    await f.workspace.start(origin);
+    f.connected();
+    const callId = f.workspace.getSnapshot().callId;
+    await f.workspace.start(destination);
+    expect(f.workspace.getSnapshot().target?.threadId).toBe(destination.threadId);
+    expect(f.workspace.getSnapshot().callId).toBe(callId);
+    expect(f.workspace.getSnapshot().callTarget).toEqual(origin);
+    expect(f.deps.startRemote).toHaveBeenCalledTimes(1);
+    expect(f.media.close).not.toHaveBeenCalled();
+    expect(switchRemote).toHaveBeenCalledWith(origin, destination, callId);
+  });
   it("sends the original start payload to hosts missing the capability", () => {
     const { enhancedVoice: _, ...old } = first;
     expect(voiceStartInput(old, "offer", "owner", "spruce")).toEqual({

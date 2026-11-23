@@ -49,6 +49,11 @@ describe("filterSettingsSections", () => {
     { query: "KEYBOARD", expected: [["Interface", ["Keyboard"]]] },
     { query: "dark mode", expected: [["Interface", ["Appearance"]]] },
     { query: "microphone", expected: [["Interface", ["Voice"]]] },
+    { query: "live voice", expected: [["Interface", ["Voice"]]] },
+    { query: "speaking voice", expected: [["Interface", ["Voice"]]] },
+    { query: "call audio", expected: [["Interface", ["Voice"]]] },
+    { query: "speech model", expected: [["Interface", ["Voice"]]] },
+    { query: "share what", expected: [["Interface", ["Voice"]]] },
     { query: "agent credits", expected: [["Server settings", ["Source control & issues"]]] },
     {
       query: "server settings",

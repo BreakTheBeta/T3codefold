@@ -12,6 +12,12 @@ type FoldRpcMethod = RpcGroup.Rpcs<typeof FoldRpcGroup>["_tag"];
 
 /** Scopes for Fold's RPCs, spread into RpcAuthorization's `RPC_REQUIRED_SCOPES`. */
 export const FOLD_RPC_REQUIRED_SCOPES = {
+  [WS_METHODS.voiceCompanionStart]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceCompanionStop]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceCompanionSelect]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceCompanionContext]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceCompanionList]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceCompanionEvents]: AuthOrchestrationOperateScope,
   [WS_METHODS.factorySetEnabled]: AuthSettingsWriteScope,
   [WS_METHODS.factorySubscribeBoard]: AuthOrchestrationReadScope,
   [WS_METHODS.factoryEnsureCommander]: AuthOrchestrationOperateScope,
@@ -40,6 +46,12 @@ export const FOLD_RPC_REQUIRED_SCOPES = {
 
 /** `rpc.aggregate` labels for Fold's RPCs, spread into RpcInstrumentation's `RPC_AGGREGATES`. */
 export const FOLD_RPC_AGGREGATES = {
+  [WS_METHODS.voiceCompanionStart]: "voice",
+  [WS_METHODS.voiceCompanionStop]: "voice",
+  [WS_METHODS.voiceCompanionSelect]: "voice",
+  [WS_METHODS.voiceCompanionContext]: "voice",
+  [WS_METHODS.voiceCompanionList]: "voice",
+  [WS_METHODS.voiceCompanionEvents]: "voice",
   [WS_METHODS.factorySetEnabled]: "factory",
   [WS_METHODS.factorySubscribeBoard]: "factory",
   [WS_METHODS.factoryEnsureCommander]: "factory",

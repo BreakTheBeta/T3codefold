@@ -44,7 +44,10 @@ import type {
   ProviderSelectionTransitionInput,
   ProviderSelectionTransitionPlan,
 } from "./selectionTransition.ts";
-import type { ProviderAdapterV2RealtimeVoice } from "./ProviderAdapterRealtimeVoice.ts";
+import type {
+  ProviderAdapterV2RealtimeVoice,
+  OpenVoiceCompanion,
+} from "./ProviderAdapterRealtimeVoice.ts";
 
 export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   runtimeMode: RuntimeMode,
@@ -823,6 +826,7 @@ export class ProviderAdapterV2 extends Context.Service<
      * skips its own check, which only knows the version from the last status probe.
      */
     readonly checksVersionAtHandshake?: boolean;
+    readonly openVoiceCompanion?: OpenVoiceCompanion;
     readonly getCapabilities: () => Effect.Effect<
       OrchestrationV2ProviderCapabilities,
       ProviderAdapterV2Error

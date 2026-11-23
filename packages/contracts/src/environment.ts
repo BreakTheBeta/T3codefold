@@ -162,6 +162,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   fleetOrchestration: Schema.optionalKey(Schema.Boolean),
   /** Voice selection, transcript events and view context; absent on basic-voice hosts. */
   realtimeVoiceControls: Schema.optionalKey(Schema.Boolean),
+  voiceCompanion: Schema.optionalKey(Schema.Boolean),
   /** Server can stream self-update progress before acknowledging the
       restart. Clients fall back to server.updateServer when absent. */
   serverSelfUpdateProgress: Schema.optionalKey(Schema.Boolean),

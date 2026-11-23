@@ -76,7 +76,6 @@ import {
   type ResponseContextRecord,
   type ChatFileAttachment,
   isProviderNativeSubagentThread,
-  ProviderDriverKind,
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
@@ -1407,9 +1406,7 @@ export default function ChatView(props: ChatViewProps) {
     environmentId,
     threadId: routeKind === "server" ? activeThreadId : null,
     enabled:
-      routeKind === "server" &&
-      selectedProvider === ProviderDriverKind.make("codex") &&
-      activeEnvironmentUnavailableState === null,
+      routeKind === "server" && canOperateThread && activeEnvironmentUnavailableState === null,
   });
   const phase = derivePhase(activeRuntime);
   const serverThreadId = serverThread?.id;

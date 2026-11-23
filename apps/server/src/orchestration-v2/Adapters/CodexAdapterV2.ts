@@ -24,6 +24,7 @@ import {
   isCodexUsageLimitCode,
   withCodexRealtimeVoiceFeature,
 } from "./CodexAdapterV2Fold.ts";
+import { makeCodexVoiceCompanion } from "../../provider/codexVoiceCompanion.ts";
 import {
   buildCodexInitializeParams,
   codexAppServerEnvironment,
@@ -1941,6 +1942,44 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
     instanceId: adapterOptions.instanceId,
     driver: CODEX_PROVIDER,
     checksVersionAtHandshake: adapterOptions.compatibility !== undefined,
+    openVoiceCompanion: Effect.fn("CodexAdapterV2.openVoiceCompanion")(function* (input) {
+      const failure = (cause: unknown) =>
+        new ProviderAdapter.ProviderAdapterOpenSessionError({
+          driver: CODEX_PROVIDER,
+          providerSessionId: input.providerSessionId,
+          cause,
+        });
+      const { client } = yield* openCodexSessionClient({
+        isBusy: Effect.succeed(true),
+        settings: adapterOptions.settings,
+        environment: adapterOptions.environment,
+        resolveRuntime: adapterOptions.resolveRuntime,
+        onConnectionRevoked: adapterOptions.onConnectionRevoked,
+        onOpenError: failure,
+        open: (settings, environment) =>
+          clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            threadId: input.threadId,
+            providerSessionId: input.providerSessionId,
+            runtimePolicy: {
+              runtimeMode: "approval-required",
+              interactionMode: "default",
+              cwd: input.cwd,
+            },
+            settings,
+            environment,
+          }),
+      });
+      const handle = yield* makeCodexVoiceCompanion(client, input).pipe(Effect.mapError(failure));
+      return {
+        start: (sdp, options) => handle.start(sdp, options).pipe(Effect.mapError(failure)),
+        listVoices: handle.listVoices.pipe(Effect.mapError(failure)),
+        context: (text) => handle.context(text).pipe(Effect.mapError(failure)),
+        speak: (text) => handle.speak(text).pipe(Effect.mapError(failure)),
+        events: handle.events.pipe(Stream.mapError(failure)),
+        stop: handle.stop.pipe(Effect.mapError(failure)),
+      };
+    }),
     getCapabilities: Effect.fn("CodexAdapterV2.getCapabilities")(function () {
       return Effect.succeed(CodexProviderCapabilitiesV2);
     }),

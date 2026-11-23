@@ -1,3 +1,5 @@
+import { m } from "../../i18n/messages";
+import { useGT, useMessages } from "gt-react-native";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import {
   createContext,
@@ -14,7 +16,9 @@ import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import * as SecureStore from "expo-secure-store";
-import { Platform, View, Pressable, ScrollView } from "react-native";
+import { Platform, View, ScrollView } from "react-native";
+import { ControllerPressable as Pressable } from "../controller/ControllerPressable";
+import { useControllerRegionId } from "../controller/ControllerRegion";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ComposerToolbarButton } from "../../components/ComposerToolbar";
@@ -79,10 +83,26 @@ export function useVoiceWorkspace() {
   return { ...value, state };
 }
 export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
+  const gt = useGT();
   const [route, setRoute] = useState({ speaker: false, audioRoute: "Phone" });
   const [audioError, setAudioError] = useState<string | null>(null);
   // Dictation and a live call share the microphone; whichever started first keeps it.
   const { session: dictationSession, setLiveCallActive } = useGlobalVoiceInput();
+  const startCompanion = useAtomCommand(realtimeVoiceEnvironment.startCompanion, {
+    reportFailure: false,
+  });
+  const stopCompanion = useAtomCommand(realtimeVoiceEnvironment.stopCompanion, {
+    reportFailure: false,
+  });
+  const selectCompanion = useAtomCommand(realtimeVoiceEnvironment.selectCompanion, {
+    reportFailure: false,
+  });
+  const listCompanion = useAtomCommand(realtimeVoiceEnvironment.listCompanion, {
+    reportFailure: false,
+  });
+  const contextCompanion = useAtomCommand(realtimeVoiceEnvironment.contextCompanion, {
+    reportFailure: false,
+  });
   const start = useAtomCommand(realtimeVoiceEnvironment.startRealtimeVoice, {
     reportFailure: false,
   });
@@ -101,6 +121,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
     () =>
       new VoiceWorkspace({
         createCallId: uuidv4,
+        resolve: m,
         openMedia: (handlers, preferences) => {
           if (voiceInputBlocksSubmission(dictationSession.controller.currentState))
             throw new Error("Finish dictation before starting a voice call.");
@@ -108,12 +129,34 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
         },
         startRemote: async (target, sdp, callId, voice) =>
           unwrap(
-            await start({
-              environmentId: target.environmentId,
-              input: voiceStartInput(target, sdp, callId, voice),
-            }),
+            await (target.companion
+              ? startCompanion({
+                  environmentId: target.environmentId,
+                  input: { threadId: target.threadId, sdp, callId, ...(voice ? { voice } : {}) },
+                })
+              : start({
+                  environmentId: target.environmentId,
+                  input: voiceStartInput(target, sdp, callId, voice),
+                })),
           ).sdp,
-        stopRemote: async (target) => {
+        switchRemote: async (_current, target, callId) => {
+          unwrap(
+            await selectCompanion({
+              environmentId: target.environmentId,
+              input: { threadId: target.threadId, callId },
+            }),
+          );
+        },
+        stopRemote: async (target, callId) => {
+          if (target.companion && callId) {
+            unwrap(
+              await stopCompanion({
+                environmentId: target.environmentId,
+                input: { threadId: target.threadId, callId },
+              }),
+            );
+            return;
+          }
           unwrap(
             await stop({
               environmentId: target.environmentId,
@@ -123,14 +166,14 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
         },
         listVoices: async (target) =>
           unwrap(
-            await list({
+            await (target.companion ? listCompanion : list)({
               environmentId: target.environmentId,
               input: { threadId: target.threadId },
             }),
           ),
         appendContext: async (target, callId, text) => {
           unwrap(
-            await context({
+            await (target.companion ? contextCompanion : context)({
               environmentId: target.environmentId,
               input: { threadId: target.threadId, callId, text },
             }),
@@ -140,7 +183,19 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
           void SecureStore.setItemAsync(preferenceKey, JSON.stringify(preferences)).catch(() => {});
         },
       }),
-    [dictationSession, nativeMedia, start, stop, list, context],
+    [
+      dictationSession,
+      nativeMedia,
+      start,
+      stop,
+      list,
+      context,
+      startCompanion,
+      stopCompanion,
+      selectCompanion,
+      listCompanion,
+      contextCompanion,
+    ],
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores voice preferences from SecureStore on mount
   useEffect(() => {
@@ -215,13 +270,22 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
               .get(shell.environmentId)
               ?.providers.some(
                 (provider) =>
-                  provider.instanceId === shell.providerInstanceId && provider.driver === "codex",
+                  provider.driver === "codex" &&
+                  (configs.get(shell.environmentId)?.environment.capabilities.voiceCompanion ===
+                  true
+                    ? provider.enabled &&
+                      provider.installed &&
+                      provider.auth.status === "authenticated" &&
+                      provider.auth.type === "chatgpt"
+                    : provider.instanceId === shell.providerInstanceId),
               ),
         )
         .map((shell) => ({
           environmentId: shell.environmentId,
           threadId: shell.id,
           title: shell.title,
+          companion:
+            configs.get(shell.environmentId)?.environment.capabilities.voiceCompanion === true,
           enhancedVoice:
             configs.get(shell.environmentId)?.environment.capabilities.realtimeVoiceControls ===
             true,
@@ -231,14 +295,19 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- feeds available thread targets into the voice workspace controller
   useEffect(() => workspace.setTargets(targets), [workspace, targets]);
   const subscription = useAtomValue(
-    state.target &&
+    state.callTarget &&
       workspace.hasVoiceEvents &&
       state.voice.status !== "idle" &&
       state.voice.status !== "error"
-      ? realtimeVoiceEnvironment.realtimeVoiceEvents({
-          environmentId: state.target.environmentId,
-          input: { threadId: state.target.threadId },
-        })
+      ? state.callTarget.companion
+        ? realtimeVoiceEnvironment.companionEvents({
+            environmentId: state.callTarget.environmentId,
+            input: { threadId: state.callTarget.threadId, callId: state.callId },
+          })
+        : realtimeVoiceEnvironment.realtimeVoiceEvents({
+            environmentId: state.callTarget.environmentId,
+            input: { threadId: state.callTarget.threadId },
+          })
       : emptyFeedAtom,
   );
   const feed = Option.getOrElse(AsyncResult.value(subscription), () => emptyVoiceFeed);
@@ -267,19 +336,20 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
           }
           setAudioError(null);
         } catch (error) {
-          setAudioError(error instanceof Error ? error.message : "Could not change audio output.");
+          setAudioError(
+            error instanceof Error ? error.message : gt("Could not change audio output."),
+          );
         }
       },
       volumeUp: () => voiceAudio.volumeUp(),
     }),
-    [route, audioError],
+    [route, audioError, gt],
   );
   const value = useMemo(() => ({ workspace, audio }), [workspace, audio]);
   return (
     <VoiceContext value={value}>
       <View style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>{children}</View>
-        <VoicePanel />
       </View>
     </VoiceContext>
   );
@@ -301,6 +371,7 @@ function VoiceChoiceChip({
       accessibilityLabel={label}
       accessibilityState={{ selected }}
       onPress={onPress}
+      onActivate={onPress}
       className={cn(
         "min-h-10 justify-center rounded-full border px-4 active:opacity-70",
         selected ? "border-primary bg-primary" : "border-border-subtle bg-subtle",
@@ -343,6 +414,7 @@ function VoiceSettingsRow({
       )}
       disabled={disabled}
       onPress={onPress}
+      onActivate={onPress}
     >
       <View className="size-9 items-center justify-center rounded-full bg-subtle">
         <SymbolView name={icon} size={18} tintColorClassName="accent-icon" type="monochrome" />
@@ -413,6 +485,8 @@ function VoiceSection({ title, children }: { title: string; children: ReactNode 
 }
 
 export function VoiceSettings() {
+  const gt = useGT();
+  const messages = useMessages();
   const { workspace, state, audio } = useVoiceWorkspace();
   const enhanced = workspace.supportsVoiceControls();
   const [microphones, setMicrophones] = useState<Array<{ deviceId: string; label: string }>>([]);
@@ -432,7 +506,7 @@ export function VoiceSettings() {
         );
       setDeviceError(null);
     } catch {
-      setDeviceError("Could not list microphones. Check microphone access in system settings.");
+      setDeviceError(gt("Could not list microphones. Check microphone access in system settings."));
     }
   };
   return (
@@ -444,27 +518,27 @@ export function VoiceSettings() {
       ) : null}
       {!enhanced ? (
         <Text className="px-2 text-sm leading-normal text-foreground-muted">
-          {BASIC_VOICE_NOTICE}
+          {messages(BASIC_VOICE_NOTICE)}
         </Text>
       ) : null}
 
-      <VoiceSection title="Voice and microphone">
+      <VoiceSection title={gt("Voice and microphone")}>
         <VoiceSettingsRow
           icon="waveform"
-          label="Refresh voice devices"
-          value={enhanced ? "Voices and microphones" : "Microphones"}
+          label={gt("Refresh voice devices")}
+          value={enhanced ? gt("Voices and microphones") : gt("Microphones")}
           onPress={() => void refresh()}
         />
         {enhanced ? (
           <View className="gap-2 border-t border-border px-4 py-3">
-            <Text className="text-sm font-t3-medium text-foreground">Speaking voice</Text>
+            <Text className="text-sm font-t3-medium text-foreground">{gt("Speaking voice")}</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerClassName="gap-2"
             >
               <VoiceChoiceChip
-                label="Provider default"
+                label={gt("Provider default")}
                 selected={!state.preferences.voice}
                 onPress={() => void workspace.setPreferences({ voice: "" })}
               />
@@ -477,18 +551,20 @@ export function VoiceSettings() {
                 />
               ))}
             </ScrollView>
-            <Text className="text-xs text-foreground-muted">Changes apply to the next call.</Text>
+            <Text className="text-xs text-foreground-muted">
+              {gt("Changes apply to the next call.")}
+            </Text>
           </View>
         ) : null}
         <View className="gap-2 border-t border-border px-4 py-3">
-          <Text className="text-sm font-t3-medium text-foreground">Microphone</Text>
+          <Text className="text-sm font-t3-medium text-foreground">{gt("Microphone")}</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerClassName="gap-2"
           >
             <VoiceChoiceChip
-              label="System default"
+              label={gt("System default")}
               selected={!state.preferences.microphoneId}
               onPress={() => void workspace.setPreferences({ microphoneId: "" })}
             />
@@ -506,10 +582,10 @@ export function VoiceSettings() {
         </View>
       </VoiceSection>
 
-      <VoiceSection title="Call audio">
+      <VoiceSection title={gt("Call audio")}>
         <VoiceSettingsRow
           icon={audio.speaker ? "speaker.wave.2.fill" : "iphone"}
-          label="Audio output"
+          label={gt("Audio output")}
           value={audio.audioRoute}
           onPress={() => void audio.chooseAudioOutput()}
         />
@@ -517,7 +593,7 @@ export function VoiceSettings() {
           <View className="border-t border-border">
             <VoiceSettingsRow
               icon="plus"
-              label="Increase call volume"
+              label={gt("Increase call volume")}
               onPress={() => audio.volumeUp()}
             />
           </View>
@@ -525,18 +601,18 @@ export function VoiceSettings() {
         <View className="border-t border-border">
           <VoiceSwitchRow
             icon="speaker.wave.2.fill"
-            label="Mute speaker"
+            label={gt("Mute speaker")}
             value={state.preferences.outputMuted}
             onValueChange={(outputMuted) => void workspace.setPreferences({ outputMuted })}
           />
         </View>
       </VoiceSection>
 
-      <VoiceSection title="Context">
+      <VoiceSection title={gt("Context")}>
         <VoiceSwitchRow
           icon="eye"
-          label="Share what I’m viewing"
-          subtitle="Files, diffs and questions only"
+          label={gt("Share what I’m viewing")}
+          subtitle={gt("Files, diffs and questions only")}
           disabled={!enhanced}
           value={enhanced && state.preferences.shareContext}
           onValueChange={(shareContext) => void workspace.setPreferences({ shareContext })}
@@ -545,7 +621,15 @@ export function VoiceSettings() {
     </View>
   );
 }
+export function VoiceWorkspacePanel() {
+  const context = useContext(VoiceContext);
+  return context ? <VoicePanel /> : null;
+}
+
 function VoicePanel() {
+  const gt = useGT();
+  const messages = useMessages();
+  const regionId = useControllerRegionId("navigation", "voice-call");
   const { workspace, state } = useVoiceWorkspace();
   const [expanded, setExpanded] = useState(false);
   const insets = useSafeAreaInsets();
@@ -559,7 +643,9 @@ function VoicePanel() {
     return null;
   return (
     <View
-      accessibilityLabel="Live voice"
+      nativeID={regionId}
+      collapsable={false}
+      accessibilityLabel={gt("Live voice")}
       className="mx-3 mb-3 overflow-hidden rounded-[24px] border border-border bg-card shadow-xl shadow-adaptive-black-a10-a25"
       style={{
         marginLeft: Math.max(insets.left, 12),
@@ -570,11 +656,14 @@ function VoicePanel() {
     >
       <View className="min-h-[76px] flex-row items-center gap-3 px-3 py-2.5">
         <Pressable
-          accessibilityLabel={`${expanded ? "Collapse" : "Expand"} live voice controls`}
+          accessibilityLabel={
+            expanded ? gt("Collapse live voice controls") : gt("Expand live voice controls")
+          }
           accessibilityRole="button"
           accessibilityState={{ expanded }}
           className="min-w-0 flex-1 flex-row items-center gap-3 rounded-2xl px-1 py-1 active:bg-subtle"
           onPress={() => setExpanded(!expanded)}
+          onActivate={() => setExpanded(!expanded)}
         >
           <View className="size-10 items-center justify-center rounded-full bg-primary">
             <SymbolView
@@ -588,15 +677,15 @@ function VoicePanel() {
             <View className="flex-row items-center gap-2">
               <View className="size-2 rounded-full bg-success" />
               <Text className="text-xs font-t3-medium uppercase tracking-wide text-foreground-muted">
-                {state.voice.status === "live" ? "Live with Codex" : state.voice.status}
+                {state.voice.status === "live" ? gt("Live with Codex") : state.voice.status}
               </Text>
             </View>
             <Text className="text-base font-t3-bold text-foreground" numberOfLines={1}>
-              {state.target?.title ?? "Live voice"}
+              {state.target?.title ?? gt("Live voice")}
             </Text>
             <Text className="text-xs text-foreground-muted" numberOfLines={1}>
-              Agent {target?.runtime?.status ?? "idle"}
-              {target?.hasPendingUserInput ? " · needs input" : ""}
+              {gt("Agent {status}", { status: target?.runtime?.status ?? "idle" })}
+              {target?.hasPendingUserInput ? gt(" · needs input") : ""}
             </Text>
           </View>
           <SymbolView
@@ -609,14 +698,18 @@ function VoicePanel() {
         {active ? (
           <View className="flex-row items-center gap-1">
             <ComposerToolbarButton
-              accessibilityLabel={state.voice.muted ? "Unmute microphone" : "Mute microphone"}
+              accessibilityLabel={
+                state.voice.muted ? gt("Unmute microphone") : gt("Mute microphone")
+              }
               active={state.voice.muted}
               icon={state.voice.muted ? "mic.slash" : "mic"}
               onPress={() => workspace.toggleMuted()}
               showChevron={false}
             />
             <ComposerToolbarButton
-              accessibilityLabel={state.preferences.outputMuted ? "Unmute speaker" : "Mute speaker"}
+              accessibilityLabel={
+                state.preferences.outputMuted ? gt("Unmute speaker") : gt("Mute speaker")
+              }
               active={state.preferences.outputMuted}
               icon="speaker.wave.2.fill"
               onPress={() =>
@@ -625,7 +718,7 @@ function VoicePanel() {
               showChevron={false}
             />
             <ComposerToolbarButton
-              accessibilityLabel="End voice call"
+              accessibilityLabel={gt("End voice call")}
               icon="phone.down.fill"
               onPress={() => void workspace.stop()}
               showChevron={false}
@@ -634,7 +727,7 @@ function VoicePanel() {
           </View>
         ) : (
           <ComposerToolbarButton
-            accessibilityLabel="Close voice panel"
+            accessibilityLabel={gt("Close voice panel")}
             icon="xmark"
             onPress={() => workspace.dismiss()}
             showChevron={false}
@@ -649,7 +742,7 @@ function VoicePanel() {
       {expanded && (
         <ScrollView className="border-t border-border px-3" showsVerticalScrollIndicator={false}>
           <VoiceSettings />
-          <VoiceSection title="Voice task">
+          <VoiceSection title={gt("Voice task")}>
             <View className="gap-2 px-4 py-3">
               <ScrollView
                 horizontal
@@ -671,8 +764,13 @@ function VoicePanel() {
               {state.view ? (
                 <VoiceSettingsRow
                   icon="arrow.right.circle"
-                  label="Switch to viewed task"
-                  value="Reconnects this call"
+                  label={gt("Switch to viewed task")}
+                  value={
+                    state.target?.companion &&
+                    state.target.environmentId === state.view.environmentId
+                      ? gt("Keeps this call connected")
+                      : gt("Reconnects this call")
+                  }
                   onPress={() => {
                     if (state.view) void workspace.start(state.view);
                   }}
@@ -684,12 +782,12 @@ function VoicePanel() {
           state.feed.partial.user ||
           state.feed.partial.assistant ? (
             <View className="pt-4">
-              <VoiceSection title="Transcript">
+              <VoiceSection title={gt("Transcript")}>
                 <View className="gap-3 px-4 py-3">
                   {state.feed.transcripts.map((entry) => (
                     <View key={entry.id} className="gap-0.5">
                       <Text className="text-xs font-t3-medium uppercase tracking-wide text-foreground-muted">
-                        {entry.role === "user" ? "You" : "Codex"}
+                        {entry.role === "user" ? gt("You") : "Codex"}
                       </Text>
                       <Text className="text-sm leading-normal text-foreground">{entry.text}</Text>
                     </View>
@@ -705,8 +803,8 @@ function VoicePanel() {
           ) : null}
           <Text className="px-2 pb-3 pt-4 text-xs leading-normal text-foreground-muted">
             {workspace.hasVoiceEvents
-              ? "Say ‘end voice call’ or ‘switch voice to [thread title]’. Switching reconnects."
-              : BASIC_VOICE_NOTICE}
+              ? gt("Say ‘end voice call’ or ‘switch voice to [thread title]’.")
+              : messages(BASIC_VOICE_NOTICE)}
           </Text>
         </ScrollView>
       )}

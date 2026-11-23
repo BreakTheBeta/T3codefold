@@ -16,15 +16,13 @@ import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScroll
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useAuth, useUser } from "@clerk/expo";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
-import { Fragment, use, type ComponentProps } from "react";
+import { use, type ComponentProps } from "react";
 import { Platform, View } from "react-native";
 import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
-import { VoiceSettings } from "../voice-input/VoiceWorkspaceProvider";
-import { LocalDictationSettings } from "../voice-input/LocalDictationSettings";
 import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { SettingsRow } from "./components/SettingsRow";
@@ -210,20 +208,11 @@ function SettingsList(props: { readonly connections: readonly SettingsListRow[] 
       >
         {sections.length ? (
           sections.map((section, index) => (
-            <Fragment key={section.title ?? `untitled-${index}`}>
-              <SettingsSection title={section.title}>
-                {section.rows.map(({ id, ...row }) => (
-                  <SettingsRow key={id} {...row} />
-                ))}
-              </SettingsSection>
-              {/* Fold voice sections are inline controls, so they are not part of search. */}
-              {index === 0 && !query.trim() ? (
-                <>
-                  <VoiceSettings />
-                  <LocalDictationSettings />
-                </>
-              ) : null}
-            </Fragment>
+            <SettingsSection key={section.title ?? `untitled-${index}`} title={section.title}>
+              {section.rows.map(({ id, ...row }) => (
+                <SettingsRow key={id} {...row} />
+              ))}
+            </SettingsSection>
           ))
         ) : (
           <EmptyState

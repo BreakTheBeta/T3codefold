@@ -19,6 +19,8 @@ import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import { makeRealtimeVoiceSessionResolver } from "./orchestration-v2/RealtimeVoiceSession.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
+import * as VoiceCompanion from "./provider/VoiceCompanion.ts";
+import * as Context from "effect/Context";
 
 // Handlers register per group: a single handler map for the merged WsRpcGroup exceeds
 // TypeScript's instantiation depth, so ws.ts registers UpstreamWsRpcGroup and this file FoldRpcGroup.
@@ -33,6 +35,7 @@ export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (
   readonly sessionId: AuthSessionId;
 }) {
   const factory = yield* Factory.Factory;
+  const voiceCompanion = yield* VoiceCompanion.VoiceCompanion;
   const fleetBroker = yield* FleetBroker;
   const fleetRouter = yield* FleetRouter;
   const fleetExecutor = yield* FleetExecutor;
@@ -57,6 +60,14 @@ export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (
     );
 
   return FoldRpcGroup.of({
+    [WS_METHODS.voiceCompanionStart]: (request) => voiceCompanion.start(input.sessionId, request),
+    [WS_METHODS.voiceCompanionStop]: (request) => voiceCompanion.stop(input.sessionId, request),
+    [WS_METHODS.voiceCompanionSelect]: (request) => voiceCompanion.select(input.sessionId, request),
+    [WS_METHODS.voiceCompanionContext]: (request) =>
+      voiceCompanion.context(input.sessionId, request),
+    [WS_METHODS.voiceCompanionList]: (request) =>
+      voiceCompanion.list(input.sessionId, request.threadId),
+    [WS_METHODS.voiceCompanionEvents]: (request) => voiceCompanion.events(input.sessionId, request),
     [WS_METHODS.factorySetEnabled]: (input) => factory.setEnabled(input.enabled),
     [WS_METHODS.factorySubscribeBoard]: () => factory.subscribe({ kind: "user" }),
     [WS_METHODS.factoryEnsureCommander]: (input) => factory.ensureCommander(input.modelSelection),
@@ -165,12 +176,15 @@ export const makeFoldWsHandlers = Effect.fn("ws.makeFoldWsHandlers")(function* (
  * taken on one socket must be visible to MCP routing and to the other sockets.
  */
 export const makeFoldWsRpcLayer = Effect.gen(function* () {
+  const companionContext = yield* Layer.build(VoiceCompanion.layer);
+  const voiceCompanion = Context.get(companionContext, VoiceCompanion.VoiceCompanion);
   const factory = yield* Factory.Factory;
   const fleetBroker = yield* FleetBroker;
   const fleetRouter = yield* FleetRouter;
   const fleetExecutor = yield* FleetExecutor;
   return (sessionId: AuthSessionId) =>
     ServerFoldWsRpcGroup.toLayer(makeFoldWsHandlers({ sessionId })).pipe(
+      Layer.provide(Layer.succeed(VoiceCompanion.VoiceCompanion, voiceCompanion)),
       Layer.provide(Layer.succeed(Factory.Factory, factory)),
       Layer.provide(Layer.succeed(FleetBroker, fleetBroker)),
       Layer.provide(Layer.succeed(FleetRouter, fleetRouter)),

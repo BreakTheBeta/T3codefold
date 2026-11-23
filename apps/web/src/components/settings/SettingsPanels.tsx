@@ -2,7 +2,6 @@ import { GamingHudSettings } from "./GamingHudSettings";
 import {
   CiteSelectionSettingsRow,
   FOLD_SETTINGS_DEFAULTS,
-  LiveVoiceSettingsSection,
   getFoldChangedSettingLabels,
   VimKeyboardSettingsRows,
 } from "./FoldSettingsRows";
@@ -1166,7 +1165,6 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
-      <LiveVoiceSettingsSection />
     </SettingsPageContainer>
   );
 }

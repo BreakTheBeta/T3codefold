@@ -27,6 +27,9 @@ import { SettingsScopeProvider } from "./SettingsScopeContext";
 import { SpeechLanguageSelect } from "./SpeechLanguageSelect";
 import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
 
+// Transcription fixtures do not mount the independent live-call workspace.
+vi.mock("./FoldSettingsRows", () => ({ LiveVoiceSettingsSection: () => null }));
+
 vi.mock(import("../../speech/useEnvironmentSpeechInput"), { spy: true });
 vi.mock(import("../../state/session"), { spy: true });
 

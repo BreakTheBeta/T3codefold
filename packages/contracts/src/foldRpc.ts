@@ -40,6 +40,8 @@ import {
   ProviderRealtimeVoiceStartInput,
   ProviderRealtimeVoiceStartResult,
   ProviderRealtimeVoiceStopInput,
+  VoiceCompanionCallInput,
+  VoiceCompanionStartInput,
 } from "./realtimeVoice.ts";
 
 export const FOLD_WS_METHODS = {
@@ -70,6 +72,12 @@ export const FOLD_WS_METHODS = {
   providerRealtimeVoiceList: "provider.realtimeVoice.list",
   providerRealtimeVoiceContext: "provider.realtimeVoice.context",
   providerRealtimeVoiceEvents: "provider.realtimeVoice.events",
+  voiceCompanionStart: "voice.companion.start",
+  voiceCompanionStop: "voice.companion.stop",
+  voiceCompanionSelect: "voice.companion.select",
+  voiceCompanionContext: "voice.companion.context",
+  voiceCompanionList: "voice.companion.list",
+  voiceCompanionEvents: "voice.companion.events",
 } as const;
 
 const FleetRpcError = Schema.Union([OrchestratorMcpFailure, EnvironmentAuthorizationError]);
@@ -198,6 +206,34 @@ const factoryCancelLaneJobRpc = Rpc.make(FOLD_WS_METHODS.factoryCancelLaneJob, {
 });
 
 export const FoldRpcGroup = RpcGroup.make(
+  Rpc.make(FOLD_WS_METHODS.voiceCompanionStart, {
+    payload: VoiceCompanionStartInput,
+    success: ProviderRealtimeVoiceStartResult,
+    error: RealtimeVoiceRpcError,
+  }),
+  Rpc.make(FOLD_WS_METHODS.voiceCompanionStop, {
+    payload: VoiceCompanionCallInput,
+    error: RealtimeVoiceRpcError,
+  }),
+  Rpc.make(FOLD_WS_METHODS.voiceCompanionSelect, {
+    payload: VoiceCompanionCallInput,
+    error: RealtimeVoiceRpcError,
+  }),
+  Rpc.make(FOLD_WS_METHODS.voiceCompanionContext, {
+    payload: ProviderRealtimeVoiceContextInput,
+    error: RealtimeVoiceRpcError,
+  }),
+  Rpc.make(FOLD_WS_METHODS.voiceCompanionList, {
+    payload: ProviderRealtimeVoiceStopInput,
+    success: ProviderRealtimeVoiceListResult,
+    error: RealtimeVoiceRpcError,
+  }),
+  Rpc.make(FOLD_WS_METHODS.voiceCompanionEvents, {
+    payload: VoiceCompanionCallInput,
+    success: ProviderRealtimeVoiceEvent,
+    stream: true,
+    error: RealtimeVoiceRpcError,
+  }),
   factorySubscribeBoardRpc,
   factorySetEnabledRpc,
   factoryEnsureCommanderRpc,

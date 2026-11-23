@@ -1,4 +1,5 @@
 import { ControllerConsole } from "../controller/ControllerConsole";
+import { VoiceWorkspacePanel } from "../voice-input/VoiceWorkspaceProvider";
 import { requestAndroidBack } from "../../native/controllerBack";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { msg, useMessages } from "gt-react-native";
@@ -234,6 +235,7 @@ export function HardwareKeyboardCommandProvider({
           onCommand={onCommand}
         >
           {children}
+          <VoiceWorkspacePanel />
         </ControllerConsole>
       </T3KeyboardCommands>
       <GitActionProgressOverlay progress={copyFeedback} onDismiss={dismissCopyFeedback} />
