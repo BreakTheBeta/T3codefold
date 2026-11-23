@@ -4,6 +4,10 @@ import * as CodexClient from "effect-codex-app-server/client";
 import * as Replay from "effect-codex-app-server/replay";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
+import * as Stream from "effect/Stream";
+import * as CodexError from "effect-codex-app-server/errors";
 import { makeCodexVoiceCompanion } from "./codexVoiceCompanion.ts";
 
 it.effect(
@@ -65,6 +69,7 @@ it.effect(
                 threadId: "voice-native",
                 outputModality: "audio",
                 version: "v3",
+                prompt: instructions,
                 transport: { type: "webrtc", sdp: "offer" },
                 initialItems: [{ role: "developer", text: instructions }],
               },
@@ -98,7 +103,9 @@ it.effect(
         };
         yield* Effect.scoped(
           Effect.gen(function* () {
-            const client = yield* CodexClient.CodexAppServerClient;
+            const native = yield* CodexClient.CodexAppServerClient;
+            const termination = yield* Deferred.make<never, CodexError.CodexAppServerError>();
+            const client = { ...native, awaitTermination: Deferred.await(termination) };
             const handle = yield* makeCodexVoiceCompanion(client, {
               threadId: ThreadId.make("claude-work"),
               providerSessionId: ProviderSessionId.make("call-provider"),
@@ -110,8 +117,49 @@ it.effect(
             });
             expect(yield* handle.start("offer", { callId: "call" })).toBe("answer");
             expect(yield* Deferred.await(called)).toEqual({ name: "t3_read_thread", args: {} });
+            const ended = yield* handle.events.pipe(
+              Stream.runDrain,
+              Effect.exit,
+              Effect.forkScoped,
+            );
+            yield* Deferred.fail(
+              termination,
+              new CodexError.CodexAppServerTransportError({
+                operation: "read-process-exit-status",
+                cause: "process exited",
+              }),
+            );
+            expect((yield* Fiber.join(ended))._tag).toBe("Failure");
           }),
         ).pipe(Effect.provide(Replay.layerReplay(transcript)));
       }),
     ),
+);
+
+it.effect("bounds a silent native startup instead of holding the call open", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const client = {
+        raw: {
+          request: () => Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
+        },
+        awaitTermination: Effect.never,
+      } as unknown as CodexClient.CodexAppServerClient["Service"];
+      const opening = yield* makeCodexVoiceCompanion(client, {
+        threadId: ThreadId.make("work"),
+        providerSessionId: ProviderSessionId.make("call"),
+        cwd: "/workspace",
+        instructions: "Use T3",
+        tools: [],
+        invoke: () => Effect.succeed(""),
+      }).pipe(Effect.flip, Effect.forkScoped);
+      yield* Deferred.await(started);
+      yield* TestClock.adjust("30 seconds");
+      expect(yield* Fiber.join(opening)).toMatchObject({
+        _tag: "CodexVoiceRequestTimeoutError",
+        method: "initialize",
+      });
+    }),
+  ),
 );

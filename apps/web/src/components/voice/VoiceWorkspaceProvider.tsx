@@ -17,7 +17,6 @@ import {
   type ReactNode,
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import { Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import {
   VoiceWorkspace,
@@ -213,6 +212,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
     }));
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the imperative voice workspace target registry in step with connected threads and providers
   useEffect(() => workspace.setTargets(targets), [workspace, targets]);
+  const subscriptionCallId = state.callId;
   const subscription = useAtomValue(
     state.callTarget &&
       workspace.hasVoiceEvents &&
@@ -221,7 +221,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
       ? state.callTarget.companion
         ? realtimeVoiceEnvironment.companionEvents({
             environmentId: state.callTarget.environmentId,
-            input: { threadId: state.callTarget.threadId, callId: state.callId },
+            input: { threadId: state.callTarget.threadId, callId: subscriptionCallId },
           })
         : realtimeVoiceEnvironment.realtimeVoiceEvents({
             environmentId: state.callTarget.environmentId,
@@ -229,9 +229,14 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
           })
       : emptyFeedAtom,
   );
-  const feed = Option.getOrElse(AsyncResult.value(subscription), () => emptyVoiceFeed);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- delivers subscribed call events to the imperative voice workspace
-  useEffect(() => workspace.receiveFeed(feed), [workspace, feed]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- delivers subscribed call events and failures to the imperative voice workspace
+  useEffect(() => {
+    if (AsyncResult.isFailure(subscription)) {
+      void workspace.receiveSubscriptionFailure(subscriptionCallId);
+    } else if (AsyncResult.isSuccess(subscription)) {
+      workspace.receiveFeed(subscription.value);
+    }
+  }, [workspace, subscription, subscriptionCallId]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- releases the active media connection when the workspace provider unmounts
   useEffect(
     () => () => {

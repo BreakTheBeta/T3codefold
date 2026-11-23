@@ -13,7 +13,6 @@ import {
   type ReactNode,
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import { Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import * as SecureStore from "expo-secure-store";
 import { Platform, View, ScrollView } from "react-native";
@@ -294,6 +293,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- feeds available thread targets into the voice workspace controller
   useEffect(() => workspace.setTargets(targets), [workspace, targets]);
+  const subscriptionCallId = state.callId;
   const subscription = useAtomValue(
     state.callTarget &&
       workspace.hasVoiceEvents &&
@@ -302,7 +302,7 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
       ? state.callTarget.companion
         ? realtimeVoiceEnvironment.companionEvents({
             environmentId: state.callTarget.environmentId,
-            input: { threadId: state.callTarget.threadId, callId: state.callId },
+            input: { threadId: state.callTarget.threadId, callId: subscriptionCallId },
           })
         : realtimeVoiceEnvironment.realtimeVoiceEvents({
             environmentId: state.callTarget.environmentId,
@@ -310,9 +310,14 @@ export function VoiceWorkspaceProvider({ children }: { children: ReactNode }) {
           })
       : emptyFeedAtom,
   );
-  const feed = Option.getOrElse(AsyncResult.value(subscription), () => emptyVoiceFeed);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- forwards the server voice event feed into the voice workspace controller
-  useEffect(() => workspace.receiveFeed(feed), [workspace, feed]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- forwards server voice events and failures into the voice workspace controller
+  useEffect(() => {
+    if (AsyncResult.isFailure(subscription)) {
+      void workspace.receiveSubscriptionFailure(subscriptionCallId);
+    } else if (AsyncResult.isSuccess(subscription)) {
+      workspace.receiveFeed(subscription.value);
+    }
+  }, [workspace, subscription, subscriptionCallId]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops the live voice call when the provider unmounts
   useEffect(
     () => () => {

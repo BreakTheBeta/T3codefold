@@ -151,6 +151,9 @@ describe("check:changed", () => {
         ".github/scripts/ci-changes.test.cjs",
         ".github\\scripts\\thread-transfer-report.test.cjs",
         "scripts/check-changed.test.ts",
+        ".repos/effect/packages/effect/test/Effect.test.ts",
+        ".repos/other-library/src/index.test.ts",
+        ".repos\\effect\\packages\\effect\\test\\Stream.test.ts",
       ]),
       {
         vitestTests: ["apps/server/src/ws.test.ts", "scripts/check-changed.test.ts"],

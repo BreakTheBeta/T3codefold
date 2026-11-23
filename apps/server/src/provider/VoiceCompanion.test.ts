@@ -17,6 +17,7 @@ import {
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import type { VoiceCompanionInput } from "@t3tools/provider-core/server/ProviderAdapterRealtimeVoice";
 import * as Queue from "effect/Queue";
+import * as Fiber from "effect/Fiber";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -221,7 +222,16 @@ it.effect(
           expect(target[0]?.threadId).toBe(second);
           yield* service.stop(stranger, { threadId: first, callId: "call" });
           expect(closed).toEqual([]);
+          const subscribed = yield* Deferred.make<void>();
+          const ended = yield* service.events(owner, { threadId: second, callId: "call" }).pipe(
+            Stream.tap(() => Deferred.succeed(subscribed, undefined)),
+            Stream.filter((event) => event.type === "closed"),
+            Stream.runCollect,
+            Effect.forkScoped,
+          );
+          yield* Deferred.await(subscribed);
           yield* service.stop(owner, { threadId: second, callId: "call" });
+          expect((yield* Fiber.join(ended)).at(-1)?.type).toBe("closed");
           expect(closed).toEqual([first]);
           expect(
             decode(yield* native.invoke("late", "t3_send_message", { message: "late" })).error,

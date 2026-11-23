@@ -342,6 +342,15 @@ export class VoiceWorkspace {
     }
     await this.start(candidates[0]);
   }
+  async receiveSubscriptionFailure(callId: string) {
+    if (!callId || callId !== this.state.callId) return;
+    const stopped = this.stop();
+    this.update({
+      feed: emptyVoiceFeed,
+      notice: this.resolve(msg("The voice connection was lost. Reconnect to continue.")),
+    });
+    await stopped;
+  }
   receiveFeed(feed: VoiceFeed) {
     if (
       !this.hasVoiceEvents ||

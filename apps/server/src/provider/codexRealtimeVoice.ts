@@ -18,15 +18,22 @@ function buildCodexRealtimeStartParams(
   threadId: string,
   sdp: string,
   options?: RealtimeVoiceOptions,
-  instructions = CODEX_VOICE_CLIENT_INSTRUCTIONS,
+  instructions?: string,
 ) {
   return {
     threadId,
     outputModality: "audio",
     version: "v3",
+    ...(instructions ? { prompt: instructions } : {}),
     transport: { type: "webrtc", sdp },
     ...(options?.voice ? { voice: options.voice } : {}),
-    ...(options?.callId ? { initialItems: [{ role: "developer", text: instructions }] } : {}),
+    ...(options?.callId
+      ? {
+          initialItems: [
+            { role: "developer", text: instructions ?? CODEX_VOICE_CLIENT_INSTRUCTIONS },
+          ],
+        }
+      : {}),
   } as const;
 }
 

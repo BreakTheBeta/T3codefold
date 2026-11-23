@@ -3,6 +3,7 @@ import { useControllerRegionId } from "../../controller/ControllerRegion";
 import { WorkspaceNoTabs } from "./WorkspaceNoTabs";
 import { useEnabledNavigationTabs } from "./navigation-tabs";
 import { NAVIGATION_TAB_ORDER } from "./navigation-tab-order";
+import { workspaceUsesColumns } from "./workspace-tabs-state";
 import { useNavigationState } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAndroidControlSizing } from "../../../components/ui/useAndroidControlSizing";
@@ -34,9 +35,10 @@ export function AndroidWorkspaceSidebar() {
   const { openWorkspaceTab, revealPrimarySidebar, startNewTask } = useAdaptiveWorkspaceLayout();
   const selectedPullRequest = useNavigationState(selectedPullRequestKey);
   const selectedIssue = useNavigationState(selectedIssueKey);
-  // Settings and Usage cover the sidebar.
+  // Settings and the one-page tabs cover the sidebar.
   const coveredByPage =
-    (useAndroidWorkspaceRoot()?.settingsOpen ?? false) || workspace.state.selectedTab === "usage";
+    (useAndroidWorkspaceRoot()?.settingsOpen ?? false) ||
+    !workspaceUsesColumns(workspace.state.selectedTab);
   // Fold's split sidebar keeps the New thread FAB instead of upstream's floating tabs.
   const context = {
     ...workspace,
@@ -66,7 +68,7 @@ export function AndroidWorkspaceSidebar() {
           renderTab={(tab) =>
             tab === "threads" ? (
               <WorkspaceThreadSidebar />
-            ) : tab === "usage" ? (
+            ) : tab === "usage" || tab === "workflows" ? (
               <View className="flex-1 bg-screen" />
             ) : tab === "issues" ? (
               <WorkspaceTabsContext value={context}>

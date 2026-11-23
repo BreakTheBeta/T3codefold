@@ -57,6 +57,26 @@ describe("voice workspace", () => {
     expect(f.deps.startRemote).toHaveBeenCalledTimes(1);
     expect(f.media.close).not.toHaveBeenCalled();
     expect(switchRemote).toHaveBeenCalledWith(origin, destination, callId);
+    f.workspace.receiveFeed(
+      reduceVoiceFeed(emptyVoiceFeed, {
+        callId,
+        sequence: 1,
+        type: "transcript",
+        role: "assistant",
+        text: "Still connected",
+        final: true,
+      }),
+    );
+    await f.workspace.receiveSubscriptionFailure(callId);
+    expect(f.workspace.getSnapshot()).toMatchObject({
+      callId: "",
+      callTarget: null,
+      voice: { status: "idle" },
+      feed: emptyVoiceFeed,
+      notice: "The voice connection was lost. Reconnect to continue.",
+    });
+    expect(f.media.close).toHaveBeenCalledTimes(1);
+    expect(f.deps.stopRemote).toHaveBeenCalledWith(origin, callId);
   });
   it("sends the original start payload to hosts missing the capability", () => {
     const { enhancedVoice: _, ...old } = first;
@@ -152,6 +172,14 @@ describe("voice workspace", () => {
       reduceVoiceFeed(emptyVoiceFeed, { callId: "call-1", sequence: 10, type: "closed" }),
     );
     expect(f.workspace.getSnapshot().voice.status).toBe("live");
+    const closedBeforeFailure = vi.mocked(f.media.close).mock.calls.length;
+    await f.workspace.receiveSubscriptionFailure("call-1");
+    expect(f.workspace.getSnapshot()).toMatchObject({
+      callId: "call-2",
+      voice: { status: "live" },
+      notice: null,
+    });
+    expect(f.media.close).toHaveBeenCalledTimes(closedBeforeFailure);
   });
   it("ignores the old call closing while a task transfer is waiting for cleanup", async () => {
     const f = fixture();
