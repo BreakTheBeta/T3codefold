@@ -10,6 +10,9 @@ import { useEnvironmentScope, usePreparedConnection } from "../../state/session"
 import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
 import { SettingsScopeProvider } from "./SettingsScopeContext";
 
+// These transcription fixtures do not mount the independent live-call workspace.
+vi.mock("./FoldSettingsRows", () => ({ LiveVoiceSettingsSection: () => null }));
+
 vi.mock(import("../../state/session"), { spy: true });
 vi.mock("../../env", async (original) => ({
   ...(await original<typeof import("../../env")>()),
