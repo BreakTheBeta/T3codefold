@@ -1,5 +1,7 @@
 import {
   EnvironmentId,
+  ThreadId,
+  type ProviderRealtimeVoiceEvent,
   type RelayClientInstallProgressEvent,
   type ServerConfig,
   type ServerLifecycleStreamEvent,
@@ -11,6 +13,7 @@ import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -29,7 +32,13 @@ import {
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as RpcSession from "../rpc/session.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
-import { runStream, subscribe, subscribeDynamicWithSession, refreshVcsBranch } from "./client.ts";
+import {
+  runStream,
+  subscribe,
+  subscribeDynamicWithSession,
+  subscribeCompanionVoiceEvents,
+  refreshVcsBranch,
+} from "./client.ts";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -618,4 +627,88 @@ it.effect("binds branch capability selection and execution to one session", () =
     expect(yield* Fiber.join(refresh)).toBeUndefined();
     yield* Deferred.await(executed);
   }),
+);
+
+const COMPANION_INPUT = { threadId: ThreadId.make("work"), callId: "original-call" };
+const COMPANION_STARTED: ProviderRealtimeVoiceEvent = {
+  callId: COMPANION_INPUT.callId,
+  sequence: 1,
+  type: "started",
+};
+const COMPANION_TRANSCRIPT: ProviderRealtimeVoiceEvent = {
+  callId: COMPANION_INPUT.callId,
+  sequence: 2,
+  type: "transcript",
+  role: "assistant",
+  text: "Old call must not resume",
+  final: true,
+};
+
+function companionVoiceSession(events: Stream.Stream<ProviderRealtimeVoiceEvent>) {
+  return session({
+    [WS_METHODS.voiceCompanionEvents]: () => events,
+  } as unknown as WsRpcProtocolClient);
+}
+
+it.effect.each(["disconnect", "replacement"] as const)(
+  "ends the owning companion stream on RPC session %s instead of resuming the old call",
+  (transition) =>
+    Effect.gen(function* () {
+      const { activeSession: session, supervisor } = yield* makeHarness();
+      const received = yield* Queue.make<ProviderRealtimeVoiceEvent>();
+      const first = companionVoiceSession(
+        Stream.make(COMPANION_STARTED).pipe(Stream.concat(Stream.never)),
+      );
+      const replacement = companionVoiceSession(
+        Stream.make(COMPANION_TRANSCRIPT).pipe(Stream.concat(Stream.never)),
+      );
+      const result = yield* subscribeCompanionVoiceEvents(COMPANION_INPUT).pipe(
+        Stream.tap((event) => Queue.offer(received, event)),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.exit,
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+      yield* SubscriptionRef.set(session, Option.some(first));
+      expect(yield* Queue.take(received)).toEqual(COMPANION_STARTED);
+      if (transition === "disconnect") {
+        yield* SubscriptionRef.set(session, Option.none());
+      } else {
+        yield* SubscriptionRef.set(session, Option.some(replacement));
+      }
+      const exit = yield* Fiber.join(result);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.squash(exit.cause)).toMatchObject({
+          _tag: "VoiceCallSessionLostError",
+          callId: COMPANION_INPUT.callId,
+        });
+      }
+    }),
+);
+
+it.effect(
+  "waits through initial absence and keeps the first session on repeated notifications",
+  () =>
+    Effect.gen(function* () {
+      const { activeSession: session, supervisor } = yield* makeHarness();
+      const received = yield* Queue.make<ProviderRealtimeVoiceEvent>();
+      const events = yield* Queue.make<ProviderRealtimeVoiceEvent>();
+      const first = companionVoiceSession(Stream.fromQueue(events));
+      const result = yield* subscribeCompanionVoiceEvents(COMPANION_INPUT).pipe(
+        Stream.tap((event) => Queue.offer(received, event)),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+      yield* SubscriptionRef.set(session, Option.none());
+      yield* SubscriptionRef.set(session, Option.some(first));
+      yield* Queue.offer(events, COMPANION_STARTED);
+      expect(yield* Queue.take(received)).toEqual(COMPANION_STARTED);
+      yield* SubscriptionRef.set(session, Option.some(first));
+      yield* Queue.offer(events, COMPANION_TRANSCRIPT);
+      expect(yield* Fiber.join(result)).toEqual([COMPANION_STARTED, COMPANION_TRANSCRIPT]);
+    }),
 );

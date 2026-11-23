@@ -483,6 +483,44 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
   );
 }
 
+class VoiceCallSessionLostError extends Schema.TaggedError<VoiceCallSessionLostError>()(
+  "VoiceCallSessionLostError",
+  { callId: Schema.String },
+) {}
+
+export function subscribeCompanionVoiceEvents(
+  input: EnvironmentRpcInput<typeof WS_METHODS.voiceCompanionEvents>,
+) {
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+      let owner: RpcSession | undefined;
+      return SubscriptionRef.changes(supervisor.session).pipe(
+        Stream.flatMap(
+          (
+            session,
+          ): Stream.Stream<
+            EnvironmentRpcStreamValue<typeof WS_METHODS.voiceCompanionEvents>,
+            | EnvironmentRpcStreamFailure<typeof WS_METHODS.voiceCompanionEvents>
+            | VoiceCallSessionLostError
+          > => {
+            if (owner !== undefined) {
+              return Option.isNone(session) || session.value !== owner
+                ? Stream.fail(new VoiceCallSessionLostError({ callId: input.callId }))
+                : Stream.empty;
+            }
+            if (Option.isNone(session)) return Stream.empty;
+            owner = session.value;
+            // A voice call belongs to this socket session; durable RPC retry cannot restore it.
+            return owner.client[WS_METHODS.voiceCompanionEvents](input);
+          },
+          { concurrency: "unbounded" },
+        ),
+      );
+    }),
+  );
+}
+
 export function subscribeDynamic<TTag extends EnvironmentSubscriptionRpcTag>(
   tag: TTag,
   makeInput: (session: RpcSession) => Effect.Effect<EnvironmentRpcInput<TTag>>,

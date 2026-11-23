@@ -129,9 +129,8 @@ export class VoiceWorkspace {
   }
   get hasVoiceEvents() {
     return (
-      this.state.target?.enhancedVoice === true &&
-      this.supportsVoiceControls(this.state.target) &&
-      (!this.state.target.companion || this.state.voice.status === "live")
+      this.state.callTarget?.enhancedVoice === true &&
+      (!this.state.callTarget.companion || this.state.voice.status === "live")
     );
   }
   setTargets(targets: readonly VoiceTarget[]) {

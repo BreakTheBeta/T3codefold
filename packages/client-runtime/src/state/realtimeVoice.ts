@@ -8,7 +8,11 @@ import * as Stream from "effect/Stream";
 
 import type * as EnvironmentRegistry from "../connection/registry.ts";
 import { emptyVoiceFeed, reduceVoiceFeed } from "../realtime-voice/feed.ts";
-import { subscribe, type EnvironmentRpcInput } from "../rpc/client.ts";
+import {
+  subscribe,
+  subscribeCompanionVoiceEvents,
+  type EnvironmentRpcInput,
+} from "../rpc/client.ts";
 import { createEnvironmentRpcCommand, createEnvironmentSubscriptionAtomFamily } from "./runtime.ts";
 
 export function createRealtimeVoiceEnvironmentAtoms<R, E>(
@@ -39,7 +43,7 @@ export function createRealtimeVoiceEnvironmentAtoms<R, E>(
       label: "voice:companion:events",
       idleTtlMs: 0,
       subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.voiceCompanionEvents>) =>
-        subscribe(WS_METHODS.voiceCompanionEvents, input).pipe(
+        subscribeCompanionVoiceEvents(input).pipe(
           Stream.scan(() => emptyVoiceFeed, reduceVoiceFeed),
           Stream.groupedWithin(32, "100 millis"),
           Stream.map((feeds) => feeds.at(-1) ?? emptyVoiceFeed),

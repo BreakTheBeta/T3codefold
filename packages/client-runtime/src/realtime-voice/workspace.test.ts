@@ -57,6 +57,9 @@ describe("voice workspace", () => {
     expect(f.deps.startRemote).toHaveBeenCalledTimes(1);
     expect(f.media.close).not.toHaveBeenCalled();
     expect(switchRemote).toHaveBeenCalledWith(origin, destination, callId);
+    f.workspace.setTargets([]);
+    expect(f.workspace.supportsVoiceControls(origin)).toBe(false);
+    expect(f.workspace.hasVoiceEvents).toBe(true);
     f.workspace.receiveFeed(
       reduceVoiceFeed(emptyVoiceFeed, {
         callId,
@@ -77,6 +80,7 @@ describe("voice workspace", () => {
     });
     expect(f.media.close).toHaveBeenCalledTimes(1);
     expect(f.deps.stopRemote).toHaveBeenCalledWith(origin, callId);
+    expect(f.workspace.hasVoiceEvents).toBe(false);
   });
   it("sends the original start payload to hosts missing the capability", () => {
     const { enhancedVoice: _, ...old } = first;
